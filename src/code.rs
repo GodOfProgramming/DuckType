@@ -1071,7 +1071,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     if let Some(ctx) = &mut self.current_fn {
       ctx
     } else {
-      &mut self.ctx
+      self.ctx
     }
   }
 
@@ -1351,12 +1351,8 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         }
       }
 
-      let name = if let Some(token) = self.previous() {
-        if let Token::Identifier(name) = token {
-          name
-        } else {
-          panic!("unable to retrieve identifier, should not happen");
-        }
+      let name = if let Some(Token::Identifier(name)) = self.previous() {
+        name
       } else {
         panic!("unable to retrieve identifier, should not happen");
       };

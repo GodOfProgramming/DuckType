@@ -3,6 +3,7 @@ use crate::{
   New,
 };
 use std::{
+  any::Any,
   cell::RefCell,
   cmp::{Ordering, PartialEq, PartialOrd},
   collections::BTreeMap,
@@ -38,12 +39,7 @@ impl Error {
   }
 
   pub fn format_with_src_line(&mut self, src: String) {
-    self.msg = format!(
-      "{}\n{}\n{}",
-      self.msg,
-      src,
-      format!("{}^", " ".repeat(self.column - 1))
-    );
+    self.msg = format!("{}\n{}\n{}^", self.msg, src, " ".repeat(self.column - 1));
   }
 }
 
@@ -377,7 +373,7 @@ impl PartialOrd for Value {
         _ => None,
       },
       Self::Str(a) => match other {
-        Self::Str(b) => Some(a.cmp(&b)),
+        Self::Str(b) => Some(a.cmp(b)),
         _ => None,
       },
       _ => None,
