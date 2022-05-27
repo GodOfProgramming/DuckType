@@ -2175,6 +2175,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       true
     } else if let Some(local) = self.locals.last_mut() {
       local.initialized = true;
+      self.emit(self.index - 1, OpCode::AssignLocal(global));
       true
     } else {
       self.error(self.index, String::from("could not define variable"));
