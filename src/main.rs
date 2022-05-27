@@ -1,4 +1,4 @@
-use simple_script::{Runner, Vpu};
+use simple_script::{NativeFn, Runner, Value, Vpu};
 use std::{env, fs, path::Path, process};
 
 const DISASSEMBLE_FLAG: &str = "--disassemble";
@@ -26,6 +26,8 @@ fn main() {
     if !run_file(runner, file) {
       exit_code = 1;
     }
+  } else {
+    run_cli(runner)
   }
 
   process::exit(exit_code);
@@ -36,13 +38,22 @@ fn run_file(runner: Runner<Vpu>, file: String) -> bool {
   if p.exists() {
     match fs::read_to_string(p) {
       Ok(contents) => match runner.load(file, &contents) {
-        Ok(mut ctx) => match runner.run(&mut ctx) {
-          Ok(v) => println!("{}", v),
-          Err(err) => {
-            println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
-            return false;
+        Ok(mut ctx) => {
+          ctx.assign_global(
+            String::from("test"),
+            Value::NativeFunction(|_args| {
+              println!("test");
+              Ok(Value::Nil)
+            }),
+          );
+          match runner.run(&mut ctx) {
+            Ok(v) => println!("{}", v),
+            Err(err) => {
+              println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
+              return false;
+            }
           }
-        },
+        }
         Err(errs) => {
           println!("Errors detected when compiling! ({})", errs.len());
           for err in errs {
@@ -62,4 +73,8 @@ fn run_file(runner: Runner<Vpu>, file: String) -> bool {
   }
 
   true
+}
+
+fn run_cli(runner: Runner<Vpu>) {
+  let quit = false;
 }

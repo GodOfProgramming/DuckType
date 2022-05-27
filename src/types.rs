@@ -389,8 +389,8 @@ impl Display for Value {
       Self::Num(n) => write!(f, "{}", n),
       Self::Str(s) => write!(f, "{}", s),
       Self::List(l) => write!(f, "{}", l),
-      Self::Function(_) => write!(f, "<function>"),
-      Self::NativeFunction(_) => write!(f, "<native function>"),
+      Self::Function(func) => write!(f, "<function {}>", func.name),
+      Self::NativeFunction(func) => write!(f, "<function @{:p}>", func),
     }
   }
 }
@@ -487,6 +487,7 @@ pub trait Call {
 
 #[derive(Clone)]
 pub struct Function {
+  name: String,
   airity: usize,
 
   // TODO refactor this to not be a RefCell
@@ -494,8 +495,9 @@ pub struct Function {
 }
 
 impl Function {
-  pub fn new(airity: usize, ctx: Context) -> Self {
+  pub fn new(name: String, airity: usize, ctx: Context) -> Self {
     Self {
+      name,
       airity,
       ctx: Rc::new(RefCell::new(ctx)),
     }

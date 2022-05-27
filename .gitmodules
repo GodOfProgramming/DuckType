@@ -1,0 +1,3 @@
+[submodule "src/ptr"]
+	path = src/ptr
+	url = git@github.com:GodOfProgramming/ptr

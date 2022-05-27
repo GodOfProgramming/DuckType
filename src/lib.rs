@@ -1,5 +1,6 @@
 mod code;
-mod types;
+mod ptr;
+pub mod types;
 
 #[cfg(test)]
 mod test;
@@ -9,7 +10,8 @@ use std::{
   fmt::{Debug, Display},
   iter::FromIterator,
 };
-use types::{Error, Interpreter, Value};
+use types::{Error, Interpreter};
+pub use types::{NativeFn, Value};
 
 pub trait New<T> {
   fn new(item: T) -> Self;

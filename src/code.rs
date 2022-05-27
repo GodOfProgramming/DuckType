@@ -267,16 +267,16 @@ impl Reflection {
 
   fn get(&self, offset: usize) -> Option<OpCodeReflection> {
     if let Some(info) = self.opcode_info.get(offset).cloned() {
-      if let Some(src) = self.source.lines().nth(info.line - 1) {
-        Some(OpCodeReflection {
+      self
+        .source
+        .lines()
+        .nth(info.line - 1)
+        .map(|src| OpCodeReflection {
           file: Rc::clone(&self.file),
           source_line: String::from(src),
           line: info.line,
           column: info.column,
         })
-      } else {
-        None
-      }
     } else {
       None
     }
@@ -1357,7 +1357,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         panic!("unable to retrieve identifier, should not happen");
       };
 
-      self.wrap_fn(self.index - 1, |this| {
+      self.wrap_fn(name.clone(), self.index - 1, |this| {
         let mut airity = 0;
         if !this.consume(
           Token::LeftParen,
@@ -1730,7 +1730,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     res && break_res
   }
 
-  fn wrap_fn<F: FnOnce(&mut Parser) -> Option<usize>>(&mut self, index: usize, f: F) {
+  fn wrap_fn<F: FnOnce(&mut Parser) -> Option<usize>>(&mut self, name: String, index: usize, f: F) {
     self.function_id += 1;
 
     let func = self.current_fn.take();
@@ -1753,7 +1753,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       this.locals = locals;
 
       if let Some(airity) = airity {
-        this.emit_const(index, Value::Function(Function::new(airity, ctx)))
+        this.emit_const(index, Value::Function(Function::new(name, airity, ctx)))
       }
       true
     });
