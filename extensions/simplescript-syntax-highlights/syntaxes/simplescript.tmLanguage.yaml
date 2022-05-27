@@ -4,12 +4,15 @@ name: "SimpleScript"
 env:
   IDENT: "[A-Za-z_]\\w*"
   DIGIT: "[0-9]+(?:.[0-9]+)?"
+  INTERPOLATED: "\\${\\s*.*\\s*}"
+  REG: "\\/.*\\/"
 patterns:
   - include: "#comments"
-  - include: "#keywords"
-  - include: "#function"
-  - include: "#ident"
   - include: "#strings"
+  - include: "#keywords"
+  - include: "#support"
+  - include: "#meta"
+  - include: "#ident"
   - include: "#digits"
 repository:
   keywords:
@@ -17,27 +20,59 @@ repository:
       - name: "keyword.control"
         match: "\\b(break|cont|else|end|for|if|loop|match|ret|while)\\b"
       - name: "keyword.operator"
-        match: "\\b(and|or)\\b"
+        match: "\\b(and|or)\\b|\\+|\\-|\\/|\\*"
       - name: "keyword.declaration"
-        match: "\\b(let|error|bool|number|string|list|fn|class)\\b"
+        match: "\\b(let|class|fn)\\b"
+      - name: "storage.type"
+        match: "\\b(error|bool|number|string|list)\\b"
       - name: "support.function.builtin"
         match: "\\b(is|print|load)\\b"
       - name: "constant.language.null"
         match: "\\b(nil|undef)\\b"
       - name: "constant.language.boolean"
         match: "\\b(true|false)\\b"
+  support:
+    patterns:
+      - name: "support.class"
+        patterns:
+          - include: "#class"
+      - name: "support.function"
+        patterns:
+          - include: "#function"
+  meta:
+    patterns:
+      - name: "meta.function"
+        patterns:
+          - include: "#function"
+      - name: "meta.definition.function"
+        patterns:
+          - include: "#function"
+  class:
+    name: "entity.name.type.class"
+    match: "(?<=class)\\s+${ IDENT }"
   function:
-    name: "support.function"
-    begin: "${ IDENT }\\s*\\("
-    end: "\\)"
+    name: "entity.name.function"
+    match: "(?<=fn)\\s+${ IDENT }"
   strings:
     patterns:
       - name: "string.quoted.double"
         begin: '"'
         end: '"'
+        patterns:
+          - name: "constant.character.escape"
+            match: "\\."
+          - name: "string.template"
+            begin: "\\${"
+            end: "}"
+            patterns:
+              - include: "#ident"
+              - include: "#function"
+              - include: "#digit"
       - name: "string.quoted.single"
         begin: "'"
         end: "'"
+      - name: "string.regexp"
+        match: "(?!=\\/)${ REG }|(?=\\/\\b)${ REG }"
   digits:
     patterns:
       - name: "constant.numeric"
@@ -46,7 +81,7 @@ repository:
     patterns:
       - name: "variable.language"
         match: "\\b(self|super)\\b"
-      - name: "variable.other.readwrite"
+      - name: "variable.other"
         match: "\\b(${ IDENT })\\b"
   comments:
     patterns:
