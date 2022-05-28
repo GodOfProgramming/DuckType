@@ -19,7 +19,7 @@ impl IntegrationTest {
 
   fn load<F: FnOnce(Context)>(&self, f: F) {
     match self.vm.load(String::from("test"), &self.script) {
-      Ok(mut ctx) => f(ctx),
+      Ok(ctx) => f(ctx.localize()),
       Err(errs) => {
         for err in errs {
           println!("{}", err);

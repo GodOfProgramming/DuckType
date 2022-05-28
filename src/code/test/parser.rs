@@ -19,9 +19,9 @@ impl ParserTest {
           SmartPtr::new(String::from("test")),
           SmartPtr::new(self.script.clone()),
         );
-        let mut ctx = Context::new(code_meta);
+        let mut ctx = SmartPtr::new(Context::new(code_meta));
 
-        let parser = Parser::new(tokens, meta, &mut ctx);
+        let parser = Parser::new(tokens, meta, ctx);
 
         f(parser);
       }

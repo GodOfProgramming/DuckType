@@ -448,18 +448,10 @@ impl Display for Values {
 
 #[derive(Default)]
 pub struct Env {
-  parent: Option<SmartPtr<Env>>,
   vars: BTreeMap<String, Value>,
 }
 
 impl Env {
-  pub fn new_with_parent(parent: SmartPtr<Env>) -> Self {
-    Self {
-      parent: Some(parent),
-      vars: BTreeMap::new(),
-    }
-  }
-
   pub fn define(&mut self, name: String, value: Value) -> bool {
     self.vars.insert(name, value).is_none()
   }
@@ -469,11 +461,6 @@ impl Env {
   }
 
   pub fn lookup(&self, name: &str) -> Option<Value> {
-    if let Some(parent) = &self.parent {
-      if let Some(value) = parent.vars.get(name).cloned() {
-        return Some(value);
-      }
-    }
     self.vars.get(name).cloned()
   }
 }
@@ -490,12 +477,8 @@ pub struct Function {
 }
 
 impl Function {
-  pub fn new(name: String, airity: usize, ctx: Context) -> Self {
-    Self {
-      name,
-      airity,
-      ctx: SmartPtr::new(ctx),
-    }
+  pub fn new(name: String, airity: usize, ctx: SmartPtr<Context>) -> Self {
+    Self { name, airity, ctx }
   }
 
   pub fn call<I: Interpreter>(&mut self, i: &I, args: Vec<Value>) -> Result<Value, String> {

@@ -286,7 +286,9 @@ pub struct Context {
   pub id: usize,
   pub name: String,
 
-  env: SmartPtr<Env>,
+  global: SmartPtr<Context>,
+  parent: SmartPtr<Context>,
+  env: Env,
   stack: Vec<Value>,
   consts: Vec<Value>,
   instructions: Vec<OpCode>,
@@ -297,23 +299,33 @@ pub struct Context {
 impl Context {
   fn new(reflection: Reflection) -> Self {
     Self {
-      ip: 0,
-      id: 0,
-      name: String::default(),
-      env: SmartPtr::new(Env::default()),
-      stack: Vec::default(),
-      consts: Vec::default(),
-      instructions: Vec::default(),
+      ip: Default::default(),
+      id: Default::default(),
+      name: Default::default(),
+      global: Default::default(),
+      parent: Default::default(),
+      env: Default::default(),
+      stack: Default::default(),
+      consts: Default::default(),
+      instructions: Default::default(),
       meta: reflection,
     }
   }
 
-  fn new_child(reflection: Reflection, id: usize, parent_env: SmartPtr<Env>) -> Self {
+  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize) -> Self {
+    let global = if ctx.global.valid() {
+      ctx.global.clone()
+    } else {
+      ctx.clone()
+    };
+
     Self {
       ip: 0,
       id,
       name: String::default(),
-      env: SmartPtr::new(Env::new_with_parent(parent_env)),
+      global,
+      parent: ctx,
+      env: Default::default(),
       stack: Vec::default(),
       consts: Vec::default(),
       instructions: Vec::default(),
@@ -369,16 +381,36 @@ impl Context {
     self.consts.get(index).cloned()
   }
 
+  pub fn global_const_at(&self, index: usize) -> Option<Value> {
+    if self.global.valid() {
+      self.global.consts.get(index).cloned()
+    } else {
+      self.consts.get(index).cloned()
+    }
+  }
+
   pub fn lookup_global(&self, name: &str) -> Option<Value> {
-    self.env.lookup(name)
+    if self.global.valid() {
+      self.global.env.lookup(name)
+    } else {
+      self.env.lookup(name)
+    }
   }
 
   pub fn define_global(&mut self, name: String, value: Value) -> bool {
-    self.env.define(name, value)
+    if self.global.valid() {
+      self.global.env.define(name, value)
+    } else {
+      self.env.define(name, value)
+    }
   }
 
   pub fn assign_global(&mut self, name: String, value: Value) -> bool {
-    self.env.assign(name, value)
+    if self.global.valid() {
+      self.global.env.assign(name, value)
+    } else {
+      self.env.assign(name, value)
+    }
   }
 
   pub fn create_native(&mut self, name: String, native: NativeFn) -> bool {
@@ -423,6 +455,8 @@ impl Context {
       false
     }
   }
+
+  /* Debugging Functions */
 
   pub fn reflect_instruction<F: FnOnce(OpCodeReflection) -> Error>(&self, f: F) -> Error {
     if let Some(opcode_ref) = self.meta.get(self.ip) {
@@ -949,18 +983,18 @@ impl Precedence {
   }
 }
 
-type ParseFn<'ctx, 'file> = fn(&mut Parser<'ctx, 'file>, bool) -> bool;
+type ParseFn<'file> = fn(&mut Parser<'file>, bool) -> bool;
 
-struct ParseRule<'ctx, 'file> {
-  prefix: Option<ParseFn<'ctx, 'file>>,
-  infix: Option<ParseFn<'ctx, 'file>>,
+struct ParseRule<'file> {
+  prefix: Option<ParseFn<'file>>,
+  infix: Option<ParseFn<'file>>,
   precedence: Precedence,
 }
 
-impl<'ctx, 'file> ParseRule<'ctx, 'file> {
+impl<'file> ParseRule<'file> {
   fn new(
-    prefix: Option<ParseFn<'ctx, 'file>>,
-    infix: Option<ParseFn<'ctx, 'file>>,
+    prefix: Option<ParseFn<'file>>,
+    infix: Option<ParseFn<'file>>,
     precedence: Precedence,
   ) -> Self {
     Self {
@@ -988,12 +1022,12 @@ struct Lookup {
   index: usize,
 }
 
-pub struct Parser<'ctx, 'file> {
+pub struct Parser<'file> {
   tokens: Vec<Token>,
   meta: Vec<TokenMeta<'file>>,
-  ctx: &'ctx mut Context,
+  ctx: SmartPtr<Context>,
 
-  current_fn: Option<Context>,
+  current_fn: Option<SmartPtr<Context>>,
 
   index: usize,
   scope_depth: usize,
@@ -1012,8 +1046,8 @@ pub struct Parser<'ctx, 'file> {
   identifiers: BTreeMap<String, usize>,
 }
 
-impl<'ctx, 'file> Parser<'ctx, 'file> {
-  pub fn new(tokens: Vec<Token>, meta: Vec<TokenMeta<'file>>, ctx: &'ctx mut Context) -> Self {
+impl<'file> Parser<'file> {
+  pub fn new(tokens: Vec<Token>, meta: Vec<TokenMeta<'file>>, ctx: SmartPtr<Context>) -> Self {
     Self {
       tokens,
       meta,
@@ -1064,11 +1098,11 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     self.sync();
   }
 
-  fn current_ctx(&mut self) -> &mut Context {
+  fn current_ctx(&mut self) -> SmartPtr<Context> {
     if let Some(ctx) = &mut self.current_fn {
-      ctx
+      ctx.clone()
     } else {
-      self.ctx
+      self.ctx.clone()
     }
   }
 
@@ -1737,24 +1771,29 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       self.current_ctx().meta.source.clone(),
     );
 
-    let cloned_env = self.current_ctx().env.clone();
-    let func = self.current_fn.take();
-    self.current_fn = Some(Context::new_child(reflection, self.function_id, cloned_env));
+    let prev_ctx = self.current_ctx().clone();
+    let prev_fn = self.current_fn.take();
+    self.current_fn = Some(SmartPtr::new(Context::new_child(
+      prev_ctx,
+      reflection,
+      self.function_id,
+    )));
 
     self.wrap_scope(|this| {
       let airity = f(this);
       let ctx = this.current_fn.take().unwrap();
-      this.current_fn = func;
-      this.locals = locals;
 
       if let Some(airity) = airity {
         this.emit_const(index, Value::Function(Function::new(name, airity, ctx)))
       }
       true
     });
+
+    self.current_fn = prev_fn;
+    self.locals = locals;
   }
 
-  fn rule_for(token: &Token) -> ParseRule<'ctx, 'file> {
+  fn rule_for(token: &Token) -> ParseRule<'file> {
     match token {
       Token::Invalid => panic!("invalid token read"),
       Token::LeftParen => ParseRule::new(
@@ -2266,7 +2305,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
 pub struct Compiler;
 
 impl Compiler {
-  pub fn compile(&self, file: &str, source: &str) -> Result<Context, Vec<Error>> {
+  pub fn compile(&self, file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
     let mut scanner = Scanner::new(file, source);
     let (tokens, meta) = scanner
       .scan()
@@ -2276,9 +2315,9 @@ impl Compiler {
     let source = SmartPtr::new(String::from(source));
 
     let reflection = Reflection::new(file, source.clone());
-    let mut ctx = Context::new(reflection);
+    let ctx = SmartPtr::new(Context::new(reflection));
 
-    let mut parser = Parser::new(tokens, meta, &mut ctx);
+    let mut parser = Parser::new(tokens, meta, ctx.clone());
 
     if let Some(errors) = parser.parse() {
       Err(self.reformat_errors(source.as_ref(), errors))

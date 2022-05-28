@@ -545,7 +545,7 @@ impl<I: Interpreter> Vm<I> {
     Vm { vpu }
   }
 
-  pub fn load(&self, file: String, code: &str) -> Result<Context, Vec<Error>> {
+  pub fn load(&self, file: String, code: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
     let compiler = Compiler::default();
     compiler.compile(&file, code)
   }
