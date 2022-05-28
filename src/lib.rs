@@ -1,5 +1,4 @@
 mod code;
-mod ptr;
 pub mod types;
 
 #[cfg(test)]

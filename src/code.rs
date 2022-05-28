@@ -1,8 +1,8 @@
 use crate::{
-  ptr::SmartPtr,
   types::{Env, Error, Function, NativeFn, Value},
   New,
 };
+use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
   fmt::{self, Debug},

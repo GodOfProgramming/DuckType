@@ -1,8 +1,8 @@
 use crate::{
   code::{Context, OpCode, OpCodeReflection},
-  ptr::SmartPtr,
   New,
 };
+use ptr::SmartPtr;
 use std::{
   cmp::{Ordering, PartialEq, PartialOrd},
   collections::BTreeMap,
