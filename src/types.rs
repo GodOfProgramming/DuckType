@@ -1,16 +1,13 @@
 use crate::{
   code::{Context, OpCode, OpCodeReflection},
+  ptr::SmartPtr,
   New,
 };
 use std::{
-  any::Any,
-  cell::RefCell,
   cmp::{Ordering, PartialEq, PartialOrd},
   collections::BTreeMap,
   fmt::{self, Debug, Display},
-  iter::FromIterator,
   ops::{Add, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
-  rc::Rc,
 };
 
 pub trait Interpreter {
@@ -29,7 +26,7 @@ impl Error {
   pub fn from_ref(msg: String, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
     let mut e = Self {
       msg,
-      file: opcode_ref.file.as_ref().clone(),
+      file: opcode_ref.file.clone(),
       line: opcode_ref.line,
       column: opcode_ref.column,
     };
@@ -339,7 +336,7 @@ impl PartialEq for Value {
       }
       Self::Function(a) => {
         if let Self::Function(b) = other {
-          a.ctx.borrow().id == b.ctx.borrow().id
+          a.ctx.id == b.ctx.id
         } else {
           false
         }
@@ -451,12 +448,12 @@ impl Display for Values {
 
 #[derive(Default)]
 pub struct Env {
-  parent: Option<Rc<RefCell<Env>>>,
+  parent: Option<SmartPtr<Env>>,
   vars: BTreeMap<String, Value>,
 }
 
 impl Env {
-  pub fn new_with_parent(parent: Rc<RefCell<Env>>) -> Self {
+  pub fn new_with_parent(parent: SmartPtr<Env>) -> Self {
     Self {
       parent: Some(parent),
       vars: BTreeMap::new(),
@@ -473,7 +470,7 @@ impl Env {
 
   pub fn lookup(&self, name: &str) -> Option<Value> {
     if let Some(parent) = &self.parent {
-      if let Some(value) = parent.borrow().vars.get(name).cloned() {
+      if let Some(value) = parent.vars.get(name).cloned() {
         return Some(value);
       }
     }
@@ -489,9 +486,7 @@ pub trait Call {
 pub struct Function {
   name: String,
   airity: usize,
-
-  // TODO refactor this to not be a RefCell
-  ctx: Rc<RefCell<Context>>,
+  ctx: SmartPtr<Context>,
 }
 
 impl Function {
@@ -499,15 +494,11 @@ impl Function {
     Self {
       name,
       airity,
-      ctx: Rc::new(RefCell::new(ctx)),
+      ctx: SmartPtr::new(ctx),
     }
   }
 
-  pub fn call<I: Interpreter>(
-    &mut self,
-    interpreter: &I,
-    args: Vec<Value>,
-  ) -> Result<Value, String> {
+  pub fn call<I: Interpreter>(&mut self, i: &I, args: Vec<Value>) -> Result<Value, String> {
     if self.airity != args.len() {
       return Err(format!(
         "invalid number of arguments, expected {}, got {}",
@@ -516,11 +507,10 @@ impl Function {
       ));
     }
 
-    let ctx = &mut self.ctx.borrow_mut();
-    ctx.ip = 0;
-    ctx.stack_move(args.into_iter().rev().collect());
+    self.ctx.ip = 0;
+    self.ctx.stack_move(args.into_iter().rev().collect());
 
-    interpreter.interpret(ctx).map_err(|e| e.msg)
+    i.interpret(&mut self.ctx).map_err(|e| e.msg)
   }
 }
 

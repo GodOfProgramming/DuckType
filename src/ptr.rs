@@ -1,2 +1,2 @@
-pub mod ptr;
+mod ptr;
 pub use ptr::*;

@@ -22,7 +22,7 @@ fn main() {
   let vpu = Vpu::new(show_disassembly, runtime_disassembly);
   let runner = Runner::new(vpu);
 
-  if let Some(file) = args.into_iter().nth(1) {
+  if let Some(file) = args.get(1).cloned() {
     if !run_file(runner, file) {
       exit_code = 1;
     }

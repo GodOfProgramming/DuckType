@@ -9,7 +9,10 @@ fn do_with_parser<F: FnOnce(Parser)>(script: &str, f: F) {
 
   let (tokens, meta) = scanner.scan().unwrap();
 
-  let code_meta = Reflection::new(Rc::new(String::from("test")), Rc::new(String::from(script)));
+  let code_meta = Reflection::new(
+    SmartPtr::new(String::from("test")),
+    SmartPtr::new(String::from(script)),
+  );
   let mut ctx = Context::new(code_meta);
 
   let parser = Parser::new(tokens, meta, &mut ctx);
@@ -104,7 +107,7 @@ fn emit_creates_expected_opcode() {
     assert_eq!(parser.ctx.instructions[0], OpCode::Add);
     assert_eq!(
       OpCodeReflection {
-        file: Rc::new(String::from("test")),
+        file: String::from("test"),
         source_line: String::from("1 + 1"),
         line: 1,
         column: 3,
@@ -122,7 +125,7 @@ fn emit_const_creates_expected_opcode() {
     assert_eq!(parser.ctx.consts[0], Value::Num(1.0));
     assert_eq!(
       OpCodeReflection {
-        file: Rc::new(String::from("test")),
+        file: String::from("test"),
         source_line: String::from("foo + 1"),
         line: 1,
         column: 7,

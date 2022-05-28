@@ -1,12 +1,11 @@
 use crate::{
+  ptr::SmartPtr,
   types::{Env, Error, Function, NativeFn, Value},
   New,
 };
 use std::{
-  cell::RefCell,
   collections::BTreeMap,
   fmt::{self, Debug},
-  rc::Rc,
   str,
 };
 
@@ -240,20 +239,20 @@ pub struct OpCodeInfo {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct OpCodeReflection {
-  pub file: Rc<String>,
+  pub file: String,
   pub source_line: String,
   pub line: usize,
   pub column: usize,
 }
 
 pub struct Reflection {
-  file: Rc<String>,
-  source: Rc<String>,
+  file: SmartPtr<String>,
+  source: SmartPtr<String>,
   opcode_info: Vec<OpCodeInfo>,
 }
 
 impl Reflection {
-  fn new(file: Rc<String>, source: Rc<String>) -> Self {
+  fn new(file: SmartPtr<String>, source: SmartPtr<String>) -> Self {
     Reflection {
       file,
       source,
@@ -272,7 +271,7 @@ impl Reflection {
         .lines()
         .nth(info.line - 1)
         .map(|src| OpCodeReflection {
-          file: Rc::clone(&self.file),
+          file: self.file.access().clone(),
           source_line: String::from(src),
           line: info.line,
           column: info.column,
@@ -288,7 +287,7 @@ pub struct Context {
   pub id: usize,
   pub name: String,
 
-  env: Rc<RefCell<Env>>,
+  env: SmartPtr<Env>,
   stack: Vec<Value>,
   consts: Vec<Value>,
   instructions: Vec<OpCode>,
@@ -302,7 +301,7 @@ impl Context {
       ip: 0,
       id: 0,
       name: String::default(),
-      env: Rc::new(RefCell::new(Env::default())),
+      env: SmartPtr::new(Env::default()),
       stack: Vec::default(),
       consts: Vec::default(),
       instructions: Vec::default(),
@@ -310,12 +309,12 @@ impl Context {
     }
   }
 
-  fn new_child(reflection: Reflection, id: usize, parent_env: Rc<RefCell<Env>>) -> Self {
+  fn new_child(reflection: Reflection, id: usize, parent_env: SmartPtr<Env>) -> Self {
     Self {
       ip: 0,
       id,
       name: String::default(),
-      env: Rc::new(RefCell::new(Env::new_with_parent(parent_env))),
+      env: SmartPtr::new(Env::new_with_parent(parent_env)),
       stack: Vec::default(),
       consts: Vec::default(),
       instructions: Vec::default(),
@@ -372,15 +371,15 @@ impl Context {
   }
 
   pub fn lookup_global(&self, name: &str) -> Option<Value> {
-    self.env.borrow().lookup(name)
+    self.env.lookup(name)
   }
 
   pub fn define_global(&mut self, name: String, value: Value) -> bool {
-    self.env.borrow_mut().define(name, value)
+    self.env.define(name, value)
   }
 
   pub fn assign_global(&mut self, name: String, value: Value) -> bool {
-    self.env.borrow_mut().assign(name, value)
+    self.env.assign(name, value)
   }
 
   pub fn create_native(&mut self, name: String, native: NativeFn) -> bool {
@@ -432,7 +431,7 @@ impl Context {
     } else {
       Error {
         msg: format!("could not fetch info for instruction {:04X}", self.ip),
-        file: self.meta.file.as_ref().clone(),
+        file: self.meta.file.access().clone(),
         line: 0,
         column: 0,
       }
@@ -1737,13 +1736,13 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     let locals: Vec<Local> = self.locals.drain(0..).collect();
 
     let reflection = Reflection::new(
-      Rc::clone(&self.current_ctx().meta.file),
-      Rc::clone(&self.current_ctx().meta.source),
+      self.current_ctx().meta.file.clone(),
+      self.current_ctx().meta.source.clone(),
     );
     self.current_fn = Some(Context::new_child(
       reflection,
       self.function_id,
-      Rc::clone(&self.current_ctx().env),
+      self.current_ctx().env.clone(),
     ));
 
     self.wrap_scope(|this| {
@@ -2265,10 +2264,10 @@ impl Compiler {
       .scan()
       .map_err(|errs| self.reformat_errors(source, errs))?;
 
-    let file = Rc::new(String::from(file));
-    let source = Rc::new(String::from(source));
+    let file = SmartPtr::new(String::from(file));
+    let source = SmartPtr::new(String::from(source));
 
-    let reflection = Reflection::new(file, Rc::clone(&source));
+    let reflection = Reflection::new(file, source.clone());
     let mut ctx = Context::new(reflection);
 
     let mut parser = Parser::new(tokens, meta, &mut ctx);
