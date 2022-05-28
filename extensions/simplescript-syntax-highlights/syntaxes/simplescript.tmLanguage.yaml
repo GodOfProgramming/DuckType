@@ -28,7 +28,7 @@ repository:
       - name: "support.function.builtin"
         match: "\\b(is|print|load)\\b"
       - name: "constant.language.null"
-        match: "\\b(nil|undef)\\b"
+        match: "\\b(nil)\\b"
       - name: "constant.language.boolean"
         match: "\\b(true|false)\\b"
   support:

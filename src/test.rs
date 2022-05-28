@@ -1,202 +1,208 @@
 use super::*;
+use tfix::{fixture, TestFixture};
 
-#[cfg(test)]
-fn run<F: FnOnce(Context, Value)>(script: &str, f: F) {
-  let vpu = Vpu::default();
-  let runner = Runner::new(vpu);
-  match runner.load(String::from("test"), script) {
-    Ok(mut ctx) => match runner.run(&mut ctx) {
+struct IntegrationTest {
+  script: String,
+  vm: Vm<Vpu>,
+}
+
+impl IntegrationTest {
+  fn new() -> Self {
+    let vpu = Vpu::default();
+    let vm = Vm::new(vpu);
+
+    Self {
+      script: Default::default(),
+      vm,
+    }
+  }
+
+  fn load<F: FnOnce(Context)>(&self, f: F) {
+    match self.vm.load(String::from("test"), &self.script) {
+      Ok(mut ctx) => f(ctx),
+      Err(errs) => {
+        for err in errs {
+          println!("{}", err);
+        }
+        panic!("compilation errors detected!");
+      }
+    }
+  }
+
+  fn run<F: FnOnce(Context, Value)>(&self, f: F) {
+    self.load(|mut ctx| match self.vm.run(&mut ctx) {
       Ok(v) => f(ctx, v),
       Err(err) => panic!("{}", err),
-    },
-    Err(errs) => {
-      for err in errs {
-        println!("{}", err);
-      }
-      panic!("compilation errors detected!");
-    }
+    });
   }
 }
 
-#[test]
-fn adding_a_global() {
-  let vpu = Vpu::default();
-  let runner = Runner::new(vpu);
-  match runner.load(String::from("test"), "end foo;") {
-    Ok(mut ctx) => {
+impl TestFixture for IntegrationTest {
+  fn set_up() -> Self {
+    Self::new()
+  }
+}
+
+#[fixture(IntegrationTest)]
+mod integration_tests {
+  use super::*;
+
+  fn adding_a_global(test: &mut IntegrationTest) {
+    test.script = "end foo;".to_string();
+
+    test.load(|mut ctx| {
       ctx.assign_global(String::from("foo"), Value::new("foo"));
-      match runner.run(&mut ctx) {
+      match test.vm.run(&mut ctx) {
         Ok(v) => assert_eq!(Value::new("foo"), v),
         Err(err) => panic!("{}", err),
       }
-    }
-    Err(errs) => {
-      for err in errs {
-        println!("{}", err);
-      }
-      panic!("compilation errors detected!");
-    }
+    });
   }
-}
 
-#[test]
-fn calling_a_native_function() {
-  let vpu = Vpu::default();
-  let runner = Runner::new(vpu);
-  match runner.load(
-    String::from("test"),
-    "let x = 1;
-    end test_func(x, 2);",
-  ) {
-    Ok(mut ctx) => {
+  fn calling_a_native_function(test: &mut IntegrationTest) {
+    test.script = "let x = 1;\n
+    end test_func(x, 2);"
+      .to_string();
+
+    test.load(|mut ctx| {
       ctx.create_native(String::from("test_func"), |args: Vec<Value>| {
         assert_eq!(args.len(), 2);
         assert_eq!(args[0], Value::new(1));
         assert_eq!(args[1], Value::new(2));
         Ok(Value::new(3))
       });
-      match runner.run(&mut ctx) {
+      match test.vm.run(&mut ctx) {
         Ok(v) => assert_eq!(Value::new(3), v),
         Err(err) => panic!("{}", err),
       }
-    }
-    Err(errs) => {
-      for err in errs {
-        println!("{}", err);
-      }
-      panic!("compilation errors detected!");
-    }
+    });
   }
-}
 
-/**
- * nil
- */
-#[test]
-fn let_0() {
-  run("let foo;", |ctx, _| {
-    let val = ctx.lookup_global("foo").unwrap();
-    assert_eq!(val, Value::Nil);
-  });
-}
+  /**
+   * nil
+   */
+  fn let_0(test: &mut IntegrationTest) {
+    test.script = "let foo;".to_string();
 
-/**
- * true
- */
-#[test]
-fn let_1() {
-  run("let foo = true;", |ctx, _| {
-    let val = ctx.lookup_global("foo").unwrap();
-    assert_eq!(val, Value::new(true));
-  });
-}
+    test.run(|ctx, _| {
+      let val = ctx.lookup_global("foo").unwrap();
+      assert_eq!(val, Value::Nil);
+    });
+  }
 
-/**
- * add sub mul div mod
- */
-#[test]
-fn let_2() {
-  run("let foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;", |ctx, _| {
-    let val = ctx.lookup_global("foo").unwrap();
-    assert_eq!(val, Value::new(7.2));
-  });
-}
+  /**
+   * true
+   */
+  fn let_1(test: &mut IntegrationTest) {
+    test.script = "let foo = true;".to_string();
 
-/**
- * add sub mul div mod
- */
-#[test]
-fn let_3() {
-  run("let foo; foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;", |ctx, _| {
-    let val = ctx.lookup_global("foo").unwrap();
-    assert_eq!(val, Value::new(7.2));
-  });
-}
+    test.run(|ctx, _| {
+      let val = ctx.lookup_global("foo").unwrap();
+      assert_eq!(val, Value::new(true));
+    });
+  }
 
-#[test]
-fn block_0() {
-  run("let foo; { foo = 1; }", |ctx, _| {
-    let val = ctx.lookup_global("foo").unwrap();
-    assert_eq!(val, Value::new(1));
-  });
-}
+  /**
+   * add sub mul div mod
+   */
+  fn let_2(test: &mut IntegrationTest) {
+    test.script = "let foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;".to_string();
 
-#[test]
-fn block_1() {
-  run("let foo; { foo = 1; let bar; bar = 0; }", |ctx, _| {
-    let val = ctx.lookup_global("foo").unwrap();
-    assert_eq!(val, Value::new(1));
-    assert!(ctx.lookup_global("bar").is_none());
-  });
-}
+    test.run(|ctx, _| {
+      let val = ctx.lookup_global("foo").unwrap();
+      assert_eq!(val, Value::new(7.2));
+    });
+  }
 
-#[test]
-fn end_0() {
-  run(
-    "let foo; { foo = 1; let bar; bar = 0; { end bar; } }",
-    |ctx, v| {
+  /**
+   * add sub mul div mod
+   */
+  fn let_3(test: &mut IntegrationTest) {
+    test.script = "let foo; foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;".to_string();
+
+    test.run(|ctx, _| {
+      let val = ctx.lookup_global("foo").unwrap();
+      assert_eq!(val, Value::new(7.2));
+    });
+  }
+
+  fn block_0(test: &mut IntegrationTest) {
+    test.script = "let foo; { foo = 1; }".to_string();
+
+    test.run(|ctx, _| {
+      let val = ctx.lookup_global("foo").unwrap();
+      assert_eq!(val, Value::new(1));
+    });
+  }
+
+  fn block_1(test: &mut IntegrationTest) {
+    test.script = "let foo; { foo = 1; let bar; bar = 0; }".to_string();
+
+    test.run(|ctx, _| {
+      let val = ctx.lookup_global("foo").unwrap();
+      assert_eq!(val, Value::new(1));
+      assert!(ctx.lookup_global("bar").is_none());
+    });
+  }
+
+  fn end_0(test: &mut IntegrationTest) {
+    test.script = "let foo; { foo = 1; let bar; bar = 0; { end bar; } }".to_string();
+
+    test.run(|ctx, v| {
       let val = ctx.lookup_global("foo").unwrap();
       assert_eq!(val, Value::new(1));
       assert!(ctx.lookup_global("bar").is_none());
       assert_eq!(v, Value::new(0));
-    },
-  );
-}
+    });
+  }
 
-#[test]
-fn if_0() {
-  const SCRIPT: &str = "let foo = true; if foo { foo = 1; }";
-  run(SCRIPT, |ctx, _| {
-    let val = ctx.lookup_global("foo").unwrap();
-    assert_eq!(val, Value::new(1));
-  });
-}
+  fn if_0(test: &mut IntegrationTest) {
+    test.script = "let foo = true; if foo { foo = 1; }".to_string();
 
-/**
- * else block not executed
- */
-#[test]
-fn if_1() {
-  run(
-    "let foo = true; if foo { foo = 1; } else { foo = 2; }",
-    |ctx, _| {
+    test.run(|ctx, _| {
       let val = ctx.lookup_global("foo").unwrap();
       assert_eq!(val, Value::new(1));
-    },
-  );
-}
+    });
+  }
 
-#[test]
-fn if_2() {
-  run(
-    "let foo = false; if foo { foo = 1; } else { foo = 2; }",
-    |ctx, _| {
+  /**
+   * else block not executed
+   */
+  fn if_1(test: &mut IntegrationTest) {
+    test.script = "let foo = true; if foo { foo = 1; } else { foo = 2; }".to_string();
+
+    test.run(|ctx, _| {
+      let val = ctx.lookup_global("foo").unwrap();
+      assert_eq!(val, Value::new(1));
+    });
+  }
+
+  fn if_2(test: &mut IntegrationTest) {
+    test.script = "let foo = false; if foo { foo = 1; } else { foo = 2; }".to_string();
+
+    test.run(|ctx, _| {
       let val = ctx.lookup_global("foo").unwrap();
       assert_eq!(val, Value::new(2));
-    },
-  );
-}
+    });
+  }
 
-#[test]
-fn if_3() {
-  run(
-    "if true and false or true { end true; } else { end false; }",
-    |_, v| assert!(v.truthy()),
-  );
-}
+  fn if_3(test: &mut IntegrationTest) {
+    test.script = "if true and false or true { end true; } else { end false; }".to_string();
 
-#[test]
-fn if_4() {
-  run(
-    "if true and false and false or true { end true; } else { end false; }",
-    |_, v| assert!(v.truthy()),
-  );
-}
+    test.run(|_, v| assert!(v.truthy()));
+  }
 
-#[test]
-fn if_5() {
-  run(
-    "if true and false and (false or true) { end true; } else { end false; }",
-    |_, v| assert!(!v.truthy()),
-  );
+  fn if_4(test: &mut IntegrationTest) {
+    test.script =
+      "if true and false and false or true { end true; } else { end false; }".to_string();
+
+    test.run(|_, v| assert!(v.truthy()));
+  }
+
+  fn if_5(test: &mut IntegrationTest) {
+    test.script =
+      "if true and false and (false or true) { end true; } else { end false; }".to_string();
+
+    test.run(|_, v| assert!(!v.truthy()));
+  }
 }
