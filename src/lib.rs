@@ -4,7 +4,8 @@ pub mod types;
 #[cfg(test)]
 mod test;
 
-use code::{Compiler, Context, OpCode};
+pub use code::Context;
+use code::{Compiler, OpCode};
 use ptr::SmartPtr;
 use types::{Error, Interpreter};
 pub use types::{NativeFn, Value};
@@ -105,11 +106,6 @@ impl Vpu {
 
 impl Interpreter for Vpu {
   fn interpret(&self, ctx: &mut Context) -> Result<Value, Error> {
-    #[cfg(debug_assertions)]
-    if self.show_disassembly {
-      ctx.display_opcodes();
-    }
-
     while !ctx.done() {
       let opcode = ctx.next();
 

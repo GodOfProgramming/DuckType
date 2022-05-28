@@ -501,6 +501,11 @@ impl Function {
 
     res
   }
+
+  #[cfg(debug_assertions)]
+  pub fn context(&self) -> &Context {
+    &self.ctx
+  }
 }
 
 #[cfg(test)]

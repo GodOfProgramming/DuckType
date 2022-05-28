@@ -383,6 +383,11 @@ impl Context {
     self.consts.get(index).cloned()
   }
 
+  #[cfg(debug_assertions)]
+  pub fn consts(&self) -> &Vec<Value> {
+    &self.consts
+  }
+
   pub fn global_const_at(&self, index: usize) -> Option<Value> {
     if self.global.valid() {
       self.global.consts.get(index).cloned()
@@ -489,7 +494,7 @@ impl Context {
   }
 
   pub fn display_instruction(&self, op: &OpCode, offset: usize) {
-    print!("0x{:#04X} ", offset);
+    print!("{:#010X} ", offset);
     if let Some(curr) = self.meta.get(offset) {
       if offset > 0 {
         if let Some(prev) = self.meta.get(offset - 1) {

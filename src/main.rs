@@ -1,7 +1,8 @@
-use simple_script::{Value, Vm, Vpu};
+use simple_script::{Context, Value, Vm, Vpu};
 use std::{env, fs, path::Path, process};
 
 const DISASSEMBLE_FLAG: &str = "--disassemble";
+const QUITE_AFTER_FLAG: &str = "--quit-after";
 const RUNTIME_DISASSEMBLE_FLAG: &str = "--runtime-disassembly";
 
 fn main() {
@@ -9,6 +10,7 @@ fn main() {
   let mut args: Vec<String> = env::args().collect();
 
   let show_disassembly = args.contains(&String::from(DISASSEMBLE_FLAG));
+  let quit_after = args.contains(&String::from(QUITE_AFTER_FLAG));
   let runtime_disassembly = args.contains(&String::from(RUNTIME_DISASSEMBLE_FLAG));
 
   if show_disassembly {
@@ -19,11 +21,15 @@ fn main() {
     args.retain(|arg| arg != RUNTIME_DISASSEMBLE_FLAG);
   }
 
+  if quit_after {
+    args.retain(|arg| arg != QUITE_AFTER_FLAG);
+  }
+
   let vpu = Vpu::new(show_disassembly, runtime_disassembly);
   let runner = Vm::new(vpu);
 
   if let Some(file) = args.get(1).cloned() {
-    if !run_file(runner, file) {
+    if !run_file(runner, file, show_disassembly, quit_after) {
       exit_code = 1;
     }
   } else {
@@ -33,11 +39,16 @@ fn main() {
   process::exit(exit_code);
 }
 
-fn run_file(runner: Vm<Vpu>, file: String) -> bool {
+fn run_file(
+  vm: Vm<Vpu>,
+  file: String,
+  show_disassembly: bool,
+  quit_after_disassembled: bool,
+) -> bool {
   let p = Path::new(&file);
   if p.exists() {
     match fs::read_to_string(p) {
-      Ok(contents) => match runner.load(file, &contents) {
+      Ok(contents) => match vm.load(file, &contents) {
         Ok(mut ctx) => {
           ctx.assign_global(
             String::from("test"),
@@ -46,7 +57,17 @@ fn run_file(runner: Vm<Vpu>, file: String) -> bool {
               Ok(Value::Nil)
             }),
           );
-          match runner.run(&mut ctx) {
+
+          #[cfg(debug_assertions)]
+          if show_disassembly {
+            disassemble(&ctx);
+
+            if quit_after_disassembled {
+              std::process::exit(0);
+            }
+          }
+
+          match vm.run(&mut ctx) {
             Ok(v) => println!("{}", v),
             Err(err) => {
               println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
@@ -77,4 +98,15 @@ fn run_file(runner: Vm<Vpu>, file: String) -> bool {
 
 fn run_cli(_runner: Vm<Vpu>) {
   let _quit = false;
+}
+
+#[cfg(debug_assertions)]
+fn disassemble(ctx: &Context) {
+  ctx.display_opcodes();
+
+  for value in ctx.consts() {
+    if let Value::Function(f) = value {
+      disassemble(f.context());
+    }
+  }
 }
