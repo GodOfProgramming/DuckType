@@ -2194,10 +2194,8 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       let mut index = self.locals.len() - 1;
 
       if let Token::Identifier(name) = token {
-        println!("looking for {}", name);
         for local in self.locals.iter().rev() {
           if *name == local.name {
-            println!("found");
             if !local.initialized {
               self.error(
                 pos,
@@ -2205,7 +2203,6 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
               );
               return None;
             } else {
-              println!("at index {}", index);
               return Some(Lookup {
                 index,
                 kind: LookupKind::Local,

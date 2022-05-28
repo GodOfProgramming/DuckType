@@ -169,6 +169,7 @@ impl Interpreter for Vpu {
           }
         },
         OpCode::LookupGlobal(index) => {
+          // TODO ctx here is not local function context and will index wrong
           if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
             match ctx.lookup_global(&name) {
               Some(g) => {
