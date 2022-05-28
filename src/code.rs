@@ -2055,6 +2055,7 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     if let Some(lookup) = self.resolve_local(&token, pos) {
       let get: OpCode;
       let set: OpCode;
+
       if lookup.kind == LookupKind::Local {
         get = OpCode::LookupLocal(lookup.index);
         set = OpCode::AssignLocal(lookup.index);
@@ -2066,18 +2067,23 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
         self.error(pos, format!("unable to parse lookup of var '{}'", token));
         return false;
       }
+
       if can_assign && self.advance_if_matches(Token::Equal) {
         self.expression();
         self.emit(pos, set);
       } else {
         self.emit(pos, get);
       }
+
       true
     } else {
       false
     }
   }
 
+  /**
+   * Returns > 0 if the variable is global, otherwise it returns 0 to signify a local variable
+   */
   fn parse_variable(&mut self, err: String) -> Option<usize> {
     if !self.consume_identifier(err) {
       return None;
@@ -2174,7 +2180,8 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
       true
     } else if let Some(local) = self.locals.last_mut() {
       local.initialized = true;
-      self.emit(self.index - 1, OpCode::AssignLocal(global));
+      // TODO what did this fix?
+      // self.emit(self.index - 1, OpCode::AssignLocal(global));
       true
     } else {
       self.error(self.index, String::from("could not define variable"));
@@ -2186,9 +2193,11 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
     if !self.locals.is_empty() {
       let mut index = self.locals.len() - 1;
 
-      for local in self.locals.iter().rev() {
-        if let Token::Identifier(name) = token {
+      if let Token::Identifier(name) = token {
+        println!("looking for {}", name);
+        for local in self.locals.iter().rev() {
           if *name == local.name {
+            println!("found");
             if !local.initialized {
               self.error(
                 pos,
@@ -2196,18 +2205,24 @@ impl<'ctx, 'file> Parser<'ctx, 'file> {
               );
               return None;
             } else {
+              println!("at index {}", index);
               return Some(Lookup {
                 index,
                 kind: LookupKind::Local,
               });
             }
           }
-        } else {
-          todo!("error here");
+
+          if index > 0 {
+            index -= 1;
+          }
         }
-        if index > 0 {
-          index -= 1;
-        }
+      } else {
+        self.error(
+          self.index,
+          String::from("tried looking up local who is not an identifier"),
+        );
+        return None;
       }
     }
 

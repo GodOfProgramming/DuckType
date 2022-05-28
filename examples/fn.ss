@@ -1,8 +1,12 @@
-fn function(arg1, arg2) {
-  fn p(arg) {
+fn first(arg1, arg2) {
+  let x = 2;
+  print x;
+  fn second(arg) {
     print arg;
   }
-  p(arg1 + arg2);
+  x = 1;
+  print x;
+  second(arg1 + arg2);
 }
 
-function(1, 2);
+first(1, 2);

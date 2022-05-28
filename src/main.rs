@@ -1,4 +1,4 @@
-use simple_script::{NativeFn, Runner, Value, Vpu};
+use simple_script::{Runner, Value, Vpu};
 use std::{env, fs, path::Path, process};
 
 const DISASSEMBLE_FLAG: &str = "--disassemble";
