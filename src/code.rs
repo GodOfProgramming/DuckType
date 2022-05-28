@@ -1684,17 +1684,34 @@ impl<'file> Parser<'file> {
 
   fn print_stmt(&mut self) {
     let pos = self.index - 1;
+
     if !self.expression() {
       return;
     }
+
     if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
       return;
     }
+
     self.emit(pos, OpCode::Print);
   }
 
   fn ret_stmt(&mut self) {
-    unimplemented!();
+    let pos = self.index - 1;
+
+    if self.advance_if_matches(Token::Semicolon) {
+      self.emit(pos, OpCode::Nil);
+    } else {
+      if !self.expression() {
+        return;
+      }
+
+      if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+        return;
+      }
+
+      self.emit(pos, OpCode::Return);
+    }
   }
 
   fn while_stmt(&mut self) {

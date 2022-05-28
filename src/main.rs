@@ -1,4 +1,4 @@
-use simple_script::{Context, Value, Vm, Vpu};
+use simple_script::{Context, New, Value, Vm, Vpu};
 use std::{env, fs, path::Path, process};
 
 const DISASSEMBLE_FLAG: &str = "--disassemble";
@@ -51,10 +51,30 @@ fn run_file(
       Ok(contents) => match vm.load(file, &contents) {
         Ok(mut ctx) => {
           ctx.assign_global(
-            String::from("test"),
+            String::from("clock"),
             Value::NativeFunction(|_args| {
-              println!("test");
-              Ok(Value::Nil)
+              use std::time::{SystemTime, UNIX_EPOCH};
+              let now = SystemTime::now();
+              let since = now.duration_since(UNIX_EPOCH).expect("time went backwards");
+              Ok(Value::new(since.as_nanos()))
+            }),
+          );
+
+          ctx.assign_global(
+            String::from("clock_diff"),
+            Value::NativeFunction(|args| {
+              if let Some(Value::U128(before)) = args.get(0) {
+                if let Some(Value::U128(after)) = args.get(1) {
+                  println!("before = {}", before);
+                  println!("after  = {}", after);
+
+                  let diff = std::time::Duration::from_nanos((after - before) as u64);
+                  return Ok(Value::new(diff.as_secs_f64()));
+                }
+              }
+              Err(String::from(
+                "clock_diff called with wrong number of arguments or invalid types",
+              ))
             }),
           );
 

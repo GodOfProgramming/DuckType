@@ -490,7 +490,10 @@ impl Interpreter for Vpu {
                 }
               },
               Value::NativeFunction(f) => match f(args.drain(0..).rev().collect()) {
-                Ok(v) => ctx.stack_push(v),
+                Ok(v) => {
+                  ctx.stack_pop();
+                  ctx.stack_push(v);
+                }
                 Err(e) => {
                   return Err(
                     ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)),
@@ -515,6 +518,13 @@ impl Interpreter for Vpu {
                 opcode_ref,
               )
             }));
+          }
+        }
+        OpCode::Return => {
+          if let Some(val) = ctx.stack_pop() {
+            return Ok(val);
+          } else {
+            return Ok(Value::Nil);
           }
         }
         x => unimplemented!("Unimplemented: {:?}", x),

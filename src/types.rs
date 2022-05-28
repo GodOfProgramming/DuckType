@@ -71,6 +71,8 @@ pub enum Value {
   List(Values),
   Function(Function),
   NativeFunction(NativeFn),
+
+  U128(u128), // internal use only
 }
 
 impl Value {
@@ -128,6 +130,12 @@ impl New<bool> for Value {
 impl New<f64> for Value {
   fn new(item: f64) -> Self {
     Self::Num(item)
+  }
+}
+
+impl New<u128> for Value {
+  fn new(item: u128) -> Self {
+    Self::U128(item)
   }
 }
 
@@ -310,6 +318,13 @@ impl PartialEq for Value {
           false
         }
       }
+      Self::U128(a) => {
+        if let Self::U128(b) = other {
+          a == b
+        } else {
+          false
+        }
+      }
       Self::List(a) => {
         if let Self::List(b) = other {
           let a = &a.0;
@@ -369,6 +384,10 @@ impl PartialOrd for Value {
         }
         _ => None,
       },
+      Self::U128(a) => match other {
+        Self::U128(b) => Some(a.cmp(b)),
+        _ => None,
+      },
       Self::Str(a) => match other {
         Self::Str(b) => Some(a.cmp(b)),
         _ => None,
@@ -384,6 +403,7 @@ impl Display for Value {
       Self::Nil => write!(f, "nil"),
       Self::Bool(b) => write!(f, "{}", b),
       Self::Num(n) => write!(f, "{}", n),
+      Self::U128(n) => write!(f, "{}", n),
       Self::Str(s) => write!(f, "{}", s),
       Self::List(l) => write!(f, "{}", l),
       Self::Function(func) => write!(f, "<function {}>", func.name),
