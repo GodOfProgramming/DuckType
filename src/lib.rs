@@ -4,11 +4,8 @@ pub mod types;
 #[cfg(test)]
 mod test;
 
-use code::{Compiler, Context, OpCode, OpCodeReflection};
-use std::{
-    fmt::{Debug, Display},
-    iter::FromIterator,
-};
+use code::{Compiler, Context, OpCode};
+use ptr::SmartPtr;
 use types::{Error, Interpreter};
 pub use types::{NativeFn, Value};
 
@@ -554,7 +551,7 @@ impl<I: Interpreter> Vm<I> {
         Vm { vpu }
     }
 
-    pub fn load(&self, file: String, code: &str) -> Result<Context, Vec<Error>> {
+    pub fn load(&self, file: String, code: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
         let compiler = Compiler::default();
         compiler.compile(&file, code)
     }

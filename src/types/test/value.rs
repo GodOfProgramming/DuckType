@@ -52,7 +52,7 @@ mod tests {
     );
   }
 
-  fn can_add(t: &mut ValueTest) {
+  fn can_add(_: &mut ValueTest) {
     let x = Value::new(1.0);
     let y = Value::new(2.0);
 
@@ -100,7 +100,7 @@ mod tests {
     );
   }
 
-  fn can_sub(t: &mut ValueTest) {
+  fn can_sub(_: &mut ValueTest) {
     let x = Value::new(3.0);
     let y = Value::new(2.0);
 
@@ -127,7 +127,7 @@ mod tests {
     );
   }
 
-  fn can_mul(t: &mut ValueTest) {
+  fn can_mul(_: &mut ValueTest) {
     let x = Value::new(2.0);
     let y = Value::new(3.0);
 
@@ -175,7 +175,7 @@ mod tests {
     );
   }
 
-  fn can_div(t: &mut ValueTest) {
+  fn can_div(_: &mut ValueTest) {
     let x = Value::new(3.0);
     let y = Value::new(2.0);
 
@@ -202,7 +202,7 @@ mod tests {
     );
   }
 
-  fn can_mod(t: &mut ValueTest) {
+  fn can_mod(_: &mut ValueTest) {
     let x = Value::new(3.0);
     let y = Value::new(2.0);
 
@@ -253,7 +253,7 @@ mod tests {
     );
   }
 
-  fn can_negate(t: &mut ValueTest) {
+  fn can_negate(_: &mut ValueTest) {
     let x = Value::new(1.0);
     assert_eq!(-x, Ok(Value::new(-1.0)));
   }
