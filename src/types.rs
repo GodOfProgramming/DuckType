@@ -490,10 +490,16 @@ impl Function {
       ));
     }
 
+    let prev_ip = self.ctx.ip;
     self.ctx.ip = 0;
-    self.ctx.stack_move(args.into_iter().rev().collect());
+    let prev_stack = self.ctx.stack_move(args.into_iter().rev().collect());
 
-    i.interpret(&mut self.ctx).map_err(|e| e.msg)
+    let res = i.interpret(&mut self.ctx).map_err(|e| e.msg);
+
+    self.ctx.ip = prev_ip;
+    self.ctx.stack_move(prev_stack);
+
+    res
   }
 }
 

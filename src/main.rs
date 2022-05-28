@@ -75,6 +75,6 @@ fn run_file(runner: Vm<Vpu>, file: String) -> bool {
   true
 }
 
-fn run_cli(runner: Vm<Vpu>) {
-  let quit = false;
+fn run_cli(_runner: Vm<Vpu>) {
+  let _quit = false;
 }

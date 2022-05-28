@@ -79,7 +79,7 @@ impl Vpu {
     index: usize,
     f: F,
   ) -> Option<Error> {
-    if let Some(name) = ctx.const_at(index) {
+    if let Some(name) = ctx.global_const_at(index) {
       if let Value::Str(name) = name {
         f(ctx, name)
       } else {
@@ -166,7 +166,6 @@ impl Interpreter for Vpu {
           }
         },
         OpCode::LookupGlobal(index) => {
-          // TODO ctx here is not local function context and will index wrong
           if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
             match ctx.lookup_global(&name) {
               Some(g) => {

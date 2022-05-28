@@ -1,4 +1,5 @@
 use super::*;
+use std::io::Write;
 use tfix::{fixture, TestFixture};
 
 const EXAMPLE_SCRIPT: &str = include_str!("parser_example_script.ss");
@@ -19,10 +20,8 @@ impl ParserTest {
           SmartPtr::new(String::from("test")),
           SmartPtr::new(self.script.clone()),
         );
-        let mut ctx = SmartPtr::new(Context::new(code_meta));
-
+        let ctx = SmartPtr::new(Context::new(code_meta));
         let parser = Parser::new(tokens, meta, ctx);
-
         f(parser);
       }
       Err(errors) => {
@@ -78,12 +77,12 @@ mod tests {
   }
 
   fn advance_if_matches_advances_only_if_theres_a_match(t: &mut ParserTest) {
-    // valid
     t.script = EXAMPLE_SCRIPT.to_string();
 
     t.test(|mut parser| {
       parser.index = 3;
       assert!(parser.advance_if_matches(Token::RightParen));
+
       assert_eq!(parser.index, 4);
     });
   }

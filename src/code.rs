@@ -6,6 +6,7 @@ use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
   fmt::{self, Debug},
+  io::Write,
   str,
 };
 
@@ -288,7 +289,7 @@ pub struct Context {
 
   global: SmartPtr<Context>,
   parent: SmartPtr<Context>,
-  env: Env,
+  env: Env, // global environment for global context, captures for local context
   stack: Vec<Value>,
   consts: Vec<Value>,
   instructions: Vec<OpCode>,
@@ -373,8 +374,9 @@ impl Context {
     self.stack[index] = value;
   }
 
-  pub fn stack_move(&mut self, other: Vec<Value>) {
-    self.stack = other;
+  pub fn stack_move(&mut self, mut other: Vec<Value>) -> Vec<Value> {
+    std::mem::swap(&mut self.stack, &mut other);
+    other
   }
 
   pub fn const_at(&self, index: usize) -> Option<Value> {
@@ -1742,7 +1744,8 @@ impl<'file> Parser<'file> {
     let loop_depth = self.loop_depth;
     let cont_jump = self.cont_jump;
 
-    let breaks: Vec<usize> = self.breaks.drain(0..).collect();
+    let mut breaks = Vec::default();
+    std::mem::swap(&mut breaks, &mut self.breaks);
 
     self.in_loop = true;
     self.loop_depth = self.scope_depth;
@@ -1764,14 +1767,13 @@ impl<'file> Parser<'file> {
   fn wrap_fn<F: FnOnce(&mut Parser) -> Option<usize>>(&mut self, name: String, index: usize, f: F) {
     self.function_id += 1;
 
-    let locals: Vec<Local> = self.locals.drain(0..).collect();
+    let mut locals = Vec::default();
+    std::mem::swap(&mut locals, &mut self.locals);
 
-    let reflection = Reflection::new(
-      self.current_ctx().meta.file.clone(),
-      self.current_ctx().meta.source.clone(),
-    );
+    let prev_ctx = self.current_ctx();
 
-    let prev_ctx = self.current_ctx().clone();
+    let reflection = Reflection::new(prev_ctx.meta.file.clone(), prev_ctx.meta.source.clone());
+
     let prev_fn = self.current_fn.take();
     self.current_fn = Some(SmartPtr::new(Context::new_child(
       prev_ctx,
@@ -1783,14 +1785,15 @@ impl<'file> Parser<'file> {
       let airity = f(this);
       let ctx = this.current_fn.take().unwrap();
 
+      // restore here so const is emitted to correct place
+      this.current_fn = prev_fn;
+      this.locals = locals;
+
       if let Some(airity) = airity {
         this.emit_const(index, Value::Function(Function::new(name, airity, ctx)))
       }
       true
     });
-
-    self.current_fn = prev_fn;
-    self.locals = locals;
   }
 
   fn rule_for(token: &Token) -> ParseRule<'file> {
