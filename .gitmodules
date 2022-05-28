@@ -1,0 +1,3 @@
+[submodule "lib/ptr"]
+	path = lib/ptr
+	url = git@github.com:GodOfProgramming/ptr
