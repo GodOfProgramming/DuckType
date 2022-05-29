@@ -1468,23 +1468,24 @@ impl<'file> Parser<'file> {
         this.expression_stmt();
       }
 
-      let loop_start = this.ctx.num_instructions();
-
       // for x; y; z { }
       //        ^
+      let comparison_index = this.ctx.num_instructions();
       this.expression();
       let exit_jump = this.emit_jump(this.index); // jump to exit if clause is false
 
-      this.consume(
+      if !this.consume(
         Token::Semicolon,
         String::from("expected ';' after expression"),
-      );
+      ) {
+        return false;
+      }
 
       let body_jump = this.emit_jump(this.index); // jump over increment to the body
-      let increment_start = this.ctx.num_instructions();
 
       // for x; y; z { }
       //           ^
+      let increment_index = this.ctx.num_instructions();
       this.expression();
       this.emit(this.index, OpCode::Pop);
 
@@ -1492,18 +1493,12 @@ impl<'file> Parser<'file> {
         return false;
       }
 
-      this.emit(
-        this.index,
-        OpCode::Loop(this.ctx.num_instructions() - loop_start),
-      );
+      this.loop_to(comparison_index);
       this.patch_jump(body_jump, OpCode::Jump);
 
-      this.wrap_loop(increment_start, |this| {
+      this.wrap_loop(increment_index, |this| {
         this.block_stmt();
-        this.emit(
-          this.index - 1,
-          OpCode::Loop(this.ctx.num_instructions() - increment_start),
-        );
+        this.loop_to(increment_index);
         true
       });
 
@@ -2108,6 +2103,13 @@ impl<'file> Parser<'file> {
       return false;
     }
     self.patch_jump(jmp_pos, OpCode::Or)
+  }
+
+  fn loop_to(&mut self, start: usize) {
+    self.emit(
+      self.index,
+      OpCode::Loop(self.ctx.num_instructions() - start),
+    );
   }
 
   fn named_variable(&mut self, token: Token, pos: usize, can_assign: bool) -> bool {
