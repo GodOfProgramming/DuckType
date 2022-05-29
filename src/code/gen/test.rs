@@ -1,5 +1,7 @@
+use super::gen::Parser;
+use super::lex::Scanner;
 use super::*;
-use std::io::Write;
+use ptr::SmartPtr;
 use tfix::{fixture, TestFixture};
 
 const EXAMPLE_SCRIPT: &str = include_str!("parser_example_script.ss");
