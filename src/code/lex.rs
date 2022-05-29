@@ -1,12 +1,13 @@
 use super::*;
 use crate::types::Error;
+use ptr::SmartPtr;
 use std::str;
 
 #[cfg(test)]
 mod test;
 
 pub struct Scanner<'src> {
-  file: &'src str,
+  file: SmartPtr<String>,
   raw_src: &'src [u8],
   start_pos: usize,
   pos: usize,
@@ -18,7 +19,7 @@ pub struct Scanner<'src> {
 impl<'src> Scanner<'src> {
   pub fn new(file: &'src str, source: &'src str) -> Self {
     Scanner {
-      file,
+      file: SmartPtr::new(String::from(file)),
       raw_src: source.as_bytes(),
       start_pos: 0,
       pos: 0,
@@ -112,7 +113,7 @@ impl<'src> Scanner<'src> {
 
         tokens.push(token);
         meta.push(TokenMeta {
-          file: self.file,
+          file: self.file.clone(),
           line: line + 1,
           column: column + 1,
         });
@@ -140,7 +141,7 @@ impl<'src> Scanner<'src> {
     if let Some(errs) = &mut self.errors {
       errs.push(Error {
         msg,
-        file: String::from(self.file),
+        file: self.file.access().clone(),
         line: self.line + 1,
         column: self.column + 1,
       });

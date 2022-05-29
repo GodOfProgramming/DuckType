@@ -42,20 +42,16 @@ impl Precedence {
   }
 }
 
-type ParseFn<'file> = fn(&mut Parser<'file>, bool) -> bool;
+type ParseFn = fn(&mut Parser, bool) -> bool;
 
-struct ParseRule<'file> {
-  prefix: Option<ParseFn<'file>>,
-  infix: Option<ParseFn<'file>>,
+struct ParseRule {
+  prefix: Option<ParseFn>,
+  infix: Option<ParseFn>,
   precedence: Precedence,
 }
 
-impl<'file> ParseRule<'file> {
-  fn new(
-    prefix: Option<ParseFn<'file>>,
-    infix: Option<ParseFn<'file>>,
-    precedence: Precedence,
-  ) -> Self {
+impl ParseRule {
+  fn new(prefix: Option<ParseFn>, infix: Option<ParseFn>, precedence: Precedence) -> Self {
     Self {
       prefix,
       infix,
@@ -81,9 +77,9 @@ struct Lookup {
   index: usize,
 }
 
-pub struct Parser<'file> {
+pub struct Parser {
   tokens: Vec<Token>,
-  meta: Vec<TokenMeta<'file>>,
+  meta: Vec<TokenMeta>,
   ctx: SmartPtr<Context>,
 
   current_fn: Option<SmartPtr<Context>>,
@@ -105,8 +101,8 @@ pub struct Parser<'file> {
   identifiers: BTreeMap<String, usize>,
 }
 
-impl<'file> Parser<'file> {
-  pub fn new(tokens: Vec<Token>, meta: Vec<TokenMeta<'file>>, ctx: SmartPtr<Context>) -> Self {
+impl Parser {
+  pub fn new(tokens: Vec<Token>, meta: Vec<TokenMeta>, ctx: SmartPtr<Context>) -> Self {
     Self {
       tokens,
       meta,
@@ -147,7 +143,7 @@ impl<'file> Parser<'file> {
         }
         errs.push(Error {
           msg,
-          file: String::from(meta.file),
+          file: meta.file.access().clone(),
           line: meta.line,
           column: meta.column,
         });
@@ -865,7 +861,7 @@ impl<'file> Parser<'file> {
     });
   }
 
-  fn rule_for(token: &Token) -> ParseRule<'file> {
+  fn rule_for(token: &Token) -> ParseRule {
     match token {
       Token::Invalid => panic!("invalid token read"),
       Token::LeftParen => ParseRule::new(

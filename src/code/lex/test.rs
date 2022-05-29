@@ -37,9 +37,9 @@ impl ScannerTest {
     }
   }
 
-  fn mk_meta(&self, line: usize, column: usize) -> TokenMeta<'static> {
+  fn mk_meta(&self, line: usize, column: usize) -> TokenMeta {
     TokenMeta {
-      file: "test",
+      file: SmartPtr::new("test".to_string()),
       line,
       column,
     }
