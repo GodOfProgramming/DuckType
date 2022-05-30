@@ -138,6 +138,9 @@ impl AstGenerator {
       self
         .statements
         .push(Statement::new(BreakStatement::new(loc)));
+    } else {
+      // sanity check
+      self.error::<1>(String::from("could not find original token"));
     }
   }
 
@@ -157,33 +160,39 @@ impl AstGenerator {
       self
         .statements
         .push(Statement::new(ContStatement::new(loc)));
+    } else {
+      // sanity check
+      self.error::<1>(String::from("could not find original token"));
     }
   }
 
   fn end_stmt(&mut self) {
     if let Some(end_meta) = self.meta_at::<1>() {
-      let expr = if !self.advance_if_matches(Token::Semicolon) {
+      let expr = if self.advance_if_matches(Token::Semicolon) {
+        None
+      } else {
         let expr = self.expression();
 
         if expr.is_none() {
           return;
         }
 
-        expr
-      } else {
-        None
-      };
+        if !self.consume(
+          Token::Semicolon,
+          String::from("expected ';' after statement"),
+        ) {
+          return;
+        }
 
-      if !self.consume(
-        Token::Semicolon,
-        String::from("expected ';' after statement"),
-      ) {
-        return;
-      }
+        expr
+      };
 
       self
         .statements
         .push(Statement::new(EndStatement::new(expr, end_meta)));
+    } else {
+      // sanity check
+      self.error::<0>(String::from("could not find original token"));
     }
   }
 
@@ -323,30 +332,37 @@ impl AstGenerator {
   }
 
   fn let_stmt(&mut self) {
-    if let Some(Token::Identifier(ident)) = self.current() {
-      let ident = Ident::new(ident);
+    if let Some(let_loc) = self.meta_at::<1>() {
+      if let Some(Token::Identifier(ident)) = self.current() {
+        let ident = Ident::new(ident);
+        self.advance();
 
-      let mut value = None;
-      if self.advance_if_matches(Token::Equal) {
-        if let Some(expr) = self.expression() {
-          value = Some(expr);
+        let value = if self.advance_if_matches(Token::Equal) {
+          if let Some(expr) = self.expression() {
+            Some(expr)
+          } else {
+            return;
+          }
         } else {
+          None
+        };
+
+        if !self.consume(
+          Token::Semicolon,
+          String::from("expected ';' after let statement"),
+        ) {
           return;
         }
-      }
 
-      if !self.consume(
-        Token::Semicolon,
-        String::from("expected ';' after statement"),
-      ) {
-        return;
+        self
+          .statements
+          .push(Statement::new(LetStatement::new(ident, value, let_loc)));
+      } else {
+        self.error::<0>(String::from("expected variable name"));
       }
-
-      self
-        .statements
-        .push(Statement::new(LetStatement::new(ident, value)));
     } else {
-      self.error::<0>(String::from("expected variable name"));
+      // sanity check
+      self.error::<0>(String::from("could not find original token"));
     }
   }
 
@@ -427,6 +443,9 @@ impl AstGenerator {
           .statements
           .push(Statement::new(PrintStatement::new(expr, loc)));
       }
+    } else {
+      // sanity check
+      self.error::<0>(String::from("could not find original token"));
     }
   }
 
@@ -749,9 +768,7 @@ impl AstGenerator {
   }
 
   fn error<const I: usize>(&mut self, msg: String) {
-    let meta = self.meta_at::<I>();
-
-    if let Some(meta) = meta {
+    if let Some(meta) = self.meta_at::<I>() {
       if cfg!(debug_assertions) {
         println!(
           "{} ({}, {}): {}",
@@ -763,6 +780,13 @@ impl AstGenerator {
         file: String::default(), // TODO get file when loading is supported
         line: meta.line,
         column: meta.column,
+      });
+    } else {
+      self.errors.push(Error {
+        msg: format!("could not find location of token for msg '{}'", msg),
+        file: String::default(), // TODO get file when loading is supported
+        line: 0,
+        column: 0,
       });
     }
 
@@ -1144,11 +1168,13 @@ impl BlockStatement {
 pub struct LetStatement {
   pub ident: Ident,
   pub value: Option<Expression>,
+
+  pub loc: SourceLocation, // location of the let
 }
 
 impl LetStatement {
-  fn new(ident: Ident, value: Option<Expression>) -> Self {
-    Self { ident, value }
+  fn new(ident: Ident, value: Option<Expression>, loc: SourceLocation) -> Self {
+    Self { ident, value, loc }
   }
 }
 

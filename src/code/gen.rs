@@ -25,7 +25,7 @@ pub struct BytecodeGenerator {
   breaks: Vec<usize>,
   cont_jump: usize,
 
-  errors: Option<Vec<Error>>,
+  errors: Vec<Error>,
 }
 
 impl BytecodeGenerator {
@@ -33,19 +33,19 @@ impl BytecodeGenerator {
     Self {
       ctx,
 
-      identifiers: BTreeMap::new(),
-      locals: Vec::new(),
+      identifiers: Default::default(),
+      locals: Default::default(),
 
-      function_id: 0,
-      current_fn: None,
+      function_id: Default::default(),
+      current_fn: Default::default(),
 
-      scope_depth: 0,
-      loop_depth: 0,
+      scope_depth: Default::default(),
+      loop_depth: Default::default(),
 
-      breaks: Vec::new(),
-      cont_jump: 0,
+      breaks: Default::default(),
+      cont_jump: Default::default(),
 
-      errors: None,
+      errors: Default::default(),
     }
   }
 
@@ -81,7 +81,13 @@ impl BytecodeGenerator {
   }
 
   fn let_stmt(&mut self, stmt: LetStatement) {
-    unimplemented!();
+    if let Some(var) = self.declare_variable(stmt.ident, stmt.loc) {
+      if let Some(value) = stmt.value {
+        self.emit_expr(value);
+      }
+
+      self.define_variable(var, stmt.loc);
+    }
   }
 
   fn print_stmt(&mut self, stmt: PrintStatement) {
@@ -199,7 +205,7 @@ impl BytecodeGenerator {
       Statement::For(stmt) => {}
       Statement::If(stmt) => {}
       Statement::Block(stmt) => {}
-      Statement::Let(stmt) => {}
+      Statement::Let(stmt) => self.let_stmt(stmt),
       Statement::Load(stmt) => {}
       Statement::Loop(stmt) => {}
       Statement::Match(stmt) => {}
@@ -264,6 +270,72 @@ impl BytecodeGenerator {
     }
   }
 
+  /**
+   * Define a variable
+   * If global, the location of its name will be specified by 'var'
+   * If local, the last entry in the locals vector will be variable to mark as initialized
+   */
+  fn define_variable(&mut self, var: usize, loc: SourceLocation) -> bool {
+    if self.scope_depth == 0 {
+      self.emit(OpCode::DefineGlobal(var), loc);
+      true
+    } else if let Some(local) = self.locals.last_mut() {
+      local.initialized = true;
+      true
+    } else {
+      self.error(loc, String::from("could not define variable"));
+      false
+    }
+  }
+
+  fn declare_variable(&mut self, ident: Ident, loc: SourceLocation) -> Option<usize> {
+    if self.scope_depth == 0 {
+      Some(self.declare_global(ident))
+    } else if self.declare_local(ident, loc) {
+      Some(0)
+    } else {
+      None
+    }
+  }
+
+  fn declare_local(&mut self, ident: Ident, loc: SourceLocation) -> bool {
+    let mut new_declaration = true;
+
+    for local in self.locals.iter().rev() {
+      // declared already in parent scope
+      if local.initialized && local.depth < self.scope_depth {
+        new_declaration = false;
+        break;
+      }
+
+      if ident.name == local.name {
+        self.error(
+          loc,
+          String::from("variable with same name already declared"),
+        );
+        return false;
+      }
+    }
+
+    if new_declaration {
+      self.add_local(ident.name);
+    }
+
+    true
+  }
+
+  fn declare_global(&mut self, ident: Ident) -> usize {
+    self.add_ident(ident)
+  }
+
+  fn add_local(&mut self, name: String) {
+    self.locals.push(Local {
+      name,
+      depth: self.scope_depth,
+      initialized: false,
+    });
+  }
+
   fn resolve_local(&mut self, ident: &Ident) -> Option<Lookup> {
     if !self.locals.is_empty() {
       let mut index = self.locals.len() - 1;
@@ -315,6 +387,21 @@ impl BytecodeGenerator {
       }
     }
     count
+  }
+
+  fn error(&mut self, loc: SourceLocation, msg: String) {
+    if cfg!(debug_assertions) {
+      println!(
+        "{} ({}, {}): {}",
+        "TODO GET FILE NAME", loc.line, loc.column, msg
+      );
+    }
+    self.errors.push(Error {
+      msg,
+      file: String::default(),
+      line: loc.line,
+      column: loc.column,
+    });
   }
 }
 
@@ -1510,11 +1597,11 @@ impl Parser {
       return None;
     }
 
-    if !self.declare_variable() {
-      return None;
-    }
-
     if self.scope_depth > 0 {
+      if !self.declare_variable() {
+        return None;
+      }
+
       Some(0)
     } else if let Some(name) = self.previous() {
       if let Token::Identifier(name) = name {
@@ -1601,8 +1688,6 @@ impl Parser {
       true
     } else if let Some(local) = self.locals.last_mut() {
       local.initialized = true;
-      // TODO what did this fix?
-      // self.emit(self.index - 1, OpCode::AssignLocal(global));
       true
     } else {
       self.error(self.index, String::from("could not define variable"));
