@@ -150,7 +150,7 @@ impl Interpreter for Vpu {
           }
         },
         OpCode::AssignLocal(index) => match ctx.stack_peek() {
-          Some(v) => ctx.stack_assign(index, v),
+          Some(v) => ctx.stack_assign(index, v.clone()),
           None => {
             return Err(ctx.reflect_instruction(|opcode_ref| {
               Error::from_ref(
@@ -182,8 +182,8 @@ impl Interpreter for Vpu {
         }
         OpCode::DefineGlobal(index) => {
           if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
-            if let Some(v) = ctx.stack_pop() {
-              if !ctx.define_global(name, v) {
+            if let Some(v) = ctx.stack_peek() {
+              if !ctx.define_global(name, v.clone()) {
                 return Some(ctx.reflect_instruction(|opcode_ref| {
                   Error::from_ref(String::from("tried redefining global variable, this error should be detected in the parsing phase"), &opcode, opcode_ref)
                 }));
@@ -204,7 +204,7 @@ impl Interpreter for Vpu {
         }
         OpCode::AssignGlobal(index) => {
           if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
-            if let Some(v) = ctx.stack_pop() {
+            if let Some(v) = ctx.stack_peek() {
               if !ctx.assign_global(name, v) {
                 return Some(ctx.reflect_instruction(|opcode_ref| {
                   Error::from_ref(

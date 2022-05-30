@@ -88,9 +88,14 @@ impl BytecodeGenerator {
     if let Some(var) = self.declare_variable(stmt.ident, stmt.loc) {
       if let Some(value) = stmt.value {
         self.emit_expr(value);
+      } else {
+        self.emit(OpCode::Nil, stmt.loc);
       }
 
       self.define_variable(var, stmt.loc);
+      if self.scope_depth == 0 {
+        self.emit(OpCode::Pop, stmt.loc);
+      }
     }
   }
 
