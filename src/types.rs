@@ -60,7 +60,9 @@ impl Display for Error {
   }
 }
 
-pub type NativeFn = fn(Vec<Value>) -> ValueOpResult;
+pub type NativeFn = dyn FnMut(&[Value]) -> ValueOpResult;
+pub type NativeFnPtr = Box<dyn FnMut(&[Value]) -> ValueOpResult>;
+pub type NativeFnSmartPtr = SmartPtr<NativeFnPtr>;
 
 #[derive(Clone)]
 pub enum Value {
@@ -70,7 +72,7 @@ pub enum Value {
   Str(String),
   List(Values),
   Function(Function),
-  NativeFunction(NativeFn),
+  NativeFunction(NativeFnSmartPtr),
 
   U128(u128), // internal use only
 }
@@ -181,9 +183,9 @@ impl New<Function> for Value {
   }
 }
 
-impl New<NativeFn> for Value {
-  fn new(item: NativeFn) -> Self {
-    Self::NativeFunction(item)
+impl<F: FnMut(&[Value]) -> ValueOpResult + 'static> New<F> for Value {
+  fn new(item: F) -> Self {
+    Self::NativeFunction(SmartPtr::new(Box::new(item)))
   }
 }
 
@@ -358,7 +360,7 @@ impl PartialEq for Value {
       }
       Self::NativeFunction(a) => {
         if let Self::NativeFunction(b) = other {
-          a == b
+          std::ptr::addr_of!(**a) == std::ptr::addr_of!(**b)
         } else {
           false
         }
@@ -501,18 +503,22 @@ impl Function {
     Self { name, airity, ctx }
   }
 
-  pub fn call<I: Interpreter>(&mut self, i: &I, args: Vec<Value>) -> Result<Value, String> {
-    if self.airity != args.len() {
+  pub fn call<I: Interpreter>(&mut self, i: &I, mut args: Vec<Value>) -> Result<Value, String> {
+    if args.len() > self.airity {
       return Err(format!(
-        "invalid number of arguments, expected {}, got {}",
+        "too many arguments number of arguments, expected {}, got {}",
         self.airity,
         args.len()
       ));
     }
 
+    while args.len() < self.airity {
+      args.push(Value::Nil);
+    }
+
     let prev_ip = self.ctx.ip;
     self.ctx.ip = 0;
-    let prev_stack = self.ctx.stack_move(args.into_iter().rev().collect());
+    let prev_stack = self.ctx.stack_move(args);
 
     let res = i.interpret(&mut self.ctx).map_err(|e| e.msg);
 

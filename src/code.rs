@@ -5,7 +5,7 @@ pub mod opt;
 pub mod parse;
 
 use crate::{
-  types::{Env, Error, NativeFn, Value},
+  types::{Env, Error, NativeFn, Value, ValueOpResult},
   New,
 };
 use ast::Ast;
@@ -15,6 +15,7 @@ use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   fmt::{self, Debug},
+  ops::Range,
   str,
 };
 
@@ -365,6 +366,10 @@ impl Context {
     self.stack.truncate(self.stack.len().saturating_sub(count));
   }
 
+  pub fn stack_range(&self, range: Range<usize>) -> &[Value] {
+    &self.stack[range]
+  }
+
   pub fn stack_index(&self, index: usize) -> Option<Value> {
     self.stack.get(index).cloned()
   }
@@ -384,6 +389,10 @@ impl Context {
   pub fn stack_move(&mut self, mut other: Vec<Value>) -> Vec<Value> {
     std::mem::swap(&mut self.stack, &mut other);
     other
+  }
+
+  pub fn stack_size(&self) -> usize {
+    self.stack.len()
   }
 
   pub fn const_at(&self, index: usize) -> Option<Value> {
@@ -427,7 +436,11 @@ impl Context {
     }
   }
 
-  pub fn create_native(&mut self, name: String, native: NativeFn) -> bool {
+  pub fn create_native<F: FnMut(&[Value]) -> ValueOpResult + 'static>(
+    &mut self,
+    name: String,
+    native: F,
+  ) -> bool {
     self.assign_global(name, Value::new(native))
   }
 

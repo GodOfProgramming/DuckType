@@ -203,63 +203,68 @@ impl AstGenerator {
   }
 
   fn fn_stmt(&mut self) {
-    if let Some(Token::Identifier(fn_name)) = self.current() {
-      let ident = Ident::new(fn_name);
+    if let Some(loc) = self.meta_at::<0>() {
+      if let Some(Token::Identifier(fn_name)) = self.current() {
+        let ident = Ident::new(fn_name);
 
-      self.advance();
-      if !self.consume(
-        Token::LeftParen,
-        String::from("expect '(' after function name"),
-      ) {
-        return;
-      }
+        self.advance();
+        if !self.consume(
+          Token::LeftParen,
+          String::from("expect '(' after function name"),
+        ) {
+          return;
+        }
 
-      let mut params = Vec::default();
-      if let Some(mut token) = self.current() {
-        if token != Token::RightParen {
-          loop {
-            if let Token::Identifier(ident) = token {
-              params.push(Ident::new(ident));
-            }
+        let mut params = Vec::default();
+        if let Some(mut token) = self.current() {
+          if token != Token::RightParen {
+            loop {
+              if let Token::Identifier(ident) = token {
+                params.push(Ident::new(ident));
+              }
 
-            self.advance();
+              self.advance();
 
-            if !self.advance_if_matches(Token::Comma) {
-              break;
-            }
+              if !self.advance_if_matches(Token::Comma) {
+                break;
+              }
 
-            if let Some(next) = self.current() {
-              token = next;
-            } else {
-              break;
+              if let Some(next) = self.current() {
+                token = next;
+              } else {
+                break;
+              }
             }
           }
         }
-      }
 
-      if !self.consume(
-        Token::RightParen,
-        String::from("expected ')' after arguments"),
-      ) {
-        return;
-      }
+        if !self.consume(
+          Token::RightParen,
+          String::from("expected ')' after arguments"),
+        ) {
+          return;
+        }
 
-      if !self.consume(Token::LeftBrace, String::from("expected '}' after paren")) {
-        return;
-      }
+        if !self.consume(Token::LeftBrace, String::from("expected '{' after paren")) {
+          return;
+        }
 
-      if let Some(block_loc) = self.meta_at::<1>() {
-        if let Some(body) = self.block(block_loc) {
-          self
-            .statements
-            .push(Statement::new(FnStatement::new(ident, params, body)));
+        if let Some(block_loc) = self.meta_at::<1>() {
+          if let Some(body) = self.block(block_loc) {
+            self.statements.push(Statement::new(FnStatement::new(
+              ident,
+              params,
+              Statement::new(body),
+              loc,
+            )));
+          }
+        } else {
+          // sanity check
+          self.error::<0>(String::from("could not find original token"));
         }
       } else {
-        // sanity check
-        self.error::<0>(String::from("could not find original token"));
+        self.error::<0>(String::from("expected an identifier"));
       }
-    } else {
-      self.error::<0>(String::from("expected an identifier"));
     }
   }
 
@@ -1045,6 +1050,7 @@ impl AstGenerator {
   }
 }
 
+#[derive(Clone)]
 pub struct Ident {
   pub name: String,
 }
@@ -1209,15 +1215,17 @@ impl EndStatement {
 pub struct FnStatement {
   pub ident: Ident,
   pub params: Vec<Ident>,
-  pub body: Box<BlockStatement>,
+  pub body: Box<Statement>,
+  pub loc: SourceLocation,
 }
 
 impl FnStatement {
-  fn new(ident: Ident, params: Vec<Ident>, body: BlockStatement) -> Self {
+  fn new(ident: Ident, params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
     Self {
       ident,
       params,
       body: Box::new(body),
+      loc,
     }
   }
 }

@@ -8,7 +8,7 @@ pub use code::Context;
 use code::{Compiler, OpCode};
 use ptr::SmartPtr;
 use types::{Error, Interpreter};
-pub use types::{NativeFn, Value};
+pub use types::{NativeFn, Value, ValueOpResult};
 
 pub trait New<T> {
   fn new(item: T) -> Self;
@@ -462,34 +462,24 @@ impl Interpreter for Vpu {
           None => return Ok(Value::Nil),
         },
         OpCode::Call(airity) => {
-          if let Some(v) = ctx.stack_index_rev(airity) {
-            let mut args = Vec::new();
-            for _ in 0..airity {
-              if let Some(arg) = ctx.stack_pop() {
-                args.push(arg);
-              } else {
-                return Err(ctx.reflect_instruction(|opcode_ref| {
-                  Error::from_ref(
-                    String::from("no available argument on stack for function call"),
-                    &opcode,
-                    opcode_ref,
-                  )
-                }));
+          if let Some(function) = ctx.stack_pop() {
+            let args = ctx.stack_range(ctx.stack_size() - airity..ctx.stack_size());
+            match function {
+              Value::Function(mut f) => {
+                let args = Vec::from(args);
+                match f.call(self, args) {
+                  Ok(v) => {
+                    ctx.stack_pop();
+                    ctx.stack_push(v);
+                  }
+                  Err(e) => {
+                    return Err(
+                      ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)),
+                    )
+                  }
+                }
               }
-            }
-            match v {
-              Value::Function(mut f) => match f.call(self, args) {
-                Ok(v) => {
-                  ctx.stack_pop();
-                  ctx.stack_push(v);
-                }
-                Err(e) => {
-                  return Err(
-                    ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)),
-                  )
-                }
-              },
-              Value::NativeFunction(f) => match f(args.drain(0..).rev().collect()) {
+              Value::NativeFunction(mut f) => match f(args) {
                 Ok(v) => {
                   ctx.stack_pop();
                   ctx.stack_push(v);
@@ -503,7 +493,7 @@ impl Interpreter for Vpu {
               _ => {
                 return Err(ctx.reflect_instruction(|opcode_ref| {
                   Error::from_ref(
-                    format!("unable to call non function '{}'", v),
+                    format!("unable to call non function '{}'", function),
                     &opcode,
                     opcode_ref,
                   )

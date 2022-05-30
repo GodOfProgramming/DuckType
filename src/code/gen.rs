@@ -108,6 +108,16 @@ impl BytecodeGenerator {
     self.emit(OpCode::End, stmt.loc);
   }
 
+  fn fn_stmt(&mut self, stmt: FnStatement) {
+    if let Some(var) = self.declare_variable(stmt.ident.clone(), stmt.loc) {
+      self.emit_fn(stmt.ident, stmt.params, *stmt.body, stmt.loc);
+      self.define_variable(var, stmt.loc);
+      if self.scope_depth == 0 {
+        self.emit(OpCode::Pop, stmt.loc);
+      }
+    }
+  }
+
   fn for_stmt(&mut self, stmt: ForStatement) {
     let loc = stmt.loc;
 
@@ -296,7 +306,7 @@ impl BytecodeGenerator {
       Statement::Break(stmt) => self.break_stmt(stmt),
       Statement::Cont(stmt) => self.cont_stmt(stmt),
       Statement::End(stmt) => self.end_stmt(stmt),
-      Statement::Fn(stmt) => {}
+      Statement::Fn(stmt) => self.fn_stmt(stmt),
       Statement::For(stmt) => self.for_stmt(stmt),
       Statement::If(stmt) => self.if_stmt(stmt),
       Statement::Let(stmt) => self.let_stmt(stmt),
@@ -348,6 +358,49 @@ impl BytecodeGenerator {
     self.cont_jump = cont_jump;
 
     self.loop_depth = loop_depth;
+  }
+
+  fn emit_fn(&mut self, ident: Ident, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
+    self.function_id += 1;
+
+    let mut locals = Vec::default();
+    std::mem::swap(&mut locals, &mut self.locals);
+
+    let parent_ctx = self.current_ctx();
+    let prev_fn = self.current_fn.take();
+
+    let reflection = Reflection::new(parent_ctx.meta.file.clone(), parent_ctx.meta.source.clone());
+
+    self.current_fn = Some(SmartPtr::new(Context::new_child(
+      parent_ctx,
+      reflection,
+      self.function_id,
+    )));
+
+    self.new_scope(loc, |this| {
+      let airity = args.len();
+
+      for arg in args {
+        if let Some(var) = this.declare_variable(arg, loc) {
+          this.define_variable(var, loc);
+        }
+      }
+
+      this.emit_stmt(body);
+
+      let ctx = this.current_fn.take().unwrap();
+
+      let num_locals = this.num_locals_in_depth(this.scope_depth);
+      if num_locals != 0 {
+        this.emit(OpCode::PopN(num_locals), loc);
+      }
+
+      // restore here so const is emitted to correct place
+      this.current_fn = prev_fn;
+      this.locals = locals;
+
+      this.emit_const(Value::Function(Function::new(ident.name, airity, ctx)), loc)
+    });
   }
 
   fn emit_loop(&mut self, start: usize, loc: SourceLocation) {
