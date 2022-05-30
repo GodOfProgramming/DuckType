@@ -3,7 +3,7 @@ use crate::{
   types::{Error, Value},
   New,
 };
-use std::fmt::{self, Display, Formatter};
+use std::mem;
 
 pub struct Ast {
   pub statements: Vec<Statement>,
@@ -39,7 +39,7 @@ impl AstGenerator {
     }
   }
 
-  fn generate(self) -> Result<Ast, Vec<Error>> {
+  fn generate(mut self) -> Result<Ast, Vec<Error>> {
     while let Some(current) = self.current() {
       self.statement(current);
     }
@@ -117,6 +117,11 @@ impl AstGenerator {
 
   /* Statements */
 
+  fn block_stmt(&mut self) {
+    let block = self.block();
+    self.statements.push(Statement::new(block));
+  }
+
   fn break_stmt(&mut self) {
     if !self.in_loop {
       self.error(
@@ -149,17 +154,6 @@ impl AstGenerator {
     self.statements.push(Statement::Cont);
   }
 
-  fn print_stmt(&mut self) {
-    if let Some(expr) = self.expression() {
-      if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
-        return;
-      }
-      self
-        .statements
-        .push(Statement::new(PrintStatement::new(expr)));
-    }
-  }
-
   fn end_stmt(&mut self) {
     let expr = if !self.advance_if_matches(Token::Semicolon) {
       let expr = self.expression();
@@ -184,15 +178,268 @@ impl AstGenerator {
 
   fn fn_stmt(&mut self) {
     if let Some(Token::Identifier(fn_name)) = self.current() {
+      let ident = Ident::new(fn_name);
+
+      self.advance();
       if !self.consume(
         Token::LeftParen,
         String::from("expect '(' after function name"),
       ) {
         return;
       }
-      // TODO consider block expressions
+
+      let mut params = Vec::default();
+      if let Some(mut token) = self.current() {
+        if token != Token::RightParen {
+          loop {
+            if let Token::Identifier(ident) = token {
+              params.push(Ident::new(ident));
+            }
+
+            self.advance();
+
+            if !self.advance_if_matches(Token::Comma) {
+              break;
+            }
+
+            if let Some(next) = self.current() {
+              token = next;
+            } else {
+              break;
+            }
+          }
+        }
+      }
+
+      if !self.consume(
+        Token::RightParen,
+        String::from("expected ')' after arguments"),
+      ) {
+        return;
+      }
+
+      if !self.consume(Token::LeftBrace, String::from("expected '}' after paren")) {
+        return;
+      }
+
+      let body = self.block();
+
+      self
+        .statements
+        .push(Statement::new(FnStatement::new(ident, params, body)));
     } else {
-      self.error(var_pos, String::from("expected an identifier"));
+      self.error(self.index, String::from("expected an identifier"));
+    }
+  }
+
+  fn for_stmt(&mut self) {
+    let mut statements = self.scope(|this| {
+      if this.advance_if_matches(Token::Let) {
+        this.let_stmt();
+      } else {
+        this.expression_stmt();
+      }
+
+      if let Some(comparison) = this.expression() {
+        if let Some(increment) = this.expression() {
+          this
+            .statements
+            .push(Statement::new(ExpressionStatement::new(comparison)));
+          this
+            .statements
+            .push(Statement::new(ExpressionStatement::new(increment)));
+
+          if this.consume(
+            Token::LeftBrace,
+            String::from("expected '{' after increment"),
+          ) {
+            let block = this.block();
+            this.statements.push(Statement::new(block));
+          }
+        } else {
+          this.error(
+            this.index,
+            String::from("expected increment after comparison"),
+          );
+        }
+      } else {
+        this.error(
+          this.index,
+          String::from("expected comparison after initializer"),
+        );
+      }
+    });
+
+    if statements.len() == 4 {
+      let block = statements.swap_remove(3);
+      let increment = statements.swap_remove(2);
+      let comparison = statements.swap_remove(1);
+      let initializer = statements.swap_remove(0);
+      self.statements.push(Statement::new(ForStatement::new(
+        initializer,
+        comparison,
+        increment,
+        block,
+      )));
+    }
+  }
+
+  fn if_stmt(&mut self) {
+    if let Some(expr) = self.expression() {
+      if !self.consume(
+        Token::LeftBrace,
+        String::from("expected '{' after condition"),
+      ) {
+        return;
+      }
+
+      let block = self.block();
+      self
+        .statements
+        .push(Statement::new(IfStatement::new(expr, block)));
+    } else {
+      return;
+    }
+
+    if self.advance_if_matches(Token::Else) {
+      if let Some(token) = self.current() {
+        match token {
+          Token::LeftBrace => self.block_stmt(),
+          Token::If => self.if_stmt(),
+          _ => self.error(self.index, String::from("unexpected token after 'else'")),
+        }
+      } else {
+        self.error(self.index - 1, String::from("unexpected end of file"));
+      }
+    }
+  }
+
+  fn let_stmt(&mut self) {
+    if let Some(Token::Identifier(ident)) = self.current() {
+      let ident = Ident::new(ident);
+
+      let mut value = None;
+      if self.advance_if_matches(Token::Equal) {
+        if let Some(expr) = self.expression() {
+          value = Some(expr);
+        } else {
+          return;
+        }
+      }
+
+      self
+        .statements
+        .push(Statement::new(LetStatement::new(ident, value)));
+    } else {
+      self.error(self.index, String::from("expected variable name"));
+    }
+  }
+
+  fn load_stmt(&mut self) {
+    unimplemented!();
+  }
+
+  fn loop_stmt(&mut self) {
+    if !self.consume(Token::LeftBrace, String::from("expect '{' after loop")) {
+      return;
+    }
+
+    let block = self.block();
+
+    self
+      .statements
+      .push(Statement::new(LoopStatement::new(block)));
+  }
+
+  fn match_stmt(&mut self) {
+    if let Some(expr) = self.expression() {
+      if !self.consume(
+        Token::LeftBrace,
+        String::from("expected '{' after expression"),
+      ) {
+        return;
+      }
+
+      let mut branches = Vec::default();
+
+      while let Some(token) = self.current() {
+        if token == Token::RightBrace {
+          break;
+        }
+
+        if let Some(condition) = self.expression() {
+          if !self.consume(Token::Arrow, String::from("expected => after expression")) {
+            break;
+          }
+
+          let stmt = if self.advance_if_matches(Token::LeftBrace) {
+            Statement::new(self.block())
+          } else if let Some(eval) = self.expression() {
+            if !self.consume(Token::Comma, String::from("expected ',' after expression")) {
+              break;
+            }
+            Statement::new(ExpressionStatement::new(eval))
+          } else {
+            break;
+          };
+
+          branches.push((condition, stmt));
+        } else {
+          break; // error but need to restore statements
+        }
+      }
+
+      self
+        .statements
+        .push(Statement::new(MatchStatement::new(expr, branches)))
+    }
+  }
+
+  fn print_stmt(&mut self) {
+    if let Some(expr) = self.expression() {
+      if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+        return;
+      }
+      self
+        .statements
+        .push(Statement::new(PrintStatement::new(expr)));
+    }
+  }
+
+  fn ret_stmt(&mut self) {
+    if let Some(current) = self.current() {
+      let expr = if current == Token::Semicolon {
+        None
+      } else if let Some(expr) = self.expression() {
+        Some(expr)
+      } else {
+        return;
+      };
+
+      if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+        return;
+      }
+
+      self
+        .statements
+        .push(Statement::new(RetStatement::new(expr)));
+    }
+  }
+
+  fn while_stmt(&mut self) {
+    if let Some(expr) = self.expression() {
+      if !self.consume(
+        Token::LeftBrace,
+        String::from("expected '{' after expression"),
+      ) {
+        return;
+      }
+
+      let block = self.block();
+
+      self
+        .statements
+        .push(Statement::new(WhileStatement::new(expr, block)));
     }
   }
 
@@ -343,7 +590,7 @@ impl AstGenerator {
   }
 
   fn call_expr(&mut self, ident: Expression) -> Option<Expression> {
-    let args = Vec::default();
+    let mut args = Vec::default();
 
     if let Some(token) = self.current() {
       if token != Token::RightParen {
@@ -459,11 +706,32 @@ impl AstGenerator {
     }
   }
 
+  fn scope<F: FnOnce(&mut Self)>(&mut self, f: F) -> Vec<Statement> {
+    let mut statements = Vec::default();
+    mem::swap(&mut statements, &mut self.statements);
+    f(self);
+    mem::swap(&mut statements, &mut self.statements);
+    statements
+  }
+
+  fn block(&mut self) -> BlockStatement {
+    let statements = self.scope(|this| {
+      while let Some(token) = this.current() {
+        if token == Token::RightBrace {
+          break;
+        }
+        this.statement(token);
+      }
+    });
+
+    BlockStatement::new(statements)
+  }
+
   fn parse_precedence(&mut self, precedence: Precedence) -> Option<Expression> {
     self.advance();
 
     if let Some(prev) = self.previous() {
-      let expr: Expression;
+      let mut expr: Expression;
       let rule = Self::rule_for(&prev);
       let can_assign = precedence <= Precedence::Assignment;
 
@@ -691,11 +959,37 @@ pub struct FnStatement {
   pub body: Box<BlockStatement>,
 }
 
+impl FnStatement {
+  fn new(ident: Ident, params: Vec<Ident>, body: BlockStatement) -> Self {
+    Self {
+      ident,
+      params,
+      body: Box::new(body),
+    }
+  }
+}
+
 pub struct ForStatement {
-  pub initializer: Option<Expression>,
-  pub comparison: Option<Expression>,
-  pub increment: Option<Expression>,
-  pub block: Box<BlockStatement>,
+  pub initializer: Box<Statement>,
+  pub comparison: Box<Statement>,
+  pub increment: Box<Statement>,
+  pub block: Box<Statement>,
+}
+
+impl ForStatement {
+  fn new(
+    initializer: Statement,
+    comparison: Statement,
+    increment: Statement,
+    block: Statement,
+  ) -> Self {
+    Self {
+      initializer: Box::new(initializer),
+      comparison: Box::new(comparison),
+      increment: Box::new(increment),
+      block: Box::new(block),
+    }
+  }
 }
 
 pub struct IfStatement {
@@ -703,13 +997,34 @@ pub struct IfStatement {
   pub block: Box<BlockStatement>,
 }
 
+impl IfStatement {
+  fn new(comparison: Expression, block: BlockStatement) -> Self {
+    Self {
+      comparison,
+      block: Box::new(block),
+    }
+  }
+}
+
 pub struct BlockStatement {
   pub statements: Vec<Statement>,
+}
+
+impl BlockStatement {
+  fn new(statements: Vec<Statement>) -> Self {
+    Self { statements }
+  }
 }
 
 pub struct LetStatement {
   pub ident: Ident,
   pub value: Option<Expression>,
+}
+
+impl LetStatement {
+  fn new(ident: Ident, value: Option<Expression>) -> Self {
+    Self { ident, value }
+  }
 }
 
 pub struct LoadStatement {
@@ -720,9 +1035,23 @@ pub struct LoopStatement {
   pub block: Box<BlockStatement>,
 }
 
+impl LoopStatement {
+  fn new(block: BlockStatement) -> Self {
+    Self {
+      block: Box::new(block),
+    }
+  }
+}
+
 pub struct MatchStatement {
   pub expr: Expression,
-  pub matchers: Vec<IfStatement>,
+  pub branches: Vec<(Expression, Statement)>,
+}
+
+impl MatchStatement {
+  fn new(expr: Expression, branches: Vec<(Expression, Statement)>) -> Self {
+    Self { expr, branches }
+  }
 }
 
 pub struct PrintStatement {
@@ -739,9 +1068,24 @@ pub struct RetStatement {
   pub expr: Option<Expression>,
 }
 
+impl RetStatement {
+  fn new(expr: Option<Expression>) -> Self {
+    Self { expr }
+  }
+}
+
 pub struct WhileStatement {
   pub comparison: Expression,
   pub block: Box<BlockStatement>,
+}
+
+impl WhileStatement {
+  fn new(comparison: Expression, block: BlockStatement) -> Self {
+    Self {
+      comparison,
+      block: Box::new(block),
+    }
+  }
 }
 
 pub struct ExpressionStatement {
