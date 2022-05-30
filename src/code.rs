@@ -1,13 +1,16 @@
 pub mod ast;
 pub mod gen;
 pub mod lex;
+pub mod opt;
 
 use crate::{
   types::{Env, Error, NativeFn, Value},
   New,
 };
-use gen::Parser;
+use ast::Ast;
+use gen::BytecodeGenerator;
 use lex::Scanner;
+use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   fmt::{self, Debug},
@@ -598,19 +601,23 @@ impl Compiler {
       .scan()
       .map_err(|errs| self.reformat_errors(source, errs))?;
 
-    let file = SmartPtr::new(String::from(file));
-    let source = SmartPtr::new(String::from(source));
+    let ast = Ast::from(tokens, meta).map_err(|errs| self.reformat_errors(source, errs))?;
 
-    let reflection = Reflection::new(file, source.clone());
+    let optimizer = Optimizer::<1>::new(ast);
+
+    let ast = optimizer.optimize();
+
+    let file = SmartPtr::new(String::from(file));
+    let source_ptr = SmartPtr::new(String::from(source));
+
+    let reflection = Reflection::new(file, source_ptr.clone());
     let ctx = SmartPtr::new(Context::new(reflection));
 
-    let mut parser = Parser::new(tokens, meta, ctx.clone());
+    let generator = BytecodeGenerator::new(ctx);
 
-    if let Some(errors) = parser.parse() {
-      Err(self.reformat_errors(source.as_ref(), errors))
-    } else {
-      Ok(ctx)
-    }
+    generator
+      .generate(ast)
+      .map_err(|errs| self.reformat_errors(source, errs))
   }
 
   fn reformat_errors(&self, source: &str, errs: Vec<Error>) -> Vec<Error> {

@@ -253,7 +253,10 @@ impl AstGenerator {
             Token::LeftBrace,
             String::from("expected '{' after increment"),
           ) {
+            let prev = this.in_loop;
+            this.in_loop = true;
             let block = this.block();
+            this.in_loop = prev;
             this.statements.push(Statement::new(block));
           }
         } else {
@@ -344,7 +347,10 @@ impl AstGenerator {
       return;
     }
 
+    let prev = self.in_loop;
+    self.in_loop = true;
     let block = self.block();
+    self.in_loop = prev;
 
     self
       .statements
@@ -435,7 +441,10 @@ impl AstGenerator {
         return;
       }
 
+      let prev = self.in_loop;
+      self.in_loop = true;
       let block = self.block();
+      self.in_loop = prev;
 
       self
         .statements
@@ -524,8 +533,6 @@ impl AstGenerator {
         Token::GreaterEqual => BinaryOperator::GreaterEq,
         Token::Less => BinaryOperator::Less,
         Token::LessEqual => BinaryOperator::LessEq,
-        Token::And => BinaryOperator::And,
-        Token::Or => BinaryOperator::Or,
         Token::Plus => BinaryOperator::Add,
         Token::Minus => BinaryOperator::Sub,
         Token::Asterisk => BinaryOperator::Mul,
@@ -551,6 +558,30 @@ impl AstGenerator {
         self.index - 2,
         String::from("unexpected end of token stream"),
       );
+      None
+    }
+  }
+
+  fn and_expr(&mut self, left: Expression) -> Option<Expression> {
+    let rule = Self::rule_for(&Token::And);
+
+    if let Some(next_precedence) = rule.precedence.next() {
+      let expr = self.parse_precedence(next_precedence)?;
+      Some(Expression::new(AndExpression::new(left, expr)))
+    } else {
+      self.error(self.index - 1, String::from(""));
+      None
+    }
+  }
+
+  fn or_expr(&mut self, left: Expression) -> Option<Expression> {
+    let rule = Self::rule_for(&Token::Or);
+
+    if let Some(next_precedence) = rule.precedence.next() {
+      let expr = self.parse_precedence(next_precedence)?;
+      Some(Expression::new(OrExpression::new(left, expr)))
+    } else {
+      self.error(self.index - 1, String::from(""));
       None
     }
   }
@@ -585,6 +616,16 @@ impl AstGenerator {
         self.index - 2,
         String::from("unexpected end of token stream"),
       );
+      None
+    }
+  }
+
+  fn assign_expr(&mut self, left: Expression) -> Option<Expression> {
+    if let Expression::Ident(ident) = left {
+      let value = self.expression()?;
+      Some(Expression::new(AssignExpression::new(ident.ident, value)))
+    } else {
+      self.error(self.index, String::from("can only assign to variables"));
       None
     }
   }
@@ -803,7 +844,7 @@ impl AstGenerator {
       Token::Modulus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
       Token::Bang => ParseRule::new(Some(Self::unary_expr), None, Precedence::None),
       Token::BangEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Equality),
-      Token::Equal => ParseRule::new(None, None, Precedence::None),
+      Token::Equal => ParseRule::new(None, Some(Self::assign_expr), Precedence::None),
       Token::EqualEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Equality),
       Token::Greater => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
       Token::GreaterEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
@@ -813,7 +854,7 @@ impl AstGenerator {
       Token::Identifier(_) => ParseRule::new(Some(Self::ident_expr), None, Precedence::None),
       Token::String(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
       Token::Number(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
-      Token::And => ParseRule::new(None, Some(Self::binary_expr), Precedence::And),
+      Token::And => ParseRule::new(None, Some(Self::and_expr), Precedence::And),
       Token::Break => ParseRule::new(None, None, Precedence::None),
       Token::Class => ParseRule::new(None, None, Precedence::None),
       Token::Cont => ParseRule::new(None, None, Precedence::None),
@@ -827,7 +868,7 @@ impl AstGenerator {
       Token::Loop => ParseRule::new(None, None, Precedence::None),
       Token::Match => ParseRule::new(None, None, Precedence::None),
       Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
-      Token::Or => ParseRule::new(None, Some(Self::binary_expr), Precedence::Or),
+      Token::Or => ParseRule::new(None, Some(Self::or_expr), Precedence::Or),
       Token::Print => ParseRule::new(None, None, Precedence::None),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
@@ -1102,8 +1143,11 @@ pub enum Expression {
   Literal(LiteralExpression),
   Unary(UnaryExpression),
   Binary(BinaryExpression),
+  And(AndExpression),
+  Or(OrExpression),
   Group(GroupExpression),
   Ident(IdentExpression),
+  Assign(AssignExpression),
   Call(CallExpression),
 }
 
@@ -1131,6 +1175,18 @@ impl New<BinaryExpression> for Expression {
   }
 }
 
+impl New<AndExpression> for Expression {
+  fn new(expr: AndExpression) -> Self {
+    Self::And(expr)
+  }
+}
+
+impl New<OrExpression> for Expression {
+  fn new(expr: OrExpression) -> Self {
+    Self::Or(expr)
+  }
+}
+
 impl New<GroupExpression> for Expression {
   fn new(expr: GroupExpression) -> Self {
     Self::Group(expr)
@@ -1140,6 +1196,12 @@ impl New<GroupExpression> for Expression {
 impl New<IdentExpression> for Expression {
   fn new(expr: IdentExpression) -> Self {
     Self::Ident(expr)
+  }
+}
+
+impl New<AssignExpression> for Expression {
+  fn new(expr: AssignExpression) -> Self {
+    Self::Assign(expr)
   }
 }
 
@@ -1178,9 +1240,35 @@ impl UnaryExpression {
   }
 }
 
+pub struct AndExpression {
+  pub left: Box<Expression>,
+  pub right: Box<Expression>,
+}
+
+impl AndExpression {
+  fn new(left: Expression, right: Expression) -> Self {
+    Self {
+      left: Box::new(left),
+      right: Box::new(right),
+    }
+  }
+}
+
+pub struct OrExpression {
+  pub left: Box<Expression>,
+  pub right: Box<Expression>,
+}
+
+impl OrExpression {
+  fn new(left: Expression, right: Expression) -> Self {
+    Self {
+      left: Box::new(left),
+      right: Box::new(right),
+    }
+  }
+}
+
 pub enum BinaryOperator {
-  Or,
-  And,
   Equal,
   NotEq,
   Less,
@@ -1232,6 +1320,20 @@ impl IdentExpression {
   }
 }
 
+pub struct AssignExpression {
+  pub ident: Ident,
+  pub value: Box<Expression>,
+}
+
+impl AssignExpression {
+  fn new(ident: Ident, value: Expression) -> Self {
+    Self {
+      ident,
+      value: Box::new(value),
+    }
+  }
+}
+
 pub struct CallExpression {
   pub callable: Box<Expression>,
   pub args: Vec<Expression>,
@@ -1280,7 +1382,7 @@ impl Precedence {
 }
 
 type PrefixRule = fn(&mut AstGenerator) -> Option<Expression>;
-type InfixRule = fn(&mut AstGenerator, prefix: Expression) -> Option<Expression>;
+type InfixRule = fn(&mut AstGenerator, Expression) -> Option<Expression>;
 
 struct ParseRule {
   prefix: Option<PrefixRule>,

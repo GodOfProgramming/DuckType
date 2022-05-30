@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+  code::ast::*,
   types::{Error, Function, Value},
   New,
 };
@@ -8,6 +9,310 @@ use std::collections::BTreeMap;
 
 #[cfg(test)]
 mod test;
+
+pub struct BytecodeGenerator {
+  ctx: SmartPtr<Context>,
+
+  identifiers: BTreeMap<String, usize>,
+  locals: Vec<Local>,
+
+  function_id: usize,
+  current_fn: Option<SmartPtr<Context>>,
+
+  scope_depth: usize,
+  loop_depth: usize,
+
+  breaks: Vec<usize>,
+  cont_jump: usize,
+
+  errors: Option<Vec<Error>>,
+}
+
+impl BytecodeGenerator {
+  pub fn new(ctx: SmartPtr<Context>) -> Self {
+    Self {
+      ctx,
+
+      identifiers: BTreeMap::new(),
+      locals: Vec::new(),
+
+      function_id: 0,
+      current_fn: None,
+
+      scope_depth: 0,
+      loop_depth: 0,
+
+      breaks: Vec::new(),
+      cont_jump: 0,
+
+      errors: None,
+    }
+  }
+
+  pub fn generate(mut self, ast: Ast) -> Result<SmartPtr<Context>, Vec<Error>> {
+    for stmt in ast.statements {
+      self.emit_stmt(stmt);
+    }
+
+    Ok(self.ctx)
+  }
+
+  /* Statements */
+
+  fn break_stmt(&mut self) {
+    self.reduce_locals_to_depth(self.loop_depth);
+    let jmp = self.emit_jump();
+    self.breaks.push(jmp);
+  }
+
+  fn cont_stmt(&mut self) {
+    self.reduce_locals_to_depth(self.loop_depth);
+    let distance = self.current_ctx().num_instructions() - self.cont_jump;
+    self.emit(OpCode::Loop(distance));
+  }
+
+  fn end_stmt(&mut self, stmt: EndStatement) {
+    if let Some(expr) = stmt.expr {
+      self.emit_expr(expr);
+    } else {
+      self.emit(OpCode::Nil);
+    }
+    self.emit(OpCode::End);
+  }
+
+  fn print_stmt(&mut self, stmt: PrintStatement) {
+    self.emit_expr(stmt.expr);
+    self.emit(OpCode::Print);
+  }
+
+  /* Expressions */
+
+  fn literal_expr(&mut self, expr: LiteralExpression) {
+    self.emit_const(expr.value);
+  }
+
+  fn unary_expr(&mut self, expr: UnaryExpression) {
+    self.emit_expr(*expr.expr);
+
+    match expr.op {
+      UnaryOperator::Not => self.emit(OpCode::Not),
+      UnaryOperator::Negate => self.emit(OpCode::Negate),
+      _ => unimplemented!(),
+    }
+  }
+
+  fn binary_expr(&mut self, expr: BinaryExpression) {
+    self.emit_expr(*expr.left);
+    self.emit_expr(*expr.right);
+    match expr.op {
+      BinaryOperator::Equal => self.emit(OpCode::Equal),
+      BinaryOperator::NotEq => self.emit(OpCode::NotEqual),
+      BinaryOperator::Less => self.emit(OpCode::Less),
+      BinaryOperator::LessEq => self.emit(OpCode::LessEqual),
+      BinaryOperator::Greater => self.emit(OpCode::Greater),
+      BinaryOperator::GreaterEq => self.emit(OpCode::GreaterEqual),
+      BinaryOperator::Add => self.emit(OpCode::Add),
+      BinaryOperator::Sub => self.emit(OpCode::Sub),
+      BinaryOperator::Mul => self.emit(OpCode::Mul),
+      BinaryOperator::Div => self.emit(OpCode::Div),
+      BinaryOperator::Mod => self.emit(OpCode::Mod),
+    }
+  }
+
+  fn and_expr(&mut self, expr: AndExpression) {
+    self.emit_expr(*expr.left);
+    let short_circuit = self.emit_jump();
+    self.emit_expr(*expr.right);
+    self.patch_jump(short_circuit, OpCode::And);
+  }
+
+  fn or_expr(&mut self, expr: OrExpression) {
+    self.emit_expr(*expr.left);
+    let short_circuit = self.emit_jump();
+    self.emit_expr(*expr.right);
+    self.patch_jump(short_circuit, OpCode::Or);
+  }
+
+  fn group_expr(&mut self, expr: GroupExpression) {
+    self.emit_expr(*expr.expr);
+  }
+
+  fn ident_expr(&mut self, expr: IdentExpression) {
+    if let Some(lookup) = self.resolve_local(&expr.ident) {
+      let get: OpCode;
+
+      if lookup.kind == LookupKind::Local {
+        get = OpCode::LookupLocal(lookup.index);
+      } else {
+        let index = self.add_ident(expr.ident);
+        get = OpCode::LookupGlobal(index);
+      }
+
+      self.emit(get);
+    }
+  }
+
+  fn assign_expr(&mut self, expr: AssignExpression) {
+    if let Some(lookup) = self.resolve_local(&expr.ident) {
+      let set: OpCode;
+
+      if lookup.kind == LookupKind::Local {
+        set = OpCode::AssignLocal(lookup.index);
+      } else {
+        let index = self.add_ident(expr.ident);
+        set = OpCode::AssignGlobal(index);
+      }
+
+      self.emit_expr(*expr.value);
+
+      self.emit(set);
+    }
+  }
+
+  fn call_expr(&mut self, expr: CallExpression) {
+    let arg_count = expr.args.len();
+
+    for arg in expr.args {
+      self.emit_expr(arg)
+    }
+
+    self.emit_expr(*expr.callable);
+    self.emit(OpCode::Call(arg_count));
+  }
+
+  /* Utility Functions */
+
+  fn emit(&mut self, op: OpCode) {
+    self.current_ctx().write(op, 0, 0); // TODO get line/col
+  }
+
+  fn emit_stmt(&mut self, stmt: Statement) {
+    match stmt {
+      Statement::Break => self.break_stmt(),
+      Statement::Cont => self.cont_stmt(),
+      Statement::End(stmt) => self.end_stmt(stmt),
+      Statement::Fn(stmt) => {}
+      Statement::For(stmt) => {}
+      Statement::If(stmt) => {}
+      Statement::Block(stmt) => {}
+      Statement::Let(stmt) => {}
+      Statement::Load(stmt) => {}
+      Statement::Loop(stmt) => {}
+      Statement::Match(stmt) => {}
+      Statement::Print(stmt) => self.print_stmt(stmt),
+      Statement::Ret(stmt) => {}
+      Statement::While(stmt) => {}
+      Statement::Expression(stmt) => {}
+    }
+  }
+
+  fn emit_expr(&mut self, expr: Expression) {
+    match expr {
+      Expression::Literal(expr) => self.literal_expr(expr),
+      Expression::Unary(expr) => self.unary_expr(expr),
+      Expression::Binary(expr) => self.binary_expr(expr),
+      Expression::And(expr) => self.and_expr(expr),
+      Expression::Or(expr) => self.or_expr(expr),
+      Expression::Group(expr) => self.group_expr(expr),
+      Expression::Ident(expr) => self.ident_expr(expr),
+      Expression::Assign(expr) => self.assign_expr(expr),
+      Expression::Call(expr) => self.call_expr(expr),
+    }
+  }
+
+  fn emit_const(&mut self, c: Value) {
+    self.current_ctx().write_const(c, 0, 0); // TODO get line/col
+  }
+
+  /**
+   * Emits a no op instruction and returns its index, the "jump" is made later with a patch
+   */
+  fn emit_jump(&mut self) -> usize {
+    let offset = self.current_ctx().num_instructions();
+    self.emit(OpCode::NoOp);
+    offset
+  }
+
+  fn patch_jump<F: FnOnce(usize) -> OpCode>(&mut self, index: usize, f: F) -> bool {
+    let offset = self.current_ctx().num_instructions() - index;
+    let opcode = f(offset);
+    self.current_ctx().replace_instruction(index, opcode)
+  }
+
+  /**
+   * Returns the index of the identifier name, and creates it if it doesn't already exist
+   */
+  fn add_ident(&mut self, ident: Ident) -> usize {
+    if let Some(index) = self.identifiers.get(&ident.name).cloned() {
+      index
+    } else {
+      let index = self.current_ctx().add_const(Value::new(ident.name.clone()));
+      self.identifiers.insert(ident.name, index);
+      index
+    }
+  }
+
+  fn current_ctx(&mut self) -> SmartPtr<Context> {
+    if let Some(ctx) = &mut self.current_fn {
+      ctx.clone()
+    } else {
+      self.ctx.clone()
+    }
+  }
+
+  fn resolve_local(&mut self, ident: &Ident) -> Option<Lookup> {
+    if !self.locals.is_empty() {
+      let mut index = self.locals.len() - 1;
+
+      for local in self.locals.iter().rev() {
+        if ident.name == local.name {
+          if !local.initialized {
+            todo!("make error here");
+            // return None;
+          } else {
+            return Some(Lookup {
+              index,
+              kind: LookupKind::Local,
+            });
+          }
+        }
+
+        if index > 0 {
+          index -= 1;
+        }
+      }
+    }
+
+    Some(Lookup {
+      index: 0,
+      kind: LookupKind::Global,
+    })
+  }
+
+  fn reduce_locals_to_depth(&mut self, depth: usize) {
+    let count = self.num_locals_in_depth(depth);
+
+    self
+      .locals
+      .truncate(self.locals.len().saturating_sub(count));
+
+    if count > 0 {
+      self.emit(OpCode::PopN(count));
+    }
+  }
+
+  fn num_locals_in_depth(&self, depth: usize) -> usize {
+    let mut count = 0;
+    for local in self.locals.iter().rev() {
+      if local.depth > depth {
+        count += 1;
+      } else {
+        break;
+      }
+    }
+    count
+  }
+}
 
 #[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
 enum Precedence {
