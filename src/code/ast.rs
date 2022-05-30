@@ -508,9 +508,11 @@ impl AstGenerator {
 
       if let Some(loc) = self.meta_at::<1>() {
         if let Some(block) = self.block(loc) {
-          self
-            .statements
-            .push(Statement::new(WhileStatement::new(expr, block)));
+          self.statements.push(Statement::new(WhileStatement::new(
+            expr,
+            Statement::new(block),
+            loc,
+          )));
         }
       } else {
         // sanity check
@@ -1323,14 +1325,16 @@ impl RetStatement {
 
 pub struct WhileStatement {
   pub comparison: Expression,
-  pub block: Box<BlockStatement>,
+  pub block: Box<Statement>,
+  pub loc: SourceLocation,
 }
 
 impl WhileStatement {
-  fn new(comparison: Expression, block: BlockStatement) -> Self {
+  fn new(comparison: Expression, block: Statement, loc: SourceLocation) -> Self {
     Self {
       comparison,
       block: Box::new(block),
+      loc,
     }
   }
 }

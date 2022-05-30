@@ -2,6 +2,7 @@ pub mod ast;
 pub mod gen;
 pub mod lex;
 pub mod opt;
+pub mod parse;
 
 use crate::{
   types::{Env, Error, NativeFn, Value},
@@ -500,7 +501,7 @@ impl Context {
   }
 
   pub fn display_instruction(&self, op: &OpCode, offset: usize) {
-    print!("{:#010X} ", offset);
+    print!("{} ", Self::address_of(offset));
     if let Some(curr) = self.meta.get(offset) {
       if offset > 0 {
         if let Some(prev) = self.meta.get(offset - 1) {
@@ -561,11 +562,13 @@ impl Context {
           Value::new("????")
         }
       ),
-      OpCode::Jump(count) => println!("{:<16} {:4}", "Jump", count),
-      OpCode::JumpIfFalse(count) => println!("{:<16} {:4}", "JumpIfFalse", count),
-      OpCode::Loop(count) => println!("{:<16} {:4}", "Loop", count),
-      OpCode::Or(count) => println!("{:<16} {:4}", "Or", count),
-      OpCode::And(count) => println!("{:<16} {:4}", "And", count),
+      OpCode::Jump(count) => println!("{:<19} {}", "Jump", Self::address_of(offset + count)),
+      OpCode::JumpIfFalse(count) => {
+        println!("{:<19} {}", "JumpIfFalse", Self::address_of(offset + count))
+      }
+      OpCode::Loop(count) => println!("{:<19} {}", "Loop", Self::address_of(offset - count)),
+      OpCode::Or(count) => println!("{:<19} {}", "Or", Self::address_of(offset + count)),
+      OpCode::And(count) => println!("{:<19} {}", "And", Self::address_of(offset + count)),
       OpCode::Call(count) => println!("{:<16} {:4}", "Call", count),
       x => println!("{:<16?}", x),
     }
@@ -581,6 +584,10 @@ impl Context {
       }
     }
     println!();
+  }
+
+  fn address_of(offset: usize) -> String {
+    format!("{:#010X} ", offset)
   }
 }
 
