@@ -59,6 +59,10 @@ impl BytecodeGenerator {
 
   /* Statements */
 
+  fn block_stmt(&mut self, stmt: BlockStatement) {
+    self.emit_block(stmt.statements, stmt.loc);
+  }
+
   fn break_stmt(&mut self, stmt: BreakStatement) {
     self.reduce_locals_to_depth(self.loop_depth, stmt.loc);
     let jmp = self.emit_jump(stmt.loc);
@@ -93,6 +97,11 @@ impl BytecodeGenerator {
   fn print_stmt(&mut self, stmt: PrintStatement) {
     self.emit_expr(stmt.expr);
     self.emit(OpCode::Print, stmt.loc);
+  }
+
+  fn expr_stmt(&mut self, stmt: ExpressionStatement) {
+    self.emit_expr(stmt.expr);
+    self.emit(OpCode::Pop, stmt.loc);
   }
 
   /* Expressions */
@@ -164,14 +173,12 @@ impl BytecodeGenerator {
 
   fn assign_expr(&mut self, expr: AssignExpression) {
     if let Some(lookup) = self.resolve_local(&expr.ident) {
-      let set: OpCode;
-
-      if lookup.kind == LookupKind::Local {
-        set = OpCode::AssignLocal(lookup.index);
+      let set = if lookup.kind == LookupKind::Local {
+        OpCode::AssignLocal(lookup.index)
       } else {
         let index = self.add_ident(expr.ident);
-        set = OpCode::AssignGlobal(index);
-      }
+        OpCode::AssignGlobal(index)
+      };
 
       self.emit_expr(*expr.value);
 
@@ -198,13 +205,13 @@ impl BytecodeGenerator {
 
   fn emit_stmt(&mut self, stmt: Statement) {
     match stmt {
+      Statement::Block(stmt) => self.block_stmt(stmt),
       Statement::Break(stmt) => self.break_stmt(stmt),
       Statement::Cont(stmt) => self.cont_stmt(stmt),
       Statement::End(stmt) => self.end_stmt(stmt),
       Statement::Fn(stmt) => {}
       Statement::For(stmt) => {}
       Statement::If(stmt) => {}
-      Statement::Block(stmt) => {}
       Statement::Let(stmt) => self.let_stmt(stmt),
       Statement::Load(stmt) => {}
       Statement::Loop(stmt) => {}
@@ -212,7 +219,7 @@ impl BytecodeGenerator {
       Statement::Print(stmt) => self.print_stmt(stmt),
       Statement::Ret(stmt) => {}
       Statement::While(stmt) => {}
-      Statement::Expression(stmt) => {}
+      Statement::Expression(stmt) => self.expr_stmt(stmt),
     }
   }
 
@@ -228,6 +235,16 @@ impl BytecodeGenerator {
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::Call(expr) => self.call_expr(expr),
     }
+  }
+
+  fn emit_block(&mut self, statements: Vec<Statement>, loc: SourceLocation) {
+    self.new_scope(|this| {
+      for statement in statements {
+        this.emit_stmt(statement);
+      }
+    });
+
+    self.reduce_locals_to_depth(self.scope_depth, loc);
   }
 
   fn emit_const(&mut self, c: Value, loc: SourceLocation) {
@@ -268,6 +285,12 @@ impl BytecodeGenerator {
     } else {
       self.ctx.clone()
     }
+  }
+
+  fn new_scope<F: FnOnce(&mut BytecodeGenerator)>(&mut self, f: F) {
+    self.scope_depth += 1;
+    f(self);
+    self.scope_depth -= 1;
   }
 
   /**
@@ -1186,11 +1209,9 @@ impl Parser {
 
   fn wrap_scope<F: FnOnce(&mut Parser) -> bool>(&mut self, f: F) -> bool {
     self.scope_depth += 1;
-    if !f(self) {
-      return false;
-    }
+    let ret = f(self);
     self.scope_depth -= 1;
-    true
+    ret
   }
 
   fn wrap_block<F: FnOnce(&mut Parser) -> bool>(&mut self, f: F) -> bool {
