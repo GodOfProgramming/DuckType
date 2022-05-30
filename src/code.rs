@@ -231,17 +231,10 @@ impl fmt::Display for Token {
   }
 }
 
-#[derive(Debug, Clone)]
-pub struct TokenMeta {
-  pub file: SmartPtr<String>,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SourceLocation {
   pub line: usize,
   pub column: usize,
-}
-
-impl PartialEq for TokenMeta {
-  fn eq(&self, other: &TokenMeta) -> bool {
-    self.file.eq(&other.file) && self.line.eq(&other.line) && self.column.eq(&other.column)
-  }
 }
 
 #[derive(Debug, PartialEq, Clone)]

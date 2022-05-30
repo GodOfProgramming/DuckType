@@ -59,44 +59,44 @@ impl BytecodeGenerator {
 
   /* Statements */
 
-  fn break_stmt(&mut self) {
-    self.reduce_locals_to_depth(self.loop_depth);
-    let jmp = self.emit_jump();
+  fn break_stmt(&mut self, stmt: BreakStatement) {
+    self.reduce_locals_to_depth(self.loop_depth, stmt.loc);
+    let jmp = self.emit_jump(stmt.loc);
     self.breaks.push(jmp);
   }
 
-  fn cont_stmt(&mut self) {
-    self.reduce_locals_to_depth(self.loop_depth);
+  fn cont_stmt(&mut self, stmt: ContStatement) {
+    self.reduce_locals_to_depth(self.loop_depth, stmt.loc);
     let distance = self.current_ctx().num_instructions() - self.cont_jump;
-    self.emit(OpCode::Loop(distance));
+    self.emit(OpCode::Loop(distance), stmt.loc);
   }
 
   fn end_stmt(&mut self, stmt: EndStatement) {
     if let Some(expr) = stmt.expr {
       self.emit_expr(expr);
     } else {
-      self.emit(OpCode::Nil);
+      self.emit(OpCode::Nil, stmt.loc);
     }
-    self.emit(OpCode::End);
+    self.emit(OpCode::End, stmt.loc);
   }
 
   fn print_stmt(&mut self, stmt: PrintStatement) {
     self.emit_expr(stmt.expr);
-    self.emit(OpCode::Print);
+    self.emit(OpCode::Print, stmt.loc);
   }
 
   /* Expressions */
 
   fn literal_expr(&mut self, expr: LiteralExpression) {
-    self.emit_const(expr.value);
+    self.emit_const(expr.value, expr.loc);
   }
 
   fn unary_expr(&mut self, expr: UnaryExpression) {
     self.emit_expr(*expr.expr);
 
     match expr.op {
-      UnaryOperator::Not => self.emit(OpCode::Not),
-      UnaryOperator::Negate => self.emit(OpCode::Negate),
+      UnaryOperator::Not => self.emit(OpCode::Not, expr.loc),
+      UnaryOperator::Negate => self.emit(OpCode::Negate, expr.loc),
       _ => unimplemented!(),
     }
   }
@@ -105,30 +105,30 @@ impl BytecodeGenerator {
     self.emit_expr(*expr.left);
     self.emit_expr(*expr.right);
     match expr.op {
-      BinaryOperator::Equal => self.emit(OpCode::Equal),
-      BinaryOperator::NotEq => self.emit(OpCode::NotEqual),
-      BinaryOperator::Less => self.emit(OpCode::Less),
-      BinaryOperator::LessEq => self.emit(OpCode::LessEqual),
-      BinaryOperator::Greater => self.emit(OpCode::Greater),
-      BinaryOperator::GreaterEq => self.emit(OpCode::GreaterEqual),
-      BinaryOperator::Add => self.emit(OpCode::Add),
-      BinaryOperator::Sub => self.emit(OpCode::Sub),
-      BinaryOperator::Mul => self.emit(OpCode::Mul),
-      BinaryOperator::Div => self.emit(OpCode::Div),
-      BinaryOperator::Mod => self.emit(OpCode::Mod),
+      BinaryOperator::Equal => self.emit(OpCode::Equal, expr.loc),
+      BinaryOperator::NotEq => self.emit(OpCode::NotEqual, expr.loc),
+      BinaryOperator::Less => self.emit(OpCode::Less, expr.loc),
+      BinaryOperator::LessEq => self.emit(OpCode::LessEqual, expr.loc),
+      BinaryOperator::Greater => self.emit(OpCode::Greater, expr.loc),
+      BinaryOperator::GreaterEq => self.emit(OpCode::GreaterEqual, expr.loc),
+      BinaryOperator::Add => self.emit(OpCode::Add, expr.loc),
+      BinaryOperator::Sub => self.emit(OpCode::Sub, expr.loc),
+      BinaryOperator::Mul => self.emit(OpCode::Mul, expr.loc),
+      BinaryOperator::Div => self.emit(OpCode::Div, expr.loc),
+      BinaryOperator::Mod => self.emit(OpCode::Mod, expr.loc),
     }
   }
 
   fn and_expr(&mut self, expr: AndExpression) {
     self.emit_expr(*expr.left);
-    let short_circuit = self.emit_jump();
+    let short_circuit = self.emit_jump(expr.loc);
     self.emit_expr(*expr.right);
     self.patch_jump(short_circuit, OpCode::And);
   }
 
   fn or_expr(&mut self, expr: OrExpression) {
     self.emit_expr(*expr.left);
-    let short_circuit = self.emit_jump();
+    let short_circuit = self.emit_jump(expr.loc);
     self.emit_expr(*expr.right);
     self.patch_jump(short_circuit, OpCode::Or);
   }
@@ -148,7 +148,7 @@ impl BytecodeGenerator {
         get = OpCode::LookupGlobal(index);
       }
 
-      self.emit(get);
+      self.emit(get, expr.loc);
     }
   }
 
@@ -165,7 +165,7 @@ impl BytecodeGenerator {
 
       self.emit_expr(*expr.value);
 
-      self.emit(set);
+      self.emit(set, expr.loc);
     }
   }
 
@@ -177,19 +177,19 @@ impl BytecodeGenerator {
     }
 
     self.emit_expr(*expr.callable);
-    self.emit(OpCode::Call(arg_count));
+    self.emit(OpCode::Call(arg_count), expr.loc);
   }
 
   /* Utility Functions */
 
-  fn emit(&mut self, op: OpCode) {
-    self.current_ctx().write(op, 0, 0); // TODO get line/col
+  fn emit(&mut self, op: OpCode, loc: SourceLocation) {
+    self.current_ctx().write(op, loc.line, loc.column);
   }
 
   fn emit_stmt(&mut self, stmt: Statement) {
     match stmt {
-      Statement::Break => self.break_stmt(),
-      Statement::Cont => self.cont_stmt(),
+      Statement::Break(stmt) => self.break_stmt(stmt),
+      Statement::Cont(stmt) => self.cont_stmt(stmt),
       Statement::End(stmt) => self.end_stmt(stmt),
       Statement::Fn(stmt) => {}
       Statement::For(stmt) => {}
@@ -220,16 +220,16 @@ impl BytecodeGenerator {
     }
   }
 
-  fn emit_const(&mut self, c: Value) {
-    self.current_ctx().write_const(c, 0, 0); // TODO get line/col
+  fn emit_const(&mut self, c: Value, loc: SourceLocation) {
+    self.current_ctx().write_const(c, loc.line, loc.column);
   }
 
   /**
    * Emits a no op instruction and returns its index, the "jump" is made later with a patch
    */
-  fn emit_jump(&mut self) -> usize {
+  fn emit_jump(&mut self, loc: SourceLocation) -> usize {
     let offset = self.current_ctx().num_instructions();
-    self.emit(OpCode::NoOp);
+    self.emit(OpCode::NoOp, loc);
     offset
   }
 
@@ -289,7 +289,7 @@ impl BytecodeGenerator {
     })
   }
 
-  fn reduce_locals_to_depth(&mut self, depth: usize) {
+  fn reduce_locals_to_depth(&mut self, depth: usize, loc: SourceLocation) {
     let count = self.num_locals_in_depth(depth);
 
     self
@@ -297,7 +297,7 @@ impl BytecodeGenerator {
       .truncate(self.locals.len().saturating_sub(count));
 
     if count > 0 {
-      self.emit(OpCode::PopN(count));
+      self.emit(OpCode::PopN(count), loc);
     }
   }
 
@@ -384,7 +384,7 @@ struct Lookup {
 
 pub struct Parser {
   tokens: Vec<Token>,
-  meta: Vec<TokenMeta>,
+  meta: Vec<SourceLocation>,
   ctx: SmartPtr<Context>,
 
   current_fn: Option<SmartPtr<Context>>,
@@ -407,7 +407,7 @@ pub struct Parser {
 }
 
 impl Parser {
-  pub fn new(tokens: Vec<Token>, meta: Vec<TokenMeta>, ctx: SmartPtr<Context>) -> Self {
+  pub fn new(tokens: Vec<Token>, meta: Vec<SourceLocation>, ctx: SmartPtr<Context>) -> Self {
     Self {
       tokens,
       meta,
@@ -444,11 +444,14 @@ impl Parser {
     if let Some(errs) = &mut self.errors {
       if let Some(meta) = meta {
         if cfg!(debug_assertions) {
-          println!("{} ({}, {}): {}", meta.file, meta.line, meta.column, msg);
+          println!(
+            "{} ({}, {}): {}",
+            "TODO GET FILE NAME", meta.line, meta.column, msg
+          );
         }
         errs.push(Error {
           msg,
-          file: meta.file.access().clone(),
+          file: String::default(),
           line: meta.line,
           column: meta.column,
         });

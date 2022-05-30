@@ -8,7 +8,7 @@ mod test;
 
 pub struct Scanner<'src> {
   file: SmartPtr<String>,
-  raw_src: &'src [u8],
+  src: &'src [u8],
   start_pos: usize,
   pos: usize,
   line: usize,
@@ -20,7 +20,7 @@ impl<'src> Scanner<'src> {
   pub fn new(file: &'src str, source: &'src str) -> Self {
     Scanner {
       file: SmartPtr::new(String::from(file)),
-      raw_src: source.as_bytes(),
+      src: source.as_bytes(),
       start_pos: 0,
       pos: 0,
       line: 0,
@@ -29,7 +29,7 @@ impl<'src> Scanner<'src> {
     }
   }
 
-  pub fn scan(&mut self) -> Result<(Vec<Token>, Vec<TokenMeta>), Vec<Error>> {
+  pub fn scan(&mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), Vec<Error>> {
     let mut tokens = Vec::new();
     let mut meta = Vec::new();
 
@@ -112,8 +112,7 @@ impl<'src> Scanner<'src> {
         }
 
         tokens.push(token);
-        meta.push(TokenMeta {
-          file: self.file.clone(),
+        meta.push(SourceLocation {
           line: line + 1,
           column: column + 1,
         });
@@ -175,7 +174,7 @@ impl<'src> Scanner<'src> {
       }
     }
 
-    let lexeme = String::from_utf8_lossy(&self.raw_src[self.start_pos..self.pos]);
+    let lexeme = String::from_utf8_lossy(&self.src[self.start_pos..self.pos]);
 
     match lexeme.parse() {
       Ok(n) => Token::Number(n),
@@ -212,7 +211,7 @@ impl<'src> Scanner<'src> {
       return Token::Invalid;
     }
 
-    match str::from_utf8(&self.raw_src[self.start_pos + 1..self.pos]) {
+    match str::from_utf8(&self.src[self.start_pos + 1..self.pos]) {
       Ok(string) => Token::String(String::from(string)),
       Err(e) => {
         self.error(format!("{}", e));
@@ -234,7 +233,7 @@ impl<'src> Scanner<'src> {
   }
 
   fn create_ident(&mut self) -> Token {
-    match str::from_utf8(&self.raw_src[self.start_pos..self.pos]) {
+    match str::from_utf8(&self.src[self.start_pos..self.pos]) {
       Ok(string) => Token::Identifier(String::from(string)),
       Err(e) => {
         self.error(format!("{}", e));
@@ -297,7 +296,7 @@ impl<'src> Scanner<'src> {
     let bytes = rest.as_bytes();
     let begin = self.start_pos + start;
     if self.pos - self.start_pos == start + rest.len()
-      && &self.raw_src[begin..begin + rest.len()] == bytes
+      && &self.src[begin..begin + rest.len()] == bytes
     {
       checkee
     } else {
@@ -335,22 +334,19 @@ impl<'src> Scanner<'src> {
   }
 
   fn at_end(&self) -> bool {
-    self.pos >= self.raw_src.len()
+    self.pos >= self.src.len()
   }
 
   fn peek(&self) -> Option<char> {
-    self.raw_src.get(self.pos).map(|c| *c as char)
+    self.src.get(self.pos).map(|c| *c as char)
   }
 
   fn peek_n(&self, n: usize) -> Option<char> {
-    self
-      .raw_src
-      .get(self.pos.saturating_add(n))
-      .map(|c| *c as char)
+    self.src.get(self.pos.saturating_add(n)).map(|c| *c as char)
   }
 
   fn index_n(&self, n: usize) -> Option<char> {
-    self.raw_src.get(n).map(|c| *c as char)
+    self.src.get(n).map(|c| *c as char)
   }
 
   fn advance(&mut self) {

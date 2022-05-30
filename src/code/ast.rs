@@ -1,4 +1,4 @@
-use super::{Token, TokenMeta};
+use super::{SourceLocation, Token};
 use crate::{
   types::{Error, Value},
   New,
@@ -10,14 +10,14 @@ pub struct Ast {
 }
 
 impl Ast {
-  pub fn from(tokens: Vec<Token>, meta: Vec<TokenMeta>) -> Result<Ast, Vec<Error>> {
+  pub fn from(tokens: Vec<Token>, meta: Vec<SourceLocation>) -> Result<Ast, Vec<Error>> {
     AstGenerator::new(tokens, meta).generate()
   }
 }
 
 struct AstGenerator {
   tokens: Vec<Token>,
-  meta: Vec<TokenMeta>,
+  meta: Vec<SourceLocation>,
 
   statements: Vec<Statement>,
   errors: Vec<Error>,
@@ -28,7 +28,7 @@ struct AstGenerator {
 }
 
 impl AstGenerator {
-  fn new(tokens: Vec<Token>, meta: Vec<TokenMeta>) -> Self {
+  fn new(tokens: Vec<Token>, meta: Vec<SourceLocation>) -> Self {
     Self {
       tokens,
       meta,
@@ -124,10 +124,9 @@ impl AstGenerator {
 
   fn break_stmt(&mut self) {
     if !self.in_loop {
-      self.error(
-        self.index - 1,
-        String::from("break statements can only be used within loops"),
-      );
+      self.error::<1>(String::from(
+        "break statements can only be used within loops",
+      ));
       return;
     }
 
@@ -135,15 +134,18 @@ impl AstGenerator {
       return;
     }
 
-    self.statements.push(Statement::Break);
+    if let Some(loc) = self.meta_at::<2>() {
+      self
+        .statements
+        .push(Statement::new(BreakStatement::new(loc)));
+    }
   }
 
   fn cont_stmt(&mut self) {
     if !self.in_loop {
-      self.error(
-        self.index - 1,
-        String::from("cont statements can only be used within loops"),
-      );
+      self.error::<1>(String::from(
+        "cont statements can only be used within loops",
+      ));
       return;
     }
 
@@ -151,29 +153,35 @@ impl AstGenerator {
       return;
     }
 
-    self.statements.push(Statement::Cont);
+    if let Some(loc) = self.meta_at::<2>() {
+      self
+        .statements
+        .push(Statement::new(ContStatement::new(loc)));
+    }
   }
 
   fn end_stmt(&mut self) {
-    let expr = if !self.advance_if_matches(Token::Semicolon) {
-      let expr = self.expression();
+    if let Some(end_meta) = self.meta_at::<1>() {
+      let expr = if !self.advance_if_matches(Token::Semicolon) {
+        let expr = self.expression();
 
-      if expr.is_none() {
+        if expr.is_none() {
+          return;
+        }
+
+        expr
+      } else {
+        None
+      };
+
+      if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
         return;
       }
 
-      expr
-    } else {
-      None
-    };
-
-    if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
-      return;
+      self
+        .statements
+        .push(Statement::new(EndStatement::new(expr, end_meta)));
     }
-
-    self
-      .statements
-      .push(Statement::new(EndStatement::new(expr)));
   }
 
   fn fn_stmt(&mut self) {
@@ -228,7 +236,7 @@ impl AstGenerator {
         .statements
         .push(Statement::new(FnStatement::new(ident, params, body)));
     } else {
-      self.error(self.index, String::from("expected an identifier"));
+      self.error::<0>(String::from("expected an identifier"));
     }
   }
 
@@ -260,16 +268,10 @@ impl AstGenerator {
             this.statements.push(Statement::new(block));
           }
         } else {
-          this.error(
-            this.index,
-            String::from("expected increment after comparison"),
-          );
+          this.error::<0>(String::from("expected increment after comparison"));
         }
       } else {
-        this.error(
-          this.index,
-          String::from("expected comparison after initializer"),
-        );
+        this.error::<0>(String::from("expected comparison after initializer"));
       }
     });
 
@@ -309,10 +311,10 @@ impl AstGenerator {
         match token {
           Token::LeftBrace => self.block_stmt(),
           Token::If => self.if_stmt(),
-          _ => self.error(self.index, String::from("unexpected token after 'else'")),
+          _ => self.error::<0>(String::from("unexpected token after 'else'")),
         }
       } else {
-        self.error(self.index - 1, String::from("unexpected end of file"));
+        self.error::<1>(String::from("unexpected end of file"));
       }
     }
   }
@@ -334,7 +336,7 @@ impl AstGenerator {
         .statements
         .push(Statement::new(LetStatement::new(ident, value)));
     } else {
-      self.error(self.index, String::from("expected variable name"));
+      self.error::<0>(String::from("expected variable name"));
     }
   }
 
@@ -402,13 +404,15 @@ impl AstGenerator {
   }
 
   fn print_stmt(&mut self) {
-    if let Some(expr) = self.expression() {
-      if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
-        return;
+    if let Some(loc) = self.meta_at::<1>() {
+      if let Some(expr) = self.expression() {
+        if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+          return;
+        }
+        self
+          .statements
+          .push(Statement::new(PrintStatement::new(expr, loc)));
       }
-      self
-        .statements
-        .push(Statement::new(PrintStatement::new(expr)));
     }
   }
 
@@ -475,28 +479,45 @@ impl AstGenerator {
     if let Some(prev) = self.previous() {
       match prev {
         Token::Nil => {
-          expr = Some(Expression::new(LiteralExpression::new(Value::Nil)));
+          expr = Some(Expression::new(LiteralExpression::new(
+            Value::Nil,
+            self.meta_at::<1>()?,
+          )));
         }
         Token::True => {
-          expr = Some(Expression::new(LiteralExpression::new(Value::new(true))));
+          expr = Some(Expression::new(LiteralExpression::new(
+            Value::new(true),
+            self.meta_at::<1>()?,
+          )));
         }
         Token::False => {
-          expr = Some(Expression::new(LiteralExpression::new(Value::new(false))));
+          expr = Some(Expression::new(LiteralExpression::new(
+            Value::new(false),
+            self.meta_at::<1>()?,
+          )));
         }
-        Token::String(s) => expr = Some(Expression::new(LiteralExpression::new(Value::new(s)))),
-        Token::Number(n) => expr = Some(Expression::new(LiteralExpression::new(Value::new(n)))),
+        Token::String(s) => {
+          expr = Some(Expression::new(LiteralExpression::new(
+            Value::new(s),
+            self.meta_at::<1>()?,
+          )))
+        }
+        Token::Number(n) => {
+          expr = Some(Expression::new(LiteralExpression::new(
+            Value::new(n),
+            self.meta_at::<1>()?,
+          )))
+        }
         _ => {
-          self.error(
-            self.index - 1,
-            String::from("sanity check, invalid literal, very bad logic error"),
-          );
+          self.error::<1>(String::from(
+            "sanity check, invalid literal, very bad logic error",
+          ));
         }
       }
     } else {
-      self.error(
-        self.index - 1,
-        String::from("sanity check, no previous token, very bad logic error"),
-      );
+      self.error::<1>(String::from(
+        "sanity check, no previous token, very bad logic error",
+      ));
     }
 
     expr
@@ -504,28 +525,29 @@ impl AstGenerator {
 
   fn unary_expr(&mut self) -> Option<Expression> {
     if let Some(operator_token) = self.previous() {
+      let op_meta = self.meta_at::<1>()?;
       let op = match operator_token {
         Token::Bang => UnaryOperator::Not,
         Token::Minus => UnaryOperator::Negate,
         _ => {
-          self.error(self.index - 1, String::from("invalid unary operator"));
+          self.error::<1>(String::from("invalid unary operator"));
           return None;
         }
       };
 
       let expr = self.parse_precedence(Precedence::Unary)?;
-      Some(Expression::new(UnaryExpression::new(op, expr)))
+      Some(Expression::new(UnaryExpression::new(op, expr, op_meta)))
     } else {
-      self.error(
-        self.index - 1,
-        String::from("tried to make unary expression without operator"),
-      );
+      self.error::<1>(String::from(
+        "tried to make unary expression without operator",
+      ));
       None
     }
   }
 
   fn binary_expr(&mut self, left: Expression) -> Option<Expression> {
     if let Some(operator_token) = self.previous() {
+      let op_meta = self.meta_at::<1>()?;
       let op = match operator_token {
         Token::EqualEqual => BinaryOperator::Equal,
         Token::BangEqual => BinaryOperator::NotEq,
@@ -539,7 +561,7 @@ impl AstGenerator {
         Token::Slash => BinaryOperator::Div,
         Token::Modulus => BinaryOperator::Mod,
         _ => {
-          self.error(self.index - 1, String::from("invalid binary operator"));
+          self.error::<1>(String::from("invalid binary operator"));
           return None;
         }
       };
@@ -548,16 +570,15 @@ impl AstGenerator {
 
       if let Some(next_precedence) = rule.precedence.next() {
         let expr = self.parse_precedence(next_precedence)?;
-        Some(Expression::new(BinaryExpression::new(left, op, expr)))
+        Some(Expression::new(BinaryExpression::new(
+          left, op, expr, op_meta,
+        )))
       } else {
-        self.error(self.index - 1, String::from(""));
+        self.error::<1>(String::from(""));
         None
       }
     } else {
-      self.error(
-        self.index - 2,
-        String::from("unexpected end of token stream"),
-      );
+      self.error::<2>(String::from("unexpected end of token stream"));
       None
     }
   }
@@ -566,10 +587,11 @@ impl AstGenerator {
     let rule = Self::rule_for(&Token::And);
 
     if let Some(next_precedence) = rule.precedence.next() {
+      let op_meta = self.meta_at::<1>()?;
       let expr = self.parse_precedence(next_precedence)?;
-      Some(Expression::new(AndExpression::new(left, expr)))
+      Some(Expression::new(AndExpression::new(left, expr, op_meta)))
     } else {
-      self.error(self.index - 1, String::from(""));
+      self.error::<1>(String::from("unable to retrieve precedence for and expr")); // this may not be an error?
       None
     }
   }
@@ -578,21 +600,23 @@ impl AstGenerator {
     let rule = Self::rule_for(&Token::Or);
 
     if let Some(next_precedence) = rule.precedence.next() {
+      let op_meta = self.meta_at::<1>()?;
       let expr = self.parse_precedence(next_precedence)?;
-      Some(Expression::new(OrExpression::new(left, expr)))
+      Some(Expression::new(OrExpression::new(left, expr, op_meta)))
     } else {
-      self.error(self.index - 1, String::from(""));
+      self.error::<1>(String::from("unable to retrieve precedence for or expr")); // this may not be an error?
       None
     }
   }
 
   fn group_expr(&mut self) -> Option<Expression> {
+    let paren_meta = self.meta_at::<1>()?;
     let expr = self.expression()?;
     if self.consume(
       Token::RightParen,
       String::from("expected ')' after expression"),
     ) {
-      Some(Expression::new(GroupExpression::new(expr)))
+      Some(Expression::new(GroupExpression::new(expr, paren_meta)))
     } else {
       None
     }
@@ -601,36 +625,37 @@ impl AstGenerator {
   fn ident_expr(&mut self) -> Option<Expression> {
     if let Some(ident_token) = self.previous() {
       if let Token::Identifier(ident_name) = ident_token {
-        Some(Expression::new(IdentExpression::new(Ident::new(
-          ident_name,
-        ))))
+        Some(Expression::new(IdentExpression::new(
+          Ident::new(ident_name),
+          self.meta_at::<1>()?,
+        )))
       } else {
-        self.error(
-          self.index - 2,
-          String::from("variable name is not an identifier"),
-        );
+        self.error::<2>(String::from("variable name is not an identifier"));
         None
       }
     } else {
-      self.error(
-        self.index - 2,
-        String::from("unexpected end of token stream"),
-      );
+      self.error::<2>(String::from("unexpected end of token stream"));
       None
     }
   }
 
   fn assign_expr(&mut self, left: Expression) -> Option<Expression> {
     if let Expression::Ident(ident) = left {
+      let op_meta = self.meta_at::<1>()?;
       let value = self.expression()?;
-      Some(Expression::new(AssignExpression::new(ident.ident, value)))
+      Some(Expression::new(AssignExpression::new(
+        ident.ident,
+        value,
+        op_meta,
+      )))
     } else {
-      self.error(self.index, String::from("can only assign to variables"));
+      self.error::<1>(String::from("can only assign to variables"));
       None
     }
   }
 
   fn call_expr(&mut self, ident: Expression) -> Option<Expression> {
+    let paren_meta = self.meta_at::<1>()?;
     let mut args = Vec::default();
 
     if let Some(token) = self.current() {
@@ -651,7 +676,9 @@ impl AstGenerator {
       }
     }
 
-    Some(Expression::new(CallExpression::new(ident, args)))
+    Some(Expression::new(CallExpression::new(
+      ident, args, paren_meta,
+    )))
   }
 
   /* Utility functions */
@@ -688,28 +715,38 @@ impl AstGenerator {
         self.advance();
         true
       } else {
-        self.error(self.index, err);
+        self.error::<0>(err);
         false
       }
     } else {
-      self.error(
-        self.index - 1,
-        format!("tried to lookup a token at an invalid index: {}", err),
-      );
+      self.error::<1>(format!(
+        "tried to lookup a token at an invalid index: {}",
+        err
+      ));
       false
     }
   }
 
-  fn error(&mut self, pos: usize, msg: String) {
-    let meta = self.meta.get(pos);
+  fn meta_at<const I: usize>(&mut self) -> Option<SourceLocation> {
+    self.meta.get(self.index - I).cloned().or_else(|| {
+      self.error::<I>(String::from("unable to get meta at position"));
+      None
+    })
+  }
+
+  fn error<const I: usize>(&mut self, msg: String) {
+    let meta = self.meta_at::<I>();
 
     if let Some(meta) = meta {
       if cfg!(debug_assertions) {
-        println!("{} ({}, {}): {}", meta.file, meta.line, meta.column, msg);
+        println!(
+          "{} ({}, {}): {}",
+          "TODO IMPLEMENT FILE", meta.line, meta.column, msg
+        );
       }
       self.errors.push(Error {
         msg,
-        file: meta.file.access().clone(),
+        file: String::default(), // TODO get file when loading is supported
         line: meta.line,
         column: meta.column,
       });
@@ -782,7 +819,7 @@ impl AstGenerator {
           None => return None,
         }
       } else {
-        self.error(self.index - 1, String::from("expected an expression"));
+        self.error::<1>(String::from("expected an expression"));
         return None;
       }
 
@@ -796,7 +833,7 @@ impl AstGenerator {
               None => return None,
             }
           } else {
-            self.error(self.index, format!("no rule for {:?}", prev));
+            self.error::<0>(format!("no rule for {:?}", prev));
             return None;
           }
         } else {
@@ -805,16 +842,15 @@ impl AstGenerator {
       }
 
       if can_assign && self.advance_if_matches(Token::Equal) {
-        self.error(self.index - 1, String::from("invalid assignment target"));
+        self.error::<1>(String::from("invalid assignment target"));
         None
       } else {
         Some(expr)
       }
     } else {
-      self.error(
-        self.index - 2,
-        String::from("unexpected end of token stream (parse_precedence 3)"),
-      );
+      self.error::<2>(String::from(
+        "unexpected end of token stream (parse_precedence 3)",
+      ));
       None
     }
   }
@@ -889,8 +925,8 @@ impl Ident {
 }
 
 pub enum Statement {
-  Break,
-  Cont,
+  Break(BreakStatement),
+  Cont(ContStatement),
   End(EndStatement),
   Fn(FnStatement),
   For(ForStatement),
@@ -904,6 +940,18 @@ pub enum Statement {
   Ret(RetStatement),
   While(WhileStatement),
   Expression(ExpressionStatement),
+}
+
+impl New<BreakStatement> for Statement {
+  fn new(stmt: BreakStatement) -> Self {
+    Self::Break(stmt)
+  }
+}
+
+impl New<ContStatement> for Statement {
+  fn new(stmt: ContStatement) -> Self {
+    Self::Cont(stmt)
+  }
 }
 
 impl New<EndStatement> for Statement {
@@ -984,13 +1032,35 @@ impl New<ExpressionStatement> for Statement {
   }
 }
 
+pub struct BreakStatement {
+  pub loc: SourceLocation,
+}
+
+impl BreakStatement {
+  fn new(loc: SourceLocation) -> Self {
+    Self { loc }
+  }
+}
+
+pub struct ContStatement {
+  pub loc: SourceLocation,
+}
+
+impl ContStatement {
+  fn new(loc: SourceLocation) -> Self {
+    Self { loc }
+  }
+}
+
 pub struct EndStatement {
   pub expr: Option<Expression>,
+
+  pub loc: SourceLocation,
 }
 
 impl EndStatement {
-  fn new(expr: Option<Expression>) -> Self {
-    Self { expr }
+  fn new(expr: Option<Expression>, loc: SourceLocation) -> Self {
+    Self { expr, loc }
   }
 }
 
@@ -1097,11 +1167,12 @@ impl MatchStatement {
 
 pub struct PrintStatement {
   pub expr: Expression,
+  pub loc: SourceLocation,
 }
 
 impl PrintStatement {
-  fn new(expr: Expression) -> Self {
-    Self { expr }
+  fn new(expr: Expression, loc: SourceLocation) -> Self {
+    Self { expr, loc }
   }
 }
 
@@ -1149,12 +1220,6 @@ pub enum Expression {
   Ident(IdentExpression),
   Assign(AssignExpression),
   Call(CallExpression),
-}
-
-impl Expression {
-  fn append(&mut self, other: Expression) -> Option<String> {
-    None
-  }
 }
 
 impl New<LiteralExpression> for Expression {
@@ -1213,11 +1278,13 @@ impl New<CallExpression> for Expression {
 
 pub struct LiteralExpression {
   pub value: Value,
+
+  pub loc: SourceLocation, // location of the literal
 }
 
 impl LiteralExpression {
-  fn new(value: Value) -> Self {
-    Self { value }
+  fn new(value: Value, loc: SourceLocation) -> Self {
+    Self { value, loc }
   }
 }
 
@@ -1229,13 +1296,16 @@ pub enum UnaryOperator {
 pub struct UnaryExpression {
   pub op: UnaryOperator,
   pub expr: Box<Expression>,
+
+  pub loc: SourceLocation, // location of the operator
 }
 
 impl UnaryExpression {
-  fn new(op: UnaryOperator, expr: Expression) -> Self {
+  fn new(op: UnaryOperator, expr: Expression, loc: SourceLocation) -> Self {
     Self {
       op,
       expr: Box::new(expr),
+      loc,
     }
   }
 }
@@ -1243,13 +1313,16 @@ impl UnaryExpression {
 pub struct AndExpression {
   pub left: Box<Expression>,
   pub right: Box<Expression>,
+
+  pub loc: SourceLocation, // location of the operator
 }
 
 impl AndExpression {
-  fn new(left: Expression, right: Expression) -> Self {
+  fn new(left: Expression, right: Expression, loc: SourceLocation) -> Self {
     Self {
       left: Box::new(left),
       right: Box::new(right),
+      loc,
     }
   }
 }
@@ -1257,13 +1330,15 @@ impl AndExpression {
 pub struct OrExpression {
   pub left: Box<Expression>,
   pub right: Box<Expression>,
+  pub loc: SourceLocation, // location of the operator
 }
 
 impl OrExpression {
-  fn new(left: Expression, right: Expression) -> Self {
+  fn new(left: Expression, right: Expression, loc: SourceLocation) -> Self {
     Self {
       left: Box::new(left),
       right: Box::new(right),
+      loc,
     }
   }
 }
@@ -1286,50 +1361,61 @@ pub struct BinaryExpression {
   pub left: Box<Expression>,
   pub op: BinaryOperator,
   pub right: Box<Expression>,
+
+  pub loc: SourceLocation, // location of the operator
 }
 
 impl BinaryExpression {
-  fn new(left: Expression, op: BinaryOperator, right: Expression) -> Self {
+  fn new(left: Expression, op: BinaryOperator, right: Expression, loc: SourceLocation) -> Self {
     Self {
       left: Box::new(left),
       op,
       right: Box::new(right),
+      loc,
     }
   }
 }
 
 pub struct GroupExpression {
   pub expr: Box<Expression>,
+
+  pub loc: SourceLocation, // location of the left paren
 }
 
 impl GroupExpression {
-  fn new(expr: Expression) -> Self {
+  fn new(expr: Expression, loc: SourceLocation) -> Self {
     Self {
       expr: Box::new(expr),
+      loc,
     }
   }
 }
 
 pub struct IdentExpression {
   pub ident: Ident,
+
+  pub loc: SourceLocation, // location of the identifier
 }
 
 impl IdentExpression {
-  fn new(ident: Ident) -> Self {
-    Self { ident }
+  fn new(ident: Ident, loc: SourceLocation) -> Self {
+    Self { ident, loc }
   }
 }
 
 pub struct AssignExpression {
   pub ident: Ident,
   pub value: Box<Expression>,
+
+  pub loc: SourceLocation, // location of the =
 }
 
 impl AssignExpression {
-  fn new(ident: Ident, value: Expression) -> Self {
+  fn new(ident: Ident, value: Expression, loc: SourceLocation) -> Self {
     Self {
       ident,
       value: Box::new(value),
+      loc,
     }
   }
 }
@@ -1337,13 +1423,16 @@ impl AssignExpression {
 pub struct CallExpression {
   pub callable: Box<Expression>,
   pub args: Vec<Expression>,
+
+  pub loc: SourceLocation,
 }
 
 impl CallExpression {
-  fn new(callable: Expression, args: Vec<Expression>) -> Self {
+  fn new(callable: Expression, args: Vec<Expression>, loc: SourceLocation) -> Self {
     Self {
       callable: Box::new(callable),
       args,
+      loc,
     }
   }
 }
