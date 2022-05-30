@@ -77,7 +77,15 @@ impl BytecodeGenerator {
   /* Statements */
 
   fn block_stmt(&mut self, stmt: BlockStatement) {
-    self.emit_block(stmt.statements, stmt.loc);
+    let loc = stmt.loc;
+
+    self.new_scope(stmt.loc, |this| {
+      for statement in stmt.statements {
+        this.emit_stmt(statement);
+      }
+    });
+
+    self.reduce_locals_to_depth(self.scope_depth, loc);
   }
 
   fn break_stmt(&mut self, stmt: BreakStatement) {
@@ -98,6 +106,31 @@ impl BytecodeGenerator {
       self.emit(OpCode::Nil, stmt.loc);
     }
     self.emit(OpCode::End, stmt.loc);
+  }
+
+  fn for_stmt(&mut self, stmt: ForStatement) {
+    let loc = stmt.loc;
+
+    self.new_scope(stmt.loc, |this| {
+      this.emit_stmt(*stmt.initializer);
+
+      let before_compare = this.current_instruction_count();
+      this.emit_expr(stmt.comparison);
+      let exit = this.emit_noop(stmt.loc);
+
+      let block = *stmt.block;
+      let increment = stmt.increment;
+      let loc = stmt.loc;
+      this.emit_loop_block(before_compare, stmt.loc, |this| {
+        this.emit_stmt(block);
+        this.emit_expr(increment);
+        this.emit(OpCode::Pop, loc);
+      });
+
+      this.patch_inst(exit, OpCode::JumpIfFalse);
+    });
+
+    self.reduce_locals_to_depth(self.scope_depth, loc);
   }
 
   fn if_stmt(&mut self, stmt: IfStatement) {
@@ -132,7 +165,9 @@ impl BytecodeGenerator {
 
   fn loop_stmt(&mut self, stmt: LoopStatement) {
     let start = self.current_instruction_count();
-    self.emit_loop_block(start, stmt.block.statements, stmt.loc);
+    self.emit_loop_block(start, stmt.loc, |this| {
+      this.emit_stmt(*stmt.block);
+    });
   }
 
   fn print_stmt(&mut self, stmt: PrintStatement) {
@@ -141,17 +176,16 @@ impl BytecodeGenerator {
   }
 
   fn while_stmt(&mut self, stmt: WhileStatement) {
-    let compare_start = self.current_instruction_count();
+    let before_compare = self.current_instruction_count();
     self.emit_expr(stmt.comparison);
-    let loop_end = self.emit_noop(stmt.loc);
+    let end_jump = self.emit_noop(stmt.loc);
 
     let block = *stmt.block;
-    self.new_scope(|this| {
+    self.emit_loop_block(before_compare, stmt.loc, |this| {
       this.emit_stmt(block);
     });
 
-    self.emit_loop(compare_start, stmt.loc);
-    self.patch_inst(loop_end, OpCode::JumpIfFalse);
+    self.patch_inst(end_jump, OpCode::JumpIfFalse);
   }
 
   fn expr_stmt(&mut self, stmt: ExpressionStatement) {
@@ -263,7 +297,7 @@ impl BytecodeGenerator {
       Statement::Cont(stmt) => self.cont_stmt(stmt),
       Statement::End(stmt) => self.end_stmt(stmt),
       Statement::Fn(stmt) => {}
-      Statement::For(stmt) => {}
+      Statement::For(stmt) => self.for_stmt(stmt),
       Statement::If(stmt) => self.if_stmt(stmt),
       Statement::Let(stmt) => self.let_stmt(stmt),
       Statement::Load(stmt) => {}
@@ -290,17 +324,7 @@ impl BytecodeGenerator {
     }
   }
 
-  fn emit_block(&mut self, statements: Vec<Statement>, loc: SourceLocation) {
-    self.new_scope(|this| {
-      for statement in statements {
-        this.emit_stmt(statement);
-      }
-    });
-
-    self.reduce_locals_to_depth(self.scope_depth, loc);
-  }
-
-  fn emit_loop_block(&mut self, start: usize, statements: Vec<Statement>, loc: SourceLocation) {
+  fn emit_loop_block<F: FnOnce(&mut Self)>(&mut self, start: usize, loc: SourceLocation, f: F) {
     let mut breaks = Vec::default();
     std::mem::swap(&mut breaks, &mut self.breaks);
 
@@ -310,17 +334,16 @@ impl BytecodeGenerator {
     let loop_depth = self.loop_depth;
     self.loop_depth = self.scope_depth;
 
-    self.new_scope(|this| {
-      for statement in statements {
-        this.emit_stmt(statement);
-      }
-      this.emit_loop(start, loc);
+    self.new_scope(loc, |this| {
+      f(this);
     });
 
-    self.reduce_locals_to_depth(self.scope_depth, loc);
+    self.emit_loop(start, loc);
 
     std::mem::swap(&mut breaks, &mut self.breaks);
     self.patch_breaks(breaks);
+
+    self.reduce_locals_to_depth(self.scope_depth, loc);
 
     self.cont_jump = cont_jump;
 
@@ -384,7 +407,7 @@ impl BytecodeGenerator {
     self.current_ctx().num_instructions()
   }
 
-  fn new_scope<F: FnOnce(&mut BytecodeGenerator)>(&mut self, f: F) {
+  fn new_scope<F: FnOnce(&mut BytecodeGenerator)>(&mut self, loc: SourceLocation, f: F) {
     self.scope_depth += 1;
     f(self);
     self.scope_depth -= 1;
@@ -409,6 +432,7 @@ impl BytecodeGenerator {
   }
 
   fn declare_variable(&mut self, ident: Ident, loc: SourceLocation) -> Option<usize> {
+    println!("declaring {} at {}", ident.name, self.scope_depth);
     if self.scope_depth == 0 {
       Some(self.declare_global(ident))
     } else if self.declare_local(ident, loc) {
@@ -419,12 +443,9 @@ impl BytecodeGenerator {
   }
 
   fn declare_local(&mut self, ident: Ident, loc: SourceLocation) -> bool {
-    let mut new_declaration = true;
-
     for local in self.locals.iter().rev() {
       // declared already in parent scope
       if local.initialized && local.depth < self.scope_depth {
-        new_declaration = false;
         break;
       }
 
@@ -437,9 +458,7 @@ impl BytecodeGenerator {
       }
     }
 
-    if new_declaration {
-      self.add_local(ident.name);
-    }
+    self.add_local(ident.name);
 
     true
   }

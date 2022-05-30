@@ -264,67 +264,68 @@ impl AstGenerator {
   }
 
   fn for_stmt(&mut self) {
-    let mut statements = self.scope(|this| {
-      if this.advance_if_matches(Token::Let) {
-        this.let_stmt();
-      } else {
-        this.expression_stmt();
-      }
+    if let Some(for_loc) = self.meta_at::<1>() {
+      if let Some(initializer_loc) = self.meta_at::<0>() {
+        let initializer = if self.advance_if_matches(Token::Let) {
+          if let Some(declaration) = self.declaration() {
+            Statement::new(declaration)
+          } else {
+            return;
+          }
+        } else if let Some(expr) = self.expression() {
+          Statement::new(ExpressionStatement::new(expr, initializer_loc))
+        } else {
+          return;
+        };
 
-      if let Some(comparison_loc) = this.meta_at::<0>() {
-        if let Some(comparison) = this.expression() {
-          if let Some(increment_loc) = this.meta_at::<0>() {
-            if let Some(increment) = this.expression() {
-              this
-                .statements
-                .push(Statement::new(ExpressionStatement::new(
-                  comparison,
-                  comparison_loc,
-                )));
-              this
-                .statements
-                .push(Statement::new(ExpressionStatement::new(
-                  increment,
-                  increment_loc,
-                )));
+        if !self.consume(
+          Token::Semicolon,
+          String::from("expected ';' after expression"),
+        ) {
+          return;
+        }
 
-              if this.consume(
-                Token::LeftBrace,
-                String::from("expected '{' after increment"),
-              ) {
-                let prev = this.in_loop;
-                this.in_loop = true;
-                if let Some(block_loc) = this.meta_at::<1>() {
-                  if let Some(block) = this.block(block_loc) {
-                    this.statements.push(Statement::new(block));
-                  }
-                } else {
-                  // sanity check
-                  this.error::<0>(String::from("could not find original token"));
+        if let Some(comparison) = self.expression() {
+          if !self.consume(
+            Token::Semicolon,
+            String::from("expected ';' after comparison"),
+          ) {
+            return;
+          }
+
+          if let Some(increment) = self.expression() {
+            if self.consume(
+              Token::LeftBrace,
+              String::from("expected '{' after increment"),
+            ) {
+              let prev = self.in_loop;
+              self.in_loop = true;
+              if let Some(block_loc) = self.meta_at::<1>() {
+                if let Some(block) = self.block(block_loc) {
+                  self.statements.push(Statement::new(ForStatement::new(
+                    initializer,
+                    comparison,
+                    increment,
+                    Statement::new(block),
+                    for_loc,
+                  )));
                 }
-                this.in_loop = prev;
+              } else {
+                // sanity check
+                self.error::<0>(String::from("could not find original token"));
               }
-            } else {
-              this.error::<0>(String::from("expected increment after comparison"));
+              self.in_loop = prev;
             }
           } else {
-            this.error::<0>(String::from("expected comparison after initializer"));
+            self.error::<0>(String::from("expected increment after comparison"));
           }
+        } else {
+          self.error::<0>(String::from("expected comparison after initializer"));
         }
       }
-    });
-
-    if statements.len() == 4 {
-      let block = statements.swap_remove(3);
-      let increment = statements.swap_remove(2);
-      let comparison = statements.swap_remove(1);
-      let initializer = statements.swap_remove(0);
-      self.statements.push(Statement::new(ForStatement::new(
-        initializer,
-        comparison,
-        increment,
-        block,
-      )));
+    } else {
+      // sanity check
+      self.error::<0>(String::from("could not find original token"));
     }
   }
 
@@ -337,37 +338,15 @@ impl AstGenerator {
   }
 
   fn let_stmt(&mut self) {
-    if let Some(let_loc) = self.meta_at::<1>() {
-      if let Some(Token::Identifier(ident)) = self.current() {
-        let ident = Ident::new(ident);
-        self.advance();
-
-        let value = if self.advance_if_matches(Token::Equal) {
-          if let Some(expr) = self.expression() {
-            Some(expr)
-          } else {
-            return;
-          }
-        } else {
-          None
-        };
-
-        if !self.consume(
-          Token::Semicolon,
-          String::from("expected ';' after let statement"),
-        ) {
-          return;
-        }
-
-        self
-          .statements
-          .push(Statement::new(LetStatement::new(ident, value, let_loc)));
-      } else {
-        self.error::<0>(String::from("expected variable name"));
+    if let Some(declaration) = self.declaration() {
+      if !self.consume(
+        Token::Semicolon,
+        String::from("expected ';' after expression"),
+      ) {
+        return;
       }
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
+
+      self.statements.push(Statement::new(declaration));
     }
   }
 
@@ -385,9 +364,10 @@ impl AstGenerator {
 
     if let Some(loc) = self.meta_at::<1>() {
       if let Some(block) = self.block(loc) {
-        self
-          .statements
-          .push(Statement::new(LoopStatement::new(block, loc)));
+        self.statements.push(Statement::new(LoopStatement::new(
+          Statement::new(block),
+          loc,
+        )));
       }
     } else {
       // sanity check
@@ -876,10 +856,10 @@ impl AstGenerator {
       }
     });
 
-    if !self.consume(Token::RightBrace, String::from("expected '}' after block")) {
-      None
-    } else {
+    if self.consume(Token::RightBrace, String::from("expected '}' after block")) {
       Some(BlockStatement::new(statements, loc))
+    } else {
+      None
     }
   }
 
@@ -932,6 +912,34 @@ impl AstGenerator {
     }
 
     None
+  }
+
+  fn declaration(&mut self) -> Option<LetStatement> {
+    if let Some(let_loc) = self.meta_at::<1>() {
+      if let Some(Token::Identifier(ident)) = self.current() {
+        let ident = Ident::new(ident);
+        self.advance();
+
+        let value = if self.advance_if_matches(Token::Equal) {
+          if let Some(expr) = self.expression() {
+            Some(expr)
+          } else {
+            return None;
+          }
+        } else {
+          None
+        };
+
+        Some(LetStatement::new(ident, value, let_loc))
+      } else {
+        self.error::<0>(String::from("expected variable name"));
+        None
+      }
+    } else {
+      // sanity check
+      self.error::<0>(String::from("could not find original token"));
+      None
+    }
   }
 
   fn parse_precedence(&mut self, precedence: Precedence) -> Option<Expression> {
@@ -1216,23 +1224,27 @@ impl FnStatement {
 
 pub struct ForStatement {
   pub initializer: Box<Statement>,
-  pub comparison: Box<Statement>,
-  pub increment: Box<Statement>,
+  pub comparison: Expression,
+  pub increment: Expression,
   pub block: Box<Statement>,
+
+  pub loc: SourceLocation,
 }
 
 impl ForStatement {
   fn new(
     initializer: Statement,
-    comparison: Statement,
-    increment: Statement,
+    comparison: Expression,
+    increment: Expression,
     block: Statement,
+    loc: SourceLocation,
   ) -> Self {
     Self {
       initializer: Box::new(initializer),
-      comparison: Box::new(comparison),
-      increment: Box::new(increment),
+      comparison,
+      increment,
       block: Box::new(block),
+      loc,
     }
   }
 }
@@ -1278,12 +1290,12 @@ pub struct LoadStatement {
 }
 
 pub struct LoopStatement {
-  pub block: Box<BlockStatement>,
+  pub block: Box<Statement>,
   pub loc: SourceLocation,
 }
 
 impl LoopStatement {
-  fn new(block: BlockStatement, loc: SourceLocation) -> Self {
+  fn new(block: Statement, loc: SourceLocation) -> Self {
     Self {
       block: Box::new(block),
       loc,
