@@ -130,7 +130,7 @@ impl AstGenerator {
       return;
     }
 
-    if !self.consume(Token::Semicolon, String::from("expect ';' after break")) {
+    if !self.consume(Token::Semicolon, String::from("expect ';' after statement")) {
       return;
     }
 
@@ -149,7 +149,7 @@ impl AstGenerator {
       return;
     }
 
-    if !self.consume(Token::Semicolon, String::from("expect ';' after cont")) {
+    if !self.consume(Token::Semicolon, String::from("expect ';' after statement")) {
       return;
     }
 
@@ -174,7 +174,10 @@ impl AstGenerator {
         None
       };
 
-      if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+      if !self.consume(
+        Token::Semicolon,
+        String::from("expected ';' after statement"),
+      ) {
         return;
       }
 
@@ -332,6 +335,13 @@ impl AstGenerator {
         }
       }
 
+      if !self.consume(
+        Token::Semicolon,
+        String::from("expected ';' after statement"),
+      ) {
+        return;
+      }
+
       self
         .statements
         .push(Statement::new(LetStatement::new(ident, value)));
@@ -395,6 +405,10 @@ impl AstGenerator {
         } else {
           break; // error but need to restore statements
         }
+      }
+
+      if !self.consume(Token::RightBrace, String::from("expected '}' after match")) {
+        return;
       }
 
       self

@@ -80,6 +80,10 @@ impl BytecodeGenerator {
     self.emit(OpCode::End, stmt.loc);
   }
 
+  fn let_stmt(&mut self, stmt: LetStatement) {
+    unimplemented!();
+  }
+
   fn print_stmt(&mut self, stmt: PrintStatement) {
     self.emit_expr(stmt.expr);
     self.emit(OpCode::Print, stmt.loc);
