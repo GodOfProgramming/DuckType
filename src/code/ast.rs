@@ -329,37 +329,9 @@ impl AstGenerator {
   }
 
   fn if_stmt(&mut self) {
-    if let Some(expr) = self.expression() {
-      if !self.consume(
-        Token::LeftBrace,
-        String::from("expected '{' after condition"),
-      ) {
-        return;
-      }
-
-      if let Some(block_loc) = self.meta_at::<1>() {
-        if let Some(block) = self.block(block_loc) {
-          self
-            .statements
-            .push(Statement::new(IfStatement::new(expr, block)));
-        }
-      } else {
-        // sanity check
-        self.error::<0>(String::from("could not find original token"));
-      }
-    } else {
-      return;
-    }
-
-    if self.advance_if_matches(Token::Else) {
-      if let Some(token) = self.current() {
-        match token {
-          Token::LeftBrace => self.block_stmt(),
-          Token::If => self.if_stmt(),
-          _ => self.error::<0>(String::from("unexpected token after 'else'")),
-        }
-      } else {
-        self.error::<1>(String::from("unexpected end of file"));
+    if let Some(if_loc) = self.meta_at::<1>() {
+      if let Some(if_stmt) = self.branch(if_loc) {
+        self.statements.push(Statement::new(if_stmt));
       }
     }
   }
@@ -415,7 +387,7 @@ impl AstGenerator {
       if let Some(block) = self.block(loc) {
         self
           .statements
-          .push(Statement::new(LoopStatement::new(block)));
+          .push(Statement::new(LoopStatement::new(block, loc)));
       }
     } else {
       // sanity check
@@ -909,6 +881,57 @@ impl AstGenerator {
     }
   }
 
+  fn branch(&mut self, loc: SourceLocation) -> Option<IfStatement> {
+    if let Some(expr) = self.expression() {
+      if !self.consume(
+        Token::LeftBrace,
+        String::from("expected '{' after condition"),
+      ) {
+        return None;
+      }
+
+      if let Some(block_loc) = self.meta_at::<1>() {
+        if let Some(block) = self.block(block_loc) {
+          let else_block = if self.advance_if_matches(Token::Else) {
+            if let Some(else_meta) = self.meta_at::<1>() {
+              if let Some(token) = self.current() {
+                match token {
+                  Token::LeftBrace => Some(Statement::new(self.block(else_meta)?)),
+                  Token::If => Some(Statement::new(self.branch(else_meta)?)),
+                  _ => {
+                    self.error::<0>(String::from("unexpected token after 'else'"));
+                    return None;
+                  }
+                }
+              } else {
+                self.error::<1>(String::from("unexpected end of file"));
+                return None;
+              }
+            } else {
+              // sanity check
+              self.error::<0>(String::from("could not find original token"));
+              return None;
+            }
+          } else {
+            None
+          };
+
+          return Some(IfStatement::new(
+            expr,
+            Statement::new(block),
+            else_block,
+            block_loc,
+          ));
+        }
+      } else {
+        // sanity check
+        self.error::<0>(String::from("could not find original token"));
+      }
+    }
+
+    None
+  }
+
   fn parse_precedence(&mut self, precedence: Precedence) -> Option<Expression> {
     self.advance();
 
@@ -1214,14 +1237,23 @@ impl ForStatement {
 
 pub struct IfStatement {
   pub comparison: Expression,
-  pub block: Box<BlockStatement>,
+  pub block: Box<Statement>,
+  pub else_block: Option<Box<Statement>>,
+  pub loc: SourceLocation,
 }
 
 impl IfStatement {
-  fn new(comparison: Expression, block: BlockStatement) -> Self {
+  fn new(
+    comparison: Expression,
+    block: Statement,
+    else_block: Option<Statement>,
+    loc: SourceLocation,
+  ) -> Self {
     Self {
       comparison,
       block: Box::new(block),
+      else_block: else_block.map(Box::new),
+      loc,
     }
   }
 }
@@ -1245,12 +1277,14 @@ pub struct LoadStatement {
 
 pub struct LoopStatement {
   pub block: Box<BlockStatement>,
+  pub loc: SourceLocation,
 }
 
 impl LoopStatement {
-  fn new(block: BlockStatement) -> Self {
+  fn new(block: BlockStatement, loc: SourceLocation) -> Self {
     Self {
       block: Box::new(block),
+      loc,
     }
   }
 }
