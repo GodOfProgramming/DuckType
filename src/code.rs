@@ -163,6 +163,10 @@ pub enum OpCode {
   End,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
+  /**
+   * Create a list of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits
+   */
+  CreateList(usize),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -172,6 +176,8 @@ pub enum Token {
   RightParen,
   LeftBrace,
   RightBrace,
+  LeftBracket,
+  RightBracket,
   Comma,
   Dot,
   Semicolon,

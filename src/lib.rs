@@ -567,6 +567,10 @@ impl Interpreter for Vpu {
             }));
           }
         }
+        OpCode::CreateList(num_items) => {
+          let list = ctx.stack_drain_from(num_items);
+          ctx.stack_push(Value::new(list));
+        }
         x => unimplemented!("Unimplemented: {:?}", x),
       }
       ctx.advance();

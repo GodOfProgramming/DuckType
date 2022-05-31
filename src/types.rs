@@ -187,6 +187,12 @@ impl New<&str> for Value {
   }
 }
 
+impl New<Vec<Value>> for Value {
+  fn new(item: Vec<Value>) -> Self {
+    Self::List(Values(item))
+  }
+}
+
 impl New<Values> for Value {
   fn new(item: Values) -> Self {
     Self::List(item)

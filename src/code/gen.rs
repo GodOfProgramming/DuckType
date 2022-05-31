@@ -338,6 +338,16 @@ impl BytecodeGenerator {
     self.emit(OpCode::Call(arg_count), expr.loc);
   }
 
+  fn list_expr(&mut self, expr: ListExpression) {
+    let num_items = expr.items.len();
+    for item in expr.items {
+      self.emit_expr(item);
+    }
+    self.emit(OpCode::CreateList(num_items), expr.loc);
+  }
+
+  fn index_expr(&mut self, expr: IndexExpression) {}
+
   /* Utility Functions */
 
   fn emit(&mut self, op: OpCode, loc: SourceLocation) {
@@ -375,6 +385,8 @@ impl BytecodeGenerator {
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::Call(expr) => self.call_expr(expr),
+      Expression::List(expr) => self.list_expr(expr),
+      Expression::Index(expr) => self.index_expr(expr),
     }
   }
 
