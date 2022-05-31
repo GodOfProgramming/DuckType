@@ -10,11 +10,11 @@
 /target
 
 # Vim
-
 *.swp
 
 # Node
 **/node_modules/*
 
 # VSCode extensions
+*.tmLanguage.json
 *.vsix

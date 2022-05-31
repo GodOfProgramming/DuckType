@@ -1,9 +1,12 @@
 [package]
 name = "simple_script"
-version = "0.9.2"
+version = "0.20.0"
 authors = ["Jonathan Dickert <jon.p.dickert@gmail.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ptr = { path = "lib/ptr" }
+tfix = { path = "lib/tfix" }
+enum-map = "2.3"

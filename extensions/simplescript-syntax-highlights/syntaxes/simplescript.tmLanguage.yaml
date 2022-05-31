@@ -1,46 +1,90 @@
 ---
 $schema: "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json"
 name: "SimpleScript"
+env:
+  IDENT: "[A-Za-z_]\\w*"
+  DIGIT: "[0-9]+(?:.[0-9]+)?"
+  INTERPOLATED: "\\${\\s*.*\\s*}"
+  REG: "\\/.*\\/"
 patterns:
   - include: "#comments"
-  - include: "#keywords"
-  - include: "#callables"
-  - include: "#ident"
   - include: "#strings"
+  - include: "#keywords"
+  - include: "#support"
+  - include: "#meta"
+  - include: "#ident"
   - include: "#digits"
 repository:
   keywords:
     patterns:
-      - name: "keyword.control.simplescript"
-        match: "\\b(and|else|for|if|or|return|while)\\b"
-      - name: "keyword.declaration.simplescript"
-        match: "\\b(let|error|bool|number|string|list|fn|class)\\b"
-      - name: "support.function.builtin.simplescript"
-        match: "\\b(is|print|load|loadr)\\b"
-      - name: "constant.language.null.simplescript"
+      - name: "keyword.control"
+        match: "\\b(break|cont|else|end|for|if|loop|match|ret|while)\\b"
+      - name: "keyword.operator"
+        match: "\\b(and|or)\\b|\\+|\\-|\\/|\\*"
+      - name: "keyword.declaration"
+        match: "\\b(let|class|fn|req)\\b"
+      - name: "storage.type"
+        match: "\\b(error|bool|number|string|list)\\b"
+      - name: "support.function.builtin"
+        match: "\\b(print)\\b"
+      - name: "constant.language.null"
         match: "\\b(nil)\\b"
-      - name: "constant.language.boolean.simplescript"
+      - name: "constant.language.boolean"
         match: "\\b(true|false)\\b"
-  callables:
+  support:
     patterns:
-      - match: "[@A-Za-z_]\\w*\\(|\\)|\\|"
-        name: "support.function.simplescript"
+      - name: "support.class"
+        patterns:
+          - include: "#class"
+      - name: "support.function"
+        patterns:
+          - include: "#function"
+  meta:
+    patterns:
+      - name: "meta.function"
+        patterns:
+          - include: "#function"
+      - name: "meta.definition.function"
+        patterns:
+          - include: "#function"
+  class:
+    name: "entity.name.type.class"
+    match: "(?<=class)\\s+${ IDENT }"
+  function:
+    name: "entity.name.function"
+    match: "(?<=fn)\\s+${ IDENT }"
   strings:
-    name: "string.quoted.double.simplescript"
-    begin: '"'
-    end: '"'
-    patterns: []
-  digits:
-    name: "constant.numeric.simplescript"
     patterns:
-      - name: "constant.numeric.simplescript"
-        match: "\\b[0-9]+(?:.[0-9]+)?\\b"
+      - name: "string.quoted.double"
+        begin: '"'
+        end: '"'
+        patterns:
+          - name: "constant.character.escape"
+            match: "\\."
+          - name: "string.template"
+            begin: "\\${"
+            end: "}"
+            patterns:
+              - include: "#ident"
+              - include: "#function"
+              - include: "#digit"
+      - name: "string.quoted.single"
+        begin: "'"
+        end: "'"
+      - name: "string.regexp"
+        match: "(?!=\\/)${ REG }|(?=\\/\\b)${ REG }"
+  digits:
+    patterns:
+      - name: "constant.numeric"
+        match: "\\b(${ DIGIT })\\b"
   ident:
     patterns:
-      - name: "variable.other.readwrite.lox"
-        match: "\\b[A-Za-z_]\\w*\\b"
+      - name: "variable.language"
+        match: "\\b(self|super)\\b"
+      - name: "variable.other"
+        match: "\\b(${ IDENT })\\b"
   comments:
     patterns:
-      - name: "comment.line.pound.simplescript"
+      - name: "comment.line.pound"
         match: "#.*"
 scopeName: "source.ss"

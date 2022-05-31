@@ -1,0 +1,6 @@
+[submodule "lib/ptr"]
+	path = lib/ptr
+	url = git@github.com:GodOfProgramming/ptr
+[submodule "lib/tfix"]
+	path = lib/tfix
+	url = git@github.com:GodOfProgramming/tfix
