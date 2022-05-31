@@ -185,6 +185,13 @@ impl BytecodeGenerator {
     self.emit(OpCode::Print, stmt.loc);
   }
 
+  fn ret_stmt(&mut self, stmt: RetStatement) {
+    if let Some(expr) = stmt.expr {
+      self.emit_expr(expr);
+    }
+    self.emit(OpCode::Return, stmt.loc);
+  }
+
   fn while_stmt(&mut self, stmt: WhileStatement) {
     let before_compare = self.current_instruction_count();
     self.emit_expr(stmt.comparison);
@@ -314,7 +321,7 @@ impl BytecodeGenerator {
       Statement::Loop(stmt) => self.loop_stmt(stmt),
       Statement::Match(stmt) => {}
       Statement::Print(stmt) => self.print_stmt(stmt),
-      Statement::Ret(stmt) => {}
+      Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
       Statement::Expression(stmt) => self.expr_stmt(stmt),
     }

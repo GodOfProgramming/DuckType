@@ -50,19 +50,16 @@ fn run_file(
     match fs::read_to_string(p) {
       Ok(contents) => match vm.load(file, &contents) {
         Ok(mut ctx) => {
-          ctx.create_native(String::from("clock"), |_args: &[Value]| {
+          ctx.create_native(String::from("clock"), |_args: Vec<Value>| {
             use std::time::{SystemTime, UNIX_EPOCH};
             let now = SystemTime::now();
             let since = now.duration_since(UNIX_EPOCH).expect("time went backwards");
             Ok(Value::new(since.as_nanos()))
           });
 
-          ctx.create_native(String::from("clock_diff"), |args: &[Value]| {
+          ctx.create_native(String::from("clock_diff"), |args: Vec<Value>| {
             if let Some(Value::U128(before)) = args.get(0) {
               if let Some(Value::U128(after)) = args.get(1) {
-                println!("before = {}", before);
-                println!("after  = {}", after);
-
                 let diff = std::time::Duration::from_nanos((after - before) as u64);
                 return Ok(Value::new(diff.as_secs_f64()));
               }

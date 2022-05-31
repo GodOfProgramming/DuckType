@@ -5,7 +5,7 @@ pub mod opt;
 pub mod parse;
 
 use crate::{
-  types::{Env, Error, NativeFn, Value, ValueOpResult},
+  types::{Env, Error, Value, ValueOpResult},
   New,
 };
 use ast::Ast;
@@ -366,8 +366,8 @@ impl Context {
     self.stack.truncate(self.stack.len().saturating_sub(count));
   }
 
-  pub fn stack_range(&self, range: Range<usize>) -> &[Value] {
-    &self.stack[range]
+  pub fn stack_drain_from(&mut self, index: usize) -> Vec<Value> {
+    self.stack.drain(self.stack_size() - index..).collect()
   }
 
   pub fn stack_index(&self, index: usize) -> Option<Value> {
@@ -436,12 +436,12 @@ impl Context {
     }
   }
 
-  pub fn create_native<F: FnMut(&[Value]) -> ValueOpResult + 'static>(
+  pub fn create_native<F: FnMut(Vec<Value>) -> ValueOpResult + 'static>(
     &mut self,
     name: String,
     native: F,
   ) -> bool {
-    self.assign_global(name, Value::new(native))
+    self.assign_global(name.clone(), Value::new((name, native)))
   }
 
   pub fn jump(&mut self, count: usize) {
@@ -538,7 +538,7 @@ impl Context {
         print!("{:<16} {:4} ", "Const", index);
         let c = self.const_at(*index);
         match c {
-          Some(v) => println!("'{}'", v),
+          Some(v) => println!("{}", v),
           None => println!("INVALID INDEX"),
         }
       }
@@ -546,7 +546,7 @@ impl Context {
       OpCode::LookupLocal(index) => println!("{:<16} {:4}", "LookupLocal", index),
       OpCode::AssignLocal(index) => println!("{:<16} {:4}", "AssignLocal", index),
       OpCode::LookupGlobal(name) => println!(
-        "{:<16} {:4} '{:?}'",
+        "{:<16} {:4} {:?}",
         "LookupGlobal",
         name,
         if let Some(name) = self.const_at(*name) {

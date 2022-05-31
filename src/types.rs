@@ -60,9 +60,25 @@ impl Display for Error {
   }
 }
 
-pub type NativeFn = dyn FnMut(&[Value]) -> ValueOpResult;
-pub type NativeFnPtr = Box<dyn FnMut(&[Value]) -> ValueOpResult>;
-pub type NativeFnSmartPtr = SmartPtr<NativeFnPtr>;
+pub struct NativeFn {
+  pub name: String,
+  pub call: Box<dyn FnMut(Vec<Value>) -> ValueOpResult>,
+}
+
+pub type NativeFnPtr = SmartPtr<NativeFn>;
+
+impl NativeFn {
+  pub fn new<F: FnMut(Vec<Value>) -> ValueOpResult + 'static>(name: String, callee: F) -> Self {
+    Self {
+      name,
+      call: Box::new(callee),
+    }
+  }
+
+  pub fn call(&mut self, args: Vec<Value>) -> ValueOpResult {
+    (self.call)(args)
+  }
+}
 
 #[derive(Clone)]
 pub enum Value {
@@ -72,7 +88,7 @@ pub enum Value {
   Str(String),
   List(Values),
   Function(Function),
-  NativeFunction(NativeFnSmartPtr),
+  NativeFunction(NativeFnPtr),
 
   U128(u128), // internal use only
 }
@@ -183,9 +199,9 @@ impl New<Function> for Value {
   }
 }
 
-impl<F: FnMut(&[Value]) -> ValueOpResult + 'static> New<F> for Value {
-  fn new(item: F) -> Self {
-    Self::NativeFunction(SmartPtr::new(Box::new(item)))
+impl<F: FnMut(Vec<Value>) -> ValueOpResult + 'static> New<(String, F)> for Value {
+  fn new((name, call): (String, F)) -> Self {
+    Self::NativeFunction(SmartPtr::new(NativeFn::new(name, call)))
   }
 }
 
@@ -203,6 +219,12 @@ impl Add for Value {
       Self::Str(a) => match other {
         Self::Num(b) => Ok(Self::Str(format!("{}{}", a, b))),
         Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
+        Self::U128(b) => Ok(Self::Str(format!("{}{}", a, b))),
+        _ => Err(format!("cannot add {} and {}", a, other)),
+      },
+      Self::U128(a) => match other {
+        Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
+        Self::U128(b) => Ok(Self::U128(a + b)),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
       _ => Err(format!("cannot add {} and {}", self, other)),
@@ -406,10 +428,10 @@ impl Display for Value {
       Self::Bool(b) => write!(f, "{}", b),
       Self::Num(n) => write!(f, "{}", n),
       Self::U128(n) => write!(f, "{}", n),
-      Self::Str(s) => write!(f, "{}", s),
+      Self::Str(s) => write!(f, "'{}'", s),
       Self::List(l) => write!(f, "{}", l),
       Self::Function(func) => write!(f, "<function {}>", func.name),
-      Self::NativeFunction(func) => write!(f, "<function @{:p}>", func),
+      Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
     }
   }
 }

@@ -25,6 +25,8 @@ struct AstGenerator {
   index: usize,
 
   in_loop: bool,
+
+  test: usize,
 }
 
 impl AstGenerator {
@@ -36,6 +38,7 @@ impl AstGenerator {
       errors: Default::default(),
       index: Default::default(),
       in_loop: Default::default(),
+      test: Default::default(),
     }
   }
 
@@ -250,6 +253,7 @@ impl AstGenerator {
         }
 
         if let Some(block_loc) = self.meta_at::<1>() {
+          println!("fn {}", self.test);
           if let Some(body) = self.block(block_loc) {
             self.statements.push(Statement::new(FnStatement::new(
               ident,
@@ -335,10 +339,8 @@ impl AstGenerator {
   }
 
   fn if_stmt(&mut self) {
-    if let Some(if_loc) = self.meta_at::<1>() {
-      if let Some(if_stmt) = self.branch(if_loc) {
-        self.statements.push(Statement::new(if_stmt));
-      }
+    if let Some(if_stmt) = self.branch() {
+      self.statements.push(Statement::new(if_stmt));
     }
   }
 
@@ -460,22 +462,24 @@ impl AstGenerator {
   }
 
   fn ret_stmt(&mut self) {
-    if let Some(current) = self.current() {
-      let expr = if current == Token::Semicolon {
-        None
-      } else if let Some(expr) = self.expression() {
-        Some(expr)
-      } else {
-        return;
-      };
+    if let Some(loc) = self.meta_at::<1>() {
+      if let Some(current) = self.current() {
+        let expr = if current == Token::Semicolon {
+          None
+        } else if let Some(expr) = self.expression() {
+          Some(expr)
+        } else {
+          return;
+        };
 
-      if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
-        return;
+        if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+          return;
+        }
+
+        self
+          .statements
+          .push(Statement::new(RetStatement::new(expr, loc)));
       }
-
-      self
-        .statements
-        .push(Statement::new(RetStatement::new(expr)));
     }
   }
 
@@ -715,21 +719,24 @@ impl AstGenerator {
     if let Some(token) = self.current() {
       if token != Token::RightParen {
         loop {
+          println!("current token: {}", self.current().unwrap());
           args.push(self.expression()?);
           if !self.advance_if_matches(Token::Comma) {
             break;
           }
         }
       }
-
-      if !self.consume(
-        Token::RightParen,
-        String::from("expect ')' after arguments"),
-      ) {
-        return None;
-      }
     }
 
+    println!("current token: {}", self.current().unwrap());
+    if !self.consume(
+      Token::RightParen,
+      String::from("expect ')' after arguments"),
+    ) {
+      return None;
+    }
+
+    println!("current token: {}", self.current().unwrap());
     Some(Expression::new(CallExpression::new(
       ident, args, paren_meta,
     )))
@@ -852,6 +859,8 @@ impl AstGenerator {
   }
 
   fn block(&mut self, loc: SourceLocation) -> Option<BlockStatement> {
+    self.test += 1;
+    println!("in block {}", self.test);
     let statements = self.scope(|this| {
       while let Some(token) = this.current() {
         if token == Token::RightBrace {
@@ -862,14 +871,19 @@ impl AstGenerator {
     });
 
     if self.consume(Token::RightBrace, String::from("expected '}' after block")) {
+      println!("left block (good) {}", self.test);
+      self.test -= 1;
       Some(BlockStatement::new(statements, loc))
     } else {
+      println!("left block (bad) {}", self.test);
+      self.test -= 1;
       None
     }
   }
 
-  fn branch(&mut self, loc: SourceLocation) -> Option<IfStatement> {
+  fn branch(&mut self) -> Option<IfStatement> {
     if let Some(expr) = self.expression() {
+      println!("branch if {}", self.test);
       if !self.consume(
         Token::LeftBrace,
         String::from("expected '{' after condition"),
@@ -882,9 +896,16 @@ impl AstGenerator {
           let else_block = if self.advance_if_matches(Token::Else) {
             if let Some(else_meta) = self.meta_at::<1>() {
               if let Some(token) = self.current() {
+                println!("branch else {}", self.test);
                 match token {
-                  Token::LeftBrace => Some(Statement::new(self.block(else_meta)?)),
-                  Token::If => Some(Statement::new(self.branch(else_meta)?)),
+                  Token::LeftBrace => {
+                    self.advance();
+                    Some(Statement::new(self.block(else_meta)?))
+                  }
+                  Token::If => {
+                    self.advance();
+                    Some(Statement::new(self.branch()?))
+                  }
                   _ => {
                     self.error::<0>(String::from("unexpected token after 'else'"));
                     return None;
@@ -1335,11 +1356,12 @@ impl PrintStatement {
 
 pub struct RetStatement {
   pub expr: Option<Expression>,
+  pub loc: SourceLocation,
 }
 
 impl RetStatement {
-  fn new(expr: Option<Expression>) -> Self {
-    Self { expr }
+  fn new(expr: Option<Expression>, loc: SourceLocation) -> Self {
+    Self { expr, loc }
   }
 }
 

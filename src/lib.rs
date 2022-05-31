@@ -8,7 +8,7 @@ pub use code::Context;
 use code::{Compiler, OpCode};
 use ptr::SmartPtr;
 use types::{Error, Interpreter};
-pub use types::{NativeFn, Value, ValueOpResult};
+pub use types::{Value, ValueOpResult};
 
 pub trait New<T> {
   fn new(item: T) -> Self;
@@ -463,25 +463,20 @@ impl Interpreter for Vpu {
         },
         OpCode::Call(airity) => {
           if let Some(function) = ctx.stack_pop() {
-            let args = ctx.stack_range(ctx.stack_size() - airity..ctx.stack_size());
+            let args = ctx.stack_drain_from(airity);
             match function {
-              Value::Function(mut f) => {
-                let args = Vec::from(args);
-                match f.call(self, args) {
-                  Ok(v) => {
-                    ctx.stack_pop();
-                    ctx.stack_push(v);
-                  }
-                  Err(e) => {
-                    return Err(
-                      ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)),
-                    )
-                  }
-                }
-              }
-              Value::NativeFunction(mut f) => match f(args) {
+              Value::Function(mut f) => match f.call(self, args) {
                 Ok(v) => {
-                  ctx.stack_pop();
+                  ctx.stack_push(v);
+                }
+                Err(e) => {
+                  return Err(
+                    ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)),
+                  )
+                }
+              },
+              Value::NativeFunction(mut f) => match f.call(args) {
+                Ok(v) => {
                   ctx.stack_push(v);
                 }
                 Err(e) => {
