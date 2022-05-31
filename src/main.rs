@@ -78,10 +78,12 @@ fn run_file(
             }
           }
 
-          match vm.run(&mut ctx) {
+          match vm.run(ctx) {
             Ok(v) => println!("{}", v),
-            Err(err) => {
-              println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
+            Err(errors) => {
+              for err in errors {
+                println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
+              }
               return false;
             }
           }

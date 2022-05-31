@@ -11,7 +11,7 @@ use std::{
 };
 
 pub trait Interpreter {
-  fn interpret(&self, ctx: &mut Context) -> Result<Value, Error>;
+  fn interpret(&self, ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>>;
 }
 
 #[derive(Default, PartialEq)]
@@ -525,13 +525,17 @@ impl Function {
     Self { name, airity, ctx }
   }
 
-  pub fn call<I: Interpreter>(&mut self, i: &I, mut args: Vec<Value>) -> Result<Value, String> {
+  pub fn call<I: Interpreter>(
+    &mut self,
+    i: &I,
+    mut args: Vec<Value>,
+  ) -> Result<Value, Vec<String>> {
     if args.len() > self.airity {
-      return Err(format!(
+      return Err(vec![format!(
         "too many arguments number of arguments, expected {}, got {}",
         self.airity,
         args.len()
-      ));
+      )]);
     }
 
     while args.len() < self.airity {
@@ -542,7 +546,9 @@ impl Function {
     self.ctx.ip = 0;
     let prev_stack = self.ctx.stack_move(args);
 
-    let res = i.interpret(&mut self.ctx).map_err(|e| e.msg);
+    let res = i
+      .interpret(self.ctx.clone())
+      .map_err(|e| e.into_iter().map(|e| e.msg).collect());
 
     self.ctx.ip = prev_ip;
     self.ctx.stack_move(prev_stack);

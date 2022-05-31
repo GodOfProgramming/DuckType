@@ -1,5 +1,5 @@
-use super::gen::Parser;
 use super::lex::Scanner;
+use super::parse::Parser;
 use super::*;
 use ptr::SmartPtr;
 use tfix::{fixture, TestFixture};

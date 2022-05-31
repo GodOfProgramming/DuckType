@@ -163,6 +163,8 @@ pub enum OpCode {
   Return,
   /** Stops executing. If an expression follows afterwards it is returned from the processing function */
   End,
+  /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
+  Req,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -211,12 +213,12 @@ pub enum Token {
   Fn,
   If,
   Let,
-  Load,
   Loop,
   Match,
   Nil,
   Or,
   Print,
+  Req,
   Ret,
   True,
   While,
@@ -485,16 +487,16 @@ impl Context {
 
   /* Debugging Functions */
 
-  pub fn reflect_instruction<F: FnOnce(OpCodeReflection) -> Error>(&self, f: F) -> Error {
+  pub fn reflect_instruction<F: FnOnce(OpCodeReflection) -> Error>(&self, f: F) -> Vec<Error> {
     if let Some(opcode_ref) = self.meta.get(self.ip) {
-      f(opcode_ref)
+      vec![f(opcode_ref)]
     } else {
-      Error {
+      vec![Error {
         msg: format!("could not fetch info for instruction {:04X}", self.ip),
         file: self.meta.file.access().clone(),
         line: 0,
         column: 0,
-      }
+      }]
     }
   }
 
@@ -608,13 +610,13 @@ impl Context {
 pub struct Compiler;
 
 impl Compiler {
-  pub fn compile(&self, file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
+  pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
     let mut scanner = Scanner::new(file, source);
     let (tokens, meta) = scanner
       .scan()
-      .map_err(|errs| self.reformat_errors(source, errs))?;
+      .map_err(|errs| Self::reformat_errors(source, errs))?;
 
-    let ast = Ast::from(tokens, meta).map_err(|errs| self.reformat_errors(source, errs))?;
+    let ast = Ast::from(tokens, meta).map_err(|errs| Self::reformat_errors(source, errs))?;
 
     let optimizer = Optimizer::<1>::new(ast);
 
@@ -630,10 +632,33 @@ impl Compiler {
 
     generator
       .generate(ast)
-      .map_err(|errs| self.reformat_errors(source, errs))
+      .map_err(|errs| Self::reformat_errors(source, errs))
   }
 
-  fn reformat_errors(&self, source: &str, errs: Vec<Error>) -> Vec<Error> {
+  pub fn compile_with(
+    ctx: SmartPtr<Context>,
+    file: &str,
+    source: &str,
+  ) -> Result<SmartPtr<Context>, Vec<Error>> {
+    let mut scanner = Scanner::new(file, source);
+    let (tokens, meta) = scanner
+      .scan()
+      .map_err(|errs| Self::reformat_errors(source, errs))?;
+
+    let ast = Ast::from(tokens, meta).map_err(|errs| Self::reformat_errors(source, errs))?;
+
+    let optimizer = Optimizer::<1>::new(ast);
+
+    let ast = optimizer.optimize();
+
+    let generator = BytecodeGenerator::new(ctx);
+
+    generator
+      .generate(ast)
+      .map_err(|errs| Self::reformat_errors(source, errs))
+  }
+
+  fn reformat_errors(source: &str, errs: Vec<Error>) -> Vec<Error> {
     errs
       .into_iter()
       .map(|mut e| {

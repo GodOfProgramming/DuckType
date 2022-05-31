@@ -341,7 +341,7 @@ impl Parser {
         self.advance();
         self.let_stmt();
       }
-      Token::Load => {
+      Token::Req => {
         self.advance();
         self.load_stmt();
       }
@@ -911,7 +911,7 @@ impl Parser {
       Token::Fn => ParseRule::new(None, None, Precedence::None),
       Token::If => ParseRule::new(None, None, Precedence::None),
       Token::Let => ParseRule::new(None, None, Precedence::None),
-      Token::Load => ParseRule::new(None, None, Precedence::None),
+      Token::Req => ParseRule::new(None, None, Precedence::None),
       Token::Loop => ParseRule::new(None, None, Precedence::None),
       Token::Match => ParseRule::new(None, None, Precedence::None),
       Token::Nil => ParseRule::new(Some(Parser::literal_expr), None, Precedence::None),

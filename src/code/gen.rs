@@ -210,6 +210,19 @@ impl BytecodeGenerator {
     self.emit(OpCode::Print, stmt.loc);
   }
 
+  fn req_stmt(&mut self, stmt: ReqStatement) {
+    self.emit_expr(stmt.file);
+    self.emit(OpCode::Req, stmt.loc);
+
+    if let Some(var) = stmt.ident {
+      if let Some(var) = self.declare_variable(var, stmt.loc) {
+        self.define_variable(var, stmt.loc);
+      }
+    } else {
+      self.emit(OpCode::Pop, stmt.loc);
+    }
+  }
+
   fn ret_stmt(&mut self, stmt: RetStatement) {
     if let Some(expr) = stmt.expr {
       self.emit_expr(expr);
@@ -288,7 +301,7 @@ impl BytecodeGenerator {
   }
 
   fn ident_expr(&mut self, expr: IdentExpression) {
-    if let Some(lookup) = self.resolve_local(&expr.ident) {
+    if let Some(lookup) = self.resolve_local(&expr.ident, expr.loc) {
       let get = if lookup.kind == LookupKind::Local {
         OpCode::LookupLocal(lookup.index)
       } else {
@@ -301,7 +314,7 @@ impl BytecodeGenerator {
   }
 
   fn assign_expr(&mut self, expr: AssignExpression) {
-    if let Some(lookup) = self.resolve_local(&expr.ident) {
+    if let Some(lookup) = self.resolve_local(&expr.ident, expr.loc) {
       let set = if lookup.kind == LookupKind::Local {
         OpCode::AssignLocal(lookup.index)
       } else {
@@ -342,10 +355,10 @@ impl BytecodeGenerator {
       Statement::For(stmt) => self.for_stmt(stmt),
       Statement::If(stmt) => self.if_stmt(stmt),
       Statement::Let(stmt) => self.let_stmt(stmt),
-      Statement::Load(stmt) => {}
       Statement::Loop(stmt) => self.loop_stmt(stmt),
       Statement::Match(stmt) => self.match_stmt(stmt),
       Statement::Print(stmt) => self.print_stmt(stmt),
+      Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
       Statement::Expression(stmt) => self.expr_stmt(stmt),
@@ -517,7 +530,6 @@ impl BytecodeGenerator {
   }
 
   fn declare_variable(&mut self, ident: Ident, loc: SourceLocation) -> Option<usize> {
-    println!("declaring {} at {}", ident.name, self.scope_depth);
     if self.scope_depth == 0 {
       Some(self.declare_global(ident))
     } else if self.declare_local(ident, loc) {
@@ -543,7 +555,7 @@ impl BytecodeGenerator {
       }
     }
 
-    self.add_local(ident.name);
+    self.add_local(ident);
 
     true
   }
@@ -552,23 +564,23 @@ impl BytecodeGenerator {
     self.add_ident(ident)
   }
 
-  fn add_local(&mut self, name: String) {
+  fn add_local(&mut self, var: Ident) {
     self.locals.push(Local {
-      name,
+      name: var.name,
       depth: self.scope_depth,
       initialized: false,
     });
   }
 
-  fn resolve_local(&mut self, ident: &Ident) -> Option<Lookup> {
+  fn resolve_local(&mut self, ident: &Ident, loc: SourceLocation) -> Option<Lookup> {
     if !self.locals.is_empty() {
       let mut index = self.locals.len() - 1;
 
       for local in self.locals.iter().rev() {
         if ident.name == local.name {
           if !local.initialized {
-            todo!("make error here");
-            // return None;
+            self.error(loc, String::from("tried to use an undeclared identifier"));
+            return None;
           } else {
             return Some(Lookup {
               index,

@@ -274,18 +274,22 @@ impl<'src> Scanner<'src> {
       'i' => this.check_keyword(d, "f", Token::If),
       'l' => do_at_depth(this, d, &|this, d, c1| match c1 {
         'e' => this.check_keyword(d, "t", Token::Let),
-        'o' => do_at_depth(this, d, &|this, d, c2| match c2 {
-          'a' => this.check_keyword(d, "d", Token::Load),
-          'o' => this.check_keyword(d, "p", Token::Loop),
-          _ => this.create_ident(),
-        }),
+        'o' => this.check_keyword(d, "op", Token::Loop),
         _ => this.create_ident(),
       }),
       'm' => this.check_keyword(d, "atch", Token::Match),
       'n' => this.check_keyword(d, "il", Token::Nil),
       'o' => this.check_keyword(d, "r", Token::Or),
       'p' => this.check_keyword(d, "rint", Token::Print),
-      'r' => this.check_keyword(d, "et", Token::Ret),
+      'r' => do_at_depth(this, d, &|this, d, c1| match c1 {
+        'e' => do_at_depth(this, d, &|this, d, c1| match c1 {
+          'q' => this.check_keyword(d, "", Token::Req),
+          't' => this.check_keyword(d, "", Token::Ret),
+          _ => this.create_ident(),
+        }),
+        _ => this.create_ident(),
+      }),
+
       't' => this.check_keyword(d, "rue", Token::True),
       'w' => this.check_keyword(d, "hile", Token::While),
       _ => this.create_ident(),

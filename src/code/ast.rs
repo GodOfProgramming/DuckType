@@ -90,10 +90,6 @@ impl AstGenerator {
         self.advance();
         self.let_stmt();
       }
-      Token::Load => {
-        self.advance();
-        self.load_stmt();
-      }
       Token::Loop => {
         self.advance();
         self.loop_stmt();
@@ -105,6 +101,10 @@ impl AstGenerator {
       Token::Print => {
         self.advance();
         self.print_stmt();
+      }
+      Token::Req => {
+        self.advance();
+        self.req_stmt();
       }
       Token::Ret => {
         self.advance();
@@ -356,8 +356,41 @@ impl AstGenerator {
     }
   }
 
-  fn load_stmt(&mut self) {
-    unimplemented!();
+  fn req_stmt(&mut self) {
+    if let Some(loc) = self.meta_at::<1>() {
+      if let Some(expr) = self.expression() {
+        let ident = if self.advance_if_matches(Token::Arrow) {
+          if let Some(token) = self.current() {
+            if let Token::Identifier(ident) = token {
+              self.advance();
+              Some(Ident::new(ident))
+            } else {
+              self.error::<0>(String::from("identifier expectd after require"));
+              None
+            }
+          } else {
+            self.error::<0>(String::from("unexpected end of file"));
+            None
+          }
+        } else {
+          None
+        };
+
+        if !self.consume(
+          Token::Semicolon,
+          String::from("expected ';' after expression"),
+        ) {
+          return;
+        }
+
+        self
+          .statements
+          .push(Statement::new(ReqStatement::new(expr, ident, loc)));
+      }
+    } else {
+      // sanity check
+      self.error::<0>(String::from("could not find original token"));
+    }
   }
 
   fn loop_stmt(&mut self) {
@@ -1063,12 +1096,12 @@ impl AstGenerator {
       Token::Fn => ParseRule::new(None, None, Precedence::None),
       Token::If => ParseRule::new(None, None, Precedence::None),
       Token::Let => ParseRule::new(None, None, Precedence::None),
-      Token::Load => ParseRule::new(None, None, Precedence::None),
       Token::Loop => ParseRule::new(None, None, Precedence::None),
       Token::Match => ParseRule::new(None, None, Precedence::None),
       Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
       Token::Or => ParseRule::new(None, Some(Self::or_expr), Precedence::Or),
       Token::Print => ParseRule::new(None, None, Precedence::None),
+      Token::Req => ParseRule::new(None, None, Precedence::None),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
@@ -1097,10 +1130,10 @@ pub enum Statement {
   For(ForStatement),
   If(IfStatement),
   Let(LetStatement),
-  Load(LoadStatement),
   Loop(LoopStatement),
   Match(MatchStatement),
   Print(PrintStatement),
+  Req(ReqStatement),
   Ret(RetStatement),
   While(WhileStatement),
   Expression(ExpressionStatement),
@@ -1154,9 +1187,9 @@ impl New<LetStatement> for Statement {
   }
 }
 
-impl New<LoadStatement> for Statement {
-  fn new(stmt: LoadStatement) -> Self {
-    Self::Load(stmt)
+impl New<ReqStatement> for Statement {
+  fn new(stmt: ReqStatement) -> Self {
+    Self::Req(stmt)
   }
 }
 
@@ -1320,8 +1353,16 @@ impl LetStatement {
   }
 }
 
-pub struct LoadStatement {
-  pub file: String,
+pub struct ReqStatement {
+  pub file: Expression,
+  pub ident: Option<Ident>,
+  pub loc: SourceLocation,
+}
+
+impl ReqStatement {
+  fn new(file: Expression, ident: Option<Ident>, loc: SourceLocation) -> Self {
+    Self { file, ident, loc }
+  }
 }
 
 pub struct LoopStatement {

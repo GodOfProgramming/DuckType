@@ -7,6 +7,7 @@ mod test;
 pub use code::Context;
 use code::{Compiler, OpCode};
 use ptr::SmartPtr;
+use std::{fs, path::Path};
 use types::{Error, Interpreter};
 pub use types::{Value, ValueOpResult};
 
@@ -28,11 +29,11 @@ impl Vpu {
     }
   }
 
-  fn unary_op<F: FnOnce(&mut Context, Value) -> Option<Error>>(
+  fn unary_op<F: FnOnce(&mut Context, Value) -> Option<Vec<Error>>>(
     ctx: &mut Context,
     opcode: &OpCode,
     f: F,
-  ) -> Option<Error> {
+  ) -> Option<Vec<Error>> {
     if let Some(v) = ctx.stack_pop() {
       f(ctx, v)
     } else {
@@ -46,11 +47,11 @@ impl Vpu {
     }
   }
 
-  fn binary_op<F: FnOnce(&mut Context, Value, Value) -> Option<Error>>(
+  fn binary_op<F: FnOnce(&mut Context, Value, Value) -> Option<Vec<Error>>>(
     ctx: &mut Context,
     opcode: &OpCode,
     f: F,
-  ) -> Option<Error> {
+  ) -> Option<Vec<Error>> {
     if let Some(bv) = ctx.stack_pop() {
       if let Some(av) = ctx.stack_pop() {
         f(ctx, av, bv)
@@ -74,12 +75,12 @@ impl Vpu {
     }
   }
 
-  fn global_op<F: FnOnce(&mut Context, String) -> Option<Error>>(
+  fn global_op<F: FnOnce(&mut Context, String) -> Option<Vec<Error>>>(
     ctx: &mut Context,
     opcode: &OpCode,
     index: usize,
     f: F,
-  ) -> Option<Error> {
+  ) -> Option<Vec<Error>> {
     if let Some(name) = ctx.global_const_at(index) {
       if let Value::Str(name) = name {
         f(ctx, name)
@@ -105,7 +106,7 @@ impl Vpu {
 }
 
 impl Interpreter for Vpu {
-  fn interpret(&self, ctx: &mut Context) -> Result<Value, Error> {
+  fn interpret(&self, mut ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>> {
     while !ctx.done() {
       let opcode = ctx.next();
 
@@ -162,7 +163,7 @@ impl Interpreter for Vpu {
           }
         },
         OpCode::LookupGlobal(index) => {
-          if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
+          if let Some(e) = Vpu::global_op(&mut ctx, &opcode, index, |ctx, name| {
             match ctx.lookup_global(&name) {
               Some(g) => {
                 ctx.stack_push(g);
@@ -181,11 +182,15 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::DefineGlobal(index) => {
-          if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
+          if let Some(e) = Vpu::global_op(&mut ctx, &opcode, index, |ctx, name| {
             if let Some(v) = ctx.stack_peek() {
               if !ctx.define_global(name, v.clone()) {
                 return Some(ctx.reflect_instruction(|opcode_ref| {
-                  Error::from_ref(String::from("tried redefining global variable, this error should be detected in the parsing phase"), &opcode, opcode_ref)
+                  Error::from_ref(
+                    String::from("tried redefining global variable"),
+                    &opcode,
+                    opcode_ref,
+                  )
                 }));
               }
               None
@@ -203,7 +208,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::AssignGlobal(index) => {
-          if let Some(e) = Vpu::global_op(ctx, &opcode, index, |ctx, name| {
+          if let Some(e) = Vpu::global_op(&mut ctx, &opcode, index, |ctx, name| {
             if let Some(v) = ctx.stack_peek() {
               if !ctx.assign_global(name, v) {
                 return Some(ctx.reflect_instruction(|opcode_ref| {
@@ -229,7 +234,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Equal => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a == b));
             None
           }) {
@@ -237,7 +242,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::NotEqual => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a != b));
             None
           }) {
@@ -245,7 +250,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Greater => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a > b));
             None
           }) {
@@ -253,7 +258,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::GreaterEqual => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a >= b));
             None
           }) {
@@ -261,7 +266,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Less => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a < b));
             None
           }) {
@@ -269,7 +274,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::LessEqual => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a <= b));
             None
           }) {
@@ -292,7 +297,7 @@ impl Interpreter for Vpu {
           }
         },
         OpCode::Add => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| match a + b {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| match a + b {
             Ok(v) => {
               ctx.stack_push(v);
               None
@@ -305,7 +310,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Sub => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| match a - b {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| match a - b {
             Ok(v) => {
               ctx.stack_push(v);
               None
@@ -318,7 +323,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Mul => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| match a * b {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| match a * b {
             Ok(v) => {
               ctx.stack_push(v);
               None
@@ -331,7 +336,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Div => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| match a / b {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| match a / b {
             Ok(v) => {
               ctx.stack_push(v);
               None
@@ -344,7 +349,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Mod => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| match a % b {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| match a % b {
             Ok(v) => {
               ctx.stack_push(v);
               None
@@ -395,7 +400,7 @@ impl Interpreter for Vpu {
           }
         },
         OpCode::Not => {
-          if let Some(e) = Vpu::unary_op(ctx, &opcode, |ctx, v| {
+          if let Some(e) = Vpu::unary_op(&mut ctx, &opcode, |ctx, v| {
             ctx.stack_push(!v);
             None
           }) {
@@ -403,7 +408,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Negate => {
-          if let Some(e) = Vpu::unary_op(ctx, &opcode, |ctx, v| match -v {
+          if let Some(e) = Vpu::unary_op(&mut ctx, &opcode, |ctx, v| match -v {
             Ok(n) => {
               ctx.stack_push(n);
               None
@@ -416,7 +421,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Print => {
-          if let Some(e) = Vpu::unary_op(ctx, &opcode, |_, v| {
+          if let Some(e) = Vpu::unary_op(&mut ctx, &opcode, |_, v| {
             println!("{}", v);
             None
           }) {
@@ -424,7 +429,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Swap => {
-          if let Some(e) = Vpu::binary_op(ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(a);
             ctx.stack_push(b);
             None
@@ -471,7 +476,12 @@ impl Interpreter for Vpu {
                 }
                 Err(e) => {
                   return Err(
-                    ctx.reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)),
+                    e.into_iter()
+                      .flat_map(|e| {
+                        ctx
+                          .reflect_instruction(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref))
+                      })
+                      .collect(),
                   )
                 }
               },
@@ -512,6 +522,55 @@ impl Interpreter for Vpu {
             return Ok(Value::Nil);
           }
         }
+        OpCode::Req => {
+          if let Some(file) = ctx.stack_pop() {
+            if let Value::Str(file) = file {
+              match fs::read_to_string(&file) {
+                Ok(data) => {
+                  let new_ctx = Compiler::compile(&file, &data)?;
+                  match self.interpret(new_ctx) {
+                    Ok(v) => ctx.stack_push(v),
+                    Err(mut errors) => {
+                      let req_err = ctx.reflect_instruction(|opcode_ref| {
+                        Error::from_ref(
+                          format!("errors detected while loading file {}", file),
+                          &opcode,
+                          opcode_ref,
+                        )
+                      });
+                      errors.extend(req_err);
+                    }
+                  }
+                }
+                Err(e) => {
+                  return Err(ctx.reflect_instruction(|opcode_ref| {
+                    Error::from_ref(
+                      format!("unable to read file {}: {}", file, e),
+                      &opcode,
+                      opcode_ref,
+                    )
+                  }))
+                }
+              }
+            } else {
+              return Err(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(
+                format!("can only load files specified by strings or objects convertible to strings, got {}", file),
+                &opcode,
+                opcode_ref,
+              )
+            }));
+            }
+          } else {
+            return Err(ctx.reflect_instruction(|opcode_ref| {
+              Error::from_ref(
+                String::from("cannot operate with an empty stack"),
+                &opcode,
+                opcode_ref,
+              )
+            }));
+          }
+        }
         x => unimplemented!("Unimplemented: {:?}", x),
       }
       ctx.advance();
@@ -536,11 +595,10 @@ impl<I: Interpreter> Vm<I> {
   }
 
   pub fn load(&self, file: String, code: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
-    let compiler = Compiler::default();
-    compiler.compile(&file, code)
+    Compiler::compile(&file, code)
   }
 
-  pub fn run(&self, ctx: &mut Context) -> Result<Value, Error> {
+  pub fn run(&self, ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>> {
     self.vpu.interpret(ctx)
   }
 }
