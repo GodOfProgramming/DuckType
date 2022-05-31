@@ -1,13 +1,14 @@
 use super::*;
 use crate::types::Error;
-use std::str;
+use ptr::SmartPtr;
+use std::{ops::RangeInclusive, str};
 
 #[cfg(test)]
 mod test;
 
 pub struct Scanner<'src> {
-  file: &'src str,
-  raw_src: &'src [u8],
+  file: SmartPtr<String>,
+  src: &'src [u8],
   start_pos: usize,
   pos: usize,
   line: usize,
@@ -18,8 +19,8 @@ pub struct Scanner<'src> {
 impl<'src> Scanner<'src> {
   pub fn new(file: &'src str, source: &'src str) -> Self {
     Scanner {
-      file,
-      raw_src: source.as_bytes(),
+      file: SmartPtr::new(String::from(file)),
+      src: source.as_bytes(),
       start_pos: 0,
       pos: 0,
       line: 0,
@@ -28,7 +29,7 @@ impl<'src> Scanner<'src> {
     }
   }
 
-  pub fn scan(&mut self) -> Result<(Vec<Token>, Vec<TokenMeta>), Vec<Error>> {
+  pub fn scan(&mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), Vec<Error>> {
     let mut tokens = Vec::new();
     let mut meta = Vec::new();
 
@@ -91,18 +92,37 @@ impl<'src> Scanner<'src> {
               Token::Greater
             }
           }
-          '"' => self.make_string(),
+          '"' => {
+            if let Some(tok) = self.make_string() {
+              tok
+            } else {
+              continue;
+            }
+          }
           c if Self::is_digit(c) => {
-            should_advance = false;
-            self.make_number()
+            if let Some(tok) = self.make_number() {
+              should_advance = false;
+              tok
+            } else {
+              // sanity check, should never fail
+              self.advance();
+              continue;
+            }
           }
           c if Self::is_alpha(c) => {
-            should_advance = false;
-            self.make_ident()
+            if let Some(tok) = self.make_ident() {
+              should_advance = false;
+              tok
+            } else {
+              // sanity check, should never fail
+              self.advance();
+              continue;
+            }
           }
           c => {
             self.error(format!("invalid character: '{}'", c));
-            Token::Invalid
+            self.advance();
+            continue;
           }
         };
 
@@ -111,8 +131,7 @@ impl<'src> Scanner<'src> {
         }
 
         tokens.push(token);
-        meta.push(TokenMeta {
-          file: self.file,
+        meta.push(SourceLocation {
           line: line + 1,
           column: column + 1,
         });
@@ -140,14 +159,14 @@ impl<'src> Scanner<'src> {
     if let Some(errs) = &mut self.errors {
       errs.push(Error {
         msg,
-        file: String::from(self.file),
+        file: self.file.access().clone(),
         line: self.line + 1,
         column: self.column + 1,
       });
     }
   }
 
-  fn make_number(&mut self) -> Token {
+  fn make_number(&mut self) -> Option<Token> {
     while let Some(c) = self.peek() {
       if Self::is_digit(c) {
         self.advance();
@@ -174,18 +193,18 @@ impl<'src> Scanner<'src> {
       }
     }
 
-    let lexeme = String::from_utf8_lossy(&self.raw_src[self.start_pos..self.pos]);
+    let lexeme = String::from_utf8_lossy(&self.src[self.start_pos..self.pos]);
 
     match lexeme.parse() {
-      Ok(n) => Token::Number(n),
+      Ok(n) => Some(Token::Number(n)),
       Err(e) => {
         self.error(format!("{} ('{}')", e, lexeme));
-        Token::Invalid
+        None
       }
     }
   }
 
-  fn make_string(&mut self) -> Token {
+  fn make_string(&mut self) -> Option<Token> {
     self.advance(); // skip the first "
     let mut error_detected = false;
     while let Some(c) = self.peek() {
@@ -203,24 +222,24 @@ impl<'src> Scanner<'src> {
     }
 
     if error_detected {
-      return Token::Invalid;
+      return None;
     }
 
     if self.at_end() {
       self.error(String::from("unterminated string"));
-      return Token::Invalid;
+      return None;
     }
 
-    match str::from_utf8(&self.raw_src[self.start_pos + 1..self.pos]) {
-      Ok(string) => Token::String(String::from(string)),
+    match str::from_utf8(&self.src[self.start_pos + 1..self.pos]) {
+      Ok(string) => Some(Token::String(String::from(string))),
       Err(e) => {
         self.error(format!("{}", e));
-        Token::Invalid
+        None
       }
     }
   }
 
-  fn make_ident(&mut self) -> Token {
+  fn make_ident(&mut self) -> Option<Token> {
     while let Some(c) = self.peek() {
       if Self::is_alphanumeric(c) {
         self.advance();
@@ -232,25 +251,27 @@ impl<'src> Scanner<'src> {
     self.check_keywords()
   }
 
-  fn create_ident(&mut self) -> Token {
-    match str::from_utf8(&self.raw_src[self.start_pos..self.pos]) {
-      Ok(string) => Token::Identifier(String::from(string)),
+  fn create_ident(&mut self) -> Option<Token> {
+    match str::from_utf8(&self.src[self.start_pos..self.pos]) {
+      Ok(string) => Some(Token::Identifier(String::from(string))),
       Err(e) => {
         self.error(format!("{}", e));
-        Token::Invalid
+        None
       }
     }
   }
 
-  fn check_keywords(&mut self) -> Token {
-    let do_at_depth =
-      |this: &mut Self, depth, f: &dyn Fn(&mut Self, usize, char) -> Token| -> Token {
-        if let Some(c) = this.index_n(this.start_pos + depth) {
-          f(this, depth + 1, c)
-        } else {
-          this.create_ident()
-        }
-      };
+  fn check_keywords(&mut self) -> Option<Token> {
+    let do_at_depth = |this: &mut Self,
+                       depth,
+                       f: &dyn Fn(&mut Self, usize, char) -> Option<Token>|
+     -> Option<Token> {
+      if let Some(c) = this.index_n(this.start_pos + depth) {
+        f(this, depth + 1, c)
+      } else {
+        this.create_ident()
+      }
+    };
 
     do_at_depth(self, 0, &|this, d, c0| match c0 {
       'a' => this.check_keyword(d, "nd", Token::And),
@@ -274,31 +295,35 @@ impl<'src> Scanner<'src> {
       'i' => this.check_keyword(d, "f", Token::If),
       'l' => do_at_depth(this, d, &|this, d, c1| match c1 {
         'e' => this.check_keyword(d, "t", Token::Let),
-        'o' => do_at_depth(this, d, &|this, d, c2| match c2 {
-          'a' => this.check_keyword(d, "d", Token::Load),
-          'o' => this.check_keyword(d, "p", Token::Loop),
-          _ => this.create_ident(),
-        }),
+        'o' => this.check_keyword(d, "op", Token::Loop),
         _ => this.create_ident(),
       }),
       'm' => this.check_keyword(d, "atch", Token::Match),
       'n' => this.check_keyword(d, "il", Token::Nil),
       'o' => this.check_keyword(d, "r", Token::Or),
       'p' => this.check_keyword(d, "rint", Token::Print),
-      'r' => this.check_keyword(d, "et", Token::Ret),
+      'r' => do_at_depth(this, d, &|this, d, c1| match c1 {
+        'e' => do_at_depth(this, d, &|this, d, c2| match c2 {
+          'q' => this.check_keyword(d, "", Token::Req),
+          't' => this.check_keyword(d, "", Token::Ret),
+          _ => this.create_ident(),
+        }),
+        _ => this.create_ident(),
+      }),
+
       't' => this.check_keyword(d, "rue", Token::True),
       'w' => this.check_keyword(d, "hile", Token::While),
       _ => this.create_ident(),
     })
   }
 
-  fn check_keyword(&mut self, start: usize, rest: &str, checkee: Token) -> Token {
+  fn check_keyword(&mut self, start: usize, rest: &str, checkee: Token) -> Option<Token> {
     let bytes = rest.as_bytes();
     let begin = self.start_pos + start;
     if self.pos - self.start_pos == start + rest.len()
-      && &self.raw_src[begin..begin + rest.len()] == bytes
+      && &self.src[begin..begin + rest.len()] == bytes
     {
-      checkee
+      Some(checkee)
     } else {
       self.create_ident()
     }
@@ -334,22 +359,19 @@ impl<'src> Scanner<'src> {
   }
 
   fn at_end(&self) -> bool {
-    self.pos >= self.raw_src.len()
+    self.pos >= self.src.len()
   }
 
   fn peek(&self) -> Option<char> {
-    self.raw_src.get(self.pos).map(|c| *c as char)
+    self.src.get(self.pos).map(|c| *c as char)
   }
 
   fn peek_n(&self, n: usize) -> Option<char> {
-    self
-      .raw_src
-      .get(self.pos.saturating_add(n))
-      .map(|c| *c as char)
+    self.src.get(self.pos.saturating_add(n)).map(|c| *c as char)
   }
 
   fn index_n(&self, n: usize) -> Option<char> {
-    self.raw_src.get(n).map(|c| *c as char)
+    self.src.get(n).map(|c| *c as char)
   }
 
   fn advance(&mut self) {
@@ -372,11 +394,14 @@ impl<'src> Scanner<'src> {
   }
 
   fn is_digit(c: char) -> bool {
-    ('0'..='9').contains(&c)
+    const zero_to_nine: RangeInclusive<char> = '0'..='9';
+    zero_to_nine.contains(&c)
   }
 
   fn is_alpha(c: char) -> bool {
-    ('a'..='z').contains(&c) || ('A'..='Z').contains(&c) || c == '_' || c == '@'
+    const a_z: RangeInclusive<char> = 'a'..='z';
+    const A_Z: RangeInclusive<char> = 'A'..='Z';
+    a_z.contains(&c) || A_Z.contains(&c) || c == '_' || c == '@'
   }
 
   fn is_alphanumeric(c: char) -> bool {

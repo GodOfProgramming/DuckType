@@ -16,7 +16,7 @@ struct ScannerTest {
 }
 
 impl ScannerTest {
-  fn test_scan<F: FnOnce(Vec<Token>, Vec<TokenMeta>)>(&self, f: F) {
+  fn test_scan<F: FnOnce(Vec<Token>, Vec<SourceLocation>)>(&self, f: F) {
     let mut scanner = Scanner::new("test", &self.tokens);
     match scanner.scan() {
       Ok((actual, meta)) => f(actual, meta),
@@ -37,12 +37,8 @@ impl ScannerTest {
     }
   }
 
-  fn mk_meta(&self, line: usize, column: usize) -> TokenMeta<'static> {
-    TokenMeta {
-      file: "test",
-      line,
-      column,
-    }
+  fn mk_meta(&self, line: usize, column: usize) -> SourceLocation {
+    SourceLocation { line, column }
   }
 }
 
@@ -92,12 +88,12 @@ mod tests {
       Token::Fn,
       Token::If,
       Token::Let,
-      Token::Load,
       Token::Loop,
       Token::Match,
       Token::Nil,
       Token::Or,
       Token::Print,
+      Token::Req,
       Token::Ret,
       Token::True,
       Token::While,

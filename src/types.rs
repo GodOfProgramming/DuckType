@@ -11,7 +11,7 @@ use std::{
 };
 
 pub trait Interpreter {
-  fn interpret(&self, ctx: &mut Context) -> Result<Value, Error>;
+  fn interpret(&self, ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>>;
 }
 
 #[derive(Default, PartialEq)]
@@ -60,7 +60,25 @@ impl Display for Error {
   }
 }
 
-pub type NativeFn = fn(Vec<Value>) -> ValueOpResult;
+pub struct NativeFn {
+  pub name: String,
+  pub call: Box<dyn FnMut(Vec<Value>) -> ValueOpResult>,
+}
+
+pub type NativeFnPtr = SmartPtr<NativeFn>;
+
+impl NativeFn {
+  pub fn new<F: FnMut(Vec<Value>) -> ValueOpResult + 'static>(name: String, callee: F) -> Self {
+    Self {
+      name,
+      call: Box::new(callee),
+    }
+  }
+
+  pub fn call(&mut self, args: Vec<Value>) -> ValueOpResult {
+    (self.call)(args)
+  }
+}
 
 #[derive(Clone)]
 pub enum Value {
@@ -70,7 +88,7 @@ pub enum Value {
   Str(String),
   List(Values),
   Function(Function),
-  NativeFunction(NativeFn),
+  NativeFunction(NativeFnPtr),
 
   U128(u128), // internal use only
 }
@@ -181,9 +199,9 @@ impl New<Function> for Value {
   }
 }
 
-impl New<NativeFn> for Value {
-  fn new(item: NativeFn) -> Self {
-    Self::NativeFunction(item)
+impl<F: FnMut(Vec<Value>) -> ValueOpResult + 'static> New<(String, F)> for Value {
+  fn new((name, call): (String, F)) -> Self {
+    Self::NativeFunction(SmartPtr::new(NativeFn::new(name, call)))
   }
 }
 
@@ -201,6 +219,12 @@ impl Add for Value {
       Self::Str(a) => match other {
         Self::Num(b) => Ok(Self::Str(format!("{}{}", a, b))),
         Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
+        Self::U128(b) => Ok(Self::Str(format!("{}{}", a, b))),
+        _ => Err(format!("cannot add {} and {}", a, other)),
+      },
+      Self::U128(a) => match other {
+        Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
+        Self::U128(b) => Ok(Self::U128(a + b)),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
       _ => Err(format!("cannot add {} and {}", self, other)),
@@ -358,7 +382,7 @@ impl PartialEq for Value {
       }
       Self::NativeFunction(a) => {
         if let Self::NativeFunction(b) = other {
-          a == b
+          std::ptr::addr_of!(**a) == std::ptr::addr_of!(**b)
         } else {
           false
         }
@@ -404,10 +428,10 @@ impl Display for Value {
       Self::Bool(b) => write!(f, "{}", b),
       Self::Num(n) => write!(f, "{}", n),
       Self::U128(n) => write!(f, "{}", n),
-      Self::Str(s) => write!(f, "{}", s),
+      Self::Str(s) => write!(f, "'{}'", s),
       Self::List(l) => write!(f, "{}", l),
       Self::Function(func) => write!(f, "<function {}>", func.name),
-      Self::NativeFunction(func) => write!(f, "<function @{:p}>", func),
+      Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
     }
   }
 }
@@ -501,20 +525,30 @@ impl Function {
     Self { name, airity, ctx }
   }
 
-  pub fn call<I: Interpreter>(&mut self, i: &I, args: Vec<Value>) -> Result<Value, String> {
-    if self.airity != args.len() {
-      return Err(format!(
-        "invalid number of arguments, expected {}, got {}",
+  pub fn call<I: Interpreter>(
+    &mut self,
+    i: &I,
+    mut args: Vec<Value>,
+  ) -> Result<Value, Vec<String>> {
+    if args.len() > self.airity {
+      return Err(vec![format!(
+        "too many arguments number of arguments, expected {}, got {}",
         self.airity,
         args.len()
-      ));
+      )]);
+    }
+
+    while args.len() < self.airity {
+      args.push(Value::Nil);
     }
 
     let prev_ip = self.ctx.ip;
     self.ctx.ip = 0;
-    let prev_stack = self.ctx.stack_move(args.into_iter().rev().collect());
+    let prev_stack = self.ctx.stack_move(args);
 
-    let res = i.interpret(&mut self.ctx).map_err(|e| e.msg);
+    let res = i
+      .interpret(self.ctx.clone())
+      .map_err(|e| e.into_iter().map(|e| e.msg).collect());
 
     self.ctx.ip = prev_ip;
     self.ctx.stack_move(prev_stack);

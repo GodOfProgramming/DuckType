@@ -1,16 +1,21 @@
 pub mod ast;
 pub mod gen;
 pub mod lex;
+pub mod opt;
+pub mod parse;
 
 use crate::{
-  types::{Env, Error, NativeFn, Value},
+  types::{Env, Error, Value, ValueOpResult},
   New,
 };
-use gen::Parser;
+use ast::Ast;
+use gen::BytecodeGenerator;
 use lex::Scanner;
+use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   fmt::{self, Debug},
+  ops::Range,
   str,
 };
 
@@ -158,12 +163,12 @@ pub enum OpCode {
   Return,
   /** Stops executing. If an expression follows afterwards it is returned from the processing function */
   End,
+  /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
+  Req,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
-  Invalid,
-
   // Single-character tokens.
   LeftParen,
   RightParen,
@@ -206,12 +211,12 @@ pub enum Token {
   Fn,
   If,
   Let,
-  Load,
   Loop,
   Match,
   Nil,
   Or,
   Print,
+  Req,
   Ret,
   True,
   While,
@@ -228,9 +233,8 @@ impl fmt::Display for Token {
   }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub struct TokenMeta<'file> {
-  pub file: &'file str,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SourceLocation {
   pub line: usize,
   pub column: usize,
 }
@@ -362,6 +366,10 @@ impl Context {
     self.stack.truncate(self.stack.len().saturating_sub(count));
   }
 
+  pub fn stack_drain_from(&mut self, index: usize) -> Vec<Value> {
+    self.stack.drain(self.stack_size() - index..).collect()
+  }
+
   pub fn stack_index(&self, index: usize) -> Option<Value> {
     self.stack.get(index).cloned()
   }
@@ -381,6 +389,10 @@ impl Context {
   pub fn stack_move(&mut self, mut other: Vec<Value>) -> Vec<Value> {
     std::mem::swap(&mut self.stack, &mut other);
     other
+  }
+
+  pub fn stack_size(&self) -> usize {
+    self.stack.len()
   }
 
   pub fn const_at(&self, index: usize) -> Option<Value> {
@@ -424,8 +436,12 @@ impl Context {
     }
   }
 
-  pub fn create_native(&mut self, name: String, native: NativeFn) -> bool {
-    self.assign_global(name, Value::new(native))
+  pub fn create_native<F: FnMut(Vec<Value>) -> ValueOpResult + 'static>(
+    &mut self,
+    name: String,
+    native: F,
+  ) -> bool {
+    self.assign_global(name.clone(), Value::new((name, native)))
   }
 
   pub fn jump(&mut self, count: usize) {
@@ -469,16 +485,16 @@ impl Context {
 
   /* Debugging Functions */
 
-  pub fn reflect_instruction<F: FnOnce(OpCodeReflection) -> Error>(&self, f: F) -> Error {
+  pub fn reflect_instruction<F: FnOnce(OpCodeReflection) -> Error>(&self, f: F) -> Vec<Error> {
     if let Some(opcode_ref) = self.meta.get(self.ip) {
-      f(opcode_ref)
+      vec![f(opcode_ref)]
     } else {
-      Error {
+      vec![Error {
         msg: format!("could not fetch info for instruction {:04X}", self.ip),
         file: self.meta.file.access().clone(),
         line: 0,
         column: 0,
-      }
+      }]
     }
   }
 
@@ -498,7 +514,7 @@ impl Context {
   }
 
   pub fn display_instruction(&self, op: &OpCode, offset: usize) {
-    print!("{:#010X} ", offset);
+    print!("{} ", Self::address_of(offset));
     if let Some(curr) = self.meta.get(offset) {
       if offset > 0 {
         if let Some(prev) = self.meta.get(offset - 1) {
@@ -522,7 +538,7 @@ impl Context {
         print!("{:<16} {:4} ", "Const", index);
         let c = self.const_at(*index);
         match c {
-          Some(v) => println!("'{}'", v),
+          Some(v) => println!("{}", v),
           None => println!("INVALID INDEX"),
         }
       }
@@ -530,7 +546,7 @@ impl Context {
       OpCode::LookupLocal(index) => println!("{:<16} {:4}", "LookupLocal", index),
       OpCode::AssignLocal(index) => println!("{:<16} {:4}", "AssignLocal", index),
       OpCode::LookupGlobal(name) => println!(
-        "{:<16} {:4} '{:?}'",
+        "{:<16} {:4} {:?}",
         "LookupGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
@@ -540,7 +556,7 @@ impl Context {
         }
       ),
       OpCode::DefineGlobal(name) => println!(
-        "{:<16} {:4} '{:?}'",
+        "{:<16} {:4} {:?}",
         "DefineGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
@@ -550,7 +566,7 @@ impl Context {
         }
       ),
       OpCode::AssignGlobal(name) => println!(
-        "{:<16} {:4} '{:?}'",
+        "{:<16} {:4} {:?}",
         "AssignGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
@@ -559,11 +575,13 @@ impl Context {
           Value::new("????")
         }
       ),
-      OpCode::Jump(count) => println!("{:<16} {:4}", "Jump", count),
-      OpCode::JumpIfFalse(count) => println!("{:<16} {:4}", "JumpIfFalse", count),
-      OpCode::Loop(count) => println!("{:<16} {:4}", "Loop", count),
-      OpCode::Or(count) => println!("{:<16} {:4}", "Or", count),
-      OpCode::And(count) => println!("{:<16} {:4}", "And", count),
+      OpCode::Jump(count) => println!("{:<19} {}", "Jump", Self::address_of(offset + count)),
+      OpCode::JumpIfFalse(count) => {
+        println!("{:<19} {}", "JumpIfFalse", Self::address_of(offset + count))
+      }
+      OpCode::Loop(count) => println!("{:<19} {}", "Loop", Self::address_of(offset - count)),
+      OpCode::Or(count) => println!("{:<19} {}", "Or", Self::address_of(offset + count)),
+      OpCode::And(count) => println!("{:<19} {}", "And", Self::address_of(offset + count)),
       OpCode::Call(count) => println!("{:<16} {:4}", "Call", count),
       x => println!("{:<16?}", x),
     }
@@ -580,34 +598,65 @@ impl Context {
     }
     println!();
   }
+
+  fn address_of(offset: usize) -> String {
+    format!("{:#010X} ", offset)
+  }
 }
 
 #[derive(Default)]
 pub struct Compiler;
 
 impl Compiler {
-  pub fn compile(&self, file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
+  pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
     let mut scanner = Scanner::new(file, source);
     let (tokens, meta) = scanner
       .scan()
-      .map_err(|errs| self.reformat_errors(source, errs))?;
+      .map_err(|errs| Self::reformat_errors(source, errs))?;
+
+    let ast = Ast::from(tokens, meta).map_err(|errs| Self::reformat_errors(source, errs))?;
+
+    let optimizer = Optimizer::<1>::new(ast);
+
+    let ast = optimizer.optimize();
 
     let file = SmartPtr::new(String::from(file));
-    let source = SmartPtr::new(String::from(source));
+    let source_ptr = SmartPtr::new(String::from(source));
 
-    let reflection = Reflection::new(file, source.clone());
+    let reflection = Reflection::new(file, source_ptr.clone());
     let ctx = SmartPtr::new(Context::new(reflection));
 
-    let mut parser = Parser::new(tokens, meta, ctx.clone());
+    let generator = BytecodeGenerator::new(ctx);
 
-    if let Some(errors) = parser.parse() {
-      Err(self.reformat_errors(source.as_ref(), errors))
-    } else {
-      Ok(ctx)
-    }
+    generator
+      .generate(ast)
+      .map_err(|errs| Self::reformat_errors(source, errs))
   }
 
-  fn reformat_errors(&self, source: &str, errs: Vec<Error>) -> Vec<Error> {
+  pub fn compile_with(
+    ctx: SmartPtr<Context>,
+    file: &str,
+    source: &str,
+  ) -> Result<SmartPtr<Context>, Vec<Error>> {
+    let mut scanner = Scanner::new(file, source);
+    let (tokens, meta) = scanner
+      .scan()
+      .map_err(|errs| Self::reformat_errors(source, errs))?;
+
+    let ast = Ast::from(tokens, meta).map_err(|errs| Self::reformat_errors(source, errs))?;
+
+    let optimizer = Optimizer::<1>::new(ast);
+
+    let ast = optimizer.optimize();
+
+    let generator = BytecodeGenerator::new(ctx);
+
+    generator
+      .generate(ast)
+      .map_err(|errs| Self::reformat_errors(source, errs))
+  }
+
+  fn reformat_errors(source: &str, errs: Vec<Error>) -> Vec<Error> {
     errs
       .into_iter()
       .map(|mut e| {
