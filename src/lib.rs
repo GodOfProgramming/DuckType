@@ -7,7 +7,7 @@ mod test;
 pub use code::Context;
 use code::{Compiler, OpCode};
 use ptr::SmartPtr;
-use std::{fs, path::Path};
+use std::fs;
 use types::{Error, Interpreter};
 pub use types::{Value, ValueOpResult};
 
@@ -17,16 +17,12 @@ pub trait New<T> {
 
 #[derive(Default)]
 pub struct Vpu {
-  show_disassembly: bool,
-  runtime_disassembly: bool,
+  disassemble: bool,
 }
 
 impl Vpu {
-  pub fn new(show_disassembly: bool, runtime_disassembly: bool) -> Self {
-    Self {
-      show_disassembly,
-      runtime_disassembly,
-    }
+  pub fn new(disassemble: bool) -> Self {
+    Self { disassemble }
   }
 
   fn unary_op<F: FnOnce(&mut Context, Value) -> Option<Vec<Error>>>(
@@ -111,7 +107,7 @@ impl Interpreter for Vpu {
       let opcode = ctx.next();
 
       #[cfg(debug_assertions)]
-      if self.runtime_disassembly {
+      if self.disassemble {
         ctx.display_stack();
         ctx.display_instruction(&opcode, ctx.ip);
       }
@@ -577,7 +573,7 @@ impl Interpreter for Vpu {
     }
 
     #[cfg(debug_assertions)]
-    if self.runtime_disassembly {
+    if self.disassemble {
       ctx.display_stack();
     }
 

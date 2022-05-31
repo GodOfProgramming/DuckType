@@ -79,7 +79,7 @@ impl BytecodeGenerator {
   fn block_stmt(&mut self, stmt: BlockStatement) {
     let loc = stmt.loc;
 
-    self.new_scope(stmt.loc, |this| {
+    self.new_scope(|this| {
       for statement in stmt.statements {
         this.emit_stmt(statement);
       }
@@ -121,7 +121,7 @@ impl BytecodeGenerator {
   fn for_stmt(&mut self, stmt: ForStatement) {
     let loc = stmt.loc;
 
-    self.new_scope(stmt.loc, |this| {
+    self.new_scope(|this| {
       this.emit_stmt(*stmt.initializer);
 
       let before_compare = this.current_instruction_count();
@@ -260,7 +260,6 @@ impl BytecodeGenerator {
     match expr.op {
       UnaryOperator::Not => self.emit(OpCode::Not, expr.loc),
       UnaryOperator::Negate => self.emit(OpCode::Negate, expr.loc),
-      _ => unimplemented!(),
     }
   }
 
@@ -389,7 +388,7 @@ impl BytecodeGenerator {
     let loop_depth = self.loop_depth;
     self.loop_depth = self.scope_depth;
 
-    self.new_scope(loc, |this| {
+    self.new_scope(|this| {
       f(this);
     });
 
@@ -422,7 +421,7 @@ impl BytecodeGenerator {
       self.function_id,
     )));
 
-    self.new_scope(loc, |this| {
+    self.new_scope(|this| {
       let airity = args.len();
 
       for arg in args {
@@ -505,7 +504,7 @@ impl BytecodeGenerator {
     self.current_ctx().num_instructions()
   }
 
-  fn new_scope<F: FnOnce(&mut BytecodeGenerator)>(&mut self, loc: SourceLocation, f: F) {
+  fn new_scope<F: FnOnce(&mut BytecodeGenerator)>(&mut self, f: F) {
     self.scope_depth += 1;
     f(self);
     self.scope_depth -= 1;

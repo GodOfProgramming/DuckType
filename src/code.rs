@@ -2,7 +2,6 @@ pub mod ast;
 pub mod gen;
 pub mod lex;
 pub mod opt;
-pub mod parse;
 
 use crate::{
   types::{Env, Error, Value, ValueOpResult},
@@ -15,7 +14,6 @@ use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   fmt::{self, Debug},
-  ops::Range,
   str,
 };
 
@@ -296,7 +294,7 @@ pub struct Context {
   pub name: String,
 
   global: SmartPtr<Context>,
-  parent: SmartPtr<Context>,
+  _parent: SmartPtr<Context>,
   env: Env, // global environment for global context, captures for local context
   stack: Vec<Value>,
   consts: Vec<Value>,
@@ -625,29 +623,6 @@ impl Compiler {
 
     let reflection = Reflection::new(file, source_ptr.clone());
     let ctx = SmartPtr::new(Context::new(reflection));
-
-    let generator = BytecodeGenerator::new(ctx);
-
-    generator
-      .generate(ast)
-      .map_err(|errs| Self::reformat_errors(source, errs))
-  }
-
-  pub fn compile_with(
-    ctx: SmartPtr<Context>,
-    file: &str,
-    source: &str,
-  ) -> Result<SmartPtr<Context>, Vec<Error>> {
-    let mut scanner = Scanner::new(file, source);
-    let (tokens, meta) = scanner
-      .scan()
-      .map_err(|errs| Self::reformat_errors(source, errs))?;
-
-    let ast = Ast::from(tokens, meta).map_err(|errs| Self::reformat_errors(source, errs))?;
-
-    let optimizer = Optimizer::<1>::new(ast);
-
-    let ast = optimizer.optimize();
 
     let generator = BytecodeGenerator::new(ctx);
 
