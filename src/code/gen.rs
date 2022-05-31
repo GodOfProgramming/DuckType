@@ -180,6 +180,31 @@ impl BytecodeGenerator {
     });
   }
 
+  fn match_stmt(&mut self, stmt: MatchStatement) {
+    self.emit_expr(stmt.expr);
+
+    let mut jumps = Vec::default();
+
+    for (branch_expr, branch_stmt) in stmt.branches {
+      self.emit_expr(branch_expr);
+      self.emit(OpCode::Check, stmt.loc);
+      let next_jump = self.emit_noop(stmt.loc);
+      self.emit_stmt(branch_stmt);
+      jumps.push(self.emit_noop(stmt.loc));
+      if !self.patch_inst(next_jump, OpCode::JumpIfFalse) {
+        break;
+      }
+    }
+
+    if let Some(default) = stmt.default {
+      self.emit_stmt(*default);
+    }
+
+    self.patch_jumps(jumps);
+
+    self.emit(OpCode::Pop, stmt.loc);
+  }
+
   fn print_stmt(&mut self, stmt: PrintStatement) {
     self.emit_expr(stmt.expr);
     self.emit(OpCode::Print, stmt.loc);
@@ -319,7 +344,7 @@ impl BytecodeGenerator {
       Statement::Let(stmt) => self.let_stmt(stmt),
       Statement::Load(stmt) => {}
       Statement::Loop(stmt) => self.loop_stmt(stmt),
-      Statement::Match(stmt) => {}
+      Statement::Match(stmt) => self.match_stmt(stmt),
       Statement::Print(stmt) => self.print_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
@@ -358,7 +383,7 @@ impl BytecodeGenerator {
     self.emit_loop(start, loc);
 
     std::mem::swap(&mut breaks, &mut self.breaks);
-    self.patch_breaks(breaks);
+    self.patch_jumps(breaks);
 
     self.reduce_locals_to_depth(self.scope_depth, loc);
 
@@ -434,7 +459,7 @@ impl BytecodeGenerator {
     self.current_ctx().replace_instruction(index, opcode)
   }
 
-  fn patch_breaks(&mut self, breaks: Vec<usize>) {
+  fn patch_jumps(&mut self, breaks: Vec<usize>) {
     for br in breaks {
       if !self.patch_inst(br, OpCode::Jump) {
         break;

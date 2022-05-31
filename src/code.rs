@@ -556,7 +556,7 @@ impl Context {
         }
       ),
       OpCode::DefineGlobal(name) => println!(
-        "{:<16} {:4} '{:?}'",
+        "{:<16} {:4} {:?}",
         "DefineGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
@@ -566,7 +566,7 @@ impl Context {
         }
       ),
       OpCode::AssignGlobal(name) => println!(
-        "{:<16} {:4} '{:?}'",
+        "{:<16} {:4} {:?}",
         "AssignGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
