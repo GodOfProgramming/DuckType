@@ -866,7 +866,6 @@ impl Parser {
 
   fn rule_for(token: &Token) -> ParseRule {
     match token {
-      Token::Invalid => panic!("invalid token read"),
       Token::LeftParen => ParseRule::new(
         Some(Parser::grouping_expr),
         Some(Parser::call_expr),

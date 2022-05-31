@@ -1053,7 +1053,6 @@ impl AstGenerator {
 
   fn rule_for(token: &Token) -> ParseRule {
     match token {
-      Token::Invalid => panic!("invalid token read"),
       Token::LeftParen => ParseRule::new(
         Some(Self::group_expr),
         Some(Self::call_expr),

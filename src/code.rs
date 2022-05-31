@@ -169,8 +169,6 @@ pub enum OpCode {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
-  Invalid,
-
   // Single-character tokens.
   LeftParen,
   RightParen,
