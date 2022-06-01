@@ -646,6 +646,10 @@ impl Struct {
   pub fn set(&mut self, name: String, value: Value) {
     self.members.insert(name, value);
   }
+
+  pub fn get(&self, name: String) -> Value {
+    self.members.get(&name).cloned().unwrap_or(Value::Nil)
+  }
 }
 
 #[cfg(test)]

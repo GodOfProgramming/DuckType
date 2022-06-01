@@ -352,12 +352,17 @@ impl BytecodeGenerator {
     self.emit(OpCode::Index, expr.loc);
   }
 
+  fn member_access_expr(&mut self, expr: MemberAccessExpression) {
+    let ident = self.add_const_ident(expr.ident);
+    self.emit(OpCode::LookupMember(ident), expr.loc);
+  }
+
   fn struct_expr(&mut self, expr: StructExpression) {
     self.emit_const(Value::new(Struct::default()), expr.loc);
     for (member, assign) in expr.members {
-      self.emit_const(Value::new(member.name), expr.loc);
+      let ident = self.add_const_ident(member);
       self.emit_expr(assign);
-      self.emit(OpCode::AssignMember, expr.loc);
+      self.emit(OpCode::AssignMember(ident), expr.loc);
     }
   }
 
@@ -400,6 +405,7 @@ impl BytecodeGenerator {
       Expression::Call(expr) => self.call_expr(expr),
       Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
+      Expression::MemberAccess(expr) => self.member_access_expr(expr),
       Expression::Struct(expr) => self.struct_expr(expr),
     }
   }
@@ -503,6 +509,10 @@ impl BytecodeGenerator {
         break;
       }
     }
+  }
+
+  fn add_const_ident(&mut self, ident: Ident) -> usize {
+    self.current_ctx().add_const(Value::new(ident.name))
   }
 
   /**

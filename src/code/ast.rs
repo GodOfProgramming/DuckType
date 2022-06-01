@@ -828,6 +828,26 @@ impl AstGenerator {
     }
   }
 
+  fn member_access_expr(&mut self) -> Option<Expression> {
+    if let Some(token) = self.current() {
+      if let Token::Identifier(ident) = token {
+        let ident_meta = self.meta_at::<0>()?;
+
+        self.advance();
+        Some(Expression::new(MemberAccessExpression::new(
+          Ident::new(ident),
+          ident_meta,
+        )))
+      } else {
+        self.error::<1>(String::from("expected identifier"));
+        None
+      }
+    } else {
+      self.error::<1>(String::from("unexpected end of file"));
+      None
+    }
+  }
+
   fn struct_expr(&mut self) -> Option<Expression> {
     let struct_meta = self.meta_at::<1>()?;
     let mut members = Vec::default();
@@ -1150,7 +1170,7 @@ impl AstGenerator {
       ),
       Token::RightBracket => ParseRule::new(None, None, Precedence::None),
       Token::Comma => ParseRule::new(None, None, Precedence::None),
-      Token::Dot => ParseRule::new(None, None, Precedence::None),
+      Token::Dot => ParseRule::new(Some(Self::member_access_expr), None, Precedence::Call),
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
       Token::Colon => ParseRule::new(None, None, Precedence::None),
       Token::Plus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Term),
@@ -1552,6 +1572,7 @@ pub enum Expression {
   List(ListExpression),
   Index(IndexExpression),
   Struct(StructExpression),
+  MemberAccess(MemberAccessExpression),
 }
 
 impl New<LiteralExpression> for Expression {
@@ -1623,6 +1644,12 @@ impl New<IndexExpression> for Expression {
 impl New<StructExpression> for Expression {
   fn new(expr: StructExpression) -> Self {
     Self::Struct(expr)
+  }
+}
+
+impl New<MemberAccessExpression> for Expression {
+  fn new(expr: MemberAccessExpression) -> Self {
+    Self::MemberAccess(expr)
   }
 }
 
@@ -1812,6 +1839,17 @@ impl IndexExpression {
       index: Box::new(index),
       loc,
     }
+  }
+}
+
+pub struct MemberAccessExpression {
+  pub ident: Ident,
+  pub loc: SourceLocation,
+}
+
+impl MemberAccessExpression {
+  fn new(ident: Ident, loc: SourceLocation) -> Self {
+    Self { ident, loc }
   }
 }
 
