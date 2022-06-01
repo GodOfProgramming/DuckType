@@ -275,11 +275,16 @@ impl Add for Value {
         Self::Num(b) => Ok(Self::Str(format!("{}{}", a, b))),
         Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
         Self::U128(b) => Ok(Self::Str(format!("{}{}", a, b))),
+        Self::Struct(b) => Ok(Self::Str(format!("{}{}", a, b))),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
       Self::U128(a) => match other {
         Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
         Self::U128(b) => Ok(Self::U128(a + b)),
+        _ => Err(format!("cannot add {} and {}", a, other)),
+      },
+      Self::Struct(a) => match other {
+        Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
       _ => Err(format!("cannot add {} and {}", self, other)),
@@ -649,6 +654,12 @@ impl Struct {
 
   pub fn get(&self, name: String) -> Value {
     self.members.get(&name).cloned().unwrap_or(Value::Nil)
+  }
+}
+
+impl Display for Struct {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{:?}", self)
   }
 }
 
