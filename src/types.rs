@@ -1,6 +1,6 @@
 use crate::{
   code::{Context, OpCode, OpCodeReflection},
-  New,
+  ExecutionThread, New,
 };
 use ptr::SmartPtr;
 use std::{
@@ -9,10 +9,6 @@ use std::{
   fmt::{self, Debug, Display},
   ops::{Add, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
 };
-
-pub trait Interpreter {
-  fn interpret(&self, ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>>;
-}
 
 #[derive(Default, PartialEq)]
 pub struct Error {
@@ -139,9 +135,13 @@ impl Value {
     }
   }
 
-  pub fn call<I: Interpreter>(&mut self, i: &I, args: Vec<Value>) -> Result<Value, Vec<String>> {
+  pub fn call(
+    &mut self,
+    thread: &mut ExecutionThread,
+    args: Vec<Value>,
+  ) -> Result<Value, Vec<String>> {
     match self {
-      Value::Function(f) => f.call(i, args),
+      Value::Function(f) => f.call(thread, args),
       Value::NativeFunction(f) => f.call(args).map_err(|e| vec![e]),
       _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
     }
@@ -564,25 +564,6 @@ impl Display for Values {
   }
 }
 
-#[derive(Default)]
-pub struct Env {
-  vars: BTreeMap<String, Value>,
-}
-
-impl Env {
-  pub fn define(&mut self, name: String, value: Value) -> bool {
-    self.vars.insert(name, value).is_none()
-  }
-
-  pub fn assign(&mut self, name: String, value: Value) -> bool {
-    self.vars.insert(name, value).is_some()
-  }
-
-  pub fn lookup(&self, name: &str) -> Option<Value> {
-    self.vars.get(name).cloned()
-  }
-}
-
 pub trait Call<Args, Ret> {
   fn call(&mut self, args: Args) -> Ret;
 }
@@ -603,9 +584,9 @@ impl Function {
     }
   }
 
-  pub fn call<I: Interpreter>(
+  pub fn call(
     &mut self,
-    i: &I,
+    thread: &mut ExecutionThread,
     mut args: Vec<Value>,
   ) -> Result<Value, Vec<String>> {
     if args.len() > self.airity {
@@ -620,15 +601,15 @@ impl Function {
       args.push(Value::Nil);
     }
 
-    let prev_ip = self.ctx.ip;
-    self.ctx.ip = 0;
+    let prev_ip = thread.ip;
+    thread.ip = 0;
     let prev_stack = self.ctx.stack_move(args);
 
-    let res = i
-      .interpret(self.ctx.clone())
+    let res = thread
+      .run(self.ctx.clone())
       .map_err(|e| e.into_iter().map(|e| e.msg).collect());
 
-    self.ctx.ip = prev_ip;
+    thread.ip = prev_ip;
     self.ctx.stack_move(prev_stack);
 
     res

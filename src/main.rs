@@ -1,4 +1,4 @@
-use simple_script::{Context, New, Value, Vm, Vpu};
+use simple_script::{Context, New, Value, Vm};
 use std::{env, fs, path::Path, process};
 
 const DISASSEMBLE_FLAG: &str = "--disassemble";
@@ -25,8 +25,7 @@ fn main() {
     args.retain(|arg| arg != QUITE_AFTER_FLAG);
   }
 
-  let vpu = Vpu::new(runtime_disassembly);
-  let runner = Vm::new(vpu);
+  let runner = Vm::default();
 
   if let Some(file) = args.get(1).cloned() {
     if !run_file(runner, file, show_disassembly, quit_after) {
@@ -40,7 +39,7 @@ fn main() {
 }
 
 fn run_file(
-  vm: Vm<Vpu>,
+  mut vm: Vm,
   file: String,
   show_disassembly: bool,
   quit_after_disassembled: bool,
@@ -109,7 +108,7 @@ fn run_file(
   true
 }
 
-fn run_cli(_runner: Vm<Vpu>) {
+fn run_cli(_runner: Vm) {
   let _quit = false;
 }
 

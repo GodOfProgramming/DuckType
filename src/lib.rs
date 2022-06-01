@@ -5,10 +5,10 @@ pub mod types;
 mod test;
 
 pub use code::Context;
-use code::{Compiler, OpCode};
+use code::{Compiler, OpCode, OpCodeReflection};
 use ptr::SmartPtr;
 use std::fs;
-use types::{Error, Interpreter};
+use types::Error;
 pub use types::{Value, ValueOpResult};
 
 pub trait New<T> {
@@ -16,16 +16,21 @@ pub trait New<T> {
 }
 
 #[derive(Default)]
-pub struct Vpu {
-  disassemble: bool,
+pub struct ExecutionThread {
+  pub ip: usize,
+  pub disassemble: bool,
 }
 
-impl Vpu {
-  pub fn new(disassemble: bool) -> Self {
-    Self { disassemble }
+impl ExecutionThread {
+  fn new(disassemble: bool) -> Self {
+    Self {
+      disassemble,
+      ip: Default::default(),
+    }
   }
 
   fn unary_op<F: FnOnce(&mut Context, Value) -> Option<Vec<Error>>>(
+    &self,
     ctx: &mut Context,
     opcode: &OpCode,
     f: F,
@@ -33,15 +38,12 @@ impl Vpu {
     if let Some(v) = ctx.stack_pop() {
       f(ctx, v)
     } else {
-      Some(Self::error(
-        ctx,
-        opcode,
-        String::from("cannot operate on empty stack"),
-      ))
+      Some(self.error(ctx, opcode, String::from("cannot operate on empty stack")))
     }
   }
 
   fn binary_op<F: FnOnce(&mut Context, Value, Value) -> Option<Vec<Error>>>(
+    &self,
     ctx: &mut Context,
     opcode: &OpCode,
     f: F,
@@ -50,22 +52,15 @@ impl Vpu {
       if let Some(av) = ctx.stack_pop() {
         f(ctx, av, bv)
       } else {
-        Some(Self::error(
-          ctx,
-          opcode,
-          String::from("cannot operate on empty stack"),
-        ))
+        Some(self.error(ctx, opcode, String::from("cannot operate on empty stack")))
       }
     } else {
-      Some(Self::error(
-        ctx,
-        opcode,
-        String::from("cannot operate on empty stack"),
-      ))
+      Some(self.error(ctx, opcode, String::from("cannot operate on empty stack")))
     }
   }
 
   fn global_op<F: FnOnce(&mut Context, String) -> Option<Vec<Error>>>(
+    &self,
     ctx: &mut Context,
     opcode: &OpCode,
     index: usize,
@@ -75,14 +70,14 @@ impl Vpu {
       if let Value::Str(name) = name {
         f(ctx, name)
       } else {
-        Some(Self::error(
+        Some(self.error(
           ctx,
           opcode,
           format!("global variable name is not an identifier: {}", name),
         ))
       }
     } else {
-      Some(Self::error(
+      Some(self.error(
         ctx,
         opcode,
         String::from("global variable name does not exist"),
@@ -90,20 +85,16 @@ impl Vpu {
     }
   }
 
-  fn error(ctx: &mut Context, opcode: &OpCode, msg: String) -> Vec<Error> {
-    vec![ctx.error_at(|opcode_ref| Error::from_ref(msg, opcode, opcode_ref))]
+  fn error(&self, ctx: &mut Context, opcode: &OpCode, msg: String) -> Vec<Error> {
+    vec![self.error_at(ctx, |opcode_ref| Error::from_ref(msg, opcode, opcode_ref))]
   }
-}
 
-impl Interpreter for Vpu {
-  fn interpret(&self, mut ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>> {
-    while !ctx.done() {
-      let opcode = ctx.next();
-
+  fn run(&mut self, mut ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>> {
+    while let Some(opcode) = ctx.next(self.ip) {
       #[cfg(debug_assertions)]
       if self.disassemble {
         ctx.display_stack();
-        ctx.display_instruction(&opcode, ctx.ip);
+        ctx.display_instruction(&opcode, self.ip);
       }
 
       match opcode {
@@ -112,11 +103,7 @@ impl Interpreter for Vpu {
           if let Some(c) = ctx.const_at(index) {
             ctx.stack_push(c);
           } else {
-            return Err(Self::error(
-              &mut ctx,
-              &opcode,
-              String::from("could not lookup constant"),
-            ));
+            return Err(self.error(&mut ctx, &opcode, String::from("could not lookup constant")));
           }
         }
         OpCode::Nil => ctx.stack_push(Value::Nil),
@@ -129,7 +116,7 @@ impl Interpreter for Vpu {
         OpCode::LookupLocal(index) => match ctx.stack_index(index) {
           Some(l) => ctx.stack_push(l),
           None => {
-            return Err(Self::error(
+            return Err(self.error(
               &mut ctx,
               &opcode,
               format!("could not index stack at pos {}", index),
@@ -139,7 +126,7 @@ impl Interpreter for Vpu {
         OpCode::AssignLocal(index) => match ctx.stack_peek() {
           Some(v) => ctx.stack_assign(index, v.clone()),
           None => {
-            return Err(Self::error(
+            return Err(self.error(
               &mut ctx,
               &opcode,
               format!("could not replace stack value at pos {}", index),
@@ -148,27 +135,23 @@ impl Interpreter for Vpu {
         },
 
         OpCode::LookupGlobal(index) => {
-          if let Some(e) = Vpu::global_op(&mut ctx, &opcode, index, |ctx, name| {
+          if let Some(e) = self.global_op(&mut ctx, &opcode, index, |ctx, name| {
             match ctx.lookup_global(&name) {
               Some(g) => {
                 ctx.stack_push(g);
                 None
               }
-              None => Some(Self::error(
-                ctx,
-                &opcode,
-                String::from("use of undefined variable"),
-              )),
+              None => Some(self.error(ctx, &opcode, String::from("use of undefined variable"))),
             }
           }) {
             return Err(e);
           }
         }
         OpCode::DefineGlobal(index) => {
-          if let Some(e) = Vpu::global_op(&mut ctx, &opcode, index, |ctx, name| {
+          if let Some(e) = self.global_op(&mut ctx, &opcode, index, |ctx, name| {
             if let Some(v) = ctx.stack_peek() {
               if !ctx.define_global(name, v.clone()) {
-                return Some(Self::error(
+                return Some(self.error(
                   ctx,
                   &opcode,
                   String::from("tried redefining global variable"),
@@ -176,7 +159,7 @@ impl Interpreter for Vpu {
               }
               None
             } else {
-              Some(Self::error(
+              Some(self.error(
                 ctx,
                 &opcode,
                 String::from("can not define global using empty stack"),
@@ -187,10 +170,10 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::AssignGlobal(index) => {
-          if let Some(e) = Vpu::global_op(&mut ctx, &opcode, index, |ctx, name| {
+          if let Some(e) = self.global_op(&mut ctx, &opcode, index, |ctx, name| {
             if let Some(v) = ctx.stack_peek() {
               if !ctx.assign_global(name, v) {
-                return Some(Self::error(
+                return Some(self.error(
                   ctx,
                   &opcode,
                   String::from("tried to assign to nonexistent global"),
@@ -198,7 +181,7 @@ impl Interpreter for Vpu {
               }
               None
             } else {
-              Some(Self::error(
+              Some(self.error(
                 ctx,
                 &opcode,
                 String::from("can not assign to global using empty stack"),
@@ -215,7 +198,7 @@ impl Interpreter for Vpu {
                 Value::Struct(mut obj) => match name {
                   Value::Str(name) => obj.set(name, value),
                   _ => {
-                    return Err(Self::error(
+                    return Err(self.error(
                       &mut ctx,
                       &opcode,
                       String::from("member name is not a string"),
@@ -223,7 +206,7 @@ impl Interpreter for Vpu {
                   }
                 },
                 _ => {
-                  return Err(Self::error(
+                  return Err(self.error(
                     &mut ctx,
                     &opcode,
                     String::from("tried to assigning to non object"),
@@ -231,7 +214,7 @@ impl Interpreter for Vpu {
                 }
               },
               None => {
-                return Err(Self::error(
+                return Err(self.error(
                   &mut ctx,
                   &opcode,
                   String::from("no object on stack to assign to"),
@@ -239,7 +222,7 @@ impl Interpreter for Vpu {
               }
             },
             None => {
-              return Err(Self::error(
+              return Err(self.error(
                 &mut ctx,
                 &opcode,
                 String::from("no name on stack to assign to"),
@@ -247,7 +230,7 @@ impl Interpreter for Vpu {
             }
           },
           None => {
-            return Err(Self::error(
+            return Err(self.error(
               &mut ctx,
               &opcode,
               String::from("no value on stack to assign to"),
@@ -260,15 +243,11 @@ impl Interpreter for Vpu {
               Value::Struct(obj) => match name {
                 Value::Str(ident) => ctx.stack_push(obj.get(ident)),
                 _ => {
-                  return Err(Self::error(
-                    &mut ctx,
-                    &opcode,
-                    String::from("invalid member name"),
-                  ))
+                  return Err(self.error(&mut ctx, &opcode, String::from("invalid member name")))
                 }
               },
               _ => {
-                return Err(Self::error(
+                return Err(self.error(
                   &mut ctx,
                   &opcode,
                   String::from("invalid type for member access"),
@@ -276,7 +255,7 @@ impl Interpreter for Vpu {
               }
             },
             None => {
-              return Err(Self::error(
+              return Err(self.error(
                 &mut ctx,
                 &opcode,
                 String::from("no object to for member access on the stack"),
@@ -284,7 +263,7 @@ impl Interpreter for Vpu {
             }
           },
           None => {
-            return Err(Self::error(
+            return Err(self.error(
               &mut ctx,
               &opcode,
               String::from("no constant specified by index"),
@@ -292,7 +271,7 @@ impl Interpreter for Vpu {
           }
         },
         OpCode::Equal => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a == b));
             None
           }) {
@@ -300,7 +279,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::NotEqual => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a != b));
             None
           }) {
@@ -308,7 +287,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Greater => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a > b));
             None
           }) {
@@ -316,7 +295,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::GreaterEqual => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a >= b));
             None
           }) {
@@ -324,7 +303,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Less => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a < b));
             None
           }) {
@@ -332,7 +311,7 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::LessEqual => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a <= b));
             None
           }) {
@@ -343,72 +322,64 @@ impl Interpreter for Vpu {
           Some(a) => match ctx.stack_peek() {
             Some(b) => ctx.stack_push(Value::new(a == b)),
             None => {
-              return Err(Self::error(
-                &mut ctx,
-                &opcode,
-                String::from("stack peek failed"),
-              ));
+              return Err(self.error(&mut ctx, &opcode, String::from("stack peek failed")));
             }
           },
           None => {
-            return Err(Self::error(
-              &mut ctx,
-              &opcode,
-              String::from("stack pop failed"),
-            ));
+            return Err(self.error(&mut ctx, &opcode, String::from("stack pop failed")));
           }
         },
         OpCode::Add => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| match a + b {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| match a + b {
             Ok(v) => {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(Self::error(ctx, &opcode, e)),
+            Err(e) => Some(self.error(ctx, &opcode, e)),
           }) {
             return Err(e);
           }
         }
         OpCode::Sub => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| match a - b {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| match a - b {
             Ok(v) => {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(Self::error(ctx, &opcode, e)),
+            Err(e) => Some(self.error(ctx, &opcode, e)),
           }) {
             return Err(e);
           }
         }
         OpCode::Mul => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| match a * b {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| match a * b {
             Ok(v) => {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(Self::error(ctx, &opcode, e)),
+            Err(e) => Some(self.error(ctx, &opcode, e)),
           }) {
             return Err(e);
           }
         }
         OpCode::Div => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| match a / b {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| match a / b {
             Ok(v) => {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(Self::error(ctx, &opcode, e)),
+            Err(e) => Some(self.error(ctx, &opcode, e)),
           }) {
             return Err(e);
           }
         }
         OpCode::Mod => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| match a % b {
+          if let Some(e) = self.binary_op(&mut ctx, &opcode, |ctx, a, b| match a % b {
             Ok(v) => {
               ctx.stack_push(v);
               None
             }
-            Err(e) => Some(Self::error(ctx, &opcode, e)),
+            Err(e) => Some(self.error(ctx, &opcode, e)),
           }) {
             return Err(e);
           }
@@ -416,14 +387,14 @@ impl Interpreter for Vpu {
         OpCode::Or(count) => match ctx.stack_peek() {
           Some(v) => {
             if v.truthy() {
-              ctx.jump(count);
+              self.jump(count);
               continue;
             } else {
               ctx.stack_pop();
             }
           }
           None => {
-            return Err(Self::error(
+            return Err(self.error(
               &mut ctx,
               &opcode,
               String::from("no item on the stack to peek"),
@@ -433,14 +404,14 @@ impl Interpreter for Vpu {
         OpCode::And(count) => match ctx.stack_peek() {
           Some(v) => {
             if !v.truthy() {
-              ctx.jump(count);
+              self.jump(count);
               continue;
             } else {
               ctx.stack_pop();
             }
           }
           None => {
-            return Err(Self::error(
+            return Err(self.error(
               &mut ctx,
               &opcode,
               String::from("no item on the stack to peek"),
@@ -448,7 +419,7 @@ impl Interpreter for Vpu {
           }
         },
         OpCode::Not => {
-          if let Some(e) = Vpu::unary_op(&mut ctx, &opcode, |ctx, v| {
+          if let Some(e) = self.unary_op(&mut ctx, &opcode, |ctx, v| {
             ctx.stack_push(!v);
             None
           }) {
@@ -456,46 +427,37 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::Negate => {
-          if let Some(e) = Vpu::unary_op(&mut ctx, &opcode, |ctx, v| match -v {
+          if let Some(e) = self.unary_op(&mut ctx, &opcode, |ctx, v| match -v {
             Ok(n) => {
               ctx.stack_push(n);
               None
             }
-            Err(e) => Some(Self::error(ctx, &opcode, e)),
+            Err(e) => Some(self.error(ctx, &opcode, e)),
           }) {
             return Err(e);
           }
         }
         OpCode::Print => {
-          if let Some(e) = Vpu::unary_op(&mut ctx, &opcode, |_, v| {
+          if let Some(e) = self.unary_op(&mut ctx, &opcode, |_, v| {
             println!("{}", v);
             None
           }) {
             return Err(e);
           }
         }
-        OpCode::Swap => {
-          if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
-            ctx.stack_push(a);
-            ctx.stack_push(b);
-            None
-          }) {
-            return Err(e);
-          }
-        }
         OpCode::Jump(count) => {
-          ctx.jump(count);
+          self.jump(count);
           continue;
         }
         OpCode::JumpIfFalse(count) => match ctx.stack_pop() {
           Some(v) => {
             if !v.truthy() {
-              ctx.jump(count);
+              self.jump(count);
               continue; // ip is now at correct place, so skip advance
             }
           }
           None => {
-            return Err(Self::error(
+            return Err(self.error(
               &mut ctx,
               &opcode,
               String::from("no item on the stack to pop"),
@@ -503,7 +465,7 @@ impl Interpreter for Vpu {
           }
         },
         OpCode::Loop(count) => {
-          ctx.loop_back(count);
+          self.loop_back(count);
           continue; // ip is at correct place
         }
         OpCode::End => match ctx.stack_pop() {
@@ -519,13 +481,17 @@ impl Interpreter for Vpu {
                 return Err(
                   errors
                     .into_iter()
-                    .map(|e| ctx.error_at(|opcode_ref| Error::from_ref(e, &opcode, opcode_ref)))
+                    .map(|e| {
+                      self.error_at(&mut ctx, |opcode_ref| {
+                        Error::from_ref(e, &opcode, opcode_ref)
+                      })
+                    })
                     .collect(),
                 )
               }
             }
           } else {
-            return Err(Self::error(
+            return Err(self.error(
               &mut ctx,
               &opcode,
               String::from("cannot operate on empty stack"),
@@ -545,10 +511,10 @@ impl Interpreter for Vpu {
               match fs::read_to_string(&file) {
                 Ok(data) => {
                   let new_ctx = Compiler::compile(&file, &data)?;
-                  match self.interpret(new_ctx) {
+                  match self.run(new_ctx) {
                     Ok(v) => ctx.stack_push(v),
                     Err(mut errors) => {
-                      let req_err = Self::error(
+                      let req_err = self.error(
                         &mut ctx,
                         &opcode,
                         format!("errors detected while loading file {}", file),
@@ -558,7 +524,7 @@ impl Interpreter for Vpu {
                   }
                 }
                 Err(e) => {
-                  return Err(Self::error(
+                  return Err(self.error(
                     &mut ctx,
                     &opcode,
                     format!("unable to read file {}: {}", file, e),
@@ -566,10 +532,10 @@ impl Interpreter for Vpu {
                 }
               }
             } else {
-              return Err(Self::error(&mut ctx, &opcode, format!("can only load files specified by strings or objects convertible to strings, got {}", file)));
+              return Err(self.error(&mut ctx, &opcode, format!("can only load files specified by strings or objects convertible to strings, got {}", file)));
             }
           } else {
-            return Err(Self::error(
+            return Err(self.error(
               &mut ctx,
               &opcode,
               String::from("cannot operate with an empty stack"),
@@ -582,7 +548,7 @@ impl Interpreter for Vpu {
               match indexable.index(index) {
                 Ok(value) => ctx.stack_push(value),
                 Err(err) => {
-                  return Err(Self::error(
+                  return Err(self.error(
                     &mut ctx,
                     &opcode,
                     format!("unable to index item {}: {}", indexable, err),
@@ -598,7 +564,7 @@ impl Interpreter for Vpu {
         }
         x => unimplemented!("Unimplemented: {:?}", x),
       }
-      ctx.advance();
+      self.ip += 1;
     }
 
     #[cfg(debug_assertions)]
@@ -608,22 +574,44 @@ impl Interpreter for Vpu {
 
     Ok(Value::Nil)
   }
+
+  pub fn jump(&mut self, count: usize) {
+    self.ip = self.ip.saturating_add(count);
+  }
+
+  pub fn loop_back(&mut self, count: usize) {
+    self.ip = self.ip.saturating_sub(count);
+  }
+
+  pub fn error_at<F: FnOnce(OpCodeReflection) -> Error>(&self, ctx: &mut Context, f: F) -> Error {
+    if let Some(opcode_ref) = ctx.meta.get(self.ip) {
+      f(opcode_ref)
+    } else {
+      Error {
+        msg: format!("could not fetch info for instruction {:04X}", self.ip),
+        file: ctx.meta.file.access().clone(),
+        line: 0,
+        column: 0,
+      }
+    }
+  }
 }
 
-pub struct Vm<I: Interpreter> {
-  vpu: I,
+#[derive(Default)]
+pub struct Vm {
+  main: ExecutionThread,
 }
 
-impl<I: Interpreter> Vm<I> {
-  pub fn new(vpu: I) -> Self {
-    Vm { vpu }
+impl Vm {
+  pub fn new(main: ExecutionThread) -> Self {
+    Vm { main }
   }
 
   pub fn load(&self, file: String, code: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
     Compiler::compile(&file, code)
   }
 
-  pub fn run(&self, ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>> {
-    self.vpu.interpret(ctx)
+  pub fn run(&mut self, ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>> {
+    self.main.run(ctx)
   }
 }

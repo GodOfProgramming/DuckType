@@ -4,7 +4,7 @@ pub mod lex;
 pub mod opt;
 
 use crate::{
-  types::{Env, Error, Value, ValueOpResult},
+  types::{Error, Value, ValueOpResult},
   New,
 };
 use ast::Ast;
@@ -82,8 +82,6 @@ pub enum OpCode {
   Negate,
   /** Pops a value off the stack and prints it to the screen */
   Print,
-  /** Swaps the top two values on the stack. */
-  Swap,
   /** Jumps to a code location indicated by the tuple */
   Jump(usize),
   /** Jumps to a code location indicated by the tuple */
@@ -196,9 +194,9 @@ pub struct OpCodeReflection {
 }
 
 pub struct Reflection {
-  file: SmartPtr<String>,
-  source: SmartPtr<String>,
-  opcode_info: Vec<OpCodeInfo>,
+  pub file: SmartPtr<String>,
+  pub source: SmartPtr<String>,
+  pub opcode_info: Vec<OpCodeInfo>,
 }
 
 impl Reflection {
@@ -214,7 +212,7 @@ impl Reflection {
     self.opcode_info.push(OpCodeInfo { line, column });
   }
 
-  fn get(&self, offset: usize) -> Option<OpCodeReflection> {
+  pub fn get(&self, offset: usize) -> Option<OpCodeReflection> {
     if let Some(info) = self.opcode_info.get(offset).cloned() {
       self
         .source
@@ -233,7 +231,6 @@ impl Reflection {
 }
 
 pub struct Context {
-  pub ip: usize,
   pub id: usize,
   pub name: String,
 
@@ -245,13 +242,12 @@ pub struct Context {
   strings: BTreeMap<String, usize>,
   instructions: Vec<OpCode>,
 
-  meta: Reflection,
+  pub meta: Reflection,
 }
 
 impl Context {
   fn new(reflection: Reflection) -> Self {
     Self {
-      ip: Default::default(),
       id: Default::default(),
       name: Default::default(),
       global: Default::default(),
@@ -273,7 +269,6 @@ impl Context {
     };
 
     Self {
-      ip: Default::default(),
       id,
       name: Default::default(),
       global,
@@ -295,16 +290,8 @@ impl Context {
     }
   }
 
-  pub fn done(&self) -> bool {
-    self.ip >= self.instructions.len()
-  }
-
-  pub fn next(&self) -> OpCode {
-    self.instructions[self.ip].clone()
-  }
-
-  pub fn advance(&mut self) {
-    self.ip += 1;
+  pub fn next(&self, index: usize) -> Option<OpCode> {
+    self.instructions.get(index).cloned()
   }
 
   pub fn stack_push(&mut self, value: Value) {
@@ -397,14 +384,6 @@ impl Context {
     self.assign_global(name.clone(), Value::new((name, native)))
   }
 
-  pub fn jump(&mut self, count: usize) {
-    self.ip = self.ip.saturating_add(count);
-  }
-
-  pub fn loop_back(&mut self, count: usize) {
-    self.ip = self.ip.saturating_sub(count);
-  }
-
   fn write(&mut self, op: OpCode, line: usize, column: usize) {
     if cfg!(test) {
       println!("emitting {:?}", op);
@@ -442,19 +421,6 @@ impl Context {
   }
 
   /* Debugging Functions */
-
-  pub fn error_at<F: FnOnce(OpCodeReflection) -> Error>(&self, f: F) -> Error {
-    if let Some(opcode_ref) = self.meta.get(self.ip) {
-      f(opcode_ref)
-    } else {
-      Error {
-        msg: format!("could not fetch info for instruction {:04X}", self.ip),
-        file: self.meta.file.access().clone(),
-        line: 0,
-        column: 0,
-      }
-    }
-  }
 
   pub fn display_opcodes(&self) {
     println!(
@@ -576,6 +542,25 @@ impl Context {
 
   fn address_of(offset: usize) -> String {
     format!("{:#010X} ", offset)
+  }
+}
+
+#[derive(Default)]
+pub struct Env {
+  vars: BTreeMap<String, Value>,
+}
+
+impl Env {
+  pub fn define(&mut self, name: String, value: Value) -> bool {
+    self.vars.insert(name, value).is_none()
+  }
+
+  pub fn assign(&mut self, name: String, value: Value) -> bool {
+    self.vars.insert(name, value).is_some()
+  }
+
+  pub fn lookup(&self, name: &str) -> Option<Value> {
+    self.vars.get(name).cloned()
   }
 }
 
