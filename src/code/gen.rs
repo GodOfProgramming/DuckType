@@ -79,7 +79,7 @@ impl BytecodeGenerator {
   fn block_stmt(&mut self, stmt: BlockStatement) {
     let loc = stmt.loc;
 
-    self.new_scope(stmt.loc, |this| {
+    self.new_scope(|this| {
       for statement in stmt.statements {
         this.emit_stmt(statement);
       }
@@ -121,7 +121,7 @@ impl BytecodeGenerator {
   fn for_stmt(&mut self, stmt: ForStatement) {
     let loc = stmt.loc;
 
-    self.new_scope(stmt.loc, |this| {
+    self.new_scope(|this| {
       this.emit_stmt(*stmt.initializer);
 
       let before_compare = this.current_instruction_count();
@@ -260,7 +260,6 @@ impl BytecodeGenerator {
     match expr.op {
       UnaryOperator::Not => self.emit(OpCode::Not, expr.loc),
       UnaryOperator::Negate => self.emit(OpCode::Negate, expr.loc),
-      _ => unimplemented!(),
     }
   }
 
@@ -339,6 +338,20 @@ impl BytecodeGenerator {
     self.emit(OpCode::Call(arg_count), expr.loc);
   }
 
+  fn list_expr(&mut self, expr: ListExpression) {
+    let num_items = expr.items.len();
+    for item in expr.items {
+      self.emit_expr(item);
+    }
+    self.emit(OpCode::CreateList(num_items), expr.loc);
+  }
+
+  fn index_expr(&mut self, expr: IndexExpression) {
+    self.emit_expr(*expr.indexable);
+    self.emit_expr(*expr.index);
+    self.emit(OpCode::Index, expr.loc);
+  }
+
   /* Utility Functions */
 
   fn emit(&mut self, op: OpCode, loc: SourceLocation) {
@@ -376,6 +389,8 @@ impl BytecodeGenerator {
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::Call(expr) => self.call_expr(expr),
+      Expression::List(expr) => self.list_expr(expr),
+      Expression::Index(expr) => self.index_expr(expr),
     }
   }
 
@@ -389,7 +404,7 @@ impl BytecodeGenerator {
     let loop_depth = self.loop_depth;
     self.loop_depth = self.scope_depth;
 
-    self.new_scope(loc, |this| {
+    self.new_scope(|this| {
       f(this);
     });
 
@@ -422,7 +437,7 @@ impl BytecodeGenerator {
       self.function_id,
     )));
 
-    self.new_scope(loc, |this| {
+    self.new_scope(|this| {
       let airity = args.len();
 
       for arg in args {
@@ -505,7 +520,7 @@ impl BytecodeGenerator {
     self.current_ctx().num_instructions()
   }
 
-  fn new_scope<F: FnOnce(&mut BytecodeGenerator)>(&mut self, loc: SourceLocation, f: F) {
+  fn new_scope<F: FnOnce(&mut BytecodeGenerator)>(&mut self, f: F) {
     self.scope_depth += 1;
     f(self);
     self.scope_depth -= 1;

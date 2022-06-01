@@ -17,9 +17,9 @@ impl IntegrationTest {
     }
   }
 
-  fn load<F: FnOnce(Context)>(&self, f: F) {
+  fn load<F: FnOnce(SmartPtr<Context>)>(&self, f: F) {
     match self.vm.load(String::from("test"), &self.script) {
-      Ok(ctx) => f(ctx.localize()),
+      Ok(ctx) => f(ctx),
       Err(errs) => {
         for err in errs {
           println!("{}", err);
@@ -29,10 +29,10 @@ impl IntegrationTest {
     }
   }
 
-  fn run<F: FnOnce(Context, Value)>(&self, f: F) {
-    self.load(|mut ctx| match self.vm.run(&mut ctx) {
+  fn run<F: FnOnce(SmartPtr<Context>, Value)>(&self, f: F) {
+    self.load(|ctx| match self.vm.run(ctx.clone()) {
       Ok(v) => f(ctx, v),
-      Err(err) => panic!("{}", err),
+      Err(err) => panic!("{:#?}", err),
     });
   }
 }
@@ -52,9 +52,9 @@ mod integration_tests {
 
     test.load(|mut ctx| {
       ctx.assign_global(String::from("foo"), Value::new("foo"));
-      match test.vm.run(&mut ctx) {
+      match test.vm.run(ctx) {
         Ok(v) => assert_eq!(Value::new("foo"), v),
-        Err(err) => panic!("{}", err),
+        Err(err) => panic!("{:#?}", err),
       }
     });
   }
@@ -67,13 +67,13 @@ mod integration_tests {
     test.load(|mut ctx| {
       ctx.create_native(String::from("test_func"), |args: Vec<Value>| {
         assert_eq!(args.len(), 2);
-        assert_eq!(args[0], Value::new(1));
-        assert_eq!(args[1], Value::new(2));
-        Ok(Value::new(3))
+        assert_eq!(args[0], Value::new(1f64));
+        assert_eq!(args[1], Value::new(2f64));
+        Ok(Value::new(3f64))
       });
-      match test.vm.run(&mut ctx) {
-        Ok(v) => assert_eq!(Value::new(3), v),
-        Err(err) => panic!("{}", err),
+      match test.vm.run(ctx) {
+        Ok(v) => assert_eq!(Value::new(3f64), v),
+        Err(err) => panic!("{:#?}", err),
       }
     });
   }

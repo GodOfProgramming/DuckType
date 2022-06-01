@@ -122,7 +122,7 @@ impl Value {
     }
   }
 
-  pub fn index(&'_ self, idx: usize) -> Option<&'_ Self> {
+  pub fn orig_index(&'_ self, idx: usize) -> Option<&'_ Self> {
     if let Self::List(list) = self {
       Some(&list[idx])
     } else {
@@ -130,11 +130,53 @@ impl Value {
     }
   }
 
-  pub fn index_mut(&'_ mut self, idx: usize) -> Option<&'_ mut Self> {
+  pub fn orig_index_mut(&'_ mut self, idx: usize) -> Option<&'_ mut Self> {
     if let Self::List(list) = self {
       Some(&mut list[idx])
     } else {
       None
+    }
+  }
+
+  pub fn call<I: Interpreter>(&mut self, i: &I, args: Vec<Value>) -> Result<Value, Vec<String>> {
+    match self {
+      Value::Function(f) => f.call(i, args),
+      Value::NativeFunction(f) => f.call(args).map_err(|e| vec![e]),
+      _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
+    }
+  }
+
+  pub fn index(&self, index: Value) -> ValueOpResult {
+    match self {
+      Value::List(values) => match index {
+        Value::Num(n) => {
+          if n == n as usize as f64 {
+            if let Some(v) = values.get(n as usize) {
+              Ok(v.clone())
+            } else {
+              Ok(Value::Nil)
+            }
+          } else {
+            Ok(Value::Nil)
+          }
+        }
+        _ => Err(format!("cannot index list with {}", index)),
+      },
+      Value::Str(string) => match index {
+        Value::Num(n) => {
+          if n == n as usize as f64 {
+            if let Some(c) = string.chars().nth(n as usize) {
+              Ok(Value::new(String::from(c)))
+            } else {
+              Ok(Value::Nil)
+            }
+          } else {
+            Ok(Value::Nil)
+          }
+        }
+        _ => Err(format!("cannot index string with {}", index)),
+      },
+      _ => Err(format!("cannot index {}", self)),
     }
   }
 }
@@ -184,6 +226,12 @@ impl New<String> for Value {
 impl New<&str> for Value {
   fn new(item: &str) -> Self {
     Self::new(String::from(item))
+  }
+}
+
+impl New<Vec<Value>> for Value {
+  fn new(item: Vec<Value>) -> Self {
+    Self::List(Values::new(item))
   }
 }
 
@@ -443,11 +491,11 @@ impl Debug for Value {
 }
 
 #[derive(Clone)]
-pub struct Values(Vec<Value>);
+pub struct Values(SmartPtr<Vec<Value>>);
 
 impl Values {
   pub fn new(values: Vec<Value>) -> Self {
-    Self(values)
+    Self(SmartPtr::new(values))
   }
 
   pub fn len(&self) -> usize {
@@ -456,6 +504,10 @@ impl Values {
 
   pub fn is_empty(&self) -> bool {
     self.0.is_empty()
+  }
+
+  pub fn get(&self, index: usize) -> Option<&Value> {
+    self.0.get(index)
   }
 }
 
@@ -478,15 +530,17 @@ impl IntoIterator for Values {
   type IntoIter = std::vec::IntoIter<Self::Item>;
 
   fn into_iter(self) -> Self::IntoIter {
-    self.0.into_iter()
+    self.0.localize().into_iter()
   }
 }
 
 impl Display for Values {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    self.0.iter().fold(Ok(()), |result, value| {
-      result.and_then(|_| writeln!(f, "{}", value))
-    })
+    let mut out = Vec::with_capacity(self.len());
+    for item in self.0.iter() {
+      out.push(item.to_string());
+    }
+    write!(f, "[{}]", out.join(", "))
   }
 }
 
@@ -509,20 +563,24 @@ impl Env {
   }
 }
 
-pub trait Call {
-  fn call(&mut self, args: Vec<Value>) -> ValueOpResult;
+pub trait Call<Args, Ret> {
+  fn call(&mut self, args: Args) -> Ret;
 }
 
 #[derive(Clone)]
 pub struct Function {
-  name: String,
+  name: SmartPtr<String>,
   airity: usize,
   ctx: SmartPtr<Context>,
 }
 
 impl Function {
   pub fn new(name: String, airity: usize, ctx: SmartPtr<Context>) -> Self {
-    Self { name, airity, ctx }
+    Self {
+      name: SmartPtr::new(name),
+      airity,
+      ctx,
+    }
   }
 
   pub fn call<I: Interpreter>(

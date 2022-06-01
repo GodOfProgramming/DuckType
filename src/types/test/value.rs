@@ -42,7 +42,7 @@ mod tests {
         Value::new(1.0),
         Value::new(-1.0),
         Value::new("some string"),
-        Value::new(Values::new(Vec::new())),
+        Value::new(Vec::new()),
       ],
     );
 
@@ -95,7 +95,7 @@ mod tests {
         Value::Nil,
         Value::new(true),
         Value::new(false),
-        Value::new(Values(Vec::new())),
+        Value::new(Vec::new()),
       ],
     );
   }
@@ -122,7 +122,7 @@ mod tests {
         Value::new(true),
         Value::new(false),
         Value::new("test"),
-        Value::new(Values(Vec::new())),
+        Value::new(Vec::new()),
       ],
     );
   }
@@ -165,7 +165,7 @@ mod tests {
         Value::Nil,
         Value::new(true),
         Value::new(false),
-        Value::new(Values(Vec::new())),
+        Value::new(Vec::new()),
       ],
     );
 
@@ -197,7 +197,7 @@ mod tests {
         Value::new(true),
         Value::new(false),
         Value::new("test"),
-        Value::new(Values(Vec::new())),
+        Value::new(Vec::new()),
       ],
     );
   }
@@ -224,7 +224,7 @@ mod tests {
         Value::new(true),
         Value::new(false),
         Value::new("test"),
-        Value::new(Values(Vec::new())),
+        Value::new(Vec::new()),
       ],
     );
   }
@@ -248,7 +248,7 @@ mod tests {
         Value::new(1.0),
         Value::new(-1.0),
         Value::new("some string"),
-        Value::new(Values::new(Vec::new())),
+        Value::new(Vec::new()),
       ],
     );
   }
@@ -270,7 +270,7 @@ mod tests {
         Value::new(true),
         Value::new(false),
         Value::new("test"),
-        Value::new(Values(Vec::new())),
+        Value::new(Vec::new()),
       ],
     );
   }

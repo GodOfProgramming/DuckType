@@ -2,7 +2,6 @@ pub mod ast;
 pub mod gen;
 pub mod lex;
 pub mod opt;
-pub mod parse;
 
 use crate::{
   types::{Env, Error, Value, ValueOpResult},
@@ -15,147 +14,78 @@ use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   fmt::{self, Debug},
-  ops::Range,
   str,
 };
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OpCode {
-  /**
-   * No operation instruction
-   */
+  /** No operation instruction */
   NoOp,
-  /**
-   *  Looks up a constant value at the specified location. Location is specified by the tuple
-   */
+  /** Looks up a constant value at the specified location. Location is specified by the tuple */
   Const(usize),
-  /**
-   * Pushes a nil value on to the stack
-   */
+  /** Pushes a nil value on to the stack */
   Nil,
-  /**
-   * Pushes a true value on to the stack
-   */
+  /** Pushes a true value on to the stack */
   True,
-  /**
-   * Pushes a false value on to the stack
-   */
+  /** Pushes a false value on to the stack */
   False,
-  /**
-   * Pops a value off the stack
-   */
+  /** Pops a value off the stack */
   Pop,
-  /**
-   * Pops N values off the stack. N is specified by tuple
-   */
+  /** Pops N values off the stack. N is specified by tuple */
   PopN(usize),
-  /**
-   * Looks up a local variable. The index in the stack is specified by the modifying bits
-   */
+  /** Looks up a local variable. The index in the stack is specified by the modifying bits */
   LookupLocal(usize),
-  /**
-   * Assigns a value to the local variable indexed by the tuple. The value comes off the top of the stack
-   */
+  /** Assigns a value to the local variable indexed by the tuple. The value comes off the top of the stack */
   AssignLocal(usize),
-  /**
-   * Looks up a global variable. The name is stored in the enum
-   */
+  /** Looks up a global variable. The name is stored in the enum */
   LookupGlobal(usize),
-  /**
-   * Defines a new global variable. The name is stored in the enum. The value comes off the top of the stack
-   */
+  /** Defines a new global variable. The name is stored in the enum. The value comes off the top of the stack */
   DefineGlobal(usize),
-  /**
-   * Assigns a value to the global variable. The Name is stored in the enum. The value comes off the top of the stack
-   */
+  /** Assigns a value to the global variable. The Name is stored in the enum. The value comes off the top of the stack */
   AssignGlobal(usize),
-  /**
-   * Pops two values off the stack, compares, then pushes the result back on
-   */
+  /** Pops two values off the stack, compares, then pushes the result back on */
   Equal,
-  /**
-   * Pops two values off the stack, compares, then pushes the result back on
-   */
+  /** Pops two values off the stack, compares, then pushes the result back on */
   NotEqual,
-  /**
-   * Pops two values off the stack, compares, then pushes the result back on
-   */
+  /** Pops two values off the stack, compares, then pushes the result back on */
   Greater,
-  /**
-   * Pops two values off the stack, compares, then pushes the result back on
-   */
+  /** Pops two values off the stack, compares, then pushes the result back on */
   GreaterEqual,
-  /**
-   * Pops two values off the stack, compares, then pushes the result back on
-   */
+  /** Pops two values off the stack, compares, then pushes the result back on */
   Less,
-  /**
-   * Pops two values off the stack, compares, then pushes the result back on
-   */
+  /** Pops two values off the stack, compares, then pushes the result back on */
   LessEqual,
-  /**
-   * Pops a value off the stack, and compars it with the peeked value, pushing the new value on
-   */
+  /** Pops a value off the stack, and compars it with the peeked value, pushing the new value on */
   Check,
-  /**
-   * Pops two values off the stack, calculates the sum, then pushes the result back on
-   */
+  /** Pops two values off the stack, calculates the sum, then pushes the result back on */
   Add,
-  /**
-   * Pops two values off the stack, calculates the difference, then pushes the result back on
-   */
+  /** Pops two values off the stack, calculates the difference, then pushes the result back on */
   Sub,
-  /**
-   * Pops two values off the stack, calculates the product, then pushes the result back on
-   */
+  /** Pops two values off the stack, calculates the product, then pushes the result back on */
   Mul,
-  /**
-   * Pops two values off the stack, calculates the quotient, then pushes the result back on
-   */
+  /** Pops two values off the stack, calculates the quotient, then pushes the result back on */
   Div,
-  /**
-   * Pops two values off the stack, calculates the remainder, then pushes the result back on
-   */
+  /** Pops two values off the stack, calculates the remainder, then pushes the result back on */
   Mod,
-  /**
-   * Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple
-   */
+  /** Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple */
   Or(usize),
-  /**
-   * Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple
-   */
+  /** Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple */
   And(usize),
-  /**
-   * Pops a value off the stack, inverts its truthy value, then pushes that back on
-   */
+  /** Pops a value off the stack, inverts its truthy value, then pushes that back on */
   Not,
-  /**
-   * Pops a value off the stack, inverts its numerical value, then pushes that back on
-   */
+  /** Pops a value off the stack, inverts its numerical value, then pushes that back on */
   Negate,
-  /**
-   * Pops a value off the stack and prints it to the screen
-   */
+  /** Pops a value off the stack and prints it to the screen */
   Print,
-  /**
-   * Swaps the top two values on the stack.
-   */
+  /** Swaps the top two values on the stack. */
   Swap,
-  /**
-   * Jumps to a code location indicated by the tuple
-   */
+  /** Jumps to a code location indicated by the tuple */
   Jump(usize),
-  /**
-   * Jumps to a code location indicated by the tuple
-   */
+  /** Jumps to a code location indicated by the tuple */
   JumpIfFalse(usize),
-  /**
-   * Jumps the instruction pointer backwards N instructions. N specified by the tuple
-   */
+  /** Jumps the instruction pointer backwards N instructions. N specified by the tuple */
   Loop(usize),
-  /**
-   * Pushes the stack pointer onto the stack
-   */
+  /** Pushes the stack pointer onto the stack */
   PushSp,
   /** Calls the instruction on the stack. Number of arguments is specified by the modifying bits */
   Call(usize),
@@ -165,6 +95,10 @@ pub enum OpCode {
   End,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
+  /** Index into the indexable. The first argument off the stack is the index, the second is the indexable */
+  Index,
+  /** Create a list of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
+  CreateList(usize),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -174,6 +108,8 @@ pub enum Token {
   RightParen,
   LeftBrace,
   RightBrace,
+  LeftBracket,
+  RightBracket,
   Comma,
   Dot,
   Semicolon,
@@ -296,7 +232,7 @@ pub struct Context {
   pub name: String,
 
   global: SmartPtr<Context>,
-  parent: SmartPtr<Context>,
+  _parent: SmartPtr<Context>,
   env: Env, // global environment for global context, captures for local context
   stack: Vec<Value>,
   consts: Vec<Value>,
@@ -312,7 +248,7 @@ impl Context {
       id: Default::default(),
       name: Default::default(),
       global: Default::default(),
-      parent: Default::default(),
+      _parent: Default::default(),
       env: Default::default(),
       stack: Default::default(),
       consts: Default::default(),
@@ -333,7 +269,7 @@ impl Context {
       id,
       name: String::default(),
       global,
-      parent: ctx,
+      _parent: ctx,
       env: Default::default(),
       stack: Vec::default(),
       consts: Vec::default(),
@@ -485,16 +421,16 @@ impl Context {
 
   /* Debugging Functions */
 
-  pub fn reflect_instruction<F: FnOnce(OpCodeReflection) -> Error>(&self, f: F) -> Vec<Error> {
+  pub fn error_at<F: FnOnce(OpCodeReflection) -> Error>(&self, f: F) -> Error {
     if let Some(opcode_ref) = self.meta.get(self.ip) {
-      vec![f(opcode_ref)]
+      f(opcode_ref)
     } else {
-      vec![Error {
+      Error {
         msg: format!("could not fetch info for instruction {:04X}", self.ip),
         file: self.meta.file.access().clone(),
         line: 0,
         column: 0,
-      }]
+      }
     }
   }
 
@@ -583,6 +519,7 @@ impl Context {
       OpCode::Or(count) => println!("{:<19} {}", "Or", Self::address_of(offset + count)),
       OpCode::And(count) => println!("{:<19} {}", "And", Self::address_of(offset + count)),
       OpCode::Call(count) => println!("{:<16} {:4}", "Call", count),
+      OpCode::CreateList(count) => println!("{:<16} {:4}", "CreateList", count),
       x => println!("{:<16?}", x),
     }
   }
@@ -625,29 +562,6 @@ impl Compiler {
 
     let reflection = Reflection::new(file, source_ptr.clone());
     let ctx = SmartPtr::new(Context::new(reflection));
-
-    let generator = BytecodeGenerator::new(ctx);
-
-    generator
-      .generate(ast)
-      .map_err(|errs| Self::reformat_errors(source, errs))
-  }
-
-  pub fn compile_with(
-    ctx: SmartPtr<Context>,
-    file: &str,
-    source: &str,
-  ) -> Result<SmartPtr<Context>, Vec<Error>> {
-    let mut scanner = Scanner::new(file, source);
-    let (tokens, meta) = scanner
-      .scan()
-      .map_err(|errs| Self::reformat_errors(source, errs))?;
-
-    let ast = Ast::from(tokens, meta).map_err(|errs| Self::reformat_errors(source, errs))?;
-
-    let optimizer = Optimizer::<1>::new(ast);
-
-    let ast = optimizer.optimize();
 
     let generator = BytecodeGenerator::new(ctx);
 

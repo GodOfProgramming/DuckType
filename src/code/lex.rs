@@ -54,6 +54,8 @@ impl<'src> Scanner<'src> {
           ')' => Token::RightParen,
           '{' => Token::LeftBrace,
           '}' => Token::RightBrace,
+          '[' => Token::LeftBracket,
+          ']' => Token::RightBracket,
           ',' => Token::Comma,
           '.' => Token::Dot,
           ';' => Token::Semicolon,
@@ -394,14 +396,14 @@ impl<'src> Scanner<'src> {
   }
 
   fn is_digit(c: char) -> bool {
-    const zero_to_nine: RangeInclusive<char> = '0'..='9';
-    zero_to_nine.contains(&c)
+    const ZERO_TO_NINE: RangeInclusive<char> = '0'..='9';
+    ZERO_TO_NINE.contains(&c)
   }
 
   fn is_alpha(c: char) -> bool {
-    const a_z: RangeInclusive<char> = 'a'..='z';
-    const A_Z: RangeInclusive<char> = 'A'..='Z';
-    a_z.contains(&c) || A_Z.contains(&c) || c == '_' || c == '@'
+    const A_Z_LOCASE: RangeInclusive<char> = 'a'..='z';
+    const A_Z_UPCASE: RangeInclusive<char> = 'A'..='Z';
+    A_Z_LOCASE.contains(&c) || A_Z_UPCASE.contains(&c) || c == '_' || c == '@'
   }
 
   fn is_alphanumeric(c: char) -> bool {

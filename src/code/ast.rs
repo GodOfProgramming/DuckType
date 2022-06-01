@@ -759,7 +759,7 @@ impl AstGenerator {
     }
   }
 
-  fn call_expr(&mut self, ident: Expression) -> Option<Expression> {
+  fn call_expr(&mut self, expr: Expression) -> Option<Expression> {
     let paren_meta = self.meta_at::<1>()?;
     let mut args = Vec::default();
 
@@ -774,16 +774,58 @@ impl AstGenerator {
       }
     }
 
-    if !self.consume(
+    if self.consume(
       Token::RightParen,
       String::from("expect ')' after arguments"),
     ) {
-      return None;
+      Some(Expression::new(CallExpression::new(expr, args, paren_meta)))
+    } else {
+      None
+    }
+  }
+
+  fn list_expr(&mut self) -> Option<Expression> {
+    let bracket_meta = self.meta_at::<1>()?;
+    let mut items = Vec::default();
+
+    if let Some(token) = self.current() {
+      if token != Token::RightParen {
+        loop {
+          items.push(self.expression()?);
+          if !self.advance_if_matches(Token::Comma) {
+            break;
+          }
+        }
+      }
     }
 
-    Some(Expression::new(CallExpression::new(
-      ident, args, paren_meta,
-    )))
+    if self.consume(
+      Token::RightBracket,
+      String::from("expect ']' after arguments"),
+    ) {
+      Some(Expression::new(ListExpression::new(items, bracket_meta)))
+    } else {
+      None
+    }
+  }
+
+  fn index_expr(&mut self, expr: Expression) -> Option<Expression> {
+    let bracket_meta = self.meta_at::<1>()?;
+
+    let index = self.expression()?;
+
+    if self.consume(
+      Token::RightBracket,
+      String::from("expected ']' after expression"),
+    ) {
+      Some(Expression::new(IndexExpression::new(
+        expr,
+        index,
+        bracket_meta,
+      )))
+    } else {
+      None
+    }
   }
 
   /* Utility functions */
@@ -1061,6 +1103,12 @@ impl AstGenerator {
       Token::RightParen => ParseRule::new(None, None, Precedence::None),
       Token::LeftBrace => ParseRule::new(None, None, Precedence::None),
       Token::RightBrace => ParseRule::new(None, None, Precedence::None),
+      Token::LeftBracket => ParseRule::new(
+        Some(Self::list_expr),
+        Some(Self::index_expr),
+        Precedence::Call,
+      ),
+      Token::RightBracket => ParseRule::new(None, None, Precedence::None),
       Token::Comma => ParseRule::new(None, None, Precedence::None),
       Token::Dot => ParseRule::new(None, None, Precedence::None),
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
@@ -1460,6 +1508,8 @@ pub enum Expression {
   Ident(IdentExpression),
   Assign(AssignExpression),
   Call(CallExpression),
+  List(ListExpression),
+  Index(IndexExpression),
 }
 
 impl New<LiteralExpression> for Expression {
@@ -1513,6 +1563,18 @@ impl New<AssignExpression> for Expression {
 impl New<CallExpression> for Expression {
   fn new(expr: CallExpression) -> Self {
     Self::Call(expr)
+  }
+}
+
+impl New<ListExpression> for Expression {
+  fn new(expr: ListExpression) -> Self {
+    Self::List(expr)
+  }
+}
+
+impl New<IndexExpression> for Expression {
+  fn new(expr: IndexExpression) -> Self {
+    Self::Index(expr)
   }
 }
 
@@ -1677,6 +1739,34 @@ impl CallExpression {
   }
 }
 
+pub struct ListExpression {
+  pub items: Vec<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl ListExpression {
+  fn new(items: Vec<Expression>, loc: SourceLocation) -> Self {
+    Self { items, loc }
+  }
+}
+
+pub struct IndexExpression {
+  pub indexable: Box<Expression>,
+  pub index: Box<Expression>,
+
+  pub loc: SourceLocation,
+}
+
+impl IndexExpression {
+  fn new(indexable: Expression, index: Expression, loc: SourceLocation) -> Self {
+    Self {
+      indexable: Box::new(indexable),
+      index: Box::new(index),
+      loc,
+    }
+  }
+}
+
 #[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
 enum Precedence {
   None,
@@ -1688,7 +1778,7 @@ enum Precedence {
   Term,       // + -
   Factor,     // / *
   Unary,      // - !
-  Call,       // . ()
+  Call,       // . () []
   Primary,
 }
 
