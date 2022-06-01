@@ -346,7 +346,11 @@ impl BytecodeGenerator {
     self.emit(OpCode::CreateList(num_items), expr.loc);
   }
 
-  fn index_expr(&mut self, expr: IndexExpression) {}
+  fn index_expr(&mut self, expr: IndexExpression) {
+    self.emit_expr(*expr.indexable);
+    self.emit_expr(*expr.index);
+    self.emit(OpCode::Index, expr.loc);
+  }
 
   /* Utility Functions */
 
