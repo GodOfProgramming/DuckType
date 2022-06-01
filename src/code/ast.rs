@@ -815,7 +815,7 @@ impl AstGenerator {
     let index = self.expression()?;
 
     if self.consume(
-      Token::RightBrace,
+      Token::RightBracket,
       String::from("expected ']' after expression"),
     ) {
       Some(Expression::new(IndexExpression::new(

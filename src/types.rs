@@ -151,7 +151,11 @@ impl Value {
       Value::List(values) => match index {
         Value::Num(n) => {
           if n == n as usize as f64 {
-            Ok(values[n as usize].clone())
+            if let Some(v) = values.get(n as usize) {
+              Ok(v.clone())
+            } else {
+              Ok(Value::Nil)
+            }
           } else {
             Ok(Value::Nil)
           }
@@ -500,6 +504,10 @@ impl Values {
 
   pub fn is_empty(&self) -> bool {
     self.0.is_empty()
+  }
+
+  pub fn get(&self, index: usize) -> Option<&Value> {
+    self.0.get(index)
   }
 }
 
