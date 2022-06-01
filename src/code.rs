@@ -13,6 +13,7 @@ use lex::Scanner;
 use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
+  collections::BTreeMap,
   fmt::{self, Debug},
   str,
 };
@@ -37,16 +38,16 @@ pub enum OpCode {
   LookupLocal(usize),
   /** Assigns a value to the local variable indexed by the tuple. The value comes off the top of the stack */
   AssignLocal(usize),
-  /** Looks up a global variable. The name is stored in the enum */
-  LookupGlobal(usize),
   /** Defines a new global variable. The name is stored in the enum. The value comes off the top of the stack */
   DefineGlobal(usize),
+  /** Looks up a global variable. The name is stored in the enum */
+  LookupGlobal(usize),
   /** Assigns a value to the global variable. The Name is stored in the enum. The value comes off the top of the stack */
   AssignGlobal(usize),
+  /** Defines a member on an object type. The first item popped off the stack is the value. The object is next which is left on for further assignments. The member name is specified by the modifying bits */
+  AssignMember(usize),
   /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
   LookupMember(usize),
-  /** Assigns to a object type. The first item popped off the stack is the value. The object is next which is left on for further assignments. The member name is specified by the modifying bits */
-  AssignMember(usize),
   /** Pops two values off the stack, compares, then pushes the result back on */
   Equal,
   /** Pops two values off the stack, compares, then pushes the result back on */
@@ -241,6 +242,7 @@ pub struct Context {
   env: Env, // global environment for global context, captures for local context
   stack: Vec<Value>,
   consts: Vec<Value>,
+  strings: BTreeMap<String, usize>,
   instructions: Vec<OpCode>,
 
   meta: Reflection,
@@ -257,6 +259,7 @@ impl Context {
       env: Default::default(),
       stack: Default::default(),
       consts: Default::default(),
+      strings: Default::default(),
       instructions: Default::default(),
       meta: reflection,
     }
@@ -270,15 +273,16 @@ impl Context {
     };
 
     Self {
-      ip: 0,
+      ip: Default::default(),
       id,
-      name: String::default(),
+      name: Default::default(),
       global,
       _parent: ctx,
       env: Default::default(),
-      stack: Vec::default(),
-      consts: Vec::default(),
-      instructions: Vec::default(),
+      stack: Default::default(),
+      consts: Default::default(),
+      strings: Default::default(),
+      instructions: Default::default(),
       meta: reflection,
     }
   }
@@ -415,6 +419,11 @@ impl Context {
   }
 
   fn add_const(&mut self, c: Value) -> usize {
+    if let Value::Str(string) = &c {
+      if let Some(index) = self.strings.get(string) {
+        return *index;
+      }
+    }
     self.consts.push(c);
     self.consts.len() - 1
   }
@@ -524,16 +533,16 @@ impl Context {
           Value::new("????")
         }
       ),
-      OpCode::LookupMember(index) => {
-        print!("{:<16} {:4} ", "LookupMember", index);
+      OpCode::AssignMember(index) => {
+        print!("{:<16} {:4} ", "AssignMember", index);
         let c = self.const_at(*index);
         match c {
           Some(v) => println!("{}", v),
           None => println!("INVALID INDEX"),
         }
       }
-      OpCode::AssignMember(index) => {
-        print!("{:<16} {:4} ", "AssignMember", index);
+      OpCode::LookupMember(index) => {
+        print!("{:<16} {:4} ", "LookupMember", index);
         let c = self.const_at(*index);
         match c {
           Some(v) => println!("{}", v),

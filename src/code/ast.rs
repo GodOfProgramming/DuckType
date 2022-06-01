@@ -828,17 +828,28 @@ impl AstGenerator {
     }
   }
 
-  fn member_access_expr(&mut self, obj: Expression) -> Option<Expression> {
+  fn member_expr(&mut self, obj: Expression) -> Option<Expression> {
     if let Some(token) = self.current() {
       if let Token::Identifier(ident) = token {
         let ident_meta = self.meta_at::<0>()?;
 
         self.advance();
-        Some(Expression::new(MemberAccessExpression::new(
-          obj,
-          Ident::new(ident),
-          ident_meta,
-        )))
+
+        if self.advance_if_matches(Token::Equal) {
+          let value = self.expression()?;
+          Some(Expression::new(MemberAssignExpression::new(
+            obj,
+            Ident::new(ident),
+            value,
+            ident_meta,
+          )))
+        } else {
+          Some(Expression::new(MemberAccessExpression::new(
+            obj,
+            Ident::new(ident),
+            ident_meta,
+          )))
+        }
       } else {
         self.error::<1>(String::from("expected identifier"));
         None
@@ -1184,7 +1195,7 @@ impl AstGenerator {
       ),
       Token::RightBracket => ParseRule::new(None, None, Precedence::None),
       Token::Comma => ParseRule::new(None, None, Precedence::None),
-      Token::Dot => ParseRule::new(None, Some(Self::member_access_expr), Precedence::Call),
+      Token::Dot => ParseRule::new(None, Some(Self::member_expr), Precedence::Call),
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
       Token::Colon => ParseRule::new(None, None, Precedence::None),
       Token::Plus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Term),
@@ -1587,6 +1598,7 @@ pub enum Expression {
   Index(IndexExpression),
   Struct(StructExpression),
   MemberAccess(MemberAccessExpression),
+  MemberAssign(MemberAssignExpression),
 }
 
 impl New<LiteralExpression> for Expression {
@@ -1664,6 +1676,12 @@ impl New<StructExpression> for Expression {
 impl New<MemberAccessExpression> for Expression {
   fn new(expr: MemberAccessExpression) -> Self {
     Self::MemberAccess(expr)
+  }
+}
+
+impl New<MemberAssignExpression> for Expression {
+  fn new(expr: MemberAssignExpression) -> Self {
+    Self::MemberAssign(expr)
   }
 }
 
@@ -1867,6 +1885,24 @@ impl MemberAccessExpression {
     Self {
       obj: Box::new(obj),
       ident,
+      loc,
+    }
+  }
+}
+
+pub struct MemberAssignExpression {
+  pub obj: Box<Expression>,
+  pub ident: Ident,
+  pub value: Box<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl MemberAssignExpression {
+  fn new(obj: Expression, ident: Ident, value: Expression, loc: SourceLocation) -> Self {
+    Self {
+      obj: Box::new(obj),
+      ident,
+      value: Box::new(value),
       loc,
     }
   }

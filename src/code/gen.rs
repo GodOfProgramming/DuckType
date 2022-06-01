@@ -352,12 +352,6 @@ impl BytecodeGenerator {
     self.emit(OpCode::Index, expr.loc);
   }
 
-  fn member_access_expr(&mut self, expr: MemberAccessExpression) {
-    self.emit_expr(*expr.obj);
-    let ident = self.add_const_ident(expr.ident);
-    self.emit(OpCode::LookupMember(ident), expr.loc);
-  }
-
   fn struct_expr(&mut self, expr: StructExpression) {
     self.emit_const(Value::new(Struct::default()), expr.loc);
     for (member, assign) in expr.members {
@@ -365,6 +359,19 @@ impl BytecodeGenerator {
       self.emit_expr(assign);
       self.emit(OpCode::AssignMember(ident), expr.loc);
     }
+  }
+
+  fn member_access_expr(&mut self, expr: MemberAccessExpression) {
+    let ident = self.add_const_ident(expr.ident);
+    self.emit_expr(*expr.obj);
+    self.emit(OpCode::LookupMember(ident), expr.loc);
+  }
+
+  fn member_assign_expr(&mut self, expr: MemberAssignExpression) {
+    let ident = self.add_const_ident(expr.ident);
+    self.emit_expr(*expr.obj);
+    self.emit_expr(*expr.value);
+    self.emit(OpCode::AssignMember(ident), expr.loc);
   }
 
   /* Utility Functions */
@@ -407,6 +414,7 @@ impl BytecodeGenerator {
       Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
       Expression::MemberAccess(expr) => self.member_access_expr(expr),
+      Expression::MemberAssign(expr) => self.member_assign_expr(expr),
       Expression::Struct(expr) => self.struct_expr(expr),
     }
   }
