@@ -245,9 +245,9 @@ impl Interpreter for Vpu {
             ))
           }
         },
-        OpCode::AssignMember(index) => match ctx.stack_pop() {
-          Some(value) => match ctx.const_at(index) {
-            Some(name) => match ctx.stack_peek() {
+        OpCode::AssignMember(index) => match ctx.const_at(index) {
+          Some(name) => match ctx.stack_pop() {
+            Some(value) => match ctx.stack_peek() {
               Some(obj) => match obj {
                 Value::Struct(mut obj) => match name {
                   Value::Str(name) => obj.set(name, value),
