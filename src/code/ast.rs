@@ -860,7 +860,12 @@ impl AstGenerator {
 
       if let Token::Identifier(ident) = token {
         self.advance();
-        if self.consume(Token::Colon, String::from("expected ':' after identifier")) {
+        if self.advance_if_matches(Token::Comma) || self.check_peek_after::<0>(Token::RightBrace) {
+          members.push((
+            Ident::new(ident.clone()),
+            Expression::new(IdentExpression::new(Ident::new(ident), struct_meta)),
+          ))
+        } else if self.consume(Token::Colon, String::from("expected ':' after identifier")) {
           let value = self.expression()?;
           members.push((Ident::new(ident), value));
           self.advance_if_matches(Token::Comma);
@@ -900,6 +905,14 @@ impl AstGenerator {
       self.tokens.get(self.index - I).cloned()
     } else {
       None
+    }
+  }
+
+  fn check_peek_after<const I: usize>(&self, expected: Token) -> bool {
+    if let Some(token) = self.peek_after::<I>() {
+      expected == token
+    } else {
+      false
     }
   }
 
