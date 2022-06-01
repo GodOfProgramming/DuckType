@@ -146,6 +146,7 @@ impl Interpreter for Vpu {
             ));
           }
         },
+
         OpCode::LookupGlobal(index) => {
           if let Some(e) = Vpu::global_op(&mut ctx, &opcode, index, |ctx, name| {
             match ctx.lookup_global(&name) {
@@ -207,6 +208,89 @@ impl Interpreter for Vpu {
             return Err(e);
           }
         }
+        OpCode::LookupMember(index) => match ctx.const_at(index) {
+          Some(name) => match ctx.stack_pop() {
+            Some(obj) => match obj {
+              Value::Struct(obj) => match name {
+                Value::Str(ident) => ctx.stack_push(obj.get(ident)),
+                _ => {
+                  return Err(Self::error(
+                    &mut ctx,
+                    &opcode,
+                    String::from("invalid member name"),
+                  ))
+                }
+              },
+              _ => {
+                return Err(Self::error(
+                  &mut ctx,
+                  &opcode,
+                  String::from("invalid type for member access"),
+                ))
+              }
+            },
+            None => {
+              return Err(Self::error(
+                &mut ctx,
+                &opcode,
+                String::from("no object to for member access on the stack"),
+              ))
+            }
+          },
+          None => {
+            return Err(Self::error(
+              &mut ctx,
+              &opcode,
+              String::from("no constant specified by index"),
+            ))
+          }
+        },
+        OpCode::AssignMember(index) => match ctx.const_at(index) {
+          Some(name) => match ctx.stack_pop() {
+            Some(value) => match ctx.stack_peek() {
+              Some(obj) => match obj {
+                Value::Struct(mut obj) => match name {
+                  Value::Str(name) => obj.set(name, value),
+                  _ => {
+                    return Err(Self::error(
+                      &mut ctx,
+                      &opcode,
+                      String::from("member name is not a string"),
+                    ))
+                  }
+                },
+                _ => {
+                  return Err(Self::error(
+                    &mut ctx,
+                    &opcode,
+                    String::from("tried to assigning to non object"),
+                  ))
+                }
+              },
+              None => {
+                return Err(Self::error(
+                  &mut ctx,
+                  &opcode,
+                  String::from("no object on stack to assign to"),
+                ))
+              }
+            },
+            None => {
+              return Err(Self::error(
+                &mut ctx,
+                &opcode,
+                String::from("no name on stack to assign to"),
+              ))
+            }
+          },
+          None => {
+            return Err(Self::error(
+              &mut ctx,
+              &opcode,
+              String::from("no value on stack to assign to"),
+            ))
+          }
+        },
         OpCode::Equal => {
           if let Some(e) = Vpu::binary_op(&mut ctx, &opcode, |ctx, a, b| {
             ctx.stack_push(Value::new(a == b));

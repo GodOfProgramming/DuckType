@@ -828,17 +828,91 @@ impl AstGenerator {
     }
   }
 
+  fn member_access_expr(&mut self, obj: Expression) -> Option<Expression> {
+    if let Some(token) = self.current() {
+      if let Token::Identifier(ident) = token {
+        let ident_meta = self.meta_at::<0>()?;
+
+        self.advance();
+        Some(Expression::new(MemberAccessExpression::new(
+          obj,
+          Ident::new(ident),
+          ident_meta,
+        )))
+      } else {
+        self.error::<1>(String::from("expected identifier"));
+        None
+      }
+    } else {
+      self.error::<1>(String::from("unexpected end of file"));
+      None
+    }
+  }
+
+  fn struct_expr(&mut self) -> Option<Expression> {
+    let struct_meta = self.meta_at::<1>()?;
+    let mut members = Vec::default();
+
+    while let Some(token) = self.current() {
+      if token == Token::RightBrace {
+        break;
+      }
+
+      if let Token::Identifier(ident) = token {
+        self.advance();
+        if self.advance_if_matches(Token::Comma) || self.check_peek_after::<0>(Token::RightBrace) {
+          members.push((
+            Ident::new(ident.clone()),
+            Expression::new(IdentExpression::new(Ident::new(ident), struct_meta)),
+          ))
+        } else if self.consume(Token::Colon, String::from("expected ':' after identifier")) {
+          let value = self.expression()?;
+          members.push((Ident::new(ident), value));
+          self.advance_if_matches(Token::Comma);
+        } else {
+          return None;
+        }
+      } else {
+        self.error::<0>(String::from("expected identifier"));
+        return None;
+      }
+    }
+
+    if self.consume(Token::RightBrace, String::from("expected '}' after struct")) {
+      Some(Expression::new(StructExpression::new(members, struct_meta)))
+    } else {
+      self.error::<1>(String::from("expected token"));
+      None
+    }
+  }
+
   /* Utility functions */
 
   fn current(&self) -> Option<Token> {
-    self.tokens.get(self.index).cloned()
+    self.peek_after::<0>()
   }
 
   fn previous(&self) -> Option<Token> {
+    self.peek_before::<1>()
+  }
+
+  fn peek_after<const I: usize>(&self) -> Option<Token> {
+    self.tokens.get(self.index + I).cloned()
+  }
+
+  fn peek_before<const I: usize>(&self) -> Option<Token> {
     if self.index > 0 {
-      self.tokens.get(self.index - 1).cloned()
+      self.tokens.get(self.index - I).cloned()
     } else {
       None
+    }
+  }
+
+  fn check_peek_after<const I: usize>(&self, expected: Token) -> bool {
+    if let Some(token) = self.peek_after::<I>() {
+      expected == token
+    } else {
+      false
     }
   }
 
@@ -1101,7 +1175,7 @@ impl AstGenerator {
         Precedence::Call,
       ),
       Token::RightParen => ParseRule::new(None, None, Precedence::None),
-      Token::LeftBrace => ParseRule::new(None, None, Precedence::None),
+      Token::LeftBrace => ParseRule::new(Some(Self::struct_expr), None, Precedence::None),
       Token::RightBrace => ParseRule::new(None, None, Precedence::None),
       Token::LeftBracket => ParseRule::new(
         Some(Self::list_expr),
@@ -1110,8 +1184,9 @@ impl AstGenerator {
       ),
       Token::RightBracket => ParseRule::new(None, None, Precedence::None),
       Token::Comma => ParseRule::new(None, None, Precedence::None),
-      Token::Dot => ParseRule::new(None, None, Precedence::None),
+      Token::Dot => ParseRule::new(None, Some(Self::member_access_expr), Precedence::Call),
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
+      Token::Colon => ParseRule::new(None, None, Precedence::None),
       Token::Plus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Term),
       Token::Minus => ParseRule::new(
         Some(Self::unary_expr),
@@ -1510,6 +1585,8 @@ pub enum Expression {
   Call(CallExpression),
   List(ListExpression),
   Index(IndexExpression),
+  Struct(StructExpression),
+  MemberAccess(MemberAccessExpression),
 }
 
 impl New<LiteralExpression> for Expression {
@@ -1575,6 +1652,18 @@ impl New<ListExpression> for Expression {
 impl New<IndexExpression> for Expression {
   fn new(expr: IndexExpression) -> Self {
     Self::Index(expr)
+  }
+}
+
+impl New<StructExpression> for Expression {
+  fn new(expr: StructExpression) -> Self {
+    Self::Struct(expr)
+  }
+}
+
+impl New<MemberAccessExpression> for Expression {
+  fn new(expr: MemberAccessExpression) -> Self {
+    Self::MemberAccess(expr)
   }
 }
 
@@ -1764,6 +1853,33 @@ impl IndexExpression {
       index: Box::new(index),
       loc,
     }
+  }
+}
+
+pub struct MemberAccessExpression {
+  pub obj: Box<Expression>,
+  pub ident: Ident,
+  pub loc: SourceLocation,
+}
+
+impl MemberAccessExpression {
+  fn new(obj: Expression, ident: Ident, loc: SourceLocation) -> Self {
+    Self {
+      obj: Box::new(obj),
+      ident,
+      loc,
+    }
+  }
+}
+
+pub struct StructExpression {
+  pub members: Vec<(Ident, Expression)>,
+  pub loc: SourceLocation,
+}
+
+impl StructExpression {
+  fn new(members: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
+    Self { members, loc }
   }
 }
 

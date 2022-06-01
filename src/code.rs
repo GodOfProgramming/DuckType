@@ -43,6 +43,10 @@ pub enum OpCode {
   DefineGlobal(usize),
   /** Assigns a value to the global variable. The Name is stored in the enum. The value comes off the top of the stack */
   AssignGlobal(usize),
+  /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
+  LookupMember(usize),
+  /** Assigns to a object type. The first item popped off the stack is the value. The object is next which is left on for further assignments. The member name is specified by the modifying bits */
+  AssignMember(usize),
   /** Pops two values off the stack, compares, then pushes the result back on */
   Equal,
   /** Pops two values off the stack, compares, then pushes the result back on */
@@ -112,6 +116,7 @@ pub enum Token {
   RightBracket,
   Comma,
   Dot,
+  Colon,
   Semicolon,
   Plus,
   Minus,
@@ -275,6 +280,14 @@ impl Context {
       consts: Vec::default(),
       instructions: Vec::default(),
       meta: reflection,
+    }
+  }
+
+  pub fn global_ctx(&mut self) -> &mut Context {
+    if self.global.valid() {
+      &mut self.global
+    } else {
+      self
     }
   }
 
@@ -511,6 +524,22 @@ impl Context {
           Value::new("????")
         }
       ),
+      OpCode::LookupMember(index) => {
+        print!("{:<16} {:4} ", "LookupMember", index);
+        let c = self.const_at(*index);
+        match c {
+          Some(v) => println!("{}", v),
+          None => println!("INVALID INDEX"),
+        }
+      }
+      OpCode::AssignMember(index) => {
+        print!("{:<16} {:4} ", "AssignMember", index);
+        let c = self.const_at(*index);
+        match c {
+          Some(v) => println!("{}", v),
+          None => println!("INVALID INDEX"),
+        }
+      }
       OpCode::Jump(count) => println!("{:<19} {}", "Jump", Self::address_of(offset + count)),
       OpCode::JumpIfFalse(count) => {
         println!("{:<19} {}", "JumpIfFalse", Self::address_of(offset + count))

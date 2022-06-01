@@ -89,6 +89,7 @@ pub enum Value {
   List(Values),
   Function(Function),
   NativeFunction(NativeFnPtr),
+  Struct(StructPtr),
 
   U128(u128), // internal use only
 }
@@ -244,6 +245,12 @@ impl New<Values> for Value {
 impl New<Function> for Value {
   fn new(item: Function) -> Self {
     Self::Function(item)
+  }
+}
+
+impl New<Struct> for Value {
+  fn new(item: Struct) -> Self {
+    Self::Struct(SmartPtr::new(item))
   }
 }
 
@@ -430,7 +437,14 @@ impl PartialEq for Value {
       }
       Self::NativeFunction(a) => {
         if let Self::NativeFunction(b) = other {
-          std::ptr::addr_of!(**a) == std::ptr::addr_of!(**b)
+          a.raw() == b.raw()
+        } else {
+          false
+        }
+      }
+      Self::Struct(a) => {
+        if let Self::Struct(b) = other {
+          a.raw() == b.raw()
         } else {
           false
         }
@@ -480,6 +494,7 @@ impl Display for Value {
       Self::List(l) => write!(f, "{}", l),
       Self::Function(func) => write!(f, "<function {}>", func.name),
       Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
+      Self::Struct(obj) => write!(f, "{:?}", obj),
     }
   }
 }
@@ -617,6 +632,23 @@ impl Function {
   #[cfg(debug_assertions)]
   pub fn context(&self) -> &Context {
     &self.ctx
+  }
+}
+
+pub type StructPtr = SmartPtr<Struct>;
+
+#[derive(Default, Debug, Clone)]
+pub struct Struct {
+  members: BTreeMap<String, Value>,
+}
+
+impl Struct {
+  pub fn set(&mut self, name: String, value: Value) {
+    self.members.insert(name, value);
+  }
+
+  pub fn get(&self, name: String) -> Value {
+    self.members.get(&name).cloned().unwrap_or(Value::Nil)
   }
 }
 
