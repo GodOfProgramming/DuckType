@@ -828,13 +828,14 @@ impl AstGenerator {
     }
   }
 
-  fn member_access_expr(&mut self) -> Option<Expression> {
+  fn member_access_expr(&mut self, obj: Expression) -> Option<Expression> {
     if let Some(token) = self.current() {
       if let Token::Identifier(ident) = token {
         let ident_meta = self.meta_at::<0>()?;
 
         self.advance();
         Some(Expression::new(MemberAccessExpression::new(
+          obj,
           Ident::new(ident),
           ident_meta,
         )))
@@ -1170,7 +1171,7 @@ impl AstGenerator {
       ),
       Token::RightBracket => ParseRule::new(None, None, Precedence::None),
       Token::Comma => ParseRule::new(None, None, Precedence::None),
-      Token::Dot => ParseRule::new(Some(Self::member_access_expr), None, Precedence::Call),
+      Token::Dot => ParseRule::new(None, Some(Self::member_access_expr), Precedence::Call),
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
       Token::Colon => ParseRule::new(None, None, Precedence::None),
       Token::Plus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Term),
@@ -1843,13 +1844,18 @@ impl IndexExpression {
 }
 
 pub struct MemberAccessExpression {
+  pub obj: Box<Expression>,
   pub ident: Ident,
   pub loc: SourceLocation,
 }
 
 impl MemberAccessExpression {
-  fn new(ident: Ident, loc: SourceLocation) -> Self {
-    Self { ident, loc }
+  fn new(obj: Expression, ident: Ident, loc: SourceLocation) -> Self {
+    Self {
+      obj: Box::new(obj),
+      ident,
+      loc,
+    }
   }
 }
 

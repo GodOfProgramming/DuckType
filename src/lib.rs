@@ -209,9 +209,9 @@ impl Interpreter for Vpu {
           }
         }
         OpCode::LookupMember(index) => match ctx.const_at(index) {
-          Some(value) => match ctx.stack_pop() {
+          Some(name) => match ctx.stack_pop() {
             Some(obj) => match obj {
-              Value::Struct(obj) => match value {
+              Value::Struct(obj) => match name {
                 Value::Str(ident) => ctx.stack_push(obj.get(ident)),
                 _ => {
                   return Err(Self::error(
@@ -245,8 +245,8 @@ impl Interpreter for Vpu {
             ))
           }
         },
-        OpCode::AssignMember(index) => match ctx.const_at(index) {
-          Some(value) => match ctx.stack_pop() {
+        OpCode::AssignMember(index) => match ctx.stack_pop() {
+          Some(value) => match ctx.const_at(index) {
             Some(name) => match ctx.stack_peek() {
               Some(obj) => match obj {
                 Value::Struct(mut obj) => match name {

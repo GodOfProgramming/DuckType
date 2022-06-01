@@ -353,6 +353,7 @@ impl BytecodeGenerator {
   }
 
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
+    self.emit_expr(*expr.obj);
     let ident = self.add_const_ident(expr.ident);
     self.emit(OpCode::LookupMember(ident), expr.loc);
   }

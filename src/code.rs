@@ -524,6 +524,22 @@ impl Context {
           Value::new("????")
         }
       ),
+      OpCode::LookupMember(index) => {
+        print!("{:<16} {:4} ", "LookupMember", index);
+        let c = self.const_at(*index);
+        match c {
+          Some(v) => println!("{}", v),
+          None => println!("INVALID INDEX"),
+        }
+      }
+      OpCode::AssignMember(index) => {
+        print!("{:<16} {:4} ", "AssignMember", index);
+        let c = self.const_at(*index);
+        match c {
+          Some(v) => println!("{}", v),
+          None => println!("INVALID INDEX"),
+        }
+      }
       OpCode::Jump(count) => println!("{:<19} {}", "Jump", Self::address_of(offset + count)),
       OpCode::JumpIfFalse(count) => {
         println!("{:<19} {}", "JumpIfFalse", Self::address_of(offset + count))
