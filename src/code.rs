@@ -43,6 +43,8 @@ pub enum OpCode {
   DefineGlobal(usize),
   /** Assigns a value to the global variable. The Name is stored in the enum. The value comes off the top of the stack */
   AssignGlobal(usize),
+  /** Assigns to a object type. The first item popped off the stack is the value. Then the member name. Then the object itself */
+  AssignMember,
   /** Pops two values off the stack, compares, then pushes the result back on */
   Equal,
   /** Pops two values off the stack, compares, then pushes the result back on */
@@ -112,6 +114,7 @@ pub enum Token {
   RightBracket,
   Comma,
   Dot,
+  Colon,
   Semicolon,
   Plus,
   Minus,

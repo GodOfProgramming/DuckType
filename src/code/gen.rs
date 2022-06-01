@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
   code::ast::*,
-  types::{Error, Function, Value},
+  types::{Error, Function, Struct, Value},
   New,
 };
 use ptr::SmartPtr;
@@ -352,6 +352,15 @@ impl BytecodeGenerator {
     self.emit(OpCode::Index, expr.loc);
   }
 
+  fn struct_expr(&mut self, expr: StructExpression) {
+    self.emit_const(Value::new(Struct::default()), expr.loc);
+    for (member, assign) in expr.members {
+      self.emit_const(Value::new(member.name), expr.loc);
+      self.emit_expr(assign);
+      self.emit(OpCode::AssignMember, expr.loc);
+    }
+  }
+
   /* Utility Functions */
 
   fn emit(&mut self, op: OpCode, loc: SourceLocation) {
@@ -391,6 +400,7 @@ impl BytecodeGenerator {
       Expression::Call(expr) => self.call_expr(expr),
       Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
+      Expression::Struct(expr) => self.struct_expr(expr),
     }
   }
 

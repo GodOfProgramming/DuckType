@@ -146,6 +146,52 @@ impl Interpreter for Vpu {
             ));
           }
         },
+        OpCode::AssignMember => match ctx.stack_pop() {
+          Some(value) => match ctx.stack_pop() {
+            Some(name) => match ctx.stack_peek() {
+              Some(obj) => match obj {
+                Value::Struct(mut obj) => match name {
+                  Value::Str(name) => obj.set(name, value),
+                  _ => {
+                    return Err(Self::error(
+                      &mut ctx,
+                      &opcode,
+                      String::from("member name is not a string"),
+                    ))
+                  }
+                },
+                _ => {
+                  return Err(Self::error(
+                    &mut ctx,
+                    &opcode,
+                    String::from("tried to assigning to non object"),
+                  ))
+                }
+              },
+              None => {
+                return Err(Self::error(
+                  &mut ctx,
+                  &opcode,
+                  String::from("no object on stack to assign to"),
+                ))
+              }
+            },
+            None => {
+              return Err(Self::error(
+                &mut ctx,
+                &opcode,
+                String::from("no name on stack to assign to"),
+              ))
+            }
+          },
+          None => {
+            return Err(Self::error(
+              &mut ctx,
+              &opcode,
+              String::from("no value on stack to assign to"),
+            ))
+          }
+        },
         OpCode::LookupGlobal(index) => {
           if let Some(e) = Vpu::global_op(&mut ctx, &opcode, index, |ctx, name| {
             match ctx.lookup_global(&name) {
