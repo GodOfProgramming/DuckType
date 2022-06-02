@@ -101,7 +101,7 @@ impl ExecutionThread {
     self.ip = 0;
     while let Some(opcode) = ctx.next(self.ip) {
       #[cfg(debug_assertions)]
-      if self.disassemble {
+      if self.runtime_disassemble {
         self.stack_display();
         ctx.display_instruction(&opcode, self.ip);
       }
@@ -171,6 +171,7 @@ impl ExecutionThread {
 
     #[cfg(debug_assertions)]
     if self.runtime_disassemble {
+      println!("<< EOF >>");
       self.stack_display();
     }
 

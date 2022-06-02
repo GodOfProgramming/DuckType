@@ -292,11 +292,12 @@ impl BytecodeGenerator {
 
   fn ident_expr(&mut self, expr: IdentExpression) {
     if let Some(lookup) = self.resolve_local(&expr.ident, expr.loc) {
-      let get = if lookup.kind == LookupKind::Local {
-        OpCode::LookupLocal(lookup.index)
-      } else {
-        let index = self.add_ident(expr.ident);
-        OpCode::LookupGlobal(index)
+      let get = match lookup.kind {
+        LookupKind::Local => OpCode::LookupLocal(lookup.index),
+        LookupKind::Global => {
+          let index = self.add_ident(expr.ident);
+          OpCode::LookupGlobal(index)
+        }
       };
 
       self.emit(get, expr.loc);
@@ -635,32 +636,36 @@ impl BytecodeGenerator {
   }
 
   fn resolve_local(&mut self, ident: &Ident, loc: SourceLocation) -> Option<Lookup> {
-    if !self.locals.is_empty() {
-      let mut index = self.locals.len() - 1;
+    if ident.global() {
+      Some(Lookup {
+        index: 0,
+        kind: LookupKind::Global,
+      })
+    } else {
+      if !self.locals.is_empty() {
+        let mut index = self.locals.len() - 1;
 
-      for local in self.locals.iter().rev() {
-        if ident.name == local.name {
-          if !local.initialized {
-            self.error(loc, String::from("tried to use an undeclared identifier"));
-            return None;
-          } else {
-            return Some(Lookup {
-              index,
-              kind: LookupKind::Local,
-            });
+        for local in self.locals.iter().rev() {
+          if ident.name == local.name {
+            if !local.initialized {
+              self.error(loc, String::from("tried to use an undeclared identifier"));
+              return None;
+            } else {
+              return Some(Lookup {
+                index,
+                kind: LookupKind::Local,
+              });
+            }
+          }
+
+          if index > 0 {
+            index -= 1;
           }
         }
-
-        if index > 0 {
-          index -= 1;
-        }
       }
-    }
 
-    Some(Lookup {
-      index: 0,
-      kind: LookupKind::Global,
-    })
+      None
+    }
   }
 
   fn reduce_locals_to_depth(&mut self, depth: usize, loc: SourceLocation) {
