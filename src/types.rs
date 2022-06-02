@@ -564,10 +564,6 @@ impl Display for Values {
   }
 }
 
-pub trait Call<Args, Ret> {
-  fn call(&mut self, args: Args) -> Ret;
-}
-
 #[derive(Clone)]
 pub struct Function {
   airity: usize,
@@ -597,15 +593,14 @@ impl Function {
     }
 
     let prev_ip = thread.ip;
-    thread.ip = 0;
-    let prev_stack = self.ctx.stack_move(args);
+    let prev_stack = thread.stack_move(args);
 
     let res = thread
       .run(self.ctx.clone())
       .map_err(|e| e.into_iter().map(|e| e.msg).collect());
 
     thread.ip = prev_ip;
-    self.ctx.stack_move(prev_stack);
+    thread.stack_move(prev_stack);
 
     res
   }

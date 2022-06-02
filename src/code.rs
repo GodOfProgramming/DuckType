@@ -232,9 +232,7 @@ pub struct Context {
   pub name: String,
 
   global: SmartPtr<Context>,
-  _parent: SmartPtr<Context>,
   env: Env, // global environment for global context, captures for local context
-  stack: Vec<Value>,
   consts: Vec<Value>,
   strings: BTreeMap<String, usize>,
   instructions: Vec<OpCode>,
@@ -248,9 +246,7 @@ impl Context {
       id: Default::default(),
       name: Default::default(),
       global: Default::default(),
-      _parent: Default::default(),
       env: Default::default(),
-      stack: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
       instructions: Default::default(),
@@ -269,9 +265,7 @@ impl Context {
       id,
       name,
       global,
-      _parent: ctx,
       env: Default::default(),
-      stack: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
       instructions: Default::default(),
@@ -289,47 +283,6 @@ impl Context {
 
   pub fn next(&self, index: usize) -> Option<OpCode> {
     self.instructions.get(index).cloned()
-  }
-
-  pub fn stack_push(&mut self, value: Value) {
-    self.stack.push(value);
-  }
-
-  pub fn stack_pop(&mut self) -> Option<Value> {
-    self.stack.pop()
-  }
-
-  pub fn stack_pop_n(&mut self, count: usize) {
-    self.stack.truncate(self.stack.len().saturating_sub(count));
-  }
-
-  pub fn stack_drain_from(&mut self, index: usize) -> Vec<Value> {
-    self.stack.drain(self.stack_size() - index..).collect()
-  }
-
-  pub fn stack_index(&self, index: usize) -> Option<Value> {
-    self.stack.get(index).cloned()
-  }
-
-  pub fn stack_index_rev(&self, index: usize) -> Option<Value> {
-    self.stack.get(self.stack.len() - 1 - index).cloned()
-  }
-
-  pub fn stack_peek(&self) -> Option<Value> {
-    self.stack.last().cloned()
-  }
-
-  pub fn stack_assign(&mut self, index: usize, value: Value) {
-    self.stack[index] = value;
-  }
-
-  pub fn stack_move(&mut self, mut other: Vec<Value>) -> Vec<Value> {
-    std::mem::swap(&mut self.stack, &mut other);
-    other
-  }
-
-  pub fn stack_size(&self) -> usize {
-    self.stack.len()
   }
 
   pub fn const_at(&self, index: usize) -> Option<Value> {
@@ -523,18 +476,6 @@ impl Context {
       OpCode::CreateList(count) => println!("{:<16} {:4}", "CreateList", count),
       x => println!("{:<16?}", x),
     }
-  }
-
-  pub fn display_stack(&self) {
-    print!("          | ");
-    if self.stack.is_empty() {
-      print!("[ ]");
-    } else {
-      for item in self.stack.iter() {
-        print!("[ {} ]", item);
-      }
-    }
-    println!();
   }
 
   fn address_of(offset: usize) -> String {

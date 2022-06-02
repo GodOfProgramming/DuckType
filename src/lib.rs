@@ -17,44 +17,45 @@ pub trait New<T> {
 
 type ExecResult = Result<(), Vec<Error>>;
 type ExecBoolResult = Result<bool, Vec<Error>>;
-type ExecValueResult = Result<Value, Vec<Error>>;
 
 #[derive(Default)]
 pub struct ExecutionThread {
   pub ip: usize,
-  pub disassemble: bool,
+  stack: Vec<Value>,
+  disassemble: bool,
 }
 
 impl ExecutionThread {
   fn new(disassemble: bool) -> Self {
     Self {
-      disassemble,
       ip: Default::default(),
+      stack: Default::default(),
+      disassemble,
     }
   }
 
-  fn unary_op<F: FnOnce(&mut Context, Value) -> ExecResult>(
-    &self,
+  fn unary_op<F: FnOnce(&mut Self, &mut Context, Value) -> ExecResult>(
+    &mut self,
     ctx: &mut Context,
     opcode: &OpCode,
     f: F,
   ) -> ExecResult {
-    if let Some(v) = ctx.stack_pop() {
-      f(ctx, v)
+    if let Some(v) = self.stack_pop() {
+      f(self, ctx, v)
     } else {
       Err(self.error(ctx, opcode, String::from("cannot operate on empty stack")))
     }
   }
 
-  fn binary_op<F: FnOnce(&mut Context, Value, Value) -> ExecResult>(
-    &self,
+  fn binary_op<F: FnOnce(&mut Self, &mut Context, Value, Value) -> ExecResult>(
+    &mut self,
     ctx: &mut Context,
     opcode: &OpCode,
     f: F,
   ) -> ExecResult {
-    if let Some(bv) = ctx.stack_pop() {
-      if let Some(av) = ctx.stack_pop() {
-        f(ctx, av, bv)
+    if let Some(bv) = self.stack_pop() {
+      if let Some(av) = self.stack_pop() {
+        f(self, ctx, av, bv)
       } else {
         Err(self.error(ctx, opcode, String::from("cannot operate on empty stack")))
       }
@@ -63,8 +64,8 @@ impl ExecutionThread {
     }
   }
 
-  fn global_op<F: FnOnce(&mut Context, String) -> ExecResult>(
-    &self,
+  fn global_op<F: FnOnce(&mut Self, &mut Context, String) -> ExecResult>(
+    &mut self,
     ctx: &mut Context,
     opcode: &OpCode,
     index: usize,
@@ -72,7 +73,7 @@ impl ExecutionThread {
   ) -> ExecResult {
     if let Some(name) = ctx.global_const_at(index) {
       if let Value::Str(name) = name {
-        f(ctx, name)
+        f(self, ctx, name)
       } else {
         Err(self.error(
           ctx,
@@ -89,26 +90,27 @@ impl ExecutionThread {
     }
   }
 
-  fn error(&self, ctx: &mut Context, opcode: &OpCode, msg: String) -> Vec<Error> {
+  fn error(&self, ctx: &Context, opcode: &OpCode, msg: String) -> Vec<Error> {
     vec![self.error_at(ctx, |opcode_ref| Error::from_ref(msg, opcode, opcode_ref))]
   }
 
   fn run(&mut self, mut ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>> {
+    self.ip = 0;
     while let Some(opcode) = ctx.next(self.ip) {
       #[cfg(debug_assertions)]
       if self.disassemble {
-        ctx.display_stack();
+        self.stack_display();
         ctx.display_instruction(&opcode, self.ip);
       }
 
       match opcode {
         OpCode::NoOp => self.exec_noop(&mut ctx)?,
         OpCode::Const(index) => self.exec_const(&mut ctx, &opcode, index)?,
-        OpCode::Nil => self.exec_nil(&mut ctx),
-        OpCode::True => self.exec_true(&mut ctx),
-        OpCode::False => self.exec_false(&mut ctx),
-        OpCode::Pop => self.exec_pop(&mut ctx),
-        OpCode::PopN(count) => self.exec_pop_n(&mut ctx, count),
+        OpCode::Nil => self.exec_nil(),
+        OpCode::True => self.exec_true(),
+        OpCode::False => self.exec_false(),
+        OpCode::Pop => self.exec_pop(),
+        OpCode::PopN(count) => self.exec_pop_n(count),
         OpCode::LookupLocal(index) => self.exec_lookup_local(&mut ctx, &opcode, index)?,
         OpCode::AssignLocal(index) => self.exec_assign_local(&mut ctx, &opcode, index)?,
         OpCode::LookupGlobal(index) => self.exec_lookup_global(&mut ctx, &opcode, index)?,
@@ -155,10 +157,10 @@ impl ExecutionThread {
           continue;
         }
         OpCode::Call(airity) => self.exec_call(&mut ctx, &opcode, airity)?,
-        OpCode::Ret => return Ok(self.exec_ret(&mut ctx)),
+        OpCode::Ret => return Ok(self.exec_ret()),
         OpCode::Req => self.exec_req(&mut ctx, &opcode)?,
         OpCode::Index => self.exec_index(&mut ctx, &opcode)?,
-        OpCode::CreateList(num_items) => self.exec_create_list(&mut ctx, num_items),
+        OpCode::CreateList(num_items) => self.exec_create_list(num_items),
         x => unimplemented!("Unimplemented: {:?}", x),
       }
       self.ip += 1;
@@ -166,7 +168,7 @@ impl ExecutionThread {
 
     #[cfg(debug_assertions)]
     if self.disassemble {
-      ctx.display_stack();
+      self.stack_display();
     }
 
     Ok(Value::Nil)
@@ -182,38 +184,43 @@ impl ExecutionThread {
     ))
   }
 
-  fn exec_const(&self, ctx: &mut Context, opcode: &OpCode, index: usize) -> ExecResult {
+  fn exec_const(&mut self, ctx: &mut Context, opcode: &OpCode, index: usize) -> ExecResult {
     if let Some(c) = ctx.const_at(index) {
-      ctx.stack_push(c);
+      self.stack_push(c);
       Ok(())
     } else {
       Err(self.error(ctx, opcode, String::from("could not lookup constant")))
     }
   }
 
-  fn exec_nil(&self, ctx: &mut Context) {
-    ctx.stack_push(Value::Nil);
+  fn exec_nil(&mut self) {
+    self.stack_push(Value::Nil);
   }
 
-  fn exec_true(&self, ctx: &mut Context) {
-    ctx.stack_push(Value::new(true));
+  fn exec_true(&mut self) {
+    self.stack_push(Value::new(true));
   }
 
-  fn exec_false(&self, ctx: &mut Context) {
-    ctx.stack_push(Value::new(false));
+  fn exec_false(&mut self) {
+    self.stack_push(Value::new(false));
   }
 
-  fn exec_pop(&self, ctx: &mut Context) {
-    ctx.stack_pop();
+  fn exec_pop(&mut self) {
+    self.stack_pop();
   }
 
-  fn exec_pop_n(&self, ctx: &mut Context, count: usize) {
-    ctx.stack_pop_n(count);
+  fn exec_pop_n(&mut self, count: usize) {
+    self.stack_pop_n(count);
   }
 
-  fn exec_lookup_local(&self, ctx: &mut Context, opcode: &OpCode, location: usize) -> ExecResult {
-    if let Some(local) = ctx.stack_index(location) {
-      ctx.stack_push(local);
+  fn exec_lookup_local(
+    &mut self,
+    ctx: &mut Context,
+    opcode: &OpCode,
+    location: usize,
+  ) -> ExecResult {
+    if let Some(local) = self.stack_index(location) {
+      self.stack_push(local);
       Ok(())
     } else {
       Err(self.error(
@@ -224,9 +231,14 @@ impl ExecutionThread {
     }
   }
 
-  fn exec_assign_local(&self, ctx: &mut Context, opcode: &OpCode, location: usize) -> ExecResult {
-    if let Some(value) = ctx.stack_peek() {
-      ctx.stack_assign(location, value.clone());
+  fn exec_assign_local(
+    &mut self,
+    ctx: &mut Context,
+    opcode: &OpCode,
+    location: usize,
+  ) -> ExecResult {
+    if let Some(value) = self.stack_peek() {
+      self.stack_assign(location, value.clone());
       Ok(())
     } else {
       Err(self.error(
@@ -237,31 +249,41 @@ impl ExecutionThread {
     }
   }
 
-  fn exec_lookup_global(&self, ctx: &mut Context, opcode: &OpCode, location: usize) -> ExecResult {
-    self.global_op(ctx, opcode, location, |ctx, name| {
+  fn exec_lookup_global(
+    &mut self,
+    ctx: &mut Context,
+    opcode: &OpCode,
+    location: usize,
+  ) -> ExecResult {
+    self.global_op(ctx, opcode, location, |this, ctx, name| {
       if let Some(global) = ctx.lookup_global(&name) {
-        ctx.stack_push(global);
+        this.stack_push(global);
         Ok(())
       } else {
-        Err(self.error(ctx, opcode, String::from("use of undefined variable")))
+        Err(this.error(ctx, opcode, String::from("use of undefined variable")))
       }
     })
   }
 
-  fn exec_define_global(&self, ctx: &mut Context, opcode: &OpCode, location: usize) -> ExecResult {
-    self.global_op(ctx, opcode, location, |ctx, name| {
-      if let Some(v) = ctx.stack_peek() {
+  fn exec_define_global(
+    &mut self,
+    ctx: &mut Context,
+    opcode: &OpCode,
+    location: usize,
+  ) -> ExecResult {
+    self.global_op(ctx, opcode, location, |this, ctx, name| {
+      if let Some(v) = this.stack_peek() {
         if ctx.define_global(name, v.clone()) {
           Ok(())
         } else {
-          Err(self.error(
+          Err(this.error(
             ctx,
             opcode,
             String::from("tried redefining global variable"),
           ))
         }
       } else {
-        Err(self.error(
+        Err(this.error(
           ctx,
           opcode,
           String::from("can not define global using empty stack"),
@@ -270,20 +292,25 @@ impl ExecutionThread {
     })
   }
 
-  fn exec_assign_global(&self, ctx: &mut Context, opcode: &OpCode, location: usize) -> ExecResult {
-    self.global_op(ctx, opcode, location, |ctx, name| {
-      if let Some(v) = ctx.stack_peek() {
+  fn exec_assign_global(
+    &mut self,
+    ctx: &mut Context,
+    opcode: &OpCode,
+    location: usize,
+  ) -> ExecResult {
+    self.global_op(ctx, opcode, location, |this, ctx, name| {
+      if let Some(v) = this.stack_peek() {
         if ctx.assign_global(name, v) {
           Ok(())
         } else {
-          Err(self.error(
+          Err(this.error(
             ctx,
             opcode,
             String::from("tried to assign to nonexistent global"),
           ))
         }
       } else {
-        Err(self.error(
+        Err(this.error(
           ctx,
           opcode,
           String::from("can not assign to global using empty stack"),
@@ -292,10 +319,15 @@ impl ExecutionThread {
     })
   }
 
-  fn exec_assign_member(&self, ctx: &mut Context, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_assign_member(
+    &mut self,
+    ctx: &mut Context,
+    opcode: &OpCode,
+    location: usize,
+  ) -> ExecResult {
     match ctx.const_at(location) {
-      Some(name) => match ctx.stack_pop() {
-        Some(value) => match ctx.stack_peek() {
+      Some(name) => match self.stack_pop() {
+        Some(value) => match self.stack_peek() {
           Some(obj) => match obj {
             Value::Struct(mut obj) => match name {
               Value::Str(name) => {
@@ -322,13 +354,18 @@ impl ExecutionThread {
     }
   }
 
-  fn exec_lookup_member(&self, ctx: &mut Context, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_lookup_member(
+    &mut self,
+    ctx: &mut Context,
+    opcode: &OpCode,
+    location: usize,
+  ) -> ExecResult {
     match ctx.const_at(location) {
-      Some(name) => match ctx.stack_pop() {
+      Some(name) => match self.stack_pop() {
         Some(obj) => match obj {
           Value::Struct(obj) => match name {
             Value::Str(ident) => {
-              ctx.stack_push(obj.get(ident));
+              self.stack_push(obj.get(ident));
               Ok(())
             }
             _ => Err(self.error(ctx, opcode, String::from("invalid member name"))),
@@ -346,46 +383,46 @@ impl ExecutionThread {
   }
 
   fn exec_bool<F: FnOnce(Value, Value) -> bool>(
-    &self,
+    &mut self,
     ctx: &mut Context,
     opcode: &OpCode,
     f: F,
   ) -> ExecResult {
-    self.binary_op(ctx, opcode, |ctx, a, b| {
-      ctx.stack_push(Value::new(f(a, b)));
+    self.binary_op(ctx, opcode, |this, _ctx, a, b| {
+      this.stack_push(Value::new(f(a, b)));
       Ok(())
     })
   }
 
-  fn exec_equal(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_equal(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_bool(ctx, opcode, |a, b| a == b)
   }
 
-  fn exec_not_equal(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_not_equal(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_bool(ctx, opcode, |a, b| a != b)
   }
 
-  fn exec_greater(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_greater(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_bool(ctx, opcode, |a, b| a > b)
   }
 
-  fn exec_greater_equal(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_greater_equal(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_bool(ctx, opcode, |a, b| a >= b)
   }
 
-  fn exec_less(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_less(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_bool(ctx, opcode, |a, b| a < b)
   }
 
-  fn exec_less_equal(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_less_equal(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_bool(ctx, opcode, |a, b| a <= b)
   }
 
-  fn exec_check(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
-    match ctx.stack_pop() {
-      Some(a) => match ctx.stack_peek() {
+  fn exec_check(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+    match self.stack_pop() {
+      Some(a) => match self.stack_peek() {
         Some(b) => {
-          ctx.stack_push(Value::new(a == b));
+          self.stack_push(Value::new(a == b));
           Ok(())
         }
         None => Err(self.error(ctx, opcode, String::from("stack peek failed"))),
@@ -395,37 +432,37 @@ impl ExecutionThread {
   }
 
   fn exec_arith<F: FnOnce(Value, Value) -> ValueOpResult>(
-    &self,
+    &mut self,
     ctx: &mut Context,
     opcode: &OpCode,
     f: F,
   ) -> ExecResult {
-    self.binary_op(ctx, opcode, |ctx, a, b| match f(a, b) {
+    self.binary_op(ctx, opcode, |this, ctx, a, b| match f(a, b) {
       Ok(v) => {
-        ctx.stack_push(v);
+        this.stack_push(v);
         Ok(())
       }
-      Err(e) => Err(self.error(ctx, opcode, e)),
+      Err(e) => Err(this.error(ctx, opcode, e)),
     })
   }
 
-  fn exec_add(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_add(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_arith(ctx, opcode, |a, b| a + b)
   }
 
-  fn exec_sub(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_sub(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_arith(ctx, opcode, |a, b| a - b)
   }
 
-  fn exec_mul(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_mul(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_arith(ctx, opcode, |a, b| a * b)
   }
 
-  fn exec_div(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_div(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_arith(ctx, opcode, |a, b| a / b)
   }
 
-  fn exec_mod(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_mod(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
     self.exec_arith(ctx, opcode, |a, b| a % b)
   }
 
@@ -436,13 +473,13 @@ impl ExecutionThread {
     offset: usize,
     f: F,
   ) -> ExecBoolResult {
-    match ctx.stack_peek() {
+    match self.stack_peek() {
       Some(v) => {
         if f(v) {
           self.jump(offset);
           Ok(true)
         } else {
-          ctx.stack_pop();
+          self.stack_pop();
           Ok(false)
         }
       }
@@ -458,25 +495,25 @@ impl ExecutionThread {
     self.exec_logical(ctx, opcode, offset, |v| !v.truthy())
   }
 
-  fn exec_not(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
-    self.unary_op(ctx, opcode, |ctx, v| {
-      ctx.stack_push(!v);
+  fn exec_not(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+    self.unary_op(ctx, opcode, |this, _ctx, v| {
+      this.stack_push(!v);
       Ok(())
     })
   }
 
-  fn exec_negate(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
-    self.unary_op(ctx, opcode, |ctx, v| match -v {
+  fn exec_negate(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+    self.unary_op(ctx, opcode, |this, ctx, v| match -v {
       Ok(n) => {
-        ctx.stack_push(n);
+        this.stack_push(n);
         Ok(())
       }
-      Err(e) => Err(self.error(ctx, opcode, e)),
+      Err(e) => Err(this.error(ctx, opcode, e)),
     })
   }
 
-  fn exec_print(&self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
-    self.unary_op(ctx, opcode, |_ctx, v| {
+  fn exec_print(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+    self.unary_op(ctx, opcode, |_this, _ctx, v| {
       println!("{}", v);
       Ok(())
     })
@@ -488,7 +525,7 @@ impl ExecutionThread {
     opcode: &OpCode,
     offset: usize,
   ) -> ExecBoolResult {
-    match ctx.stack_pop() {
+    match self.stack_pop() {
       Some(v) => {
         if !v.truthy() {
           self.jump(offset);
@@ -502,11 +539,11 @@ impl ExecutionThread {
   }
 
   fn exec_call(&mut self, ctx: &mut Context, opcode: &OpCode, airity: usize) -> ExecResult {
-    if let Some(mut value) = ctx.stack_pop() {
-      let args = ctx.stack_drain_from(airity);
+    if let Some(mut value) = self.stack_pop() {
+      let args = self.stack_drain_from(airity);
       match value.call(self, args) {
         Ok(ret) => {
-          ctx.stack_push(ret);
+          self.stack_push(ret);
           Ok(())
         }
         Err(errors) => Err(
@@ -521,22 +558,21 @@ impl ExecutionThread {
     }
   }
 
-  fn exec_ret(&self, ctx: &mut Context) -> Value {
-    ctx.stack_pop().unwrap_or(Value::Nil)
+  fn exec_ret(&mut self) -> Value {
+    self.stack_pop().unwrap_or(Value::Nil)
   }
 
   fn exec_req(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
-    if let Some(file) = ctx.stack_pop() {
+    if let Some(file) = self.stack_pop() {
       if let Value::Str(file) = file {
         match fs::read_to_string(&file) {
           Ok(data) => {
             let ip = self.ip;
-            self.ip = 0;
 
             let new_ctx = Compiler::compile(&file, &data)?;
             let result = match self.run(new_ctx) {
               Ok(v) => {
-                ctx.stack_push(v);
+                self.stack_push(v);
                 Ok(())
               }
               Err(mut errors) => {
@@ -575,11 +611,11 @@ impl ExecutionThread {
   }
 
   fn exec_index(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
-    if let Some(index) = ctx.stack_pop() {
-      if let Some(indexable) = ctx.stack_pop() {
+    if let Some(index) = self.stack_pop() {
+      if let Some(indexable) = self.stack_pop() {
         match indexable.index(index) {
           Ok(value) => {
-            ctx.stack_push(value);
+            self.stack_push(value);
             Ok(())
           }
           Err(err) => Err(self.error(
@@ -596,12 +632,53 @@ impl ExecutionThread {
     }
   }
 
-  fn exec_create_list(&mut self, ctx: &mut Context, num_items: usize) {
-    let list = ctx.stack_drain_from(num_items);
-    ctx.stack_push(Value::new(list));
+  fn exec_create_list(&mut self, num_items: usize) {
+    let list = self.stack_drain_from(num_items);
+    self.stack_push(Value::new(list));
   }
 
   /* Utility Functions */
+
+  pub fn stack_push(&mut self, value: Value) {
+    self.stack.push(value);
+  }
+
+  pub fn stack_pop(&mut self) -> Option<Value> {
+    self.stack.pop()
+  }
+
+  pub fn stack_pop_n(&mut self, count: usize) {
+    self.stack.truncate(self.stack.len().saturating_sub(count));
+  }
+
+  pub fn stack_drain_from(&mut self, index: usize) -> Vec<Value> {
+    self.stack.drain(self.stack_size() - index..).collect()
+  }
+
+  pub fn stack_index(&self, index: usize) -> Option<Value> {
+    self.stack.get(index).cloned()
+  }
+
+  pub fn stack_index_rev(&self, index: usize) -> Option<Value> {
+    self.stack.get(self.stack.len() - 1 - index).cloned()
+  }
+
+  pub fn stack_peek(&self) -> Option<Value> {
+    self.stack.last().cloned()
+  }
+
+  pub fn stack_assign(&mut self, index: usize, value: Value) {
+    self.stack[index] = value;
+  }
+
+  pub fn stack_move(&mut self, mut other: Vec<Value>) -> Vec<Value> {
+    std::mem::swap(&mut self.stack, &mut other);
+    other
+  }
+
+  pub fn stack_size(&self) -> usize {
+    self.stack.len()
+  }
 
   fn jump(&mut self, count: usize) {
     self.ip = self.ip.saturating_add(count);
@@ -611,7 +688,7 @@ impl ExecutionThread {
     self.ip = self.ip.saturating_sub(count);
   }
 
-  fn error_at<F: FnOnce(OpCodeReflection) -> Error>(&self, ctx: &mut Context, f: F) -> Error {
+  fn error_at<F: FnOnce(OpCodeReflection) -> Error>(&self, ctx: &Context, f: F) -> Error {
     if let Some(opcode_ref) = ctx.meta.get(self.ip) {
       f(opcode_ref)
     } else {
@@ -623,6 +700,18 @@ impl ExecutionThread {
       }
     }
   }
+
+  pub fn stack_display(&self) {
+    print!("          | ");
+    if self.stack.is_empty() {
+      print!("[ ]");
+    } else {
+      for item in self.stack.iter() {
+        print!("[ {} ]", item);
+      }
+    }
+    println!();
+  }
 }
 
 #[derive(Default)]
@@ -631,8 +720,10 @@ pub struct Vm {
 }
 
 impl Vm {
-  pub fn new(main: ExecutionThread) -> Self {
-    Vm { main }
+  pub fn new(disassemble: bool) -> Self {
+    Vm {
+      main: ExecutionThread::new(disassemble),
+    }
   }
 
   pub fn load(&self, file: String, code: &str) -> Result<SmartPtr<Context>, Vec<Error>> {

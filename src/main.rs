@@ -25,7 +25,7 @@ fn main() {
     args.retain(|arg| arg != QUITE_AFTER_FLAG);
   }
 
-  let runner = Vm::default();
+  let runner = Vm::new(runtime_disassembly);
 
   if let Some(file) = args.get(1).cloned() {
     if !run_file(runner, file, show_disassembly, quit_after) {
