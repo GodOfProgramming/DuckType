@@ -442,6 +442,12 @@ impl BytecodeGenerator {
     let mut locals = Vec::default();
     std::mem::swap(&mut locals, &mut self.locals);
 
+    if !ident.global() {
+      // allow for local var recursion
+      self.declare_local(ident.clone(), loc);
+      self.define_local();
+    }
+
     let parent_ctx = self.current_ctx();
     let prev_fn = self.current_fn.take();
 
@@ -604,7 +610,7 @@ impl BytecodeGenerator {
 
   fn declare_local(&mut self, ident: Ident, loc: SourceLocation) -> bool {
     for local in self.locals.iter().rev() {
-      // declared already in parent scope
+      // declared already in parent scope, break to redeclare in current scope
       if local.initialized && local.depth < self.scope_depth {
         break;
       }

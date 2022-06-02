@@ -697,6 +697,10 @@ impl ExecutionThread {
     other
   }
 
+  pub fn stack_append(&mut self, other: Vec<Value>) {
+    self.stack.extend(other);
+  }
+
   pub fn stack_size(&self) -> usize {
     self.stack.len()
   }

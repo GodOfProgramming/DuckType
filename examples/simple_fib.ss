@@ -1,11 +1,11 @@
 req "examples/lib/time.ss" => time;
 
-fn $fib(n) {
+fn fib(n) {
   if n <= 1 {
     ret n;
   } else {
-    let a = $fib(n - 2);
-    let b = $fib(n - 1);
+    let a = fib(n - 2);
+    let b = fib(n - 1);
     ret a + b;
   }
 }
@@ -26,7 +26,7 @@ fn fib_it(count) {
 let times = 30;
 print "times = " + times;
 let before = time.clock();
-print $fib(times);
+print fib(times);
 let after = time.clock();
 
 print "rec diff = " + time.clock_diff(before, after);

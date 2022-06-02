@@ -1217,6 +1217,10 @@ impl Ident {
     Self { name }
   }
 
+  pub fn string_is_global<T: ToString>(ident: &T) -> bool {
+    matches!(ident.to_string().chars().next(), Some('$'))
+  }
+
   pub fn global(&self) -> bool {
     matches!(self.name.chars().next(), Some('$'))
   }

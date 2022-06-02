@@ -1,5 +1,5 @@
 use crate::{
-  code::{Context, Env, OpCode, OpCodeReflection},
+  code::{ast::Ident, Context, Env, OpCode, OpCodeReflection},
   ExecutionThread, New,
 };
 use ptr::SmartPtr;
@@ -605,7 +605,14 @@ impl Function {
     }
 
     let prev_ip = thread.ip;
-    let prev_stack = thread.stack_move(args);
+    let new_stack = if Ident::string_is_global(&self.ctx.name) {
+      args
+    } else {
+      let mut new_stack = vec![Value::new(self.clone())];
+      new_stack.extend(args);
+      new_stack
+    };
+    let prev_stack = thread.stack_move(new_stack);
 
     let res = thread
       .run(self.ctx.clone(), env)
