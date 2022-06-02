@@ -1,5 +1,5 @@
 use crate::{
-  code::{Context, OpCode, OpCodeReflection},
+  code::{Context, Env, OpCode, OpCodeReflection},
   ExecutionThread, New,
 };
 use ptr::SmartPtr;
@@ -58,21 +58,24 @@ impl Display for Error {
 
 pub struct NativeFn {
   pub name: String,
-  pub call: Box<dyn FnMut(Vec<Value>) -> ValueOpResult>,
+  pub callee: Box<dyn FnMut(&mut Env, Vec<Value>) -> ValueOpResult>,
 }
 
 pub type NativeFnPtr = SmartPtr<NativeFn>;
 
 impl NativeFn {
-  pub fn new<F: FnMut(Vec<Value>) -> ValueOpResult + 'static>(name: String, callee: F) -> Self {
+  pub fn new<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+    name: String,
+    callee: F,
+  ) -> Self {
     Self {
       name,
-      call: Box::new(callee),
+      callee: Box::new(callee),
     }
   }
 
-  pub fn call(&mut self, args: Vec<Value>) -> ValueOpResult {
-    (self.call)(args)
+  pub fn call(&mut self, env: &mut Env, args: Vec<Value>) -> ValueOpResult {
+    (self.callee)(env, args)
   }
 }
 
@@ -138,11 +141,12 @@ impl Value {
   pub fn call(
     &mut self,
     thread: &mut ExecutionThread,
+    env: &mut Env,
     args: Vec<Value>,
   ) -> Result<Value, Vec<String>> {
     match self {
-      Value::Function(f) => f.call(thread, args),
-      Value::NativeFunction(f) => f.call(args).map_err(|e| vec![e]),
+      Value::Function(f) => f.call(thread, env, args),
+      Value::NativeFunction(f) => f.call(env, args).map_err(|e| vec![e]),
       _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
     }
   }
@@ -254,7 +258,7 @@ impl New<Struct> for Value {
   }
 }
 
-impl<F: FnMut(Vec<Value>) -> ValueOpResult + 'static> New<(String, F)> for Value {
+impl<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static> New<(String, F)> for Value {
   fn new((name, call): (String, F)) -> Self {
     Self::NativeFunction(SmartPtr::new(NativeFn::new(name, call)))
   }
@@ -578,6 +582,7 @@ impl Function {
   pub fn call(
     &mut self,
     thread: &mut ExecutionThread,
+    env: &mut Env,
     mut args: Vec<Value>,
   ) -> Result<Value, Vec<String>> {
     if args.len() > self.airity {
@@ -596,7 +601,7 @@ impl Function {
     let prev_stack = thread.stack_move(args);
 
     let res = thread
-      .run(self.ctx.clone())
+      .run(self.ctx.clone(), env)
       .map_err(|e| e.into_iter().map(|e| e.msg).collect());
 
     thread.ip = prev_ip;

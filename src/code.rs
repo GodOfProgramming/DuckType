@@ -13,7 +13,7 @@ use lex::Scanner;
 use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, BTreeSet},
   fmt::{self, Debug},
   str,
 };
@@ -230,12 +230,13 @@ impl Reflection {
 pub struct Context {
   pub id: usize,
   pub name: String,
-
   global: SmartPtr<Context>,
-  env: Env, // global environment for global context, captures for local context
+
+  instructions: Vec<OpCode>,
+
   consts: Vec<Value>,
   strings: BTreeMap<String, usize>,
-  instructions: Vec<OpCode>,
+  globals: BTreeSet<String>,
 
   pub meta: Reflection,
 }
@@ -246,10 +247,10 @@ impl Context {
       id: Default::default(),
       name: Default::default(),
       global: Default::default(),
-      env: Default::default(),
+      instructions: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
-      instructions: Default::default(),
+      globals: Default::default(),
       meta: reflection,
     }
   }
@@ -265,9 +266,9 @@ impl Context {
       id,
       name,
       global,
-      env: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
+      globals: Default::default(),
       instructions: Default::default(),
       meta: reflection,
     }
@@ -300,38 +301,6 @@ impl Context {
     } else {
       self.consts.get(index).cloned()
     }
-  }
-
-  pub fn lookup_global(&self, name: &str) -> Option<Value> {
-    if self.global.valid() {
-      self.global.env.lookup(name)
-    } else {
-      self.env.lookup(name)
-    }
-  }
-
-  pub fn define_global(&mut self, name: String, value: Value) -> bool {
-    if self.global.valid() {
-      self.global.env.define(name, value)
-    } else {
-      self.env.define(name, value)
-    }
-  }
-
-  pub fn assign_global(&mut self, name: String, value: Value) -> bool {
-    if self.global.valid() {
-      self.global.env.assign(name, value)
-    } else {
-      self.env.assign(name, value)
-    }
-  }
-
-  pub fn create_native<F: FnMut(Vec<Value>) -> ValueOpResult + 'static>(
-    &mut self,
-    name: String,
-    native: F,
-  ) -> bool {
-    self.assign_global(name.clone(), Value::new((name, native)))
   }
 
   fn write(&mut self, op: OpCode, line: usize, column: usize) {
@@ -499,6 +468,14 @@ impl Env {
 
   pub fn lookup(&self, name: &str) -> Option<Value> {
     self.vars.get(name).cloned()
+  }
+
+  pub fn create_native<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+    &mut self,
+    name: String,
+    native: F,
+  ) -> bool {
+    self.assign(name.clone(), Value::new((name, native)))
   }
 }
 
