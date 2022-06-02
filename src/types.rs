@@ -497,7 +497,7 @@ impl Display for Value {
       Self::U128(n) => write!(f, "{}", n),
       Self::Str(s) => write!(f, "'{}'", s),
       Self::List(l) => write!(f, "{}", l),
-      Self::Function(func) => write!(f, "<function {}>", func.name),
+      Self::Function(func) => write!(f, "<function {} {}>", func.ctx.id, func.ctx.name),
       Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
       Self::Struct(obj) => write!(f, "{:?}", obj),
     }
@@ -570,18 +570,13 @@ pub trait Call<Args, Ret> {
 
 #[derive(Clone)]
 pub struct Function {
-  name: SmartPtr<String>,
   airity: usize,
   ctx: SmartPtr<Context>,
 }
 
 impl Function {
-  pub fn new(name: String, airity: usize, ctx: SmartPtr<Context>) -> Self {
-    Self {
-      name: SmartPtr::new(name),
-      airity,
-      ctx,
-    }
+  pub fn new(airity: usize, ctx: SmartPtr<Context>) -> Self {
+    Self { airity, ctx }
   }
 
   pub fn call(

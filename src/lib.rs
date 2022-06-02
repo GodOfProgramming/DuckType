@@ -530,8 +530,10 @@ impl ExecutionThread {
       if let Value::Str(file) = file {
         match fs::read_to_string(&file) {
           Ok(data) => {
-            let new_ctx = Compiler::compile(&file, &data)?;
             let ip = self.ip;
+            self.ip = 0;
+
+            let new_ctx = Compiler::compile(&file, &data)?;
             let result = match self.run(new_ctx) {
               Ok(v) => {
                 ctx.stack_push(v);
@@ -547,6 +549,7 @@ impl ExecutionThread {
                 Err(errors)
               }
             };
+
             self.ip = ip;
             result
           }

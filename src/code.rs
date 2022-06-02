@@ -258,7 +258,7 @@ impl Context {
     }
   }
 
-  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize) -> Self {
+  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize, name: String) -> Self {
     let global = if ctx.global.valid() {
       ctx.global.clone()
     } else {
@@ -267,7 +267,7 @@ impl Context {
 
     Self {
       id,
-      name: Default::default(),
+      name,
       global,
       _parent: ctx,
       env: Default::default(),
@@ -425,7 +425,7 @@ impl Context {
       if self.id == 0 {
         String::from("MAIN")
       } else {
-        format!("function {}", self.name)
+        format!("function {} {}", self.id, self.name)
       }
     );
     for (i, op) in self.instructions.iter().enumerate() {

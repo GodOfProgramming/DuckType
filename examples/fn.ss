@@ -5,4 +5,4 @@ fn first(arg1, arg2) {
   second(arg1 + arg2);
 }
 
-print first(1, 2);
+first(1, 2);

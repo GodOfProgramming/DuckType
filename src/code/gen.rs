@@ -450,6 +450,7 @@ impl BytecodeGenerator {
       parent_ctx,
       reflection,
       self.function_id,
+      ident.name.clone(),
     )));
 
     self.new_scope(|this| {
@@ -474,7 +475,7 @@ impl BytecodeGenerator {
       this.current_fn = prev_fn;
       this.locals = locals;
 
-      this.emit_const(Value::Function(Function::new(ident.name, airity, ctx)), loc)
+      this.emit_const(Value::Function(Function::new(airity, ctx)), loc)
     });
   }
 
