@@ -66,10 +66,6 @@ impl AstGenerator {
         self.advance();
         self.cont_stmt();
       }
-      Token::End => {
-        self.advance();
-        self.end_stmt();
-      }
       Token::Fn => {
         self.advance();
         self.fn_stmt();
@@ -172,36 +168,6 @@ impl AstGenerator {
     } else {
       // sanity check
       self.error::<1>(String::from("could not find original token"));
-    }
-  }
-
-  fn end_stmt(&mut self) {
-    if let Some(end_meta) = self.meta_at::<1>() {
-      let expr = if self.advance_if_matches(Token::Semicolon) {
-        None
-      } else {
-        let expr = self.expression();
-
-        if expr.is_none() {
-          return;
-        }
-
-        if !self.consume(
-          Token::Semicolon,
-          String::from("expected ';' after statement"),
-        ) {
-          return;
-        }
-
-        expr
-      };
-
-      self
-        .statements
-        .push(Statement::new(EndStatement::new(expr, end_meta)));
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
     }
   }
 
@@ -1012,7 +978,6 @@ impl AstGenerator {
           | Token::Ret
           | Token::Match
           | Token::Loop
-          | Token::End
       ) {
         return;
       }
@@ -1238,7 +1203,6 @@ impl AstGenerator {
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
-      Token::End => ParseRule::new(None, None, Precedence::None),
     }
   }
 }
@@ -1258,7 +1222,6 @@ pub enum Statement {
   Block(BlockStatement),
   Break(BreakStatement),
   Cont(ContStatement),
-  End(EndStatement),
   Fn(FnStatement),
   For(ForStatement),
   If(IfStatement),
@@ -1287,12 +1250,6 @@ impl New<BreakStatement> for Statement {
 impl New<ContStatement> for Statement {
   fn new(stmt: ContStatement) -> Self {
     Self::Cont(stmt)
-  }
-}
-
-impl New<EndStatement> for Statement {
-  fn new(stmt: EndStatement) -> Self {
-    Self::End(stmt)
   }
 }
 
@@ -1390,18 +1347,6 @@ pub struct ContStatement {
 impl ContStatement {
   fn new(loc: SourceLocation) -> Self {
     Self { loc }
-  }
-}
-
-pub struct EndStatement {
-  pub expr: Option<Expression>,
-
-  pub loc: SourceLocation,
-}
-
-impl EndStatement {
-  fn new(expr: Option<Expression>, loc: SourceLocation) -> Self {
-    Self { expr, loc }
   }
 }
 

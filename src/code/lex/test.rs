@@ -82,7 +82,6 @@ mod tests {
       Token::Class,
       Token::Cont,
       Token::Else,
-      Token::End,
       Token::False,
       Token::For,
       Token::Fn,
@@ -222,13 +221,13 @@ mod tests {
         msg: String::from("invalid character: '?'"),
         file: String::from("test"),
         line: 7,
-        column: 11,
+        column: 9,
       },
       Error {
-        msg: String::from("invalid character: ':'"),
+        msg: String::from("invalid character: '`'"),
         file: String::from("test"),
         line: 7,
-        column: 15,
+        column: 10,
       },
     ];
 

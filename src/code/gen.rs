@@ -99,15 +99,6 @@ impl BytecodeGenerator {
     self.emit_loop(self.cont_jump, stmt.loc);
   }
 
-  fn end_stmt(&mut self, stmt: EndStatement) {
-    if let Some(expr) = stmt.expr {
-      self.emit_expr(expr);
-    } else {
-      self.emit(OpCode::Nil, stmt.loc);
-    }
-    self.emit(OpCode::End, stmt.loc);
-  }
-
   fn fn_stmt(&mut self, stmt: FnStatement) {
     if let Some(var) = self.declare_variable(stmt.ident.clone(), stmt.loc) {
       self.emit_fn(stmt.ident, stmt.params, *stmt.body, stmt.loc);
@@ -227,7 +218,7 @@ impl BytecodeGenerator {
     if let Some(expr) = stmt.expr {
       self.emit_expr(expr);
     }
-    self.emit(OpCode::Return, stmt.loc);
+    self.emit(OpCode::Ret, stmt.loc);
   }
 
   fn while_stmt(&mut self, stmt: WhileStatement) {
@@ -385,7 +376,6 @@ impl BytecodeGenerator {
       Statement::Block(stmt) => self.block_stmt(stmt),
       Statement::Break(stmt) => self.break_stmt(stmt),
       Statement::Cont(stmt) => self.cont_stmt(stmt),
-      Statement::End(stmt) => self.end_stmt(stmt),
       Statement::Fn(stmt) => self.fn_stmt(stmt),
       Statement::For(stmt) => self.for_stmt(stmt),
       Statement::If(stmt) => self.if_stmt(stmt),

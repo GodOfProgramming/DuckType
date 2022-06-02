@@ -284,11 +284,7 @@ impl<'src> Scanner<'src> {
         'o' => this.check_keyword(d, "nt", Token::Cont),
         _ => this.create_ident(),
       }),
-      'e' => do_at_depth(this, d, &|this, d, c1| match c1 {
-        'l' => this.check_keyword(d, "se", Token::Else),
-        'n' => this.check_keyword(d, "d", Token::End),
-        _ => this.create_ident(),
-      }),
+      'e' => this.check_keyword(d, "lse", Token::Else),
       'f' => do_at_depth(this, d, &|this, d, c1| match c1 {
         'a' => this.check_keyword(d, "lse", Token::False),
         'n' => this.check_keyword(d, "", Token::Fn),

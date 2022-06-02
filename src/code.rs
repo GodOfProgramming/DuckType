@@ -93,9 +93,7 @@ pub enum OpCode {
   /** Calls the instruction on the stack. Number of arguments is specified by the modifying bits */
   Call(usize),
   /** Exits from a function */
-  Return,
-  /** Stops executing. If an expression follows afterwards it is returned from the processing function */
-  End,
+  Ret,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
   /** Index into the indexable. The first argument off the stack is the index, the second is the indexable */
@@ -145,7 +143,6 @@ pub enum Token {
   Class,
   Cont,
   Else,
-  End,
   False,
   For,
   Fn,
