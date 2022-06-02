@@ -446,7 +446,8 @@ impl PartialEq for Value {
       }
       Self::Function(a) => {
         if let Self::Function(b) = other {
-          a.ctx.id == b.ctx.id
+          // TODO need file id along with this
+          a.context().id == b.context().id
         } else {
           false
         }
@@ -508,7 +509,12 @@ impl Display for Value {
       Self::U128(n) => write!(f, "{}", n),
       Self::Str(s) => write!(f, "'{}'", s),
       Self::List(l) => write!(f, "{}", l),
-      Self::Function(func) => write!(f, "<function {} {}>", func.ctx.id, func.ctx.name),
+      Self::Function(func) => write!(
+        f,
+        "<function {} {}>",
+        func.context().id,
+        func.context().name
+      ),
       Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
       Self::Struct(obj) => write!(f, "{:?}", obj),
     }
@@ -576,14 +582,58 @@ impl Display for Values {
 }
 
 #[derive(Clone)]
-pub struct Function {
-  airity: usize,
-  ctx: SmartPtr<Context>,
+pub enum Function {
+  Global(GlobalFunction),
+  Local(LocalFunction),
 }
 
 impl Function {
-  pub fn new(airity: usize, ctx: SmartPtr<Context>) -> Self {
-    Self { airity, ctx }
+  pub fn call(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    args: Vec<Value>,
+  ) -> Result<Value, Vec<String>> {
+    match self {
+      Function::Global(global) => global.call(thread, env, args),
+      Function::Local(local) => local.call(thread, env, args),
+    }
+  }
+
+  pub fn context(&self) -> &Context {
+    match self {
+      Function::Global(global) => global.context(),
+      Function::Local(local) => local.context(),
+    }
+  }
+}
+
+impl New<GlobalFunction> for Function {
+  fn new(func: GlobalFunction) -> Self {
+    Self::Global(func)
+  }
+}
+
+impl New<LocalFunction> for Function {
+  fn new(func: LocalFunction) -> Self {
+    Self::Local(func)
+  }
+}
+
+#[derive(Clone)]
+pub struct GlobalFunction {
+  airity: usize,
+  locals: usize,
+  ctx: SmartPtr<Context>,
+}
+
+impl GlobalFunction {
+  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
+    Self {
+      airity,
+      locals,
+      ctx,
+    }
   }
 
   pub fn call(
@@ -605,13 +655,65 @@ impl Function {
     }
 
     let prev_ip = thread.ip;
-    let new_stack = if Ident::string_is_global(&self.ctx.name) {
-      args
-    } else {
-      let mut new_stack = vec![Value::new(self.clone())];
-      new_stack.extend(args);
-      new_stack
-    };
+
+    args.reserve(self.locals);
+
+    let prev_stack = thread.stack_move(args);
+
+    let res = thread
+      .run(self.ctx.clone(), env)
+      .map_err(|e| e.into_iter().map(|e| e.msg).collect());
+
+    thread.ip = prev_ip;
+    thread.stack_move(prev_stack);
+
+    res
+  }
+
+  fn context(&self) -> &Context {
+    &self.ctx
+  }
+}
+
+#[derive(Clone)]
+pub struct LocalFunction {
+  airity: usize,
+  locals: usize,
+  ctx: SmartPtr<Context>,
+}
+
+impl LocalFunction {
+  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
+    Self {
+      airity,
+      locals,
+      ctx,
+    }
+  }
+
+  pub fn call(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    mut args: Vec<Value>,
+  ) -> Result<Value, Vec<String>> {
+    if args.len() > self.airity {
+      return Err(vec![format!(
+        "too many arguments number of arguments, expected {}, got {}",
+        self.airity,
+        args.len()
+      )]);
+    }
+
+    while args.len() < self.airity {
+      args.push(Value::Nil);
+    }
+
+    let prev_ip = thread.ip;
+
+    let mut new_stack = Vec::with_capacity(self.locals + args.len());
+    new_stack.push(Value::new(Function::new(self.clone())));
+    new_stack.extend(args);
     let prev_stack = thread.stack_move(new_stack);
 
     let res = thread
@@ -624,8 +726,7 @@ impl Function {
     res
   }
 
-  #[cfg(debug_assertions)]
-  pub fn context(&self) -> &Context {
+  fn context(&self) -> &Context {
     &self.ctx
   }
 }

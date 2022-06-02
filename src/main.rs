@@ -1,4 +1,4 @@
-use simple_script::{Context, Env, New, Struct, Value, Vm};
+use simple_script::{Env, New, Struct, Value, Vm};
 use std::{env, fs, path::Path, process};
 
 const DISASSEMBLE_FLAG: &str = "--disassemble";

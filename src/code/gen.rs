@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
   code::ast::*,
-  types::{Error, Function, Struct, Value},
+  types::{Error, Function, GlobalFunction, LocalFunction, Struct, Value},
   New,
 };
 use ptr::SmartPtr;
@@ -490,11 +490,22 @@ impl BytecodeGenerator {
         this.emit(OpCode::PopN(num_locals), loc);
       }
 
+      let local_count = this.locals.len();
       // restore here so const is emitted to correct place
       this.current_fn = prev_fn;
       this.locals = locals;
 
-      this.emit_const(Value::Function(Function::new(airity, ctx)), loc)
+      if ident.global() {
+        this.emit_const(
+          Value::Function(Function::new(GlobalFunction::new(airity, local_count, ctx))),
+          loc,
+        )
+      } else {
+        this.emit_const(
+          Value::Function(Function::new(LocalFunction::new(airity, local_count, ctx))),
+          loc,
+        )
+      }
     });
   }
 
