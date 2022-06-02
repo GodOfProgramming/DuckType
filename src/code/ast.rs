@@ -1216,6 +1216,10 @@ impl Ident {
   fn new(name: String) -> Self {
     Self { name }
   }
+
+  pub fn global(&self) -> bool {
+    matches!(self.name.chars().next(), Some('$'))
+  }
 }
 
 pub enum Statement {

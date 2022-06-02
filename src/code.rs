@@ -13,7 +13,7 @@ use lex::Scanner;
 use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
-  collections::{BTreeMap, BTreeSet},
+  collections::BTreeMap,
   fmt::{self, Debug},
   str,
 };
@@ -236,7 +236,6 @@ pub struct Context {
 
   consts: Vec<Value>,
   strings: BTreeMap<String, usize>,
-  globals: BTreeSet<String>,
 
   pub meta: Reflection,
 }
@@ -250,7 +249,6 @@ impl Context {
       instructions: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
-      globals: Default::default(),
       meta: reflection,
     }
   }
@@ -268,7 +266,6 @@ impl Context {
       global,
       consts: Default::default(),
       strings: Default::default(),
-      globals: Default::default(),
       instructions: Default::default(),
       meta: reflection,
     }
@@ -340,6 +337,17 @@ impl Context {
   }
 
   /* Debugging Functions */
+
+  #[cfg(debug_assertions)]
+  pub fn disassemble(&self) {
+    self.display_opcodes();
+
+    for value in self.consts() {
+      if let Value::Function(f) = value {
+        f.context().disassemble()
+      }
+    }
+  }
 
   pub fn display_opcodes(&self) {
     println!(
@@ -458,16 +466,16 @@ pub struct Env {
 }
 
 impl Env {
-  pub fn define(&mut self, name: String, value: Value) -> bool {
-    self.vars.insert(name, value).is_none()
+  pub fn define<T: ToString>(&mut self, name: T, value: Value) -> bool {
+    self.vars.insert(name.to_string(), value).is_none()
   }
 
-  pub fn assign(&mut self, name: String, value: Value) -> bool {
-    self.vars.insert(name, value).is_some()
+  pub fn assign<T: ToString>(&mut self, name: T, value: Value) -> bool {
+    self.vars.insert(name.to_string(), value).is_some()
   }
 
-  pub fn lookup(&self, name: &str) -> Option<Value> {
-    self.vars.get(name).cloned()
+  pub fn lookup<T: ToString>(&self, name: T) -> Option<Value> {
+    self.vars.get(&name.to_string()).cloned()
   }
 
   pub fn create_native<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
@@ -475,7 +483,10 @@ impl Env {
     name: String,
     native: F,
   ) -> bool {
-    self.assign(name.clone(), Value::new((name, native)))
+    self.assign(
+      format!("${}", name),
+      Value::new((format!("${}", name), native)),
+    )
   }
 }
 

@@ -184,6 +184,13 @@ impl Value {
       _ => Err(format!("cannot index {}", self)),
     }
   }
+
+  pub fn native<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+    name: String,
+    call: F,
+  ) -> Self {
+    Self::new((name, call))
+  }
 }
 
 impl New<bool> for Value {
@@ -624,12 +631,16 @@ pub struct Struct {
 }
 
 impl Struct {
-  pub fn set(&mut self, name: String, value: Value) {
-    self.members.insert(name, value);
+  pub fn set<T: ToString>(&mut self, name: T, value: Value) {
+    self.members.insert(name.to_string(), value);
   }
 
-  pub fn get(&self, name: String) -> Value {
-    self.members.get(&name).cloned().unwrap_or(Value::Nil)
+  pub fn get<T: ToString>(&self, name: T) -> Value {
+    self
+      .members
+      .get(&name.to_string())
+      .cloned()
+      .unwrap_or(Value::Nil)
   }
 }
 

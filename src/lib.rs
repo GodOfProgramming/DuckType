@@ -10,7 +10,7 @@ use code::{Compiler, OpCode, OpCodeReflection};
 use ptr::SmartPtr;
 use std::fs;
 use types::Error;
-pub use types::{Value, ValueOpResult};
+pub use types::{Struct, Value, ValueOpResult};
 
 pub trait New<T> {
   fn new(item: T) -> Self;
@@ -24,14 +24,16 @@ pub struct ExecutionThread {
   pub ip: usize,
   stack: Vec<Value>,
   disassemble: bool,
+  runtime_disassemble: bool,
 }
 
 impl ExecutionThread {
-  fn new(disassemble: bool) -> Self {
+  fn new(disassemble: bool, runtime_disassemble: bool) -> Self {
     Self {
       ip: Default::default(),
       stack: Default::default(),
       disassemble,
+      runtime_disassemble,
     }
   }
 
@@ -168,7 +170,7 @@ impl ExecutionThread {
     }
 
     #[cfg(debug_assertions)]
-    if self.disassemble {
+    if self.runtime_disassemble {
       self.stack_display();
     }
 
@@ -578,11 +580,18 @@ impl ExecutionThread {
         match fs::read_to_string(&file) {
           Ok(data) => {
             let ip = self.ip;
+            let mut stack = self.stack_move(Vec::default());
 
             let new_ctx = Compiler::compile(&file, &data)?;
+
+            #[cfg(debug_assertions)]
+            if self.disassemble {
+              new_ctx.disassemble();
+            }
+
             let result = match self.run(new_ctx, env) {
               Ok(v) => {
-                self.stack_push(v);
+                stack.push(v);
                 Ok(())
               }
               Err(mut errors) => {
@@ -597,6 +606,7 @@ impl ExecutionThread {
             };
 
             self.ip = ip;
+            self.stack = stack;
             result
           }
           Err(e) => Err(self.error(ctx, opcode, format!("unable to read file {}: {}", file, e))),
@@ -730,9 +740,9 @@ pub struct Vm {
 }
 
 impl Vm {
-  pub fn new(disassemble: bool) -> Self {
+  pub fn new(disassemble: bool, runtime_disassemble: bool) -> Self {
     Vm {
-      main: ExecutionThread::new(disassemble),
+      main: ExecutionThread::new(disassemble, runtime_disassemble),
     }
   }
 

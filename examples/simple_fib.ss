@@ -1,3 +1,5 @@
+req "examples/lib/time.ss" => time;
+
 fn fib(n) {
   if n <= 1 {
     ret n;
@@ -23,14 +25,14 @@ fn fib_it(count) {
 
 let times = 30;
 print "times = " + times;
-let before = clock();
+let before = time.clock();
 print fib(times);
-let after = clock();
+let after = time.clock();
 
-print "rec diff = " + clock_diff(before, after);
+print "rec diff = " + time.clock_diff(before, after);
 
-before = clock();
+before = time.clock();
 print fib_it(times);
-after = clock();
+after = time.clock();
 
-print "it diff = " + clock_diff(before, after);
+print "it diff = " + time.clock_diff(before, after);

@@ -1,4 +1,4 @@
-use simple_script::{Context, Env, New, Value, Vm};
+use simple_script::{Context, Env, New, Struct, Value, Vm};
 use std::{env, fs, path::Path, process};
 
 const DISASSEMBLE_FLAG: &str = "--disassemble";
@@ -25,7 +25,7 @@ fn main() {
     args.retain(|arg| arg != QUITE_AFTER_FLAG);
   }
 
-  let runner = Vm::new(runtime_disassembly);
+  let runner = Vm::new(show_disassembly, runtime_disassembly);
 
   if let Some(file) = args.get(1).cloned() {
     if !run_file(runner, file, show_disassembly, quit_after) {
@@ -50,14 +50,14 @@ fn run_file(
       Ok(contents) => match vm.load(file, &contents) {
         Ok(ctx) => {
           let mut env = Env::default();
-          env.create_native(String::from("clock"), |_env, _args: Vec<Value>| {
+          let clock = Value::native(String::from("clock"), |_env, _args: Vec<Value>| {
             use std::time::{SystemTime, UNIX_EPOCH};
             let now = SystemTime::now();
             let since = now.duration_since(UNIX_EPOCH).expect("time went backwards");
             Ok(Value::new(since.as_nanos()))
           });
 
-          env.create_native(String::from("clock_diff"), |_env, args: Vec<Value>| {
+          let clock_diff = Value::native(String::from("clock_diff"), |_env, args: Vec<Value>| {
             if let Some(Value::U128(before)) = args.get(0) {
               if let Some(Value::U128(after)) = args.get(1) {
                 let diff = std::time::Duration::from_nanos((after - before) as u64);
@@ -69,9 +69,15 @@ fn run_file(
             ))
           });
 
+          let mut obj = Struct::default();
+          obj.set("clock", clock);
+          obj.set("clock_diff", clock_diff);
+
+          env.assign("$time", Value::new(obj));
+
           #[cfg(debug_assertions)]
           if show_disassembly {
-            disassemble(&ctx);
+            ctx.disassemble();
 
             if quit_after_disassembled {
               std::process::exit(0);
@@ -111,15 +117,4 @@ fn run_file(
 
 fn run_cli(_runner: Vm) {
   let _quit = false;
-}
-
-#[cfg(debug_assertions)]
-fn disassemble(ctx: &Context) {
-  ctx.display_opcodes();
-
-  for value in ctx.consts() {
-    if let Value::Function(f) = value {
-      disassemble(f.context());
-    }
-  }
 }
