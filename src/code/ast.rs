@@ -25,6 +25,7 @@ struct AstGenerator {
   index: usize,
 
   in_loop: bool,
+  in_function: bool,
 
   test: usize,
 }
@@ -38,6 +39,7 @@ impl AstGenerator {
       errors: Default::default(),
       index: Default::default(),
       in_loop: Default::default(),
+      in_function: Default::default(),
       test: Default::default(),
     }
   }
@@ -172,6 +174,13 @@ impl AstGenerator {
   }
 
   fn fn_stmt(&mut self) {
+    if self.in_function {
+      self.error::<1>(String::from("cannot declare functions within functions"));
+      return;
+    }
+
+    let in_function = self.in_function;
+    self.in_function = true;
     if let Some(loc) = self.meta_at::<0>() {
       if let Some(Token::Identifier(fn_name)) = self.current() {
         let ident = Ident::new(fn_name);
@@ -235,6 +244,7 @@ impl AstGenerator {
         self.error::<0>(String::from("expected an identifier"));
       }
     }
+    self.in_function = in_function;
   }
 
   fn for_stmt(&mut self) {
