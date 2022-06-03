@@ -11,3 +11,6 @@ ptr = { path = "lib/ptr" }
 tfix = { path = "lib/tfix" }
 enum-map = "2.3"
 lazy_static = "1.4"
+
+[features]
+visit_ast = []

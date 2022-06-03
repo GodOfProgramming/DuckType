@@ -1,12 +1,12 @@
 use crate::{
-  code::{Context, OpCode, OpCodeReflection},
+  code::{Context, Env, OpCode, OpCodeReflection},
   ExecutionThread, New,
 };
 use ptr::SmartPtr;
 use std::{
   cmp::{Ordering, PartialEq, PartialOrd},
   collections::BTreeMap,
-  fmt::{self, Debug, Display},
+  fmt::{self, Debug, Display, Formatter},
   ops::{Add, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
 };
 
@@ -37,7 +37,7 @@ impl Error {
 }
 
 impl Debug for Error {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     writeln!(
       f,
       "{} ({}, {}): {}",
@@ -47,7 +47,7 @@ impl Debug for Error {
 }
 
 impl Display for Error {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     writeln!(
       f,
       "{} ({}, {}): {}",
@@ -58,21 +58,24 @@ impl Display for Error {
 
 pub struct NativeFn {
   pub name: String,
-  pub call: Box<dyn FnMut(Vec<Value>) -> ValueOpResult>,
+  pub callee: Box<dyn FnMut(&mut Env, Vec<Value>) -> ValueOpResult>,
 }
 
 pub type NativeFnPtr = SmartPtr<NativeFn>;
 
 impl NativeFn {
-  pub fn new<F: FnMut(Vec<Value>) -> ValueOpResult + 'static>(name: String, callee: F) -> Self {
+  pub fn new<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+    name: String,
+    callee: F,
+  ) -> Self {
     Self {
       name,
-      call: Box::new(callee),
+      callee: Box::new(callee),
     }
   }
 
-  pub fn call(&mut self, args: Vec<Value>) -> ValueOpResult {
-    (self.call)(args)
+  pub fn call(&mut self, env: &mut Env, args: Vec<Value>) -> ValueOpResult {
+    (self.callee)(env, args)
   }
 }
 
@@ -138,11 +141,12 @@ impl Value {
   pub fn call(
     &mut self,
     thread: &mut ExecutionThread,
+    env: &mut Env,
     args: Vec<Value>,
   ) -> Result<Value, Vec<String>> {
     match self {
-      Value::Function(f) => f.call(thread, args),
-      Value::NativeFunction(f) => f.call(args).map_err(|e| vec![e]),
+      Value::Function(f) => f.call(thread, env, args),
+      Value::NativeFunction(f) => f.call(env, args).map_err(|e| vec![e]),
       _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
     }
   }
@@ -179,6 +183,13 @@ impl Value {
       },
       _ => Err(format!("cannot index {}", self)),
     }
+  }
+
+  pub fn native<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+    name: String,
+    call: F,
+  ) -> Self {
+    Self::new((name, call))
   }
 }
 
@@ -243,8 +254,8 @@ impl New<Values> for Value {
 }
 
 impl New<Function> for Value {
-  fn new(item: Function) -> Self {
-    Self::Function(item)
+  fn new(func: Function) -> Self {
+    Self::Function(func)
   }
 }
 
@@ -254,7 +265,7 @@ impl New<Struct> for Value {
   }
 }
 
-impl<F: FnMut(Vec<Value>) -> ValueOpResult + 'static> New<(String, F)> for Value {
+impl<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static> New<(String, F)> for Value {
   fn new((name, call): (String, F)) -> Self {
     Self::NativeFunction(SmartPtr::new(NativeFn::new(name, call)))
   }
@@ -435,7 +446,8 @@ impl PartialEq for Value {
       }
       Self::Function(a) => {
         if let Self::Function(b) = other {
-          a.ctx.id == b.ctx.id
+          // TODO need file id & instance of file id (multiple requires/reloads) along with this
+          a.context().id == b.context().id
         } else {
           false
         }
@@ -497,7 +509,12 @@ impl Display for Value {
       Self::U128(n) => write!(f, "{}", n),
       Self::Str(s) => write!(f, "'{}'", s),
       Self::List(l) => write!(f, "{}", l),
-      Self::Function(func) => write!(f, "<function {} {}>", func.ctx.id, func.ctx.name),
+      Self::Function(func) => write!(
+        f,
+        "<function {} {}>",
+        func.context().id,
+        func.context().name
+      ),
       Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
       Self::Struct(obj) => write!(f, "{:?}", obj),
     }
@@ -567,17 +584,23 @@ impl Display for Values {
 #[derive(Clone)]
 pub struct Function {
   airity: usize,
+  locals: usize,
   ctx: SmartPtr<Context>,
 }
 
 impl Function {
-  pub fn new(airity: usize, ctx: SmartPtr<Context>) -> Self {
-    Self { airity, ctx }
+  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
+    Self {
+      airity,
+      locals,
+      ctx,
+    }
   }
 
   pub fn call(
     &mut self,
     thread: &mut ExecutionThread,
+    env: &mut Env,
     mut args: Vec<Value>,
   ) -> Result<Value, Vec<String>> {
     if args.len() > self.airity {
@@ -593,10 +616,13 @@ impl Function {
     }
 
     let prev_ip = thread.ip;
+
+    args.reserve(self.locals);
+
     let prev_stack = thread.stack_move(args);
 
     let res = thread
-      .run(self.ctx.clone())
+      .run(self.ctx.clone(), env)
       .map_err(|e| e.into_iter().map(|e| e.msg).collect());
 
     thread.ip = prev_ip;
@@ -605,7 +631,62 @@ impl Function {
     res
   }
 
-  #[cfg(debug_assertions)]
+  pub fn context(&self) -> &Context {
+    &self.ctx
+  }
+}
+
+#[derive(Clone)]
+pub struct Closure {
+  airity: usize,
+  locals: usize,
+  ctx: SmartPtr<Context>,
+}
+
+impl Closure {
+  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
+    Self {
+      airity,
+      locals,
+      ctx,
+    }
+  }
+
+  pub fn call(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    mut args: Vec<Value>,
+  ) -> Result<Value, Vec<String>> {
+    if args.len() > self.airity {
+      return Err(vec![format!(
+        "too many arguments number of arguments, expected {}, got {}",
+        self.airity,
+        args.len()
+      )]);
+    }
+
+    while args.len() < self.airity {
+      args.push(Value::Nil);
+    }
+
+    let prev_ip = thread.ip;
+
+    let mut new_stack = Vec::with_capacity(self.locals + args.len());
+    // push self here
+    new_stack.extend(args);
+    let prev_stack = thread.stack_move(new_stack);
+
+    let res = thread
+      .run(self.ctx.clone(), env)
+      .map_err(|e| e.into_iter().map(|e| e.msg).collect());
+
+    thread.ip = prev_ip;
+    thread.stack_move(prev_stack);
+
+    res
+  }
+
   pub fn context(&self) -> &Context {
     &self.ctx
   }
@@ -619,12 +700,16 @@ pub struct Struct {
 }
 
 impl Struct {
-  pub fn set(&mut self, name: String, value: Value) {
-    self.members.insert(name, value);
+  pub fn set<T: ToString>(&mut self, name: T, value: Value) {
+    self.members.insert(name.to_string(), value);
   }
 
-  pub fn get(&self, name: String) -> Value {
-    self.members.get(&name).cloned().unwrap_or(Value::Nil)
+  pub fn get<T: ToString>(&self, name: T) -> Value {
+    self
+      .members
+      .get(&name.to_string())
+      .cloned()
+      .unwrap_or(Value::Nil)
   }
 }
 

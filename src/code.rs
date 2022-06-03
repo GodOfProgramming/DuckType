@@ -14,7 +14,7 @@ use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
-  fmt::{self, Debug},
+  fmt::{Debug, Display, Formatter},
   str,
 };
 
@@ -159,8 +159,8 @@ pub enum Token {
   While,
 }
 
-impl fmt::Display for Token {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+impl Display for Token {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     match self {
       Token::Identifier(i) => write!(f, "Identifier ({})", i),
       Token::String(s) => write!(f, "String ({})", s),
@@ -230,12 +230,12 @@ impl Reflection {
 pub struct Context {
   pub id: usize,
   pub name: String,
-
   global: SmartPtr<Context>,
-  env: Env, // global environment for global context, captures for local context
+
+  instructions: Vec<OpCode>,
+
   consts: Vec<Value>,
   strings: BTreeMap<String, usize>,
-  instructions: Vec<OpCode>,
 
   pub meta: Reflection,
 }
@@ -246,10 +246,9 @@ impl Context {
       id: Default::default(),
       name: Default::default(),
       global: Default::default(),
-      env: Default::default(),
+      instructions: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
-      instructions: Default::default(),
       meta: reflection,
     }
   }
@@ -265,7 +264,6 @@ impl Context {
       id,
       name,
       global,
-      env: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
       instructions: Default::default(),
@@ -273,7 +271,15 @@ impl Context {
     }
   }
 
-  pub fn global_ctx(&mut self) -> &mut Context {
+  pub fn global_ctx(&self) -> &Context {
+    if self.global.valid() {
+      &self.global
+    } else {
+      self
+    }
+  }
+
+  pub fn global_ctx_mut(&mut self) -> &mut Context {
     if self.global.valid() {
       &mut self.global
     } else {
@@ -295,47 +301,12 @@ impl Context {
   }
 
   pub fn global_const_at(&self, index: usize) -> Option<Value> {
-    if self.global.valid() {
-      self.global.consts.get(index).cloned()
-    } else {
-      self.consts.get(index).cloned()
-    }
-  }
-
-  pub fn lookup_global(&self, name: &str) -> Option<Value> {
-    if self.global.valid() {
-      self.global.env.lookup(name)
-    } else {
-      self.env.lookup(name)
-    }
-  }
-
-  pub fn define_global(&mut self, name: String, value: Value) -> bool {
-    if self.global.valid() {
-      self.global.env.define(name, value)
-    } else {
-      self.env.define(name, value)
-    }
-  }
-
-  pub fn assign_global(&mut self, name: String, value: Value) -> bool {
-    if self.global.valid() {
-      self.global.env.assign(name, value)
-    } else {
-      self.env.assign(name, value)
-    }
-  }
-
-  pub fn create_native<F: FnMut(Vec<Value>) -> ValueOpResult + 'static>(
-    &mut self,
-    name: String,
-    native: F,
-  ) -> bool {
-    self.assign_global(name.clone(), Value::new((name, native)))
+    self.global_ctx().consts.get(index).cloned()
   }
 
   fn write(&mut self, op: OpCode, line: usize, column: usize) {
-    if cfg!(test) {
+    #[cfg(test)]
+    {
       println!("emitting {:?}", op);
     }
     self.instructions.push(op);
@@ -371,6 +342,17 @@ impl Context {
   }
 
   /* Debugging Functions */
+
+  #[cfg(debug_assertions)]
+  pub fn disassemble(&self) {
+    self.display_opcodes();
+
+    for value in self.consts() {
+      if let Value::Function(f) = value {
+        f.context().disassemble()
+      }
+    }
+  }
 
   pub fn display_opcodes(&self) {
     println!(
@@ -489,16 +471,27 @@ pub struct Env {
 }
 
 impl Env {
-  pub fn define(&mut self, name: String, value: Value) -> bool {
-    self.vars.insert(name, value).is_none()
+  pub fn define<T: ToString>(&mut self, name: T, value: Value) -> bool {
+    self.vars.insert(name.to_string(), value).is_none()
   }
 
-  pub fn assign(&mut self, name: String, value: Value) -> bool {
-    self.vars.insert(name, value).is_some()
+  pub fn assign<T: ToString>(&mut self, name: T, value: Value) -> bool {
+    self.vars.insert(name.to_string(), value).is_some()
   }
 
-  pub fn lookup(&self, name: &str) -> Option<Value> {
-    self.vars.get(name).cloned()
+  pub fn lookup<T: ToString>(&self, name: T) -> Option<Value> {
+    self.vars.get(&name.to_string()).cloned()
+  }
+
+  pub fn create_native<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+    &mut self,
+    name: String,
+    native: F,
+  ) -> bool {
+    self.assign(
+      format!("${}", name),
+      Value::new((format!("${}", name), native)),
+    )
   }
 }
 

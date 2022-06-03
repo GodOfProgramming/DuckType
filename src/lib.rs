@@ -5,11 +5,12 @@ pub mod types;
 mod test;
 
 pub use code::Context;
+pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection};
 use ptr::SmartPtr;
 use std::fs;
 use types::Error;
-pub use types::{Value, ValueOpResult};
+pub use types::{Struct, Value, ValueOpResult};
 
 pub trait New<T> {
   fn new(item: T) -> Self;
@@ -23,14 +24,16 @@ pub struct ExecutionThread {
   pub ip: usize,
   stack: Vec<Value>,
   disassemble: bool,
+  runtime_disassemble: bool,
 }
 
 impl ExecutionThread {
-  fn new(disassemble: bool) -> Self {
+  fn new(disassemble: bool, runtime_disassemble: bool) -> Self {
     Self {
       ip: Default::default(),
       stack: Default::default(),
       disassemble,
+      runtime_disassemble,
     }
   }
 
@@ -94,11 +97,11 @@ impl ExecutionThread {
     vec![self.error_at(ctx, |opcode_ref| Error::from_ref(msg, opcode, opcode_ref))]
   }
 
-  fn run(&mut self, mut ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>> {
+  fn run(&mut self, mut ctx: SmartPtr<Context>, env: &mut Env) -> Result<Value, Vec<Error>> {
     self.ip = 0;
     while let Some(opcode) = ctx.next(self.ip) {
       #[cfg(debug_assertions)]
-      if self.disassemble {
+      if self.runtime_disassemble {
         self.stack_display();
         ctx.display_instruction(&opcode, self.ip);
       }
@@ -113,9 +116,9 @@ impl ExecutionThread {
         OpCode::PopN(count) => self.exec_pop_n(count),
         OpCode::LookupLocal(index) => self.exec_lookup_local(&mut ctx, &opcode, index)?,
         OpCode::AssignLocal(index) => self.exec_assign_local(&mut ctx, &opcode, index)?,
-        OpCode::LookupGlobal(index) => self.exec_lookup_global(&mut ctx, &opcode, index)?,
-        OpCode::DefineGlobal(index) => self.exec_define_global(&mut ctx, &opcode, index)?,
-        OpCode::AssignGlobal(index) => self.exec_assign_global(&mut ctx, &opcode, index)?,
+        OpCode::LookupGlobal(index) => self.exec_lookup_global(&mut ctx, env, &opcode, index)?,
+        OpCode::DefineGlobal(index) => self.exec_define_global(&mut ctx, env, &opcode, index)?,
+        OpCode::AssignGlobal(index) => self.exec_assign_global(&mut ctx, env, &opcode, index)?,
         OpCode::AssignMember(index) => self.exec_assign_member(&mut ctx, &opcode, index)?,
         OpCode::LookupMember(index) => self.exec_lookup_member(&mut ctx, &opcode, index)?,
         OpCode::Equal => self.exec_equal(&mut ctx, &opcode)?,
@@ -156,9 +159,9 @@ impl ExecutionThread {
           self.loop_back(count);
           continue;
         }
-        OpCode::Call(airity) => self.exec_call(&mut ctx, &opcode, airity)?,
+        OpCode::Call(airity) => self.exec_call(&mut ctx, env, &opcode, airity)?,
         OpCode::Ret => return Ok(self.exec_ret()),
-        OpCode::Req => self.exec_req(&mut ctx, &opcode)?,
+        OpCode::Req => self.exec_req(&mut ctx, env, &opcode)?,
         OpCode::Index => self.exec_index(&mut ctx, &opcode)?,
         OpCode::CreateList(num_items) => self.exec_create_list(num_items),
         x => unimplemented!("Unimplemented: {:?}", x),
@@ -167,7 +170,8 @@ impl ExecutionThread {
     }
 
     #[cfg(debug_assertions)]
-    if self.disassemble {
+    if self.runtime_disassemble {
+      println!("<< EOF >>");
       self.stack_display();
     }
 
@@ -252,11 +256,12 @@ impl ExecutionThread {
   fn exec_lookup_global(
     &mut self,
     ctx: &mut Context,
+    env: &Env,
     opcode: &OpCode,
     location: usize,
   ) -> ExecResult {
     self.global_op(ctx, opcode, location, |this, ctx, name| {
-      if let Some(global) = ctx.lookup_global(&name) {
+      if let Some(global) = env.lookup(&name) {
         this.stack_push(global);
         Ok(())
       } else {
@@ -268,12 +273,13 @@ impl ExecutionThread {
   fn exec_define_global(
     &mut self,
     ctx: &mut Context,
+    env: &mut Env,
     opcode: &OpCode,
     location: usize,
   ) -> ExecResult {
     self.global_op(ctx, opcode, location, |this, ctx, name| {
       if let Some(v) = this.stack_peek() {
-        if ctx.define_global(name, v.clone()) {
+        if env.define(name, v.clone()) {
           Ok(())
         } else {
           Err(this.error(
@@ -295,12 +301,13 @@ impl ExecutionThread {
   fn exec_assign_global(
     &mut self,
     ctx: &mut Context,
+    env: &mut Env,
     opcode: &OpCode,
     location: usize,
   ) -> ExecResult {
     self.global_op(ctx, opcode, location, |this, ctx, name| {
       if let Some(v) = this.stack_peek() {
-        if ctx.assign_global(name, v) {
+        if env.assign(name, v) {
           Ok(())
         } else {
           Err(this.error(
@@ -538,10 +545,16 @@ impl ExecutionThread {
     }
   }
 
-  fn exec_call(&mut self, ctx: &mut Context, opcode: &OpCode, airity: usize) -> ExecResult {
+  fn exec_call(
+    &mut self,
+    ctx: &mut Context,
+    env: &mut Env,
+    opcode: &OpCode,
+    airity: usize,
+  ) -> ExecResult {
     if let Some(mut value) = self.stack_pop() {
       let args = self.stack_drain_from(airity);
-      match value.call(self, args) {
+      match value.call(self, env, args) {
         Ok(ret) => {
           self.stack_push(ret);
           Ok(())
@@ -562,17 +575,24 @@ impl ExecutionThread {
     self.stack_pop().unwrap_or(Value::Nil)
   }
 
-  fn exec_req(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+  fn exec_req(&mut self, ctx: &mut Context, env: &mut Env, opcode: &OpCode) -> ExecResult {
     if let Some(file) = self.stack_pop() {
       if let Value::Str(file) = file {
         match fs::read_to_string(&file) {
           Ok(data) => {
             let ip = self.ip;
+            let mut stack = self.stack_move(Vec::default());
 
             let new_ctx = Compiler::compile(&file, &data)?;
-            let result = match self.run(new_ctx) {
+
+            #[cfg(debug_assertions)]
+            if self.disassemble {
+              new_ctx.disassemble();
+            }
+
+            let result = match self.run(new_ctx, env) {
               Ok(v) => {
-                self.stack_push(v);
+                stack.push(v);
                 Ok(())
               }
               Err(mut errors) => {
@@ -587,6 +607,7 @@ impl ExecutionThread {
             };
 
             self.ip = ip;
+            self.stack = stack;
             result
           }
           Err(e) => Err(self.error(ctx, opcode, format!("unable to read file {}: {}", file, e))),
@@ -676,6 +697,10 @@ impl ExecutionThread {
     other
   }
 
+  pub fn stack_append(&mut self, other: Vec<Value>) {
+    self.stack.extend(other);
+  }
+
   pub fn stack_size(&self) -> usize {
     self.stack.len()
   }
@@ -720,9 +745,9 @@ pub struct Vm {
 }
 
 impl Vm {
-  pub fn new(disassemble: bool) -> Self {
+  pub fn new(disassemble: bool, runtime_disassemble: bool) -> Self {
     Vm {
-      main: ExecutionThread::new(disassemble),
+      main: ExecutionThread::new(disassemble, runtime_disassemble),
     }
   }
 
@@ -730,7 +755,7 @@ impl Vm {
     Compiler::compile(&file, code)
   }
 
-  pub fn run(&mut self, ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>> {
-    self.main.run(ctx)
+  pub fn run(&mut self, ctx: SmartPtr<Context>, env: &mut Env) -> Result<Value, Vec<Error>> {
+    self.main.run(ctx, env)
   }
 }

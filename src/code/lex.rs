@@ -400,7 +400,7 @@ impl<'src> Scanner<'src> {
   fn is_alpha(c: char) -> bool {
     const A_Z_LOCASE: RangeInclusive<char> = 'a'..='z';
     const A_Z_UPCASE: RangeInclusive<char> = 'A'..='Z';
-    A_Z_LOCASE.contains(&c) || A_Z_UPCASE.contains(&c) || c == '_' || c == '@'
+    A_Z_LOCASE.contains(&c) || A_Z_UPCASE.contains(&c) || c == '_' || c == '@' || c == '$'
   }
 
   fn is_alphanumeric(c: char) -> bool {

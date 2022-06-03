@@ -79,9 +79,13 @@ repository:
         match: "\\b(${ DIGIT })\\b"
   ident:
     patterns:
+      - name: "punctuation.definition.variable"
+        match: "$"
       - name: "variable.language"
         match: "\\b(self|super)\\b"
-      - name: "variable.other"
+      - name: "variable.other.readwrite.global"
+        match: "\\b(\\$(?=\\w)\\w*)\\b"
+      - name: "variable.other.readwrite"
         match: "\\b(${ IDENT })\\b"
   comments:
     patterns:
