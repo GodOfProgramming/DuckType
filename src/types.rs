@@ -521,7 +521,7 @@ impl Display for Value {
       Self::Bool(b) => write!(f, "{}", b),
       Self::Num(n) => write!(f, "{}", n),
       Self::U128(n) => write!(f, "{}", n),
-      Self::String(s) => write!(f, "'{}'", s),
+      Self::String(s) => write!(f, "{}", s),
       Self::List(l) => write!(f, "{}", l),
       Self::Function(func) => write!(
         f,
@@ -538,7 +538,10 @@ impl Display for Value {
 
 impl Debug for Value {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    Display::fmt(self, f)
+    match self {
+      Self::String(s) => write!(f, "'{}'", s),
+      v => Display::fmt(v, f),
+    }
   }
 }
 

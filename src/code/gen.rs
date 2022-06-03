@@ -212,6 +212,9 @@ impl BytecodeGenerator {
       if let Some(var) = self.declare_variable(var, stmt.loc) {
         self.define_variable(is_global, var, stmt.loc);
       }
+      if is_global {
+        self.emit(OpCode::Pop, stmt.loc);
+      }
     } else {
       self.emit(OpCode::Pop, stmt.loc);
     }

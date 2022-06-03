@@ -946,6 +946,7 @@ impl Vm {
       for arg in args {
         print!("{}", arg);
       }
+      println!();
       Ok(Value::Nil)
     });
 
