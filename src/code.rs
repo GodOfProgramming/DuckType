@@ -228,13 +228,18 @@ impl Reflection {
 }
 
 pub struct Context {
-  pub id: usize,
   pub name: String,
+
+  pub id: usize,          // the function id within the local file
+  pub file_id: usize,     // the id of the file it was loaded from
+  pub instance_id: usize, // the instance of the file it was loaded from
+
   global: SmartPtr<Context>,
 
   instructions: Vec<OpCode>,
 
   consts: Vec<Value>,
+  // map of string to const vec location to save memory
   strings: BTreeMap<String, usize>,
 
   pub meta: Reflection,
@@ -243,8 +248,10 @@ pub struct Context {
 impl Context {
   fn new(reflection: Reflection) -> Self {
     Self {
-      id: Default::default(),
       name: Default::default(),
+      id: Default::default(),
+      file_id: Default::default(),
+      instance_id: Default::default(),
       global: Default::default(),
       instructions: Default::default(),
       consts: Default::default(),
@@ -261,8 +268,10 @@ impl Context {
     };
 
     Self {
-      id,
       name,
+      id,
+      file_id: Default::default(),
+      instance_id: Default::default(),
       global,
       consts: Default::default(),
       strings: Default::default(),
@@ -319,7 +328,7 @@ impl Context {
   }
 
   fn add_const(&mut self, c: Value) -> usize {
-    if let Value::Str(string) = &c {
+    if let Value::String(string) = &c {
       if let Some(index) = self.strings.get(string) {
         return *index;
       }

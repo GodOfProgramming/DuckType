@@ -1,4 +1,7 @@
-req "examples/lib/time.ss" => time;
+req "env" => env;
+req "time" => time;
+req "string" => str;
+req "console" => console;
 
 fn fib(n) {
   if n <= 1 {
@@ -23,7 +26,7 @@ fn fib_it(count) {
   ret prev;
 }
 
-let times = 10;
+let times = str.parse_number(env.ARGV[0]);
 print "times = " + times;
 let before = time.clock();
 print fib(times);
