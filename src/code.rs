@@ -492,15 +492,12 @@ impl Env {
     self.vars.get(&name.to_string()).cloned()
   }
 
-  pub fn create_native<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+  pub fn create_native<K: ToString, F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
     &mut self,
-    name: String,
+    name: K,
     native: F,
   ) -> bool {
-    self.assign(
-      format!("${}", name),
-      Value::new((format!("${}", name), native)),
-    )
+    self.assign(name.to_string(), Value::new((name.to_string(), native)))
   }
 }
 
