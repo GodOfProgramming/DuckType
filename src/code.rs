@@ -4,7 +4,7 @@ pub mod lex;
 pub mod opt;
 
 use crate::{
-  types::{Env, Error, Value, ValueOpResult},
+  types::{Error, Value, ValueOpResult},
   New,
 };
 use ast::Ast;
@@ -14,7 +14,7 @@ use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
-  fmt::{self, Debug},
+  fmt::{Debug, Display, Formatter},
   str,
 };
 
@@ -82,8 +82,6 @@ pub enum OpCode {
   Negate,
   /** Pops a value off the stack and prints it to the screen */
   Print,
-  /** Swaps the top two values on the stack. */
-  Swap,
   /** Jumps to a code location indicated by the tuple */
   Jump(usize),
   /** Jumps to a code location indicated by the tuple */
@@ -95,9 +93,7 @@ pub enum OpCode {
   /** Calls the instruction on the stack. Number of arguments is specified by the modifying bits */
   Call(usize),
   /** Exits from a function */
-  Return,
-  /** Stops executing. If an expression follows afterwards it is returned from the processing function */
-  End,
+  Ret,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
   /** Index into the indexable. The first argument off the stack is the index, the second is the indexable */
@@ -147,7 +143,6 @@ pub enum Token {
   Class,
   Cont,
   Else,
-  End,
   False,
   For,
   Fn,
@@ -164,8 +159,8 @@ pub enum Token {
   While,
 }
 
-impl fmt::Display for Token {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+impl Display for Token {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     match self {
       Token::Identifier(i) => write!(f, "Identifier ({})", i),
       Token::String(s) => write!(f, "String ({})", s),
@@ -196,9 +191,9 @@ pub struct OpCodeReflection {
 }
 
 pub struct Reflection {
-  file: SmartPtr<String>,
-  source: SmartPtr<String>,
-  opcode_info: Vec<OpCodeInfo>,
+  pub file: SmartPtr<String>,
+  pub source: SmartPtr<String>,
+  pub opcode_info: Vec<OpCodeInfo>,
 }
 
 impl Reflection {
@@ -214,7 +209,7 @@ impl Reflection {
     self.opcode_info.push(OpCodeInfo { line, column });
   }
 
-  fn get(&self, offset: usize) -> Option<OpCodeReflection> {
+  pub fn get(&self, offset: usize) -> Option<OpCodeReflection> {
     if let Some(info) = self.opcode_info.get(offset).cloned() {
       self
         .source
@@ -233,39 +228,39 @@ impl Reflection {
 }
 
 pub struct Context {
-  pub ip: usize,
-  pub id: usize,
   pub name: String,
 
+  pub id: usize,          // the function id within the local file
+  pub file_id: usize,     // the id of the file it was loaded from
+  pub instance_id: usize, // the instance of the file it was loaded from
+
   global: SmartPtr<Context>,
-  _parent: SmartPtr<Context>,
-  env: Env, // global environment for global context, captures for local context
-  stack: Vec<Value>,
-  consts: Vec<Value>,
-  strings: BTreeMap<String, usize>,
+
   instructions: Vec<OpCode>,
 
-  meta: Reflection,
+  consts: Vec<Value>,
+  // map of string to const vec location to save memory
+  strings: BTreeMap<String, usize>,
+
+  pub meta: Reflection,
 }
 
 impl Context {
   fn new(reflection: Reflection) -> Self {
     Self {
-      ip: Default::default(),
-      id: Default::default(),
       name: Default::default(),
+      id: Default::default(),
+      file_id: Default::default(),
+      instance_id: Default::default(),
       global: Default::default(),
-      _parent: Default::default(),
-      env: Default::default(),
-      stack: Default::default(),
+      instructions: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
-      instructions: Default::default(),
       meta: reflection,
     }
   }
 
-  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize) -> Self {
+  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize, name: String) -> Self {
     let global = if ctx.global.valid() {
       ctx.global.clone()
     } else {
@@ -273,13 +268,11 @@ impl Context {
     };
 
     Self {
-      ip: Default::default(),
+      name,
       id,
-      name: Default::default(),
+      file_id: Default::default(),
+      instance_id: Default::default(),
       global,
-      _parent: ctx,
-      env: Default::default(),
-      stack: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
       instructions: Default::default(),
@@ -287,7 +280,15 @@ impl Context {
     }
   }
 
-  pub fn global_ctx(&mut self) -> &mut Context {
+  pub fn global_ctx(&self) -> &Context {
+    if self.global.valid() {
+      &self.global
+    } else {
+      self
+    }
+  }
+
+  pub fn global_ctx_mut(&mut self) -> &mut Context {
     if self.global.valid() {
       &mut self.global
     } else {
@@ -295,57 +296,8 @@ impl Context {
     }
   }
 
-  pub fn done(&self) -> bool {
-    self.ip >= self.instructions.len()
-  }
-
-  pub fn next(&self) -> OpCode {
-    self.instructions[self.ip].clone()
-  }
-
-  pub fn advance(&mut self) {
-    self.ip += 1;
-  }
-
-  pub fn stack_push(&mut self, value: Value) {
-    self.stack.push(value);
-  }
-
-  pub fn stack_pop(&mut self) -> Option<Value> {
-    self.stack.pop()
-  }
-
-  pub fn stack_pop_n(&mut self, count: usize) {
-    self.stack.truncate(self.stack.len().saturating_sub(count));
-  }
-
-  pub fn stack_drain_from(&mut self, index: usize) -> Vec<Value> {
-    self.stack.drain(self.stack_size() - index..).collect()
-  }
-
-  pub fn stack_index(&self, index: usize) -> Option<Value> {
-    self.stack.get(index).cloned()
-  }
-
-  pub fn stack_index_rev(&self, index: usize) -> Option<Value> {
-    self.stack.get(self.stack.len() - 1 - index).cloned()
-  }
-
-  pub fn stack_peek(&self) -> Option<Value> {
-    self.stack.last().cloned()
-  }
-
-  pub fn stack_assign(&mut self, index: usize, value: Value) {
-    self.stack[index] = value;
-  }
-
-  pub fn stack_move(&mut self, mut other: Vec<Value>) -> Vec<Value> {
-    std::mem::swap(&mut self.stack, &mut other);
-    other
-  }
-
-  pub fn stack_size(&self) -> usize {
-    self.stack.len()
+  pub fn next(&self, index: usize) -> Option<OpCode> {
+    self.instructions.get(index).cloned()
   }
 
   pub fn const_at(&self, index: usize) -> Option<Value> {
@@ -358,55 +310,12 @@ impl Context {
   }
 
   pub fn global_const_at(&self, index: usize) -> Option<Value> {
-    if self.global.valid() {
-      self.global.consts.get(index).cloned()
-    } else {
-      self.consts.get(index).cloned()
-    }
-  }
-
-  pub fn lookup_global(&self, name: &str) -> Option<Value> {
-    if self.global.valid() {
-      self.global.env.lookup(name)
-    } else {
-      self.env.lookup(name)
-    }
-  }
-
-  pub fn define_global(&mut self, name: String, value: Value) -> bool {
-    if self.global.valid() {
-      self.global.env.define(name, value)
-    } else {
-      self.env.define(name, value)
-    }
-  }
-
-  pub fn assign_global(&mut self, name: String, value: Value) -> bool {
-    if self.global.valid() {
-      self.global.env.assign(name, value)
-    } else {
-      self.env.assign(name, value)
-    }
-  }
-
-  pub fn create_native<F: FnMut(Vec<Value>) -> ValueOpResult + 'static>(
-    &mut self,
-    name: String,
-    native: F,
-  ) -> bool {
-    self.assign_global(name.clone(), Value::new((name, native)))
-  }
-
-  pub fn jump(&mut self, count: usize) {
-    self.ip = self.ip.saturating_add(count);
-  }
-
-  pub fn loop_back(&mut self, count: usize) {
-    self.ip = self.ip.saturating_sub(count);
+    self.global_ctx().consts.get(index).cloned()
   }
 
   fn write(&mut self, op: OpCode, line: usize, column: usize) {
-    if cfg!(test) {
+    #[cfg(test)]
+    {
       println!("emitting {:?}", op);
     }
     self.instructions.push(op);
@@ -419,7 +328,7 @@ impl Context {
   }
 
   fn add_const(&mut self, c: Value) -> usize {
-    if let Value::Str(string) = &c {
+    if let Value::String(string) = &c {
       if let Some(index) = self.strings.get(string) {
         return *index;
       }
@@ -443,15 +352,13 @@ impl Context {
 
   /* Debugging Functions */
 
-  pub fn error_at<F: FnOnce(OpCodeReflection) -> Error>(&self, f: F) -> Error {
-    if let Some(opcode_ref) = self.meta.get(self.ip) {
-      f(opcode_ref)
-    } else {
-      Error {
-        msg: format!("could not fetch info for instruction {:04X}", self.ip),
-        file: self.meta.file.access().clone(),
-        line: 0,
-        column: 0,
+  #[cfg(debug_assertions)]
+  pub fn disassemble(&self) {
+    self.display_opcodes();
+
+    for value in self.consts() {
+      if let Value::Function(f) = value {
+        f.context().disassemble()
       }
     }
   }
@@ -462,7 +369,7 @@ impl Context {
       if self.id == 0 {
         String::from("MAIN")
       } else {
-        format!("function {}", self.name)
+        format!("function {} {}", self.id, self.name)
       }
     );
     for (i, op) in self.instructions.iter().enumerate() {
@@ -562,20 +469,38 @@ impl Context {
     }
   }
 
-  pub fn display_stack(&self) {
-    print!("          | ");
-    if self.stack.is_empty() {
-      print!("[ ]");
-    } else {
-      for item in self.stack.iter() {
-        print!("[ {} ]", item);
-      }
-    }
-    println!();
-  }
-
   fn address_of(offset: usize) -> String {
     format!("{:#010X} ", offset)
+  }
+}
+
+#[derive(Default)]
+pub struct Env {
+  vars: BTreeMap<String, Value>,
+}
+
+impl Env {
+  pub fn define<T: ToString>(&mut self, name: T, value: Value) -> bool {
+    self.vars.insert(name.to_string(), value).is_none()
+  }
+
+  pub fn assign<T: ToString>(&mut self, name: T, value: Value) -> bool {
+    self.vars.insert(name.to_string(), value).is_some()
+  }
+
+  pub fn lookup<T: ToString>(&self, name: T) -> Option<Value> {
+    self.vars.get(&name.to_string()).cloned()
+  }
+
+  pub fn create_native<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+    &mut self,
+    name: String,
+    native: F,
+  ) -> bool {
+    self.assign(
+      format!("${}", name),
+      Value::new((format!("${}", name), native)),
+    )
   }
 }
 

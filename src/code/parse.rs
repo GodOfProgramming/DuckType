@@ -758,7 +758,7 @@ impl Parser {
         return;
       }
 
-      self.emit(pos, OpCode::Return);
+      self.emit(pos, OpCode::Ret);
     }
   }
 

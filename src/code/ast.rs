@@ -3,7 +3,10 @@ use crate::{
   types::{Error, Value},
   New,
 };
-use std::mem;
+use std::{
+  fmt::{Display, Formatter},
+  mem,
+};
 
 pub struct Ast {
   pub statements: Vec<Statement>,
@@ -25,6 +28,7 @@ struct AstGenerator {
   index: usize,
 
   in_loop: bool,
+  in_function: bool,
 
   test: usize,
 }
@@ -38,6 +42,7 @@ impl AstGenerator {
       errors: Default::default(),
       index: Default::default(),
       in_loop: Default::default(),
+      in_function: Default::default(),
       test: Default::default(),
     }
   }
@@ -65,10 +70,6 @@ impl AstGenerator {
       Token::Cont => {
         self.advance();
         self.cont_stmt();
-      }
-      Token::End => {
-        self.advance();
-        self.end_stmt();
       }
       Token::Fn => {
         self.advance();
@@ -175,37 +176,14 @@ impl AstGenerator {
     }
   }
 
-  fn end_stmt(&mut self) {
-    if let Some(end_meta) = self.meta_at::<1>() {
-      let expr = if self.advance_if_matches(Token::Semicolon) {
-        None
-      } else {
-        let expr = self.expression();
-
-        if expr.is_none() {
-          return;
-        }
-
-        if !self.consume(
-          Token::Semicolon,
-          String::from("expected ';' after statement"),
-        ) {
-          return;
-        }
-
-        expr
-      };
-
-      self
-        .statements
-        .push(Statement::new(EndStatement::new(expr, end_meta)));
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
-    }
-  }
-
   fn fn_stmt(&mut self) {
+    if self.in_function {
+      self.error::<1>(String::from("cannot declare functions within functions"));
+      return;
+    }
+
+    let in_function = self.in_function;
+    self.in_function = true;
     if let Some(loc) = self.meta_at::<0>() {
       if let Some(Token::Identifier(fn_name)) = self.current() {
         let ident = Ident::new(fn_name);
@@ -269,6 +247,7 @@ impl AstGenerator {
         self.error::<0>(String::from("expected an identifier"));
       }
     }
+    self.in_function = in_function;
   }
 
   fn for_stmt(&mut self) {
@@ -1012,7 +991,6 @@ impl AstGenerator {
           | Token::Ret
           | Token::Match
           | Token::Loop
-          | Token::End
       ) {
         return;
       }
@@ -1238,7 +1216,6 @@ impl AstGenerator {
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
-      Token::End => ParseRule::new(None, None, Precedence::None),
     }
   }
 }
@@ -1252,13 +1229,16 @@ impl Ident {
   fn new(name: String) -> Self {
     Self { name }
   }
+
+  pub fn global(&self) -> bool {
+    matches!(self.name.chars().next(), Some('$'))
+  }
 }
 
 pub enum Statement {
   Block(BlockStatement),
   Break(BreakStatement),
   Cont(ContStatement),
-  End(EndStatement),
   Fn(FnStatement),
   For(ForStatement),
   If(IfStatement),
@@ -1270,6 +1250,27 @@ pub enum Statement {
   Ret(RetStatement),
   While(WhileStatement),
   Expression(ExpressionStatement),
+}
+
+impl Display for Statement {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    match self {
+      Self::Block(_) => write!(f, "block"),
+      Self::Break(_) => write!(f, "break"),
+      Self::Cont(_) => write!(f, "cont"),
+      Self::Fn(function) => write!(f, "fn {}", function.ident.name),
+      Self::For(_) => write!(f, "for"),
+      Self::If(_) => write!(f, "if"),
+      Self::Let(_) => write!(f, "let"),
+      Self::Loop(_) => write!(f, "loop"),
+      Self::Match(_) => write!(f, "match"),
+      Self::Print(_) => write!(f, "print"),
+      Self::Req(_) => write!(f, "req"),
+      Self::Ret(_) => write!(f, "ret"),
+      Self::While(_) => write!(f, "while"),
+      Self::Expression(_) => write!(f, "expression"),
+    }
+  }
 }
 
 impl New<BlockStatement> for Statement {
@@ -1287,12 +1288,6 @@ impl New<BreakStatement> for Statement {
 impl New<ContStatement> for Statement {
   fn new(stmt: ContStatement) -> Self {
     Self::Cont(stmt)
-  }
-}
-
-impl New<EndStatement> for Statement {
-  fn new(stmt: EndStatement) -> Self {
-    Self::End(stmt)
   }
 }
 
@@ -1390,18 +1385,6 @@ pub struct ContStatement {
 impl ContStatement {
   fn new(loc: SourceLocation) -> Self {
     Self { loc }
-  }
-}
-
-pub struct EndStatement {
-  pub expr: Option<Expression>,
-
-  pub loc: SourceLocation,
-}
-
-impl EndStatement {
-  fn new(expr: Option<Expression>, loc: SourceLocation) -> Self {
-    Self { expr, loc }
   }
 }
 
@@ -1601,6 +1584,27 @@ pub enum Expression {
   MemberAssign(MemberAssignExpression),
 }
 
+impl Display for Expression {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    match self {
+      Self::Literal(l) => write!(f, "literal {}", l.value),
+      Self::Unary(u) => write!(f, "unary {:?}", u.op),
+      Self::Binary(_) => write!(f, "binary"),
+      Self::And(_) => write!(f, "and"),
+      Self::Or(_) => write!(f, "or"),
+      Self::Group(_) => write!(f, "group"),
+      Self::Ident(i) => write!(f, "ident {}", i.ident.name),
+      Self::Assign(_) => write!(f, "assign"),
+      Self::Call(_) => write!(f, "call"),
+      Self::List(_) => write!(f, "list"),
+      Self::Index(_) => write!(f, "index"),
+      Self::Struct(_) => write!(f, "struct"),
+      Self::MemberAccess(_) => write!(f, "member access"),
+      Self::MemberAssign(_) => write!(f, "member assign"),
+    }
+  }
+}
+
 impl New<LiteralExpression> for Expression {
   fn new(expr: LiteralExpression) -> Self {
     Self::Literal(expr)
@@ -1697,6 +1701,7 @@ impl LiteralExpression {
   }
 }
 
+#[derive(Debug)]
 pub enum UnaryOperator {
   Not,
   Negate,

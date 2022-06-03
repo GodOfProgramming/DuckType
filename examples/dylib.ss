@@ -1,5 +1,5 @@
 if false {
-  end "examples/lib1.ss";
+  ret "examples/lib1.ss";
 } else {
-  end "examples/lib2.ss";
+  ret "examples/lib2.ss";
 }

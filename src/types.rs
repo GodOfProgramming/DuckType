@@ -1,18 +1,14 @@
 use crate::{
-  code::{Context, OpCode, OpCodeReflection},
-  New,
+  code::{Context, Env, OpCode, OpCodeReflection},
+  ExecutionThread, New,
 };
 use ptr::SmartPtr;
 use std::{
   cmp::{Ordering, PartialEq, PartialOrd},
   collections::BTreeMap,
-  fmt::{self, Debug, Display},
+  fmt::{self, Debug, Display, Formatter},
   ops::{Add, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
 };
-
-pub trait Interpreter {
-  fn interpret(&self, ctx: SmartPtr<Context>) -> Result<Value, Vec<Error>>;
-}
 
 #[derive(Default, PartialEq)]
 pub struct Error {
@@ -41,7 +37,7 @@ impl Error {
 }
 
 impl Debug for Error {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     writeln!(
       f,
       "{} ({}, {}): {}",
@@ -51,7 +47,7 @@ impl Debug for Error {
 }
 
 impl Display for Error {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     writeln!(
       f,
       "{} ({}, {}): {}",
@@ -62,21 +58,24 @@ impl Display for Error {
 
 pub struct NativeFn {
   pub name: String,
-  pub call: Box<dyn FnMut(Vec<Value>) -> ValueOpResult>,
+  pub callee: Box<dyn FnMut(&mut Env, Vec<Value>) -> ValueOpResult>,
 }
 
 pub type NativeFnPtr = SmartPtr<NativeFn>;
 
 impl NativeFn {
-  pub fn new<F: FnMut(Vec<Value>) -> ValueOpResult + 'static>(name: String, callee: F) -> Self {
+  pub fn new<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+    name: String,
+    callee: F,
+  ) -> Self {
     Self {
       name,
-      call: Box::new(callee),
+      callee: Box::new(callee),
     }
   }
 
-  pub fn call(&mut self, args: Vec<Value>) -> ValueOpResult {
-    (self.call)(args)
+  pub fn call(&mut self, env: &mut Env, args: Vec<Value>) -> ValueOpResult {
+    (self.callee)(env, args)
   }
 }
 
@@ -85,7 +84,7 @@ pub enum Value {
   Nil,
   Bool(bool),
   Num(f64),
-  Str(String),
+  String(String),
   List(Values),
   Function(Function),
   NativeFunction(NativeFnPtr),
@@ -139,10 +138,15 @@ impl Value {
     }
   }
 
-  pub fn call<I: Interpreter>(&mut self, i: &I, args: Vec<Value>) -> Result<Value, Vec<String>> {
+  pub fn call(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    args: Vec<Value>,
+  ) -> Result<Value, Vec<String>> {
     match self {
-      Value::Function(f) => f.call(i, args),
-      Value::NativeFunction(f) => f.call(args).map_err(|e| vec![e]),
+      Value::Function(f) => f.call(thread, env, args),
+      Value::NativeFunction(f) => f.call(env, args).map_err(|e| vec![e]),
       _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
     }
   }
@@ -163,7 +167,7 @@ impl Value {
         }
         _ => Err(format!("cannot index list with {}", index)),
       },
-      Value::Str(string) => match index {
+      Value::String(string) => match index {
         Value::Num(n) => {
           if n == n as usize as f64 {
             if let Some(c) = string.chars().nth(n as usize) {
@@ -179,6 +183,13 @@ impl Value {
       },
       _ => Err(format!("cannot index {}", self)),
     }
+  }
+
+  pub fn native<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+    name: String,
+    call: F,
+  ) -> Self {
+    Self::new((name, call))
   }
 }
 
@@ -220,7 +231,7 @@ impl New<i32> for Value {
 
 impl New<String> for Value {
   fn new(item: String) -> Self {
-    Self::Str(item)
+    Self::String(item)
   }
 }
 
@@ -243,8 +254,8 @@ impl New<Values> for Value {
 }
 
 impl New<Function> for Value {
-  fn new(item: Function) -> Self {
-    Self::Function(item)
+  fn new(func: Function) -> Self {
+    Self::Function(func)
   }
 }
 
@@ -254,7 +265,7 @@ impl New<Struct> for Value {
   }
 }
 
-impl<F: FnMut(Vec<Value>) -> ValueOpResult + 'static> New<(String, F)> for Value {
+impl<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static> New<(String, F)> for Value {
   fn new((name, call): (String, F)) -> Self {
     Self::NativeFunction(SmartPtr::new(NativeFn::new(name, call)))
   }
@@ -268,23 +279,23 @@ impl Add for Value {
     match self {
       Self::Num(a) => match other {
         Self::Num(b) => Ok(Self::Num(a + b)),
-        Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
+        Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
-      Self::Str(a) => match other {
-        Self::Num(b) => Ok(Self::Str(format!("{}{}", a, b))),
-        Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
-        Self::U128(b) => Ok(Self::Str(format!("{}{}", a, b))),
-        Self::Struct(b) => Ok(Self::Str(format!("{}{}", a, b))),
+      Self::String(a) => match other {
+        Self::Num(b) => Ok(Self::String(format!("{}{}", a, b))),
+        Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
+        Self::U128(b) => Ok(Self::String(format!("{}{}", a, b))),
+        Self::Struct(b) => Ok(Self::String(format!("{}{}", a, b))),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
       Self::U128(a) => match other {
-        Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
+        Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
         Self::U128(b) => Ok(Self::U128(a + b)),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
       Self::Struct(a) => match other {
-        Self::Str(b) => Ok(Self::Str(format!("{}{}", a, b))),
+        Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
       _ => Err(format!("cannot add {} and {}", self, other)),
@@ -311,16 +322,16 @@ impl Mul for Value {
     match self {
       Self::Num(a) => match other {
         Self::Num(b) => Ok(Self::Num(a * b)),
-        Self::Str(b) => {
+        Self::String(b) => {
           if a > 0.0 {
-            Ok(Self::Str(b.repeat(a as usize)))
+            Ok(Self::String(b.repeat(a as usize)))
           } else {
             Err(format!("cannot repeat a string {} times", b))
           }
         }
         _ => Err(format!("cannot multiply {} and {}", a, other)),
       },
-      Self::Str(a) => match other {
+      Self::String(a) => match other {
         Self::Num(b) => {
           if b > 0.0 {
             Ok(Self::new(a.repeat(b as usize)))
@@ -388,8 +399,8 @@ impl PartialEq for Value {
           false
         }
       }
-      Self::Str(a) => {
-        if let Self::Str(b) = other {
+      Self::String(a) => {
+        if let Self::String(b) = other {
           a == b
         } else {
           false
@@ -435,7 +446,8 @@ impl PartialEq for Value {
       }
       Self::Function(a) => {
         if let Self::Function(b) = other {
-          a.ctx.id == b.ctx.id
+          // TODO need file id & instance of file id (multiple requires/reloads) along with this
+          a.context().id == b.context().id
         } else {
           false
         }
@@ -479,8 +491,8 @@ impl PartialOrd for Value {
         Self::U128(b) => Some(a.cmp(b)),
         _ => None,
       },
-      Self::Str(a) => match other {
-        Self::Str(b) => Some(a.cmp(b)),
+      Self::String(a) => match other {
+        Self::String(b) => Some(a.cmp(b)),
         _ => None,
       },
       _ => None,
@@ -495,9 +507,14 @@ impl Display for Value {
       Self::Bool(b) => write!(f, "{}", b),
       Self::Num(n) => write!(f, "{}", n),
       Self::U128(n) => write!(f, "{}", n),
-      Self::Str(s) => write!(f, "'{}'", s),
+      Self::String(s) => write!(f, "'{}'", s),
       Self::List(l) => write!(f, "{}", l),
-      Self::Function(func) => write!(f, "<function {}>", func.name),
+      Self::Function(func) => write!(
+        f,
+        "<function {} {}>",
+        func.context().id,
+        func.context().name
+      ),
       Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
       Self::Struct(obj) => write!(f, "{:?}", obj),
     }
@@ -564,48 +581,26 @@ impl Display for Values {
   }
 }
 
-#[derive(Default)]
-pub struct Env {
-  vars: BTreeMap<String, Value>,
-}
-
-impl Env {
-  pub fn define(&mut self, name: String, value: Value) -> bool {
-    self.vars.insert(name, value).is_none()
-  }
-
-  pub fn assign(&mut self, name: String, value: Value) -> bool {
-    self.vars.insert(name, value).is_some()
-  }
-
-  pub fn lookup(&self, name: &str) -> Option<Value> {
-    self.vars.get(name).cloned()
-  }
-}
-
-pub trait Call<Args, Ret> {
-  fn call(&mut self, args: Args) -> Ret;
-}
-
 #[derive(Clone)]
 pub struct Function {
-  name: SmartPtr<String>,
   airity: usize,
+  locals: usize,
   ctx: SmartPtr<Context>,
 }
 
 impl Function {
-  pub fn new(name: String, airity: usize, ctx: SmartPtr<Context>) -> Self {
+  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
     Self {
-      name: SmartPtr::new(name),
       airity,
+      locals,
       ctx,
     }
   }
 
-  pub fn call<I: Interpreter>(
+  pub fn call(
     &mut self,
-    i: &I,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
     mut args: Vec<Value>,
   ) -> Result<Value, Vec<String>> {
     if args.len() > self.airity {
@@ -620,21 +615,78 @@ impl Function {
       args.push(Value::Nil);
     }
 
-    let prev_ip = self.ctx.ip;
-    self.ctx.ip = 0;
-    let prev_stack = self.ctx.stack_move(args);
+    let prev_ip = thread.ip;
 
-    let res = i
-      .interpret(self.ctx.clone())
+    args.reserve(self.locals);
+
+    let prev_stack = thread.stack_move(args);
+
+    let res = thread
+      .run(self.ctx.clone(), env)
       .map_err(|e| e.into_iter().map(|e| e.msg).collect());
 
-    self.ctx.ip = prev_ip;
-    self.ctx.stack_move(prev_stack);
+    thread.ip = prev_ip;
+    thread.stack_move(prev_stack);
 
     res
   }
 
-  #[cfg(debug_assertions)]
+  pub fn context(&self) -> &Context {
+    &self.ctx
+  }
+}
+
+#[derive(Clone)]
+pub struct Closure {
+  airity: usize,
+  locals: usize,
+  ctx: SmartPtr<Context>,
+}
+
+impl Closure {
+  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
+    Self {
+      airity,
+      locals,
+      ctx,
+    }
+  }
+
+  pub fn call(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    mut args: Vec<Value>,
+  ) -> Result<Value, Vec<String>> {
+    if args.len() > self.airity {
+      return Err(vec![format!(
+        "too many arguments number of arguments, expected {}, got {}",
+        self.airity,
+        args.len()
+      )]);
+    }
+
+    while args.len() < self.airity {
+      args.push(Value::Nil);
+    }
+
+    let prev_ip = thread.ip;
+
+    let mut new_stack = Vec::with_capacity(self.locals + args.len());
+    // push self here
+    new_stack.extend(args);
+    let prev_stack = thread.stack_move(new_stack);
+
+    let res = thread
+      .run(self.ctx.clone(), env)
+      .map_err(|e| e.into_iter().map(|e| e.msg).collect());
+
+    thread.ip = prev_ip;
+    thread.stack_move(prev_stack);
+
+    res
+  }
+
   pub fn context(&self) -> &Context {
     &self.ctx
   }
@@ -648,12 +700,16 @@ pub struct Struct {
 }
 
 impl Struct {
-  pub fn set(&mut self, name: String, value: Value) {
-    self.members.insert(name, value);
+  pub fn set<T: ToString>(&mut self, name: T, value: Value) {
+    self.members.insert(name.to_string(), value);
   }
 
-  pub fn get(&self, name: String) -> Value {
-    self.members.get(&name).cloned().unwrap_or(Value::Nil)
+  pub fn get<T: ToString>(&self, name: T) -> Value {
+    self
+      .members
+      .get(&name.to_string())
+      .cloned()
+      .unwrap_or(Value::Nil)
   }
 }
 
