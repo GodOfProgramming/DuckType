@@ -87,6 +87,7 @@ pub enum Value {
   String(String),
   List(Values),
   Function(Function),
+  Closure(Closure),
   NativeFunction(NativeFnPtr),
   Struct(StructPtr),
 
@@ -146,6 +147,7 @@ impl Value {
   ) -> Result<Value, Vec<String>> {
     match self {
       Value::Function(f) => f.call(thread, env, args),
+      Value::Closure(c) => c.call(thread, env, args),
       Value::NativeFunction(f) => f.call(env, args).map_err(|e| vec![e]),
       _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
     }
@@ -256,6 +258,12 @@ impl New<Values> for Value {
 impl New<Function> for Value {
   fn new(func: Function) -> Self {
     Self::Function(func)
+  }
+}
+
+impl New<Closure> for Value {
+  fn new(func: Closure) -> Self {
+    Self::Closure(func)
   }
 }
 
@@ -446,8 +454,14 @@ impl PartialEq for Value {
       }
       Self::Function(a) => {
         if let Self::Function(b) = other {
-          // TODO need file id & instance of file id (multiple requires/reloads) along with this
-          a.context().id == b.context().id
+          a.context_ptr().raw() == b.context_ptr().raw()
+        } else {
+          false
+        }
+      }
+      Self::Closure(a) => {
+        if let Self::Closure(b) = other {
+          a.context_ptr().raw() == b.context_ptr().raw()
         } else {
           false
         }
@@ -513,8 +527,9 @@ impl Display for Value {
         f,
         "<function {} {}>",
         func.context().id,
-        func.context().name
+        func.context().name()
       ),
+      Self::Closure(_) => write!(f, "<closure>"),
       Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
       Self::Struct(obj) => write!(f, "{:?}", obj),
     }
@@ -631,24 +646,30 @@ impl Function {
     res
   }
 
+  pub fn context_ptr(&self) -> &SmartPtr<Context> {
+    &self.ctx
+  }
+
   pub fn context(&self) -> &Context {
     &self.ctx
   }
 }
 
+pub type StructPtr = SmartPtr<Struct>;
+
 #[derive(Clone)]
 pub struct Closure {
-  airity: usize,
-  locals: usize,
-  ctx: SmartPtr<Context>,
+  capture_count: usize,
+  captures: SmartPtr<Vec<Value>>,
+  function: Function,
 }
 
 impl Closure {
-  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
+  pub fn new(captures: Vec<Value>, function: Function) -> Self {
     Self {
-      airity,
-      locals,
-      ctx,
+      capture_count: captures.len(),
+      captures: SmartPtr::new(captures),
+      function,
     }
   }
 
@@ -658,41 +679,52 @@ impl Closure {
     env: &mut Env,
     mut args: Vec<Value>,
   ) -> Result<Value, Vec<String>> {
-    if args.len() > self.airity {
+    if args.len() > self.function.airity {
       return Err(vec![format!(
         "too many arguments number of arguments, expected {}, got {}",
-        self.airity,
+        self.function.airity,
         args.len()
       )]);
     }
 
-    while args.len() < self.airity {
+    while args.len() < self.function.airity {
       args.push(Value::Nil);
     }
 
     let prev_ip = thread.ip;
 
-    let mut new_stack = Vec::with_capacity(self.locals + args.len());
-    // push self here
-    new_stack.extend(args);
-    let prev_stack = thread.stack_move(new_stack);
+    self.captures.extend(args);
+
+    let mut captures_with_args = Vec::default();
+    std::mem::swap(&mut captures_with_args, &mut self.captures);
+
+    let prev_stack = thread.stack_move(captures_with_args);
 
     let res = thread
-      .run(self.ctx.clone(), env)
+      .run(self.function.ctx.clone(), env)
       .map_err(|e| e.into_iter().map(|e| e.msg).collect());
 
     thread.ip = prev_ip;
-    thread.stack_move(prev_stack);
+
+    let mut captures = thread.stack_move(prev_stack);
+    std::mem::swap(&mut captures, &mut self.captures);
+
+    // remove leftover elements in bulk in event of early return
+    if self.captures.len() > self.capture_count {
+      self.captures.drain(self.capture_count..);
+    }
 
     res
   }
 
+  pub fn context_ptr(&self) -> &SmartPtr<Context> {
+    &self.function.ctx
+  }
+
   pub fn context(&self) -> &Context {
-    &self.ctx
+    &self.function.ctx
   }
 }
-
-pub type StructPtr = SmartPtr<Struct>;
 
 #[derive(Default, Debug, Clone)]
 pub struct Struct {
@@ -710,6 +742,10 @@ impl Struct {
       .get(&name.to_string())
       .cloned()
       .unwrap_or(Value::Nil)
+  }
+
+  pub fn values(&self) -> Vec<Value> {
+    self.members.values().cloned().collect()
   }
 }
 

@@ -100,6 +100,8 @@ pub enum OpCode {
   Index,
   /** Create a list of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
   CreateList(usize),
+  /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
+  CreateClosure,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -227,8 +229,14 @@ impl Reflection {
   }
 }
 
+enum ContextName {
+  Main,
+  Closure,
+  Function(String),
+}
+
 pub struct Context {
-  pub name: String,
+  name: ContextName,
 
   pub id: usize,          // the function id within the local file
   pub file_id: usize,     // the id of the file it was loaded from
@@ -248,7 +256,7 @@ pub struct Context {
 impl Context {
   fn new(reflection: Reflection) -> Self {
     Self {
-      name: Default::default(),
+      name: ContextName::Main,
       id: Default::default(),
       file_id: Default::default(),
       instance_id: Default::default(),
@@ -260,7 +268,12 @@ impl Context {
     }
   }
 
-  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize, name: String) -> Self {
+  fn new_child(
+    ctx: SmartPtr<Context>,
+    reflection: Reflection,
+    id: usize,
+    name: Option<String>,
+  ) -> Self {
     let global = if ctx.global.valid() {
       ctx.global.clone()
     } else {
@@ -268,7 +281,9 @@ impl Context {
     };
 
     Self {
-      name,
+      name: name
+        .map(ContextName::Function)
+        .unwrap_or(ContextName::Closure),
       id,
       file_id: Default::default(),
       instance_id: Default::default(),
@@ -352,6 +367,14 @@ impl Context {
 
   /* Debugging Functions */
 
+  pub fn name(&self) -> &str {
+    match &self.name {
+      ContextName::Main => "MAIN",
+      ContextName::Closure => "Closure",
+      ContextName::Function(name) => name.as_str(),
+    }
+  }
+
   #[cfg(debug_assertions)]
   pub fn disassemble(&self) {
     self.display_opcodes();
@@ -369,7 +392,7 @@ impl Context {
       if self.id == 0 {
         String::from("MAIN")
       } else {
-        format!("function {} {}", self.id, self.name)
+        format!("function {} {}", self.id, self.name())
       }
     );
     for (i, op) in self.instructions.iter().enumerate() {

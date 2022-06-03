@@ -196,52 +196,31 @@ impl AstGenerator {
           return;
         }
 
-        let mut params = Vec::default();
-        if let Some(mut token) = self.current() {
-          if token != Token::RightParen {
-            loop {
-              if let Token::Identifier(ident) = token {
-                params.push(Ident::new(ident));
-              }
+        if let Some(params) = self.parse_parameters() {
+          if !self.consume(
+            Token::RightParen,
+            String::from("expected ')' after arguments"),
+          ) {
+            return;
+          }
 
-              self.advance();
+          if !self.consume(Token::LeftBrace, String::from("expected '{' after paren")) {
+            return;
+          }
 
-              if !self.advance_if_matches(Token::Comma) {
-                break;
-              }
-
-              if let Some(next) = self.current() {
-                token = next;
-              } else {
-                break;
-              }
+          if let Some(block_loc) = self.meta_at::<1>() {
+            if let Some(body) = self.block(block_loc) {
+              self.statements.push(Statement::new(FnStatement::new(
+                ident,
+                params,
+                Statement::new(body),
+                loc,
+              )));
             }
+          } else {
+            // sanity check
+            self.error::<0>(String::from("could not find original token"));
           }
-        }
-
-        if !self.consume(
-          Token::RightParen,
-          String::from("expected ')' after arguments"),
-        ) {
-          return;
-        }
-
-        if !self.consume(Token::LeftBrace, String::from("expected '{' after paren")) {
-          return;
-        }
-
-        if let Some(block_loc) = self.meta_at::<1>() {
-          if let Some(body) = self.block(block_loc) {
-            self.statements.push(Statement::new(FnStatement::new(
-              ident,
-              params,
-              Statement::new(body),
-              loc,
-            )));
-          }
-        } else {
-          // sanity check
-          self.error::<0>(String::from("could not find original token"));
         }
       } else {
         self.error::<0>(String::from("expected an identifier"));
@@ -869,9 +848,45 @@ impl AstGenerator {
     }
 
     if self.consume(Token::RightBrace, String::from("expected '}' after struct")) {
-      Some(Expression::new(StructExpression::new(members, struct_meta)))
+      if self.advance_if_matches(Token::LeftParen) {
+        self.closure_expr(StructExpression::new(members, struct_meta))
+      } else {
+        Some(Expression::new(StructExpression::new(members, struct_meta)))
+      }
     } else {
       self.error::<1>(String::from("expected token"));
+      None
+    }
+  }
+
+  fn closure_expr(&mut self, captures: StructExpression) -> Option<Expression> {
+    let loc = self.meta_at::<0>()?;
+
+    let params = self.parse_parameters()?;
+
+    if !self.consume(
+      Token::RightParen,
+      String::from("expected ')' after arguments"),
+    ) {
+      return None;
+    }
+
+    if !self.consume(Token::LeftBrace, String::from("expected '{' after paren")) {
+      return None;
+    }
+
+    if let Some(block_loc) = self.meta_at::<1>() {
+      let body = self.block(block_loc)?;
+
+      Some(Expression::new(ClosureExpression::new(
+        captures,
+        params,
+        Statement::new(body),
+        loc,
+      )))
+    } else {
+      // sanity check
+      self.error::<0>(String::from("could not find original token"));
       None
     }
   }
@@ -1082,6 +1097,36 @@ impl AstGenerator {
     }
 
     None
+  }
+
+  fn parse_parameters(&mut self) -> Option<Vec<Ident>> {
+    let mut params = Vec::default();
+    if let Some(mut token) = self.current() {
+      if token != Token::RightParen {
+        loop {
+          if let Token::Identifier(ident) = token {
+            params.push(Ident::new(ident));
+          } else {
+            self.error::<0>(String::from("invalid token in parameter list"));
+            return None;
+          }
+
+          self.advance();
+
+          if !self.advance_if_matches(Token::Comma) {
+            break;
+          }
+
+          if let Some(next) = self.current() {
+            token = next;
+          } else {
+            break;
+          }
+        }
+      }
+    }
+
+    Some(params)
   }
 
   fn declaration(&mut self) -> Option<LetStatement> {
@@ -1582,6 +1627,7 @@ pub enum Expression {
   Struct(StructExpression),
   MemberAccess(MemberAccessExpression),
   MemberAssign(MemberAssignExpression),
+  Closure(ClosureExpression),
 }
 
 impl Display for Expression {
@@ -1599,6 +1645,7 @@ impl Display for Expression {
       Self::List(_) => write!(f, "list"),
       Self::Index(_) => write!(f, "index"),
       Self::Struct(_) => write!(f, "struct"),
+      Self::Closure(_) => write!(f, "closure"),
       Self::MemberAccess(_) => write!(f, "member access"),
       Self::MemberAssign(_) => write!(f, "member assign"),
     }
@@ -1686,6 +1733,12 @@ impl New<MemberAccessExpression> for Expression {
 impl New<MemberAssignExpression> for Expression {
   fn new(expr: MemberAssignExpression) -> Self {
     Self::MemberAssign(expr)
+  }
+}
+
+impl New<ClosureExpression> for Expression {
+  fn new(expr: ClosureExpression) -> Self {
+    Self::Closure(expr)
   }
 }
 
@@ -1921,6 +1974,29 @@ pub struct StructExpression {
 impl StructExpression {
   fn new(members: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
     Self { members, loc }
+  }
+}
+
+pub struct ClosureExpression {
+  pub captures: StructExpression,
+  pub params: Vec<Ident>,
+  pub body: Box<Statement>,
+  pub loc: SourceLocation,
+}
+
+impl ClosureExpression {
+  fn new(
+    captures: StructExpression,
+    params: Vec<Ident>,
+    body: Statement,
+    loc: SourceLocation,
+  ) -> Self {
+    Self {
+      captures,
+      params,
+      body: Box::new(body),
+      loc,
+    }
   }
 }
 
