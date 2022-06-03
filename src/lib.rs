@@ -713,8 +713,8 @@ impl ExecutionThread {
       Some(function) => match self.stack_pop() {
         Some(captures) => match function {
           Value::Function(function) => match captures {
-            Value::Struct(captures) => {
-              self.stack_push(Value::new(Closure::new(captures.values(), function)));
+            Value::List(captures) => {
+              self.stack_push(Value::new(Closure::new(captures, function)));
               Ok(())
             }
             _ => Err(self.error(ctx, opcode, String::from("capture list must be a struct"))),

@@ -1,7 +1,7 @@
 fn generator() {
   let x = 0;
-  let closure = {x} () {
-    x = x + 1;
+  let closure = {x} (offset) {
+    x = x + offset;
     print x;
   };
 
@@ -9,6 +9,6 @@ fn generator() {
 }
 
 let gen = generator();
-gen();
-gen();
-gen();
+gen(1);
+gen(2);
+gen(3);

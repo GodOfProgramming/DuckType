@@ -518,19 +518,13 @@ impl BytecodeGenerator {
     body: Statement,
     loc: SourceLocation,
   ) {
-    let mut idents = captures
-      .members
-      .iter()
-      .map(|(k, _)| k.clone())
-      .collect::<Vec<Ident>>();
-
-    self.emit_const(Value::new(Struct::default()), loc);
-
+    let mut idents = Vec::with_capacity(captures.members.len());
     for (member, assign) in captures.members {
-      let ident = self.add_const_ident(member.clone());
+      idents.push(member);
       self.emit_expr(assign);
-      self.emit(OpCode::AssignMember(ident), loc);
     }
+
+    self.emit(OpCode::CreateList(idents.len()), loc);
 
     idents.extend(params);
 

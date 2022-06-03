@@ -665,10 +665,10 @@ pub struct Closure {
 }
 
 impl Closure {
-  pub fn new(captures: Vec<Value>, function: Function) -> Self {
+  pub fn new(captures: Values, function: Function) -> Self {
     Self {
       capture_count: captures.len(),
-      captures: SmartPtr::new(captures),
+      captures: SmartPtr::new(captures.0.localize()),
       function,
     }
   }
