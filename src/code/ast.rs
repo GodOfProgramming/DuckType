@@ -3,7 +3,10 @@ use crate::{
   types::{Error, Value},
   New,
 };
-use std::mem;
+use std::{
+  fmt::{Display, Formatter},
+  mem,
+};
 
 pub struct Ast {
   pub statements: Vec<Statement>,
@@ -1249,6 +1252,27 @@ pub enum Statement {
   Expression(ExpressionStatement),
 }
 
+impl Display for Statement {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    match self {
+      Self::Block(_) => write!(f, "block"),
+      Self::Break(_) => write!(f, "break"),
+      Self::Cont(_) => write!(f, "cont"),
+      Self::Fn(function) => write!(f, "fn {}", function.ident.name),
+      Self::For(_) => write!(f, "for"),
+      Self::If(_) => write!(f, "if"),
+      Self::Let(_) => write!(f, "let"),
+      Self::Loop(_) => write!(f, "loop"),
+      Self::Match(_) => write!(f, "match"),
+      Self::Print(_) => write!(f, "print"),
+      Self::Req(_) => write!(f, "req"),
+      Self::Ret(_) => write!(f, "ret"),
+      Self::While(_) => write!(f, "while"),
+      Self::Expression(_) => write!(f, "expression"),
+    }
+  }
+}
+
 impl New<BlockStatement> for Statement {
   fn new(stmt: BlockStatement) -> Self {
     Self::Block(stmt)
@@ -1560,6 +1584,27 @@ pub enum Expression {
   MemberAssign(MemberAssignExpression),
 }
 
+impl Display for Expression {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    match self {
+      Self::Literal(l) => write!(f, "literal {}", l.value),
+      Self::Unary(u) => write!(f, "unary {:?}", u.op),
+      Self::Binary(_) => write!(f, "binary"),
+      Self::And(_) => write!(f, "and"),
+      Self::Or(_) => write!(f, "or"),
+      Self::Group(_) => write!(f, "group"),
+      Self::Ident(i) => write!(f, "ident {}", i.ident.name),
+      Self::Assign(_) => write!(f, "assign"),
+      Self::Call(_) => write!(f, "call"),
+      Self::List(_) => write!(f, "list"),
+      Self::Index(_) => write!(f, "index"),
+      Self::Struct(_) => write!(f, "struct"),
+      Self::MemberAccess(_) => write!(f, "member access"),
+      Self::MemberAssign(_) => write!(f, "member assign"),
+    }
+  }
+}
+
 impl New<LiteralExpression> for Expression {
   fn new(expr: LiteralExpression) -> Self {
     Self::Literal(expr)
@@ -1656,6 +1701,7 @@ impl LiteralExpression {
   }
 }
 
+#[derive(Debug)]
 pub enum UnaryOperator {
   Not,
   Negate,

@@ -1,12 +1,12 @@
 use crate::{
-  code::{ast::Ident, Context, Env, OpCode, OpCodeReflection},
+  code::{Context, Env, OpCode, OpCodeReflection},
   ExecutionThread, New,
 };
 use ptr::SmartPtr;
 use std::{
   cmp::{Ordering, PartialEq, PartialOrd},
   collections::BTreeMap,
-  fmt::{self, Debug, Display},
+  fmt::{self, Debug, Display, Formatter},
   ops::{Add, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
 };
 
@@ -37,7 +37,7 @@ impl Error {
 }
 
 impl Debug for Error {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     writeln!(
       f,
       "{} ({}, {}): {}",
@@ -47,7 +47,7 @@ impl Debug for Error {
 }
 
 impl Display for Error {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     writeln!(
       f,
       "{} ({}, {}): {}",
@@ -254,8 +254,8 @@ impl New<Values> for Value {
 }
 
 impl New<Function> for Value {
-  fn new(item: Function) -> Self {
-    Self::Function(item)
+  fn new(func: Function) -> Self {
+    Self::Function(func)
   }
 }
 
@@ -446,7 +446,7 @@ impl PartialEq for Value {
       }
       Self::Function(a) => {
         if let Self::Function(b) = other {
-          // TODO need file id along with this
+          // TODO need file id & instance of file id (multiple requires/reloads) along with this
           a.context().id == b.context().id
         } else {
           false
@@ -582,52 +582,13 @@ impl Display for Values {
 }
 
 #[derive(Clone)]
-pub enum Function {
-  Global(GlobalFunction),
-  Local(LocalFunction),
-}
-
-impl Function {
-  pub fn call(
-    &mut self,
-    thread: &mut ExecutionThread,
-    env: &mut Env,
-    args: Vec<Value>,
-  ) -> Result<Value, Vec<String>> {
-    match self {
-      Function::Global(global) => global.call(thread, env, args),
-      Function::Local(local) => local.call(thread, env, args),
-    }
-  }
-
-  pub fn context(&self) -> &Context {
-    match self {
-      Function::Global(global) => global.context(),
-      Function::Local(local) => local.context(),
-    }
-  }
-}
-
-impl New<GlobalFunction> for Function {
-  fn new(func: GlobalFunction) -> Self {
-    Self::Global(func)
-  }
-}
-
-impl New<LocalFunction> for Function {
-  fn new(func: LocalFunction) -> Self {
-    Self::Local(func)
-  }
-}
-
-#[derive(Clone)]
-pub struct GlobalFunction {
+pub struct Function {
   airity: usize,
   locals: usize,
   ctx: SmartPtr<Context>,
 }
 
-impl GlobalFunction {
+impl Function {
   pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
     Self {
       airity,
@@ -670,19 +631,19 @@ impl GlobalFunction {
     res
   }
 
-  fn context(&self) -> &Context {
+  pub fn context(&self) -> &Context {
     &self.ctx
   }
 }
 
 #[derive(Clone)]
-pub struct LocalFunction {
+pub struct Closure {
   airity: usize,
   locals: usize,
   ctx: SmartPtr<Context>,
 }
 
-impl LocalFunction {
+impl Closure {
   pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
     Self {
       airity,
@@ -712,7 +673,7 @@ impl LocalFunction {
     let prev_ip = thread.ip;
 
     let mut new_stack = Vec::with_capacity(self.locals + args.len());
-    new_stack.push(Value::new(Function::new(self.clone())));
+    // push self here
     new_stack.extend(args);
     let prev_stack = thread.stack_move(new_stack);
 
@@ -726,7 +687,7 @@ impl LocalFunction {
     res
   }
 
-  fn context(&self) -> &Context {
+  pub fn context(&self) -> &Context {
     &self.ctx
   }
 }

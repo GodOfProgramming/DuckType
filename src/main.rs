@@ -73,7 +73,7 @@ fn run_file(
           obj.set("clock", clock);
           obj.set("clock_diff", clock_diff);
 
-          env.assign("$time", Value::new(obj));
+          env.assign("SS_LIB_TIME", Value::new(obj));
 
           #[cfg(debug_assertions)]
           if show_disassembly {

@@ -14,7 +14,7 @@ use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
-  fmt::{self, Debug},
+  fmt::{Debug, Display, Formatter},
   str,
 };
 
@@ -159,8 +159,8 @@ pub enum Token {
   While,
 }
 
-impl fmt::Display for Token {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+impl Display for Token {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     match self {
       Token::Identifier(i) => write!(f, "Identifier ({})", i),
       Token::String(s) => write!(f, "String ({})", s),
@@ -271,7 +271,15 @@ impl Context {
     }
   }
 
-  pub fn global_ctx(&mut self) -> &mut Context {
+  pub fn global_ctx(&self) -> &Context {
+    if self.global.valid() {
+      &self.global
+    } else {
+      self
+    }
+  }
+
+  pub fn global_ctx_mut(&mut self) -> &mut Context {
     if self.global.valid() {
       &mut self.global
     } else {
@@ -293,15 +301,12 @@ impl Context {
   }
 
   pub fn global_const_at(&self, index: usize) -> Option<Value> {
-    if self.global.valid() {
-      self.global.consts.get(index).cloned()
-    } else {
-      self.consts.get(index).cloned()
-    }
+    self.global_ctx().consts.get(index).cloned()
   }
 
   fn write(&mut self, op: OpCode, line: usize, column: usize) {
-    if cfg!(test) {
+    #[cfg(test)]
+    {
       println!("emitting {:?}", op);
     }
     self.instructions.push(op);

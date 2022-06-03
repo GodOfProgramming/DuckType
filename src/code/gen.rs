@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
   code::ast::*,
-  types::{Error, Function, GlobalFunction, LocalFunction, Struct, Value},
+  types::{Error, Function, Struct, Value},
   New,
 };
 use ptr::SmartPtr;
@@ -100,13 +100,10 @@ impl BytecodeGenerator {
   }
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
-    if let Some(var) = self.declare_variable(stmt.ident.clone(), stmt.loc) {
-      let is_global = stmt.ident.global();
-      self.emit_fn(stmt.ident, stmt.params, *stmt.body, stmt.loc);
-      if self.define_variable(is_global, var, stmt.loc) && is_global {
-        self.emit(OpCode::Pop, stmt.loc);
-      }
-    }
+    let var = self.declare_global(stmt.ident.clone());
+    self.emit_fn(stmt.ident, stmt.params, *stmt.body, stmt.loc);
+    self.define_global(var, stmt.loc);
+    self.emit(OpCode::Pop, stmt.loc);
   }
 
   fn for_stmt(&mut self, stmt: ForStatement) {
@@ -151,12 +148,13 @@ impl BytecodeGenerator {
 
   fn let_stmt(&mut self, stmt: LetStatement) {
     let is_global = stmt.ident.global();
-    if let Some(var) = self.declare_variable(stmt.ident, stmt.loc) {
+    if let Some(var) = self.declare_variable(stmt.ident.clone(), stmt.loc) {
       if let Some(value) = stmt.value {
         self.emit_expr(value);
       } else {
         self.emit(OpCode::Nil, stmt.loc);
       };
+
       if self.define_variable(is_global, var, stmt.loc) && is_global {
         self.emit(OpCode::Pop, stmt.loc);
       }
@@ -291,13 +289,10 @@ impl BytecodeGenerator {
   }
 
   fn ident_expr(&mut self, expr: IdentExpression) {
-    if let Some(lookup) = self.resolve_local(&expr.ident, expr.loc) {
+    if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
       let get = match lookup.kind {
         LookupKind::Local => OpCode::LookupLocal(lookup.index),
-        LookupKind::Global => {
-          let index = self.add_ident(expr.ident);
-          OpCode::LookupGlobal(index)
-        }
+        LookupKind::Global => OpCode::LookupGlobal(self.declare_global(expr.ident)),
       };
 
       self.emit(get, expr.loc);
@@ -305,12 +300,10 @@ impl BytecodeGenerator {
   }
 
   fn assign_expr(&mut self, expr: AssignExpression) {
-    if let Some(lookup) = self.resolve_local(&expr.ident, expr.loc) {
-      let set = if lookup.kind == LookupKind::Local {
-        OpCode::AssignLocal(lookup.index)
-      } else {
-        let index = self.add_ident(expr.ident);
-        OpCode::AssignGlobal(index)
+    if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
+      let set = match lookup.kind {
+        LookupKind::Local => OpCode::AssignLocal(lookup.index),
+        LookupKind::Global => OpCode::AssignGlobal(self.declare_global(expr.ident)),
       };
 
       self.emit_expr(*expr.value);
@@ -373,6 +366,10 @@ impl BytecodeGenerator {
   }
 
   fn emit_stmt(&mut self, stmt: Statement) {
+    #[cfg(feature = "visit_ast")]
+    {
+      println!("stmt {}", stmt);
+    }
     match stmt {
       Statement::Block(stmt) => self.block_stmt(stmt),
       Statement::Break(stmt) => self.break_stmt(stmt),
@@ -392,6 +389,10 @@ impl BytecodeGenerator {
   }
 
   fn emit_expr(&mut self, expr: Expression) {
+    #[cfg(feature = "visit_ast")]
+    {
+      println!("expr {}", expr);
+    }
     match expr {
       Expression::Literal(expr) => self.literal_expr(expr),
       Expression::Unary(expr) => self.unary_expr(expr),
@@ -442,13 +443,7 @@ impl BytecodeGenerator {
     let mut locals = Vec::default();
     std::mem::swap(&mut locals, &mut self.locals);
 
-    if !ident.global() {
-      // allow for local var recursion
-      self.declare_local(ident.clone(), loc);
-      self.define_local();
-    }
-
-    let parent_ctx = self.current_ctx();
+    let parent_ctx = self.current_ctx_ptr();
     let prev_fn = self.current_fn.take();
 
     let reflection = Reflection::new(parent_ctx.meta.file.clone(), parent_ctx.meta.source.clone());
@@ -495,17 +490,7 @@ impl BytecodeGenerator {
       this.current_fn = prev_fn;
       this.locals = locals;
 
-      if ident.global() {
-        this.emit_const(
-          Value::Function(Function::new(GlobalFunction::new(airity, local_count, ctx))),
-          loc,
-        )
-      } else {
-        this.emit_const(
-          Value::Function(Function::new(LocalFunction::new(airity, local_count, ctx))),
-          loc,
-        )
-      }
+      this.emit_const(Value::new(Function::new(airity, local_count, ctx)), loc)
     });
   }
 
@@ -545,25 +530,24 @@ impl BytecodeGenerator {
     self.current_ctx().add_const(Value::new(ident.name))
   }
 
-  /**
-   * Returns the index of the identifier name, and creates it if it doesn't already exist
-   */
-  fn add_ident(&mut self, ident: Ident) -> usize {
-    if let Some(index) = self.identifiers.get(&ident.name).cloned() {
-      index
+  fn current_ctx(&mut self) -> &mut Context {
+    if let Some(ctx) = self.current_fn.as_mut() {
+      ctx
     } else {
-      let index = self.current_ctx().add_const(Value::new(ident.name.clone()));
-      self.identifiers.insert(ident.name, index);
-      index
+      &mut self.ctx
     }
   }
 
-  fn current_ctx(&mut self) -> SmartPtr<Context> {
+  fn current_ctx_ptr(&mut self) -> SmartPtr<Context> {
     if let Some(ctx) = &mut self.current_fn {
       ctx.clone()
     } else {
       self.ctx.clone()
     }
+  }
+
+  fn global_ctx(&mut self) -> &mut Context {
+    self.current_ctx().global_ctx_mut()
   }
 
   fn current_instruction_count(&mut self) -> usize {
@@ -582,11 +566,49 @@ impl BytecodeGenerator {
   fn declare_variable(&mut self, ident: Ident, loc: SourceLocation) -> Option<usize> {
     if ident.global() {
       Some(self.declare_global(ident))
-    } else if self.declare_local(ident, loc) {
+    } else if self.declare_local(ident.clone(), loc) {
       Some(0)
     } else {
       None
     }
+  }
+
+  /**
+   * Returns the index of the identifier name
+   */
+  fn declare_global(&mut self, ident: Ident) -> usize {
+    if let Some(index) = self.identifiers.get(&ident.name).cloned() {
+      index
+    } else {
+      let index = self.global_ctx().add_const(Value::new(ident.name.clone()));
+      self.identifiers.insert(ident.name, index);
+      index
+    }
+  }
+
+  fn declare_local(&mut self, ident: Ident, loc: SourceLocation) -> bool {
+    for local in self.locals.iter().rev() {
+      // declared already in parent scope, break to redeclare in current scope
+      if local.initialized && local.depth < self.scope_depth {
+        break;
+      }
+
+      if ident.name == local.name {
+        self.error(
+          loc,
+          String::from("variable with the same name already declared"),
+        );
+        return false;
+      }
+    }
+
+    self.locals.push(Local {
+      name: ident.name,
+      depth: self.scope_depth,
+      initialized: false,
+    });
+
+    true
   }
 
   fn define_global(&mut self, var: usize, loc: SourceLocation) {
@@ -619,70 +641,33 @@ impl BytecodeGenerator {
     }
   }
 
-  fn declare_local(&mut self, ident: Ident, loc: SourceLocation) -> bool {
-    for local in self.locals.iter().rev() {
-      // declared already in parent scope, break to redeclare in current scope
-      if local.initialized && local.depth < self.scope_depth {
-        break;
-      }
+  fn resolve_ident(&mut self, ident: &Ident, loc: SourceLocation) -> Option<Lookup> {
+    if !self.locals.is_empty() {
+      let mut index = self.locals.len() - 1;
 
-      if ident.name == local.name {
-        self.error(
-          loc,
-          String::from("variable with the same name already declared"),
-        );
-        return false;
-      }
-    }
-
-    self.add_local(ident);
-
-    true
-  }
-
-  fn declare_global(&mut self, ident: Ident) -> usize {
-    self.add_ident(ident)
-  }
-
-  fn add_local(&mut self, var: Ident) {
-    self.locals.push(Local {
-      name: var.name,
-      depth: self.scope_depth,
-      initialized: false,
-    });
-  }
-
-  fn resolve_local(&mut self, ident: &Ident, loc: SourceLocation) -> Option<Lookup> {
-    if ident.global() {
-      Some(Lookup {
-        index: 0,
-        kind: LookupKind::Global,
-      })
-    } else {
-      if !self.locals.is_empty() {
-        let mut index = self.locals.len() - 1;
-
-        for local in self.locals.iter().rev() {
-          if ident.name == local.name {
-            if !local.initialized {
-              self.error(loc, String::from("tried to use an undeclared identifier"));
-              return None;
-            } else {
-              return Some(Lookup {
-                index,
-                kind: LookupKind::Local,
-              });
-            }
-          }
-
-          if index > 0 {
-            index -= 1;
+      for local in self.locals.iter().rev() {
+        if ident.name == local.name {
+          if !local.initialized {
+            self.error(loc, String::from("tried to use an undeclared identifier"));
+            return None;
+          } else {
+            return Some(Lookup {
+              index,
+              kind: LookupKind::Local,
+            });
           }
         }
-      }
 
-      None
+        if index > 0 {
+          index -= 1;
+        }
+      }
     }
+
+    Some(Lookup {
+      index: 0,
+      kind: LookupKind::Global,
+    })
   }
 
   fn reduce_locals_to_depth(&mut self, depth: usize, loc: SourceLocation) {

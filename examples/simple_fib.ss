@@ -23,7 +23,7 @@ fn fib_it(count) {
   ret prev;
 }
 
-let times = 30;
+let times = 10;
 print "times = " + times;
 let before = time.clock();
 print fib(times);
