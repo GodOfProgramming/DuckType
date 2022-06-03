@@ -9,7 +9,7 @@ pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection};
 use ptr::SmartPtr;
 use std::{collections::BTreeMap, fs};
-use types::Error;
+use types::{Closure, Error};
 pub use types::{Struct, Value, ValueOpResult};
 
 pub trait New<T> {
@@ -173,15 +173,10 @@ impl ExecutionThread {
         OpCode::Req => self.exec_req(&mut ctx, env, &opcode)?,
         OpCode::Index => self.exec_index(&mut ctx, &opcode)?,
         OpCode::CreateList(num_items) => self.exec_create_list(num_items),
+        OpCode::CreateClosure => self.exec_create_closure(&mut ctx, &opcode)?,
         x => unimplemented!("Unimplemented: {:?}", x),
       }
       self.ip += 1;
-    }
-
-    #[cfg(feature = "runtime-disassembly")]
-    {
-      println!("<< EOF >>");
-      self.stack_display();
     }
 
     Ok(Value::Nil)
@@ -710,6 +705,34 @@ impl ExecutionThread {
   fn exec_create_list(&mut self, num_items: usize) {
     let list = self.stack_drain_from(num_items);
     self.stack_push(Value::new(list));
+  }
+
+  #[inline]
+  fn exec_create_closure(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+    match self.stack_pop() {
+      Some(function) => match self.stack_pop() {
+        Some(captures) => match function {
+          Value::Function(function) => match captures {
+            Value::Struct(captures) => {
+              self.stack_push(Value::new(Closure::new(captures.values(), function)));
+              Ok(())
+            }
+            _ => Err(self.error(ctx, opcode, String::from("capture list must be a struct"))),
+          },
+          _ => Err(self.error(ctx, opcode, String::from("closure must be a function"))),
+        },
+        None => Err(self.error(
+          ctx,
+          opcode,
+          String::from("no item on the stack to pop for closure captures"),
+        )),
+      },
+      None => Err(self.error(
+        ctx,
+        opcode,
+        String::from("no item on the stack to pop for closure function"),
+      )),
+    }
   }
 
   /* Utility Functions */
