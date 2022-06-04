@@ -117,11 +117,6 @@ pub enum Token {
   Dot,
   Colon,
   Semicolon,
-  Plus,
-  Minus,
-  Asterisk,
-  Slash,
-  Modulus,
 
   // One or two character tokens.
   Bang,
@@ -133,6 +128,16 @@ pub enum Token {
   Less,
   LessEqual,
   Arrow,
+  Plus,
+  PlusEqual,
+  Minus,
+  MinusEqual,
+  Asterisk,
+  AsteriskEqual,
+  Slash,
+  SlashEqual,
+  Percent,
+  PercentEqual,
 
   // Literals.
   Identifier(String),

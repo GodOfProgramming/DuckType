@@ -885,7 +885,7 @@ impl Parser {
       ),
       Token::Asterisk => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Factor),
       Token::Slash => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Factor),
-      Token::Modulus => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Factor),
+      Token::Percent => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Factor),
       Token::Bang => ParseRule::new(Some(Parser::unary_expr), None, Precedence::None),
       Token::BangEqual => ParseRule::new(None, Some(Parser::binary_expr), Precedence::Equality),
       Token::Equal => ParseRule::new(None, None, Precedence::None),
@@ -1122,7 +1122,7 @@ impl Parser {
         Token::Minus => self.emit(pos, OpCode::Sub),
         Token::Asterisk => self.emit(pos, OpCode::Mul),
         Token::Slash => self.emit(pos, OpCode::Div),
-        Token::Modulus => self.emit(pos, OpCode::Mod),
+        Token::Percent => self.emit(pos, OpCode::Mod),
         _ => {
           self.error(pos, String::from("invalid binary operator"));
           return false;

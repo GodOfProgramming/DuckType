@@ -622,7 +622,7 @@ impl AstGenerator {
         Token::Minus => BinaryOperator::Sub,
         Token::Asterisk => BinaryOperator::Mul,
         Token::Slash => BinaryOperator::Div,
-        Token::Modulus => BinaryOperator::Mod,
+        Token::Percent => BinaryOperator::Mod,
         _ => {
           self.error::<1>(String::from("invalid binary operator"));
           return None;
@@ -736,6 +736,39 @@ impl AstGenerator {
         value,
         op_meta,
       )))
+    } else {
+      self.error::<1>(String::from("can only assign to variables"));
+      None
+    }
+  }
+
+  fn op_assign_expr(&mut self, left: Expression) -> Option<Expression> {
+    if let Expression::Ident(ident) = left {
+      if let Some(op) = self.previous() {
+        let op = match op {
+          Token::PlusEqual => OpAssignOperation::Add,
+          Token::MinusEqual => OpAssignOperation::Sub,
+          Token::AsteriskEqual => OpAssignOperation::Mul,
+          Token::SlashEqual => OpAssignOperation::Div,
+          Token::PercentEqual => OpAssignOperation::Mod,
+          t => {
+            self.error::<1>(format!("invalid token {}", t));
+            return None;
+          }
+        };
+
+        let op_meta = self.meta_at::<1>()?;
+        let value = self.expression()?;
+        Some(Expression::new(OpAssignExpression::new(
+          ident.ident,
+          op,
+          value,
+          op_meta,
+        )))
+      } else {
+        self.error::<1>(String::from("can only assign to variables"));
+        None
+      }
     } else {
       self.error::<1>(String::from("can only assign to variables"));
       None
@@ -1255,14 +1288,23 @@ impl AstGenerator {
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
       Token::Colon => ParseRule::new(None, None, Precedence::None),
       Token::Plus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Term),
+      Token::PlusEqual => ParseRule::new(None, Some(Self::op_assign_expr), Precedence::Assignment),
       Token::Minus => ParseRule::new(
         Some(Self::unary_expr),
         Some(Self::binary_expr),
         Precedence::Term,
       ),
+      Token::MinusEqual => ParseRule::new(None, Some(Self::op_assign_expr), Precedence::Assignment),
       Token::Asterisk => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
+      Token::AsteriskEqual => {
+        ParseRule::new(None, Some(Self::op_assign_expr), Precedence::Assignment)
+      }
       Token::Slash => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
-      Token::Modulus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
+      Token::SlashEqual => ParseRule::new(None, Some(Self::op_assign_expr), Precedence::Assignment),
+      Token::Percent => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
+      Token::PercentEqual => {
+        ParseRule::new(None, Some(Self::op_assign_expr), Precedence::Assignment)
+      }
       Token::Bang => ParseRule::new(Some(Self::unary_expr), None, Precedence::None),
       Token::BangEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Equality),
       Token::Equal => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
@@ -1654,6 +1696,7 @@ pub enum Expression {
   Group(GroupExpression),
   Ident(IdentExpression),
   Assign(AssignExpression),
+  OpAssign(OpAssignExpression),
   Call(CallExpression),
   List(ListExpression),
   Index(IndexExpression),
@@ -1675,6 +1718,7 @@ impl Display for Expression {
       Self::Group(_) => write!(f, "group"),
       Self::Ident(i) => write!(f, "ident {}", i.ident.name),
       Self::Assign(_) => write!(f, "assign"),
+      Self::OpAssign(_) => write!(f, "op assign"),
       Self::Call(_) => write!(f, "call"),
       Self::List(_) => write!(f, "list"),
       Self::Index(_) => write!(f, "index"),
@@ -1732,6 +1776,12 @@ impl New<IdentExpression> for Expression {
 impl New<AssignExpression> for Expression {
   fn new(expr: AssignExpression) -> Self {
     Self::Assign(expr)
+  }
+}
+
+impl New<OpAssignExpression> for Expression {
+  fn new(expr: OpAssignExpression) -> Self {
+    Self::OpAssign(expr)
   }
 }
 
@@ -1922,6 +1972,33 @@ impl AssignExpression {
   fn new(ident: Ident, value: Expression, loc: SourceLocation) -> Self {
     Self {
       ident,
+      value: Box::new(value),
+      loc,
+    }
+  }
+}
+
+pub enum OpAssignOperation {
+  Add,
+  Sub,
+  Mul,
+  Div,
+  Mod,
+}
+
+pub struct OpAssignExpression {
+  pub ident: Ident,
+  pub op: OpAssignOperation,
+  pub value: Box<Expression>,
+
+  pub loc: SourceLocation, // location of the =
+}
+
+impl OpAssignExpression {
+  fn new(ident: Ident, op: OpAssignOperation, value: Expression, loc: SourceLocation) -> Self {
+    Self {
+      ident,
+      op,
       value: Box::new(value),
       loc,
     }
