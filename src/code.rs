@@ -48,6 +48,8 @@ pub enum OpCode {
   AssignMember(usize),
   /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
   LookupMember(usize),
+  /** Assigns an initializer function to the class which is the next item on the stack */
+  AssignInitializer,
   /** Pops two values off the stack, compares, then pushes the result back on */
   Equal,
   /** Pops two values off the stack, compares, then pushes the result back on */
@@ -88,8 +90,6 @@ pub enum OpCode {
   JumpIfFalse(usize),
   /** Jumps the instruction pointer backwards N instructions. N specified by the tuple */
   Loop(usize),
-  /** Pushes the stack pointer onto the stack */
-  PushSp,
   /** Calls the instruction on the stack. Number of arguments is specified by the modifying bits */
   Call(usize),
   /** Exits from a function */
@@ -320,8 +320,8 @@ impl Context {
     self.instructions.get(index).cloned()
   }
 
-  pub fn const_at(&self, index: usize) -> Option<Value> {
-    self.consts.get(index).cloned()
+  pub fn const_at(&self, index: usize) -> Option<&Value> {
+    self.consts.get(index)
   }
 
   #[cfg(debug_assertions)]
@@ -444,7 +444,7 @@ impl Context {
         "LookupGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
-          name
+          name.clone()
         } else {
           Value::new("????")
         }
@@ -454,7 +454,7 @@ impl Context {
         "DefineGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
-          name
+          name.clone()
         } else {
           Value::new("????")
         }
@@ -464,7 +464,7 @@ impl Context {
         "AssignGlobal",
         name,
         if let Some(name) = self.const_at(*name) {
-          name
+          name.clone()
         } else {
           Value::new("????")
         }

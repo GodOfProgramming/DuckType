@@ -4,6 +4,7 @@ use crate::{
   New,
 };
 use std::{
+  collections::BTreeSet,
   fmt::{Display, Formatter},
   mem,
 };
@@ -189,6 +190,7 @@ impl AstGenerator {
 
         let mut initializer = None;
         let mut methods = Vec::default();
+        let mut declared_functions = BTreeSet::default();
 
         while let Some(token) = self.current() {
           match token {
@@ -210,8 +212,23 @@ impl AstGenerator {
             }
             Token::Fn => {
               self.advance();
-              if let Some(stmt) = self.parse_fn() {
-                methods.push(stmt);
+              if let Some(Token::Identifier(ident)) = self.current() {
+                if !declared_functions.contains(&ident) {
+                  self.advance();
+                  if let Some(function) = self.lambda_expr(|params, body| {
+                    declared_functions.insert(ident.clone());
+                    Some(Expression::new(LambdaExpression::new(
+                      params,
+                      Statement::new(body),
+                      loc,
+                    )))
+                  }) {
+                    let ident = Ident::new(ident.clone());
+                    methods.push((ident, function));
+                  }
+                } else {
+                  self.error::<0>(String::from("duplicate method definition"));
+                }
               }
             }
             _ => break,
@@ -1364,8 +1381,10 @@ pub struct Ident {
 }
 
 impl Ident {
-  fn new(name: String) -> Self {
-    Self { name }
+  pub fn new<N: ToString>(name: N) -> Self {
+    Self {
+      name: name.to_string(),
+    }
   }
 
   pub fn global(&self) -> bool {
@@ -1537,7 +1556,7 @@ impl ContStatement {
 pub struct ClassStatement {
   pub ident: Ident,
   pub initializer: Option<Expression>,
-  pub methods: Vec<Statement>,
+  pub methods: Vec<(Ident, Expression)>,
 
   pub loc: SourceLocation,
 }
@@ -1546,7 +1565,7 @@ impl ClassStatement {
   fn new(
     ident: Ident,
     initializer: Option<Expression>,
-    methods: Vec<Statement>,
+    methods: Vec<(Ident, Expression)>,
     loc: SourceLocation,
   ) -> Self {
     Self {

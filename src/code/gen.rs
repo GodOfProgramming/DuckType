@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
   code::ast::*,
-  types::{Error, Function, Struct, Value},
+  types::{Class, Error, Function, Struct, Value},
   New,
 };
 use ptr::SmartPtr;
@@ -99,7 +99,40 @@ impl BytecodeGenerator {
     self.emit_loop(self.cont_jump, stmt.loc);
   }
 
-  fn class_stmt(&mut self, stmt: ClassStatement) {}
+  fn class_stmt(&mut self, stmt: ClassStatement) {
+    if self.scope_depth > 0 {
+      self.error(
+        stmt.loc,
+        String::from("classes must be declared at the surface scope"),
+      );
+      return;
+    }
+
+    let var = self.declare_global(stmt.ident.clone());
+
+    self.emit_const(Value::new(Class::new(stmt.ident.name)), stmt.loc);
+
+    if let Some(initializer) = stmt.initializer {
+      if self.declare_local(Ident::new("self"), stmt.loc) {
+        self.emit_expr(initializer);
+        self.emit(OpCode::AssignInitializer, stmt.loc);
+      } else {
+        self.error(stmt.loc, String::from("self cannot be a parameter name"));
+      }
+    }
+
+    for (name, method) in stmt.methods {
+      let ident = self.add_const_ident(name);
+      if self.declare_local(Ident::new("self"), stmt.loc) {
+        self.emit_expr(method);
+        self.emit(OpCode::AssignMember(ident), stmt.loc);
+      } else {
+        self.error(stmt.loc, String::from("self cannot be a parameter name"));
+      }
+    }
+
+    self.define_global(var, stmt.loc);
+  }
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
     if self.scope_depth > 0 {

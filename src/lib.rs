@@ -130,6 +130,7 @@ impl ExecutionThread {
         OpCode::AssignGlobal(index) => self.exec_assign_global(&mut ctx, env, &opcode, index)?,
         OpCode::AssignMember(index) => self.exec_assign_member(&mut ctx, &opcode, index)?,
         OpCode::LookupMember(index) => self.exec_lookup_member(&mut ctx, &opcode, index)?,
+        OpCode::AssignInitializer => self.exec_assign_initializer(&mut ctx, &opcode)?,
         OpCode::Equal => self.exec_equal(&mut ctx, &opcode)?,
         OpCode::NotEqual => self.exec_not_equal(&mut ctx, &opcode)?,
         OpCode::Greater => self.exec_greater(&mut ctx, &opcode)?,
@@ -174,7 +175,6 @@ impl ExecutionThread {
         OpCode::Index => self.exec_index(&mut ctx, &opcode)?,
         OpCode::CreateList(num_items) => self.exec_create_list(num_items),
         OpCode::CreateClosure => self.exec_create_closure(&mut ctx, &opcode)?,
-        x => unimplemented!("Unimplemented: {:?}", x),
       }
       self.ip += 1;
     }
@@ -196,7 +196,7 @@ impl ExecutionThread {
   #[inline]
   fn exec_const(&mut self, ctx: &mut Context, opcode: &OpCode, index: usize) -> ExecResult {
     if let Some(c) = ctx.const_at(index) {
-      self.stack_push(c);
+      self.stack_push(c.clone());
       Ok(())
     } else {
       Err(self.error(ctx, opcode, String::from("could not lookup constant")))
@@ -358,7 +358,17 @@ impl ExecutionThread {
                 obj.set(name, value);
                 Ok(())
               }
-              _ => Err(self.error(ctx, opcode, String::from("member name is not a string"))),
+              _ => Err(self.error(ctx, opcode, String::from("member name is not a identifier"))),
+            },
+            Value::Class(mut class) => match name {
+              Value::String(name) => class
+                .set_method(name, value)
+                .map_err(|e| self.error(ctx, opcode, e)),
+              _ => Err(self.error(
+                ctx,
+                opcode,
+                String::from("member name is not an identifier"),
+              )),
             },
             _ => Err(self.error(
               ctx,
@@ -404,6 +414,30 @@ impl ExecutionThread {
         )),
       },
       None => Err(self.error(ctx, opcode, String::from("no constant specified by index"))),
+    }
+  }
+
+  fn exec_assign_initializer(&mut self, ctx: &mut Context, opcode: &OpCode) -> ExecResult {
+    match self.stack_pop() {
+      Some(initializer) => match self.stack_peek() {
+        Some(value) => match value {
+          Value::Class(mut class) => {
+            class.set_initializer(initializer);
+            Ok(())
+          }
+          _ => Err(self.error(
+            ctx,
+            opcode,
+            String::from("tried to assign initializer to non class"),
+          )),
+        },
+        None => Err(self.error(ctx, opcode, String::from("no class on stack to assign to"))),
+      },
+      None => Err(self.error(
+        ctx,
+        opcode,
+        String::from("no value on stack to assign to class initializer"),
+      )),
     }
   }
 

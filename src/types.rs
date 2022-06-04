@@ -89,7 +89,10 @@ pub enum Value {
   Function(Function),
   Closure(Closure),
   NativeFunction(NativeFnPtr),
-  Struct(StructPtr),
+  Struct(Struct),
+  Method(Method),
+  Class(Class),
+  Instance(Instance),
 
   U128(u128), // internal use only
 }
@@ -149,6 +152,8 @@ impl Value {
       Value::Function(f) => f.call(thread, env, args),
       Value::Closure(c) => c.call(thread, env, args),
       Value::NativeFunction(f) => f.call(env, args).map_err(|e| vec![e]),
+      Value::Method(m) => m.call(thread, env, args),
+      Value::Class(c) => c.construct(thread, env, args),
       _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
     }
   }
@@ -269,7 +274,25 @@ impl New<Closure> for Value {
 
 impl New<Struct> for Value {
   fn new(item: Struct) -> Self {
-    Self::Struct(SmartPtr::new(item))
+    Self::Struct(item)
+  }
+}
+
+impl New<Method> for Value {
+  fn new(item: Method) -> Self {
+    Self::Method(item)
+  }
+}
+
+impl New<Class> for Value {
+  fn new(item: Class) -> Self {
+    Self::Class(item)
+  }
+}
+
+impl New<Instance> for Value {
+  fn new(item: Instance) -> Self {
+    Self::Instance(item)
   }
 }
 
@@ -454,7 +477,7 @@ impl PartialEq for Value {
       }
       Self::Function(a) => {
         if let Self::Function(b) = other {
-          a.context_ptr().raw() == b.context_ptr().raw()
+          a == b
         } else {
           false
         }
@@ -475,7 +498,28 @@ impl PartialEq for Value {
       }
       Self::Struct(a) => {
         if let Self::Struct(b) = other {
-          a.raw() == b.raw()
+          a.members.raw() == b.members.raw()
+        } else {
+          false
+        }
+      }
+      Self::Method(a) => {
+        if let Self::Method(b) = other {
+          a.this == b.this && a.function == b.function
+        } else {
+          false
+        }
+      }
+      Self::Class(a) => {
+        if let Self::Class(b) = other {
+          a.methods.raw() == b.methods.raw()
+        } else {
+          false
+        }
+      }
+      Self::Instance(a) => {
+        if let Self::Instance(b) = other {
+          a.data == b.data && a.class.methods.raw() == b.class.methods.raw()
         } else {
           false
         }
@@ -532,6 +576,11 @@ impl Display for Value {
       Self::Closure(_) => write!(f, "<closure>"),
       Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
       Self::Struct(obj) => write!(f, "{:?}", obj),
+      Self::Method(_) => write!(f, "<method>"), // TODO consider class.name
+      Self::Class(class) => write!(f, "<class {}>", class.name),
+      Self::Instance(instance) => {
+        write!(f, "<instance of {}> {}", instance.class.name, instance.data)
+      }
     }
   }
 }
@@ -658,7 +707,11 @@ impl Function {
   }
 }
 
-pub type StructPtr = SmartPtr<Struct>;
+impl PartialEq for Function {
+  fn eq(&self, other: &Self) -> bool {
+    self.context_ptr().raw() == other.context_ptr().raw()
+  }
+}
 
 #[derive(Clone)]
 pub struct Closure {
@@ -731,7 +784,7 @@ impl Closure {
 
 #[derive(Default, Debug, Clone)]
 pub struct Struct {
-  members: BTreeMap<String, Value>,
+  members: SmartPtr<BTreeMap<String, Value>>,
 }
 
 impl Struct {
@@ -755,6 +808,151 @@ impl Struct {
 impl Display for Struct {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{:?}", self)
+  }
+}
+
+#[derive(Clone)]
+pub struct Method {
+  this: Box<Value>,
+  function: Function,
+}
+
+impl Method {
+  pub fn new(this: Value, function: Function) -> Self {
+    Self {
+      this: Box::new(this),
+      function,
+    }
+  }
+}
+
+impl Method {
+  pub fn call(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    mut args: Vec<Value>,
+  ) -> Result<Value, Vec<String>> {
+    if args.len() > self.function.airity {
+      return Err(vec![format!(
+        "too many arguments number of arguments, expected {}, got {}",
+        self.function.airity,
+        args.len()
+      )]);
+    }
+
+    while args.len() < self.function.airity {
+      args.push(Value::Nil);
+    }
+
+    let prev_ip = thread.ip;
+
+    let mut args_with_self = Vec::with_capacity(args.len() + 1);
+    args_with_self.push((*self.this).clone());
+    args_with_self.extend(args);
+
+    let prev_stack = thread.stack_move(args_with_self);
+
+    let res = thread
+      .run(self.function.ctx.clone(), env)
+      .map_err(|e| e.into_iter().map(|e| e.msg).collect());
+
+    thread.ip = prev_ip;
+
+    thread.stack_move(prev_stack);
+
+    res
+  }
+}
+
+#[derive(Clone)]
+pub struct Class {
+  name: SmartPtr<String>,
+  initializer: Option<Function>,
+  methods: SmartPtr<BTreeMap<String, Function>>,
+}
+
+impl Class {
+  pub fn new(name: String) -> Self {
+    Self {
+      name: SmartPtr::new(name),
+      initializer: None,
+      methods: SmartPtr::new(BTreeMap::default()),
+    }
+  }
+
+  // TODO crate two types of classes,
+  // one for default construction,
+  // another for custom construction
+  // to save a cpu cycle or two
+  pub fn construct(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    args: Vec<Value>,
+  ) -> Result<Value, Vec<String>> {
+    let instance = Value::new(Struct::default());
+
+    if let Some(initializer) = &mut self.initializer {
+      let mut args_with_self = Vec::from([instance.clone()]);
+      args_with_self.extend(args);
+      initializer.call(thread, env, args_with_self)?;
+    }
+
+    let mut methods = BTreeMap::default();
+
+    for (name, method) in self.methods.iter() {
+      methods.insert(name.clone(), Method::new(instance.clone(), method.clone()));
+    }
+
+    let instance = Instance::new(instance, methods, self.clone());
+
+    Ok(Value::new(instance))
+  }
+
+  pub fn set_initializer(&mut self, value: Value) -> Result<(), String> {
+    if let Value::Function(function) = value {
+      self.initializer = Some(function);
+      Ok(())
+    } else {
+      Err(format!("cannot set initializer to value {}", value))
+    }
+  }
+
+  pub fn set_method<N: ToString>(&mut self, name: N, value: Value) -> Result<(), String> {
+    if let Value::Function(function) = value {
+      self.methods.insert(name.to_string(), function);
+      Ok(())
+    } else {
+      Err(format!("cannot set method to value {}", value))
+    }
+  }
+}
+
+#[derive(Clone)]
+pub struct Instance {
+  data: SmartPtr<Value>,
+  methods: SmartPtr<BTreeMap<String, Method>>,
+  class: Class,
+}
+
+impl Instance {
+  pub fn new(data: Value, methods: BTreeMap<String, Method>, class: Class) -> Self {
+    Self {
+      data: SmartPtr::new(data),
+      methods: SmartPtr::new(methods),
+      class,
+    }
+  }
+
+  pub fn get<N: ToString>(&self, name: N) -> Value {
+    if let Value::Struct(data) = &**self.data {
+      data.get(name)
+    } else if let Some(method) = self.methods.get(&name.to_string()) {
+      Value::new(method.clone())
+    } else {
+      Value::Nil
+    }
   }
 }
 
