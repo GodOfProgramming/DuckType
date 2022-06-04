@@ -4,6 +4,7 @@ use crate::{
   New,
 };
 use std::{
+  collections::BTreeSet,
   fmt::{Display, Formatter},
   mem,
 };
@@ -28,7 +29,6 @@ struct AstGenerator {
   index: usize,
 
   in_loop: bool,
-  in_function: bool,
 
   test: usize,
 }
@@ -42,7 +42,6 @@ impl AstGenerator {
       errors: Default::default(),
       index: Default::default(),
       in_loop: Default::default(),
-      in_function: Default::default(),
       test: Default::default(),
     }
   }
@@ -70,6 +69,10 @@ impl AstGenerator {
       Token::Cont => {
         self.advance();
         self.cont_stmt();
+      }
+      Token::Class => {
+        self.advance();
+        self.class_stmt();
       }
       Token::Fn => {
         self.advance();
@@ -140,7 +143,7 @@ impl AstGenerator {
       return;
     }
 
-    if !self.consume(Token::Semicolon, String::from("expect ';' after statement")) {
+    if !self.consume(Token::Semicolon, "expect ';' after statement") {
       return;
     }
 
@@ -162,7 +165,7 @@ impl AstGenerator {
       return;
     }
 
-    if !self.consume(Token::Semicolon, String::from("expect ';' after statement")) {
+    if !self.consume(Token::Semicolon, "expect ';' after statement") {
       return;
     }
 
@@ -176,57 +179,92 @@ impl AstGenerator {
     }
   }
 
-  fn fn_stmt(&mut self) {
-    if self.in_function {
-      self.error::<1>(String::from("cannot declare functions within functions"));
-      return;
-    }
-
-    let in_function = self.in_function;
-    self.in_function = true;
+  fn class_stmt(&mut self) {
     if let Some(loc) = self.meta_at::<0>() {
-      if let Some(Token::Identifier(fn_name)) = self.current() {
-        let ident = Ident::new(fn_name);
+      if let Some(Token::Identifier(class_name)) = self.current() {
+        println!("declaring class {}", class_name);
 
         self.advance();
-        if !self.consume(
-          Token::LeftParen,
-          String::from("expect '(' after function name"),
-        ) {
+
+        if !self.consume(Token::LeftBrace, "expected '{' after class name") {
           return;
         }
 
-        if let Some(params) = self.parse_parameters() {
-          if !self.consume(
-            Token::RightParen,
-            String::from("expected ')' after arguments"),
-          ) {
-            return;
-          }
+        let mut initializer = None;
+        let mut methods = Vec::default();
+        let mut declared_functions = BTreeSet::default();
 
-          if !self.consume(Token::LeftBrace, String::from("expected '{' after paren")) {
-            return;
-          }
-
-          if let Some(block_loc) = self.meta_at::<1>() {
-            if let Some(body) = self.block(block_loc) {
-              self.statements.push(Statement::new(FnStatement::new(
-                ident,
-                params,
-                Statement::new(body),
-                loc,
-              )));
+        while let Some(token) = self.current() {
+          match token {
+            Token::New => {
+              println!("found initializer");
+              self.advance();
+              if initializer.is_none() {
+                if self.consume(Token::LeftParen, "expected '(' after 'new'") {
+                  initializer = self.lambda_expr(|params, body| {
+                    Some(Expression::new(LambdaExpression::new(
+                      params,
+                      Statement::new(body),
+                      loc,
+                    )))
+                  });
+                }
+              } else {
+                self.error::<0>(String::from("duplicate initializer found"));
+              }
             }
-          } else {
-            // sanity check
-            self.error::<0>(String::from("could not find original token"));
+            Token::Fn => {
+              self.advance();
+              if let Some(Token::Identifier(ident)) = self.current() {
+                if !declared_functions.contains(&ident) {
+                  self.advance();
+                  if self.consume(Token::LeftParen, "expected '(' after identifier") {
+                    if let Some(function) = self.lambda_expr(|params, body| {
+                      println!("declaring method {}", ident);
+                      declared_functions.insert(ident.clone());
+                      Some(Expression::new(MethodExpression::new(
+                        params,
+                        Statement::new(body),
+                        loc,
+                      )))
+                    }) {
+                      let ident = Ident::new(ident.clone());
+                      methods.push((ident, function));
+                    }
+                  }
+                } else {
+                  self.error::<0>(String::from("duplicate method definition"));
+                }
+              }
+            }
+            _ => break,
           }
         }
+
+        if !self.consume(Token::RightBrace, "expected '}' after class body") {
+          return;
+        }
+
+        println!("created class");
+        self.statements.push(Statement::new(ClassStatement::new(
+          Ident::new(class_name),
+          initializer,
+          methods,
+          loc,
+        )))
       } else {
         self.error::<0>(String::from("expected an identifier"));
       }
+    } else {
+      // sanity check
+      self.error::<0>(String::from("could not find original token"));
     }
-    self.in_function = in_function;
+  }
+
+  fn fn_stmt(&mut self) {
+    if let Some(stmt) = self.parse_fn() {
+      self.statements.push(stmt);
+    }
   }
 
   fn for_stmt(&mut self) {
@@ -244,26 +282,17 @@ impl AstGenerator {
           return;
         };
 
-        if !self.consume(
-          Token::Semicolon,
-          String::from("expected ';' after expression"),
-        ) {
+        if !self.consume(Token::Semicolon, "expected ';' after expression") {
           return;
         }
 
         if let Some(comparison) = self.expression() {
-          if !self.consume(
-            Token::Semicolon,
-            String::from("expected ';' after comparison"),
-          ) {
+          if !self.consume(Token::Semicolon, "expected ';' after comparison") {
             return;
           }
 
           if let Some(increment) = self.expression() {
-            if self.consume(
-              Token::LeftBrace,
-              String::from("expected '{' after increment"),
-            ) {
+            if self.consume(Token::LeftBrace, "expected '{' after increment") {
               let prev = self.in_loop;
               self.in_loop = true;
               if let Some(block_loc) = self.meta_at::<1>() {
@@ -303,10 +332,7 @@ impl AstGenerator {
 
   fn let_stmt(&mut self) {
     if let Some(declaration) = self.declaration() {
-      if !self.consume(
-        Token::Semicolon,
-        String::from("expected ';' after expression"),
-      ) {
+      if !self.consume(Token::Semicolon, "expected ';' after expression") {
         return;
       }
 
@@ -323,7 +349,7 @@ impl AstGenerator {
               self.advance();
               Some(Ident::new(ident))
             } else {
-              self.error::<0>(String::from("identifier expectd after require"));
+              self.error::<0>(String::from("identifier expected after require"));
               None
             }
           } else {
@@ -334,10 +360,7 @@ impl AstGenerator {
           None
         };
 
-        if !self.consume(
-          Token::Semicolon,
-          String::from("expected ';' after expression"),
-        ) {
+        if !self.consume(Token::Semicolon, "expected ';' after expression") {
           return;
         }
 
@@ -352,7 +375,7 @@ impl AstGenerator {
   }
 
   fn loop_stmt(&mut self) {
-    if !self.consume(Token::LeftBrace, String::from("expect '{' after loop")) {
+    if !self.consume(Token::LeftBrace, "expect '{' after loop") {
       return;
     }
 
@@ -377,10 +400,7 @@ impl AstGenerator {
   fn match_stmt(&mut self) {
     if let Some(loc) = self.meta_at::<1>() {
       if let Some(expr) = self.expression() {
-        if !self.consume(
-          Token::LeftBrace,
-          String::from("expected '{' after expression"),
-        ) {
+        if !self.consume(Token::LeftBrace, "expected '{' after expression") {
           return;
         }
 
@@ -392,7 +412,7 @@ impl AstGenerator {
           }
 
           if let Some(condition) = self.expression() {
-            if !self.consume(Token::Arrow, String::from("expected => after expression")) {
+            if !self.consume(Token::Arrow, "expected => after expression") {
               break;
             }
 
@@ -405,7 +425,7 @@ impl AstGenerator {
                 }
               } else if let Some(eval_loc) = self.meta_at::<0>() {
                 if let Some(eval) = self.expression() {
-                  if !self.consume(Token::Comma, String::from("expected ',' after expression")) {
+                  if !self.consume(Token::Comma, "expected ',' after expression") {
                     break;
                   }
                   Statement::new(ExpressionStatement::new(eval, eval_loc))
@@ -426,7 +446,7 @@ impl AstGenerator {
           }
         }
 
-        if !self.consume(Token::RightBrace, String::from("expected '}' after match")) {
+        if !self.consume(Token::RightBrace, "expected '}' after match") {
           return;
         }
 
@@ -453,7 +473,7 @@ impl AstGenerator {
   fn print_stmt(&mut self) {
     if let Some(loc) = self.meta_at::<1>() {
       if let Some(expr) = self.expression() {
-        if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+        if !self.consume(Token::Semicolon, "expected ';' after value") {
           return;
         }
         self
@@ -477,7 +497,7 @@ impl AstGenerator {
           return;
         };
 
-        if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+        if !self.consume(Token::Semicolon, "expected ';' after value") {
           return;
         }
 
@@ -490,10 +510,7 @@ impl AstGenerator {
 
   fn while_stmt(&mut self) {
     if let Some(expr) = self.expression() {
-      if !self.consume(
-        Token::LeftBrace,
-        String::from("expected '{' after expression"),
-      ) {
+      if !self.consume(Token::LeftBrace, "expected '{' after expression") {
         return;
       }
 
@@ -520,7 +537,7 @@ impl AstGenerator {
   fn expression_stmt(&mut self) {
     if let Some(loc) = self.meta_at::<0>() {
       if let Some(expr) = self.expression() {
-        if !self.consume(Token::Semicolon, String::from("expected ';' after value")) {
+        if !self.consume(Token::Semicolon, "expected ';' after value") {
           return;
         }
         self
@@ -700,10 +717,7 @@ impl AstGenerator {
     }
 
     let expr = self.expression()?;
-    if self.consume(
-      Token::RightParen,
-      String::from("expected ')' after expression"),
-    ) {
+    if self.consume(Token::RightParen, "expected ')' after expression") {
       Some(Expression::new(GroupExpression::new(expr, paren_meta)))
     } else {
       None
@@ -790,10 +804,7 @@ impl AstGenerator {
       }
     }
 
-    if self.consume(
-      Token::RightParen,
-      String::from("expect ')' after arguments"),
-    ) {
+    if self.consume(Token::RightParen, "expect ')' after arguments") {
       Some(Expression::new(CallExpression::new(expr, args, paren_meta)))
     } else {
       None
@@ -815,10 +826,7 @@ impl AstGenerator {
       }
     }
 
-    if self.consume(
-      Token::RightBracket,
-      String::from("expect ']' after arguments"),
-    ) {
+    if self.consume(Token::RightBracket, "expect ']' after arguments") {
       Some(Expression::new(ListExpression::new(items, bracket_meta)))
     } else {
       None
@@ -830,10 +838,7 @@ impl AstGenerator {
 
     let index = self.expression()?;
 
-    if self.consume(
-      Token::RightBracket,
-      String::from("expected ']' after expression"),
-    ) {
+    if self.consume(Token::RightBracket, "expected ']' after expression") {
       Some(Expression::new(IndexExpression::new(
         expr,
         index,
@@ -892,7 +897,7 @@ impl AstGenerator {
             Ident::new(ident.clone()),
             Expression::new(IdentExpression::new(Ident::new(ident), struct_meta)),
           ))
-        } else if self.consume(Token::Colon, String::from("expected ':' after identifier")) {
+        } else if self.consume(Token::Colon, "expected ':' after identifier") {
           let value = self.expression()?;
           members.push((Ident::new(ident), value));
           self.advance_if_matches(Token::Comma);
@@ -905,7 +910,7 @@ impl AstGenerator {
       }
     }
 
-    if self.consume(Token::RightBrace, String::from("expected '}' after struct")) {
+    if self.consume(Token::RightBrace, "expected '}' after struct") {
       if self.advance_if_matches(Token::LeftParen) {
         self.closure_expr(StructExpression::new(members, struct_meta))
       } else {
@@ -936,14 +941,11 @@ impl AstGenerator {
   ) -> Option<Expression> {
     let params = self.parse_parameters()?;
 
-    if !self.consume(
-      Token::RightParen,
-      String::from("expected ')' after arguments"),
-    ) {
+    if !self.consume(Token::RightParen, "expected ')' after arguments") {
       return None;
     }
 
-    if !self.consume(Token::LeftBrace, String::from("expected '{' after paren")) {
+    if !self.consume(Token::LeftBrace, "expected '{' after paren") {
       return None;
     }
 
@@ -1001,21 +1003,63 @@ impl AstGenerator {
     false
   }
 
-  fn consume(&mut self, expected: Token, err: String) -> bool {
+  fn consume<E: ToString>(&mut self, expected: Token, err: E) -> bool {
     if let Some(curr) = self.current() {
       if curr == expected {
         self.advance();
         true
       } else {
-        self.error::<0>(err);
+        self.error::<0>(err.to_string());
         false
       }
     } else {
       self.error::<1>(format!(
         "tried to lookup a token at an invalid index: {}",
-        err
+        err.to_string()
       ));
       false
+    }
+  }
+
+  fn parse_fn(&mut self) -> Option<Statement> {
+    if let Some(loc) = self.meta_at::<0>() {
+      if let Some(Token::Identifier(fn_name)) = self.current() {
+        let ident = Ident::new(fn_name);
+
+        self.advance();
+        if !self.consume(Token::LeftParen, "expect '(' after function name") {
+          return None;
+        }
+
+        if let Some(params) = self.parse_parameters() {
+          if !self.consume(Token::RightParen, "expected ')' after arguments") {
+            return None;
+          }
+
+          if !self.consume(Token::LeftBrace, "expected '{' after paren") {
+            return None;
+          }
+
+          if let Some(block_loc) = self.meta_at::<1>() {
+            self.block(block_loc).map(|body| {
+              Statement::new(FnStatement::new(ident, params, Statement::new(body), loc))
+            })
+          } else {
+            // sanity check
+            self.error::<0>(String::from("could not find original token"));
+            None
+          }
+        } else {
+          None
+        }
+      } else {
+        self.error::<0>(String::from("expected an identifier"));
+        None
+      }
+    } else {
+      // sanity check
+      self.error::<0>(String::from("could not find original token"));
+      None
     }
   }
 
@@ -1099,7 +1143,7 @@ impl AstGenerator {
       }
     });
 
-    if self.consume(Token::RightBrace, String::from("expected '}' after block")) {
+    if self.consume(Token::RightBrace, "expected '}' after block") {
       self.test -= 1;
       Some(BlockStatement::new(statements, loc))
     } else {
@@ -1110,10 +1154,7 @@ impl AstGenerator {
 
   fn branch(&mut self) -> Option<IfStatement> {
     if let Some(expr) = self.expression() {
-      if !self.consume(
-        Token::LeftBrace,
-        String::from("expected '{' after condition"),
-      ) {
+      if !self.consume(Token::LeftBrace, "expected '{' after condition") {
         return None;
       }
 
@@ -1329,6 +1370,7 @@ impl AstGenerator {
       Token::Let => ParseRule::new(None, None, Precedence::None),
       Token::Loop => ParseRule::new(None, None, Precedence::None),
       Token::Match => ParseRule::new(None, None, Precedence::None),
+      Token::New => ParseRule::new(None, None, Precedence::None),
       Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
       Token::Or => ParseRule::new(None, Some(Self::or_expr), Precedence::Or),
       Token::Print => ParseRule::new(None, None, Precedence::None),
@@ -1346,8 +1388,10 @@ pub struct Ident {
 }
 
 impl Ident {
-  fn new(name: String) -> Self {
-    Self { name }
+  pub fn new<N: ToString>(name: N) -> Self {
+    Self {
+      name: name.to_string(),
+    }
   }
 
   pub fn global(&self) -> bool {
@@ -1359,6 +1403,7 @@ pub enum Statement {
   Block(BlockStatement),
   Break(BreakStatement),
   Cont(ContStatement),
+  Class(ClassStatement),
   Fn(FnStatement),
   For(ForStatement),
   If(IfStatement),
@@ -1378,6 +1423,7 @@ impl Display for Statement {
       Self::Block(_) => write!(f, "block"),
       Self::Break(_) => write!(f, "break"),
       Self::Cont(_) => write!(f, "cont"),
+      Self::Class(c) => write!(f, "class {}", c.ident.name),
       Self::Fn(function) => write!(f, "fn {}", function.ident.name),
       Self::For(_) => write!(f, "for"),
       Self::If(_) => write!(f, "if"),
@@ -1408,6 +1454,12 @@ impl New<BreakStatement> for Statement {
 impl New<ContStatement> for Statement {
   fn new(stmt: ContStatement) -> Self {
     Self::Cont(stmt)
+  }
+}
+
+impl New<ClassStatement> for Statement {
+  fn new(stmt: ClassStatement) -> Self {
+    Self::Class(stmt)
   }
 }
 
@@ -1505,6 +1557,30 @@ pub struct ContStatement {
 impl ContStatement {
   fn new(loc: SourceLocation) -> Self {
     Self { loc }
+  }
+}
+
+pub struct ClassStatement {
+  pub ident: Ident,
+  pub initializer: Option<Expression>,
+  pub methods: Vec<(Ident, Expression)>,
+
+  pub loc: SourceLocation,
+}
+
+impl ClassStatement {
+  fn new(
+    ident: Ident,
+    initializer: Option<Expression>,
+    methods: Vec<(Ident, Expression)>,
+    loc: SourceLocation,
+  ) -> Self {
+    Self {
+      ident,
+      initializer,
+      methods,
+      loc,
+    }
   }
 }
 
@@ -1705,6 +1781,7 @@ pub enum Expression {
   MemberAssign(MemberAssignExpression),
   Lambda(LambdaExpression),
   Closure(ClosureExpression),
+  Method(MethodExpression),
 }
 
 impl Display for Expression {
@@ -1719,14 +1796,15 @@ impl Display for Expression {
       Self::Ident(i) => write!(f, "ident {}", i.ident.name),
       Self::Assign(_) => write!(f, "assign"),
       Self::OpAssign(_) => write!(f, "op assign"),
+      Self::MemberAccess(_) => write!(f, "member access"),
+      Self::MemberAssign(_) => write!(f, "member assign"),
       Self::Call(_) => write!(f, "call"),
       Self::List(_) => write!(f, "list"),
       Self::Index(_) => write!(f, "index"),
       Self::Struct(_) => write!(f, "struct"),
       Self::Lambda(_) => write!(f, "lambda"),
       Self::Closure(_) => write!(f, "closure"),
-      Self::MemberAccess(_) => write!(f, "member access"),
-      Self::MemberAssign(_) => write!(f, "member assign"),
+      Self::Method(_) => write!(f, "method"),
     }
   }
 }
@@ -1830,6 +1908,12 @@ impl New<LambdaExpression> for Expression {
 impl New<ClosureExpression> for Expression {
   fn new(expr: ClosureExpression) -> Self {
     Self::Closure(expr)
+  }
+}
+
+impl New<MethodExpression> for Expression {
+  fn new(expr: MethodExpression) -> Self {
+    Self::Method(expr)
   }
 }
 
@@ -2137,6 +2221,22 @@ impl ClosureExpression {
   ) -> Self {
     Self {
       captures,
+      params,
+      body: Box::new(body),
+      loc,
+    }
+  }
+}
+
+pub struct MethodExpression {
+  pub params: Vec<Ident>,
+  pub body: Box<Statement>,
+  pub loc: SourceLocation,
+}
+
+impl MethodExpression {
+  fn new(params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
+    Self {
       params,
       body: Box::new(body),
       loc,

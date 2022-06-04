@@ -48,6 +48,8 @@ pub enum OpCode {
   AssignMember(usize),
   /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
   LookupMember(usize),
+  /** Assigns an initializer function to the class which is the next item on the stack */
+  AssignInitializer,
   /** Pops two values off the stack, compares, then pushes the result back on */
   Equal,
   /** Pops two values off the stack, compares, then pushes the result back on */
@@ -88,8 +90,6 @@ pub enum OpCode {
   JumpIfFalse(usize),
   /** Jumps the instruction pointer backwards N instructions. N specified by the tuple */
   Loop(usize),
-  /** Pushes the stack pointer onto the stack */
-  PushSp,
   /** Calls the instruction on the stack. Number of arguments is specified by the modifying bits */
   Call(usize),
   /** Exits from a function */
@@ -157,6 +157,7 @@ pub enum Token {
   Let,
   Loop,
   Match,
+  New,
   Nil,
   Or,
   Print,
@@ -238,6 +239,7 @@ enum ContextName {
   Main,
   Lambda,
   Closure,
+  Method,
   Function(String),
 }
 
@@ -319,8 +321,8 @@ impl Context {
     self.instructions.get(index).cloned()
   }
 
-  pub fn const_at(&self, index: usize) -> Option<Value> {
-    self.consts.get(index).cloned()
+  pub fn const_at(&self, index: usize) -> Option<&Value> {
+    self.consts.get(index)
   }
 
   #[cfg(debug_assertions)]
@@ -376,6 +378,7 @@ impl Context {
       ContextName::Main => "MAIN",
       ContextName::Closure => "closure",
       ContextName::Lambda => "lambda",
+      ContextName::Method => "method",
       ContextName::Function(name) => name.as_str(),
     }
   }
@@ -400,9 +403,11 @@ impl Context {
         format!("function {} {}", self.id, self.name())
       }
     );
+
     for (i, op) in self.instructions.iter().enumerate() {
       self.display_instruction(op, i);
     }
+
     println!("<< END >>");
   }
 
@@ -442,8 +447,8 @@ impl Context {
         "{:<16} {:4} {:?}",
         "LookupGlobal",
         name,
-        if let Some(name) = self.const_at(*name) {
-          name
+        if let Some(name) = self.global_const_at(*name) {
+          name.clone()
         } else {
           Value::new("????")
         }
@@ -452,8 +457,8 @@ impl Context {
         "{:<16} {:4} {:?}",
         "DefineGlobal",
         name,
-        if let Some(name) = self.const_at(*name) {
-          name
+        if let Some(name) = self.global_const_at(*name) {
+          name.clone()
         } else {
           Value::new("????")
         }
@@ -462,8 +467,8 @@ impl Context {
         "{:<16} {:4} {:?}",
         "AssignGlobal",
         name,
-        if let Some(name) = self.const_at(*name) {
-          name
+        if let Some(name) = self.global_const_at(*name) {
+          name.clone()
         } else {
           Value::new("????")
         }
@@ -535,6 +540,7 @@ pub struct Compiler;
 impl Compiler {
   pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
     let mut scanner = Scanner::new(file, source);
+
     let (tokens, meta) = scanner
       .scan()
       .map_err(|errs| Self::reformat_errors(source, errs))?;

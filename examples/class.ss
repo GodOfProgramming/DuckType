@@ -1,46 +1,39 @@
-class Test {
-  fn test(self, arg) {
-    self.x = arg;
+req "ptr" => $ptr;
+
+class Example {
+  new(word) {
+    ret {word};
   }
 
-  fn exam(self) {
-    print("test");
-  }
-}
-
-class Other {
-  fn @new() {
-    let instance = Other();
-    instance.x = 100;
-    return instance;
-  }
-
-  fn test(this, arg) {
-    this.y = arg;
+  fn output() {
+    print self.word;
   }
 }
 
-fn modify_test(t, arg) {
-  t.test(arg);
+let example = Example("hello world");
+
+example.output();
+
+class Number {
+  new(n) {
+    ret n;
+  }
+
+  fn is_odd() {
+    ret self.deref() % 2 != 0;
+  }
+
+  fn is_even() {
+    ret self.deref() % 2 == 0;
+  }
+
+  fn deref() {
+    ret $ptr.deref(self);
+  }
 }
 
-let t1 = Test();
-let t2 = Other();
+let odd = Number(1);
+let even = Number(2);
 
-modify_test(t1, 1);
-modify_test(t2, 2);
-
-print t1.x;
-print t2.y;
-
-let other = Other.new();
-print other.x;
-
-let other1 = other.new();
-print other1.x;
-
-print other == other1;
-print other == t1;
-print other == t2;
-
-Test.exam(1);
+print "odd is odd: " + odd.is_odd();
+print "even is even: " + odd.is_odd();

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
   code::ast::*,
-  types::{Error, Function, Struct, Value},
+  types::{Class, Error, Function, Struct, Value},
   New,
 };
 use ptr::SmartPtr;
@@ -99,14 +99,52 @@ impl BytecodeGenerator {
     self.emit_loop(self.cont_jump, stmt.loc);
   }
 
-  fn fn_stmt(&mut self, stmt: FnStatement) {
+  fn class_stmt(&mut self, stmt: ClassStatement) {
+    if self.scope_depth > 0 {
+      self.error(
+        stmt.loc,
+        String::from("classes must be declared at the surface scope"),
+      );
+      return;
+    }
+
     let var = self.declare_global(stmt.ident.clone());
+
+    self.emit_const(Value::new(Class::new(stmt.ident.name)), stmt.loc);
+
+    if let Some(initializer) = stmt.initializer {
+      self.emit_expr(initializer);
+      self.emit(OpCode::AssignInitializer, stmt.loc);
+    }
+
+    for (name, method) in stmt.methods {
+      let ident = self.add_const_ident(name);
+      self.emit_expr(method);
+      self.emit(OpCode::AssignMember(ident), stmt.loc);
+    }
+
+    self.define_global(var, stmt.loc);
+    self.emit(OpCode::Pop, stmt.loc);
+  }
+
+  fn fn_stmt(&mut self, stmt: FnStatement) {
+    if self.scope_depth > 0 {
+      self.error(
+        stmt.loc,
+        String::from("functions must be declared at the surface scope"),
+      );
+      return;
+    }
+
+    let var = self.declare_global(stmt.ident.clone());
+
     self.emit_fn(
       ContextName::Function(stmt.ident.name.clone()),
       stmt.params,
       *stmt.body,
       stmt.loc,
     );
+
     self.define_global(var, stmt.loc);
     self.emit(OpCode::Pop, stmt.loc);
   }
@@ -396,20 +434,29 @@ impl BytecodeGenerator {
     if num_captures == 0 {
       self.lambda_expr(LambdaExpression::from(expr));
     } else {
-      let mut idents = Vec::with_capacity(num_captures);
+      let mut params = Vec::with_capacity(num_captures);
       for (member, assign) in expr.captures.members {
-        idents.push(member);
+        params.push(member);
         self.emit_expr(assign);
       }
 
-      self.emit(OpCode::CreateList(idents.len()), expr.loc);
+      self.emit(OpCode::CreateList(params.len()), expr.loc);
 
-      idents.extend(expr.params);
+      params.extend(expr.params);
 
-      self.emit_fn(ContextName::Closure, idents, *expr.body, expr.loc);
+      self.emit_fn(ContextName::Closure, params, *expr.body, expr.loc);
 
       self.emit(OpCode::CreateClosure, expr.loc);
     }
+  }
+
+  fn method_expr(&mut self, expr: MethodExpression) {
+    let mut params = Vec::with_capacity(expr.params.len() + 1);
+
+    params.push(Ident::new("self"));
+    params.extend(expr.params);
+
+    self.emit_fn(ContextName::Method, params, *expr.body, expr.loc);
   }
 
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
@@ -440,6 +487,7 @@ impl BytecodeGenerator {
       Statement::Block(stmt) => self.block_stmt(stmt),
       Statement::Break(stmt) => self.break_stmt(stmt),
       Statement::Cont(stmt) => self.cont_stmt(stmt),
+      Statement::Class(stmt) => self.class_stmt(stmt),
       Statement::Fn(stmt) => self.fn_stmt(stmt),
       Statement::For(stmt) => self.for_stmt(stmt),
       Statement::If(stmt) => self.if_stmt(stmt),
@@ -469,14 +517,15 @@ impl BytecodeGenerator {
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::OpAssign(expr) => self.op_assign_expr(expr),
+      Expression::MemberAccess(expr) => self.member_access_expr(expr),
+      Expression::MemberAssign(expr) => self.member_assign_expr(expr),
       Expression::Call(expr) => self.call_expr(expr),
       Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
-      Expression::MemberAccess(expr) => self.member_access_expr(expr),
-      Expression::MemberAssign(expr) => self.member_assign_expr(expr),
       Expression::Struct(expr) => self.struct_expr(expr),
       Expression::Lambda(expr) => self.lambda_expr(expr),
       Expression::Closure(expr) => self.closure_expr(expr),
+      Expression::Method(expr) => self.method_expr(expr),
     }
   }
 
