@@ -102,7 +102,7 @@ impl BytecodeGenerator {
   fn fn_stmt(&mut self, stmt: FnStatement) {
     let var = self.declare_global(stmt.ident.clone());
     self.emit_fn(
-      Some(stmt.ident.name.clone()),
+      ContextName::Function(stmt.ident.name.clone()),
       stmt.params,
       *stmt.body,
       stmt.loc,
@@ -211,6 +211,9 @@ impl BytecodeGenerator {
       let is_global = var.global();
       if let Some(var) = self.declare_variable(var, stmt.loc) {
         self.define_variable(is_global, var, stmt.loc);
+      }
+      if is_global {
+        self.emit(OpCode::Pop, stmt.loc);
       }
     } else {
       self.emit(OpCode::Pop, stmt.loc);
@@ -351,9 +354,30 @@ impl BytecodeGenerator {
     }
   }
 
+  fn lambda_expr(&mut self, expr: LambdaExpression) {
+    self.emit_fn(ContextName::Lambda, expr.params, *expr.body, expr.loc);
+  }
+
   fn closure_expr(&mut self, expr: ClosureExpression) {
-    self.emit_closure(expr.captures, expr.params, *expr.body, expr.loc);
-    self.emit(OpCode::CreateClosure, expr.loc);
+    let num_captures = expr.captures.members.len();
+
+    if num_captures == 0 {
+      self.lambda_expr(LambdaExpression::from(expr));
+    } else {
+      let mut idents = Vec::with_capacity(num_captures);
+      for (member, assign) in expr.captures.members {
+        idents.push(member);
+        self.emit_expr(assign);
+      }
+
+      self.emit(OpCode::CreateList(idents.len()), expr.loc);
+
+      idents.extend(expr.params);
+
+      self.emit_fn(ContextName::Closure, idents, *expr.body, expr.loc);
+
+      self.emit(OpCode::CreateClosure, expr.loc);
+    }
   }
 
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
@@ -418,6 +442,7 @@ impl BytecodeGenerator {
       Expression::MemberAccess(expr) => self.member_access_expr(expr),
       Expression::MemberAssign(expr) => self.member_assign_expr(expr),
       Expression::Struct(expr) => self.struct_expr(expr),
+      Expression::Lambda(expr) => self.lambda_expr(expr),
       Expression::Closure(expr) => self.closure_expr(expr),
     }
   }
@@ -448,13 +473,7 @@ impl BytecodeGenerator {
     self.loop_depth = loop_depth;
   }
 
-  fn emit_fn(
-    &mut self,
-    ident: Option<String>,
-    args: Vec<Ident>,
-    body: Statement,
-    loc: SourceLocation,
-  ) {
+  fn emit_fn(&mut self, name: ContextName, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
     self.function_id += 1;
 
     let mut locals = Vec::default();
@@ -469,7 +488,7 @@ impl BytecodeGenerator {
       parent_ctx,
       reflection,
       self.function_id,
-      ident,
+      name,
     )));
 
     self.new_scope(|this| {
@@ -509,26 +528,6 @@ impl BytecodeGenerator {
 
       this.emit_const(Value::new(Function::new(airity, local_count, ctx)), loc)
     });
-  }
-
-  fn emit_closure(
-    &mut self,
-    captures: StructExpression,
-    params: Vec<Ident>,
-    body: Statement,
-    loc: SourceLocation,
-  ) {
-    let mut idents = Vec::with_capacity(captures.members.len());
-    for (member, assign) in captures.members {
-      idents.push(member);
-      self.emit_expr(assign);
-    }
-
-    self.emit(OpCode::CreateList(idents.len()), loc);
-
-    idents.extend(params);
-
-    self.emit_fn(None, idents, body, loc);
   }
 
   fn emit_loop(&mut self, start: usize, loc: SourceLocation) {

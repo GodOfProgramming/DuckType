@@ -71,8 +71,6 @@ repository:
       - name: "string.quoted.single"
         begin: "'"
         end: "'"
-      - name: "string.regexp"
-        match: "(?!=\\/)${ REG }|(?=\\/\\b)${ REG }"
   digits:
     patterns:
       - name: "constant.numeric"
