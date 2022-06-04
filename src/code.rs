@@ -231,6 +231,7 @@ impl Reflection {
 
 enum ContextName {
   Main,
+  Lambda,
   Closure,
   Function(String),
 }
@@ -272,7 +273,7 @@ impl Context {
     ctx: SmartPtr<Context>,
     reflection: Reflection,
     id: usize,
-    name: Option<String>,
+    name: ContextName,
   ) -> Self {
     let global = if ctx.global.valid() {
       ctx.global.clone()
@@ -281,9 +282,7 @@ impl Context {
     };
 
     Self {
-      name: name
-        .map(ContextName::Function)
-        .unwrap_or(ContextName::Closure),
+      name,
       id,
       file_id: Default::default(),
       instance_id: Default::default(),
@@ -370,7 +369,8 @@ impl Context {
   pub fn name(&self) -> &str {
     match &self.name {
       ContextName::Main => "MAIN",
-      ContextName::Closure => "Closure",
+      ContextName::Closure => "closure",
+      ContextName::Lambda => "lambda",
       ContextName::Function(name) => name.as_str(),
     }
   }

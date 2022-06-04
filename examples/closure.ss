@@ -18,3 +18,9 @@ print gen(3);
 ({gen}(){
   print gen(10);
 })();
+
+let x = {}() {
+  print "hello";
+};
+
+x();
