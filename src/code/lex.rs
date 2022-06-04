@@ -328,7 +328,11 @@ impl<'src> Scanner<'src> {
         _ => this.create_ident(),
       }),
       'm' => this.check_keyword(d, "atch", Token::Match),
-      'n' => this.check_keyword(d, "il", Token::Nil),
+      'n' => do_at_depth(this, d, &|this, d, c1| match c1 {
+        'e' => this.check_keyword(d, "w", Token::New),
+        'i' => this.check_keyword(d, "l", Token::Nil),
+        _ => this.create_ident(),
+      }),
       'o' => this.check_keyword(d, "r", Token::Or),
       'p' => this.check_keyword(d, "rint", Token::Print),
       'r' => do_at_depth(this, d, &|this, d, c1| match c1 {

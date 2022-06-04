@@ -99,7 +99,17 @@ impl BytecodeGenerator {
     self.emit_loop(self.cont_jump, stmt.loc);
   }
 
+  fn class_stmt(&mut self, stmt: ClassStatement) {}
+
   fn fn_stmt(&mut self, stmt: FnStatement) {
+    if self.scope_depth > 0 {
+      self.error(
+        stmt.loc,
+        String::from("functions must be declared at the surface scope"),
+      );
+      return;
+    }
+
     let var = self.declare_global(stmt.ident.clone());
     self.emit_fn(
       ContextName::Function(stmt.ident.name.clone()),
@@ -440,6 +450,7 @@ impl BytecodeGenerator {
       Statement::Block(stmt) => self.block_stmt(stmt),
       Statement::Break(stmt) => self.break_stmt(stmt),
       Statement::Cont(stmt) => self.cont_stmt(stmt),
+      Statement::Class(stmt) => self.class_stmt(stmt),
       Statement::Fn(stmt) => self.fn_stmt(stmt),
       Statement::For(stmt) => self.for_stmt(stmt),
       Statement::If(stmt) => self.if_stmt(stmt),

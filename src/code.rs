@@ -157,6 +157,7 @@ pub enum Token {
   Let,
   Loop,
   Match,
+  New,
   Nil,
   Or,
   Print,

@@ -22,7 +22,7 @@ repository:
       - name: "keyword.operator"
         match: "\\b(and|or)\\b|\\+|\\-|\\/|\\*"
       - name: "keyword.declaration"
-        match: "\\b(let|class|fn|req)\\b"
+        match: "\\b(let|class|fn|req|new)\\b"
       - name: "storage.type"
         match: "\\b(error|bool|number|string|list)\\b"
       - name: "support.function.builtin"
