@@ -60,11 +60,41 @@ impl<'src> Scanner<'src> {
           '.' => Token::Dot,
           ':' => Token::Colon,
           ';' => Token::Semicolon,
-          '+' => Token::Plus,
-          '-' => Token::Minus,
-          '*' => Token::Asterisk,
-          '/' => Token::Slash,
-          '%' => Token::Modulus,
+          '+' => {
+            if self.advance_if_match('=') {
+              Token::PlusEqual
+            } else {
+              Token::Plus
+            }
+          }
+          '-' => {
+            if self.advance_if_match('=') {
+              Token::MinusEqual
+            } else {
+              Token::Minus
+            }
+          }
+          '*' => {
+            if self.advance_if_match('=') {
+              Token::AsteriskEqual
+            } else {
+              Token::Asterisk
+            }
+          }
+          '/' => {
+            if self.advance_if_match('=') {
+              Token::SlashEqual
+            } else {
+              Token::Slash
+            }
+          }
+          '%' => {
+            if self.advance_if_match('=') {
+              Token::PercentEqual
+            } else {
+              Token::Percent
+            }
+          }
           '!' => {
             if self.advance_if_match('=') {
               Token::BangEqual

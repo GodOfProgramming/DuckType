@@ -320,6 +320,38 @@ impl BytecodeGenerator {
     }
   }
 
+  fn op_assign_expr(&mut self, expr: OpAssignExpression) {
+    if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
+      let (set, get) = match lookup.kind {
+        LookupKind::Local => (
+          OpCode::AssignLocal(lookup.index),
+          OpCode::LookupLocal(lookup.index),
+        ),
+        LookupKind::Global => {
+          let global_index = self.declare_global(expr.ident);
+          (
+            OpCode::AssignGlobal(global_index),
+            OpCode::LookupGlobal(global_index),
+          )
+        }
+      };
+
+      self.emit(get, expr.loc);
+
+      self.emit_expr(*expr.value);
+
+      match expr.op {
+        OpAssignOperation::Add => self.emit(OpCode::Add, expr.loc),
+        OpAssignOperation::Sub => self.emit(OpCode::Sub, expr.loc),
+        OpAssignOperation::Mul => self.emit(OpCode::Mul, expr.loc),
+        OpAssignOperation::Div => self.emit(OpCode::Div, expr.loc),
+        OpAssignOperation::Mod => self.emit(OpCode::Mod, expr.loc),
+      }
+
+      self.emit(set, expr.loc);
+    }
+  }
+
   fn call_expr(&mut self, expr: CallExpression) {
     let arg_count = expr.args.len();
 
@@ -436,6 +468,7 @@ impl BytecodeGenerator {
       Expression::Group(expr) => self.group_expr(expr),
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
+      Expression::OpAssign(expr) => self.op_assign_expr(expr),
       Expression::Call(expr) => self.call_expr(expr),
       Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
