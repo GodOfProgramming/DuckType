@@ -700,7 +700,9 @@ impl ExecutionThread {
                 new_ctx.disassemble();
               }
 
-              let result = match self.run(new_ctx, env) {
+              let mut env = Env::with_library_path();
+
+              let result = match self.run(new_ctx, &mut env) {
                 Ok(v) => {
                   stack.push(v);
                   Ok(())
