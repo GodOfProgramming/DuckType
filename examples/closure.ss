@@ -24,3 +24,19 @@ let x = {}() {
 };
 
 x();
+
+let y = () {
+  print "world";
+};
+
+let z = (arg) {
+  print arg;
+};
+
+z("woo");
+
+let abc = (arg1, arg2) {
+  print arg1 + arg2;
+};
+
+abc("foo", "bar");

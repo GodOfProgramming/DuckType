@@ -674,6 +674,31 @@ impl AstGenerator {
 
   fn group_expr(&mut self) -> Option<Expression> {
     let paren_meta = self.meta_at::<1>()?;
+
+    let is_lambda = if let Some(token) = self.current() {
+      if matches!(token, Token::Identifier(_)) {
+        if let Some(after_ident) = self.peek_after::<1>() {
+          after_ident == Token::RightParen || after_ident == Token::Comma
+        } else {
+          false
+        }
+      } else {
+        token == Token::RightParen
+      }
+    } else {
+      false
+    };
+
+    if is_lambda {
+      return self.lambda_expr(|params, body| {
+        Some(Expression::new(LambdaExpression::new(
+          params,
+          Statement::new(body),
+          paren_meta,
+        )))
+      });
+    }
+
     let expr = self.expression()?;
     if self.consume(
       Token::RightParen,
@@ -862,6 +887,20 @@ impl AstGenerator {
   fn closure_expr(&mut self, captures: StructExpression) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
+    self.lambda_expr(|params, body| {
+      Some(Expression::new(ClosureExpression::new(
+        captures,
+        params,
+        Statement::new(body),
+        loc,
+      )))
+    })
+  }
+
+  fn lambda_expr<F: FnOnce(Vec<Ident>, BlockStatement) -> Option<Expression>>(
+    &mut self,
+    f: F,
+  ) -> Option<Expression> {
     let params = self.parse_parameters()?;
 
     if !self.consume(
@@ -877,13 +916,7 @@ impl AstGenerator {
 
     if let Some(block_loc) = self.meta_at::<1>() {
       let body = self.block(block_loc)?;
-
-      Some(Expression::new(ClosureExpression::new(
-        captures,
-        params,
-        Statement::new(body),
-        loc,
-      )))
+      f(params, body)
     } else {
       // sanity check
       self.error::<0>(String::from("could not find original token"));
@@ -1627,6 +1660,7 @@ pub enum Expression {
   Struct(StructExpression),
   MemberAccess(MemberAccessExpression),
   MemberAssign(MemberAssignExpression),
+  Lambda(LambdaExpression),
   Closure(ClosureExpression),
 }
 
@@ -1645,6 +1679,7 @@ impl Display for Expression {
       Self::List(_) => write!(f, "list"),
       Self::Index(_) => write!(f, "index"),
       Self::Struct(_) => write!(f, "struct"),
+      Self::Lambda(_) => write!(f, "lambda"),
       Self::Closure(_) => write!(f, "closure"),
       Self::MemberAccess(_) => write!(f, "member access"),
       Self::MemberAssign(_) => write!(f, "member assign"),
@@ -1733,6 +1768,12 @@ impl New<MemberAccessExpression> for Expression {
 impl New<MemberAssignExpression> for Expression {
   fn new(expr: MemberAssignExpression) -> Self {
     Self::MemberAssign(expr)
+  }
+}
+
+impl New<LambdaExpression> for Expression {
+  fn new(expr: LambdaExpression) -> Self {
+    Self::Lambda(expr)
   }
 }
 
@@ -1974,6 +2015,32 @@ pub struct StructExpression {
 impl StructExpression {
   fn new(members: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
     Self { members, loc }
+  }
+}
+
+pub struct LambdaExpression {
+  pub params: Vec<Ident>,
+  pub body: Box<Statement>,
+  pub loc: SourceLocation,
+}
+
+impl LambdaExpression {
+  fn new(params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
+    Self {
+      params,
+      body: Box::new(body),
+      loc,
+    }
+  }
+}
+
+impl From<ClosureExpression> for LambdaExpression {
+  fn from(expr: ClosureExpression) -> Self {
+    Self {
+      params: expr.params,
+      body: expr.body,
+      loc: expr.loc,
+    }
   }
 }
 

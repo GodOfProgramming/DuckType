@@ -354,26 +354,28 @@ impl BytecodeGenerator {
     }
   }
 
+  fn lambda_expr(&mut self, expr: LambdaExpression) {
+    self.emit_fn(ContextName::Lambda, expr.params, *expr.body, expr.loc);
+  }
+
   fn closure_expr(&mut self, expr: ClosureExpression) {
     let num_captures = expr.captures.members.len();
-    let mut idents = Vec::with_capacity(num_captures);
-    for (member, assign) in expr.captures.members {
-      idents.push(member);
-      self.emit_expr(assign);
-    }
 
-    let name = if num_captures > 0 {
-      self.emit(OpCode::CreateList(idents.len()), expr.loc);
-      ContextName::Closure
+    if num_captures == 0 {
+      self.lambda_expr(LambdaExpression::from(expr));
     } else {
-      ContextName::Lambda
-    };
+      let mut idents = Vec::with_capacity(num_captures);
+      for (member, assign) in expr.captures.members {
+        idents.push(member);
+        self.emit_expr(assign);
+      }
 
-    idents.extend(expr.params);
+      self.emit(OpCode::CreateList(idents.len()), expr.loc);
 
-    self.emit_fn(name, idents, *expr.body, expr.loc);
+      idents.extend(expr.params);
 
-    if num_captures > 0 {
+      self.emit_fn(ContextName::Closure, idents, *expr.body, expr.loc);
+
       self.emit(OpCode::CreateClosure, expr.loc);
     }
   }
@@ -440,6 +442,7 @@ impl BytecodeGenerator {
       Expression::MemberAccess(expr) => self.member_access_expr(expr),
       Expression::MemberAssign(expr) => self.member_assign_expr(expr),
       Expression::Struct(expr) => self.struct_expr(expr),
+      Expression::Lambda(expr) => self.lambda_expr(expr),
       Expression::Closure(expr) => self.closure_expr(expr),
     }
   }
