@@ -113,25 +113,18 @@ impl BytecodeGenerator {
     self.emit_const(Value::new(Class::new(stmt.ident.name)), stmt.loc);
 
     if let Some(initializer) = stmt.initializer {
-      if self.declare_local(Ident::new("self"), stmt.loc) {
-        self.emit_expr(initializer);
-        self.emit(OpCode::AssignInitializer, stmt.loc);
-      } else {
-        self.error(stmt.loc, String::from("self cannot be a parameter name"));
-      }
+      self.emit_expr(initializer);
+      self.emit(OpCode::AssignInitializer, stmt.loc);
     }
 
     for (name, method) in stmt.methods {
       let ident = self.add_const_ident(name);
-      if self.declare_local(Ident::new("self"), stmt.loc) {
-        self.emit_expr(method);
-        self.emit(OpCode::AssignMember(ident), stmt.loc);
-      } else {
-        self.error(stmt.loc, String::from("self cannot be a parameter name"));
-      }
+      self.emit_expr(method);
+      self.emit(OpCode::AssignMember(ident), stmt.loc);
     }
 
     self.define_global(var, stmt.loc);
+    self.emit(OpCode::Pop, stmt.loc);
   }
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
@@ -144,12 +137,14 @@ impl BytecodeGenerator {
     }
 
     let var = self.declare_global(stmt.ident.clone());
+
     self.emit_fn(
       ContextName::Function(stmt.ident.name.clone()),
       stmt.params,
       *stmt.body,
       stmt.loc,
     );
+
     self.define_global(var, stmt.loc);
     self.emit(OpCode::Pop, stmt.loc);
   }
@@ -439,20 +434,29 @@ impl BytecodeGenerator {
     if num_captures == 0 {
       self.lambda_expr(LambdaExpression::from(expr));
     } else {
-      let mut idents = Vec::with_capacity(num_captures);
+      let mut params = Vec::with_capacity(num_captures);
       for (member, assign) in expr.captures.members {
-        idents.push(member);
+        params.push(member);
         self.emit_expr(assign);
       }
 
-      self.emit(OpCode::CreateList(idents.len()), expr.loc);
+      self.emit(OpCode::CreateList(params.len()), expr.loc);
 
-      idents.extend(expr.params);
+      params.extend(expr.params);
 
-      self.emit_fn(ContextName::Closure, idents, *expr.body, expr.loc);
+      self.emit_fn(ContextName::Closure, params, *expr.body, expr.loc);
 
       self.emit(OpCode::CreateClosure, expr.loc);
     }
+  }
+
+  fn method_expr(&mut self, expr: MethodExpression) {
+    let mut params = Vec::with_capacity(expr.params.len() + 1);
+
+    params.push(Ident::new("self"));
+    params.extend(expr.params);
+
+    self.emit_fn(ContextName::Method, params, *expr.body, expr.loc);
   }
 
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
@@ -513,14 +517,15 @@ impl BytecodeGenerator {
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::OpAssign(expr) => self.op_assign_expr(expr),
+      Expression::MemberAccess(expr) => self.member_access_expr(expr),
+      Expression::MemberAssign(expr) => self.member_assign_expr(expr),
       Expression::Call(expr) => self.call_expr(expr),
       Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
-      Expression::MemberAccess(expr) => self.member_access_expr(expr),
-      Expression::MemberAssign(expr) => self.member_assign_expr(expr),
       Expression::Struct(expr) => self.struct_expr(expr),
       Expression::Lambda(expr) => self.lambda_expr(expr),
       Expression::Closure(expr) => self.closure_expr(expr),
+      Expression::Method(expr) => self.method_expr(expr),
     }
   }
 

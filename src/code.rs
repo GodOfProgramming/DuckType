@@ -239,6 +239,7 @@ enum ContextName {
   Main,
   Lambda,
   Closure,
+  Method,
   Function(String),
 }
 
@@ -377,6 +378,7 @@ impl Context {
       ContextName::Main => "MAIN",
       ContextName::Closure => "closure",
       ContextName::Lambda => "lambda",
+      ContextName::Method => "method",
       ContextName::Function(name) => name.as_str(),
     }
   }
@@ -401,9 +403,11 @@ impl Context {
         format!("function {} {}", self.id, self.name())
       }
     );
+
     for (i, op) in self.instructions.iter().enumerate() {
       self.display_instruction(op, i);
     }
+
     println!("<< END >>");
   }
 
@@ -443,7 +447,7 @@ impl Context {
         "{:<16} {:4} {:?}",
         "LookupGlobal",
         name,
-        if let Some(name) = self.const_at(*name) {
+        if let Some(name) = self.global_const_at(*name) {
           name.clone()
         } else {
           Value::new("????")
@@ -453,7 +457,7 @@ impl Context {
         "{:<16} {:4} {:?}",
         "DefineGlobal",
         name,
-        if let Some(name) = self.const_at(*name) {
+        if let Some(name) = self.global_const_at(*name) {
           name.clone()
         } else {
           Value::new("????")
@@ -463,7 +467,7 @@ impl Context {
         "{:<16} {:4} {:?}",
         "AssignGlobal",
         name,
-        if let Some(name) = self.const_at(*name) {
+        if let Some(name) = self.global_const_at(*name) {
           name.clone()
         } else {
           Value::new("????")
@@ -536,6 +540,7 @@ pub struct Compiler;
 impl Compiler {
   pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
     let mut scanner = Scanner::new(file, source);
+
     let (tokens, meta) = scanner
       .scan()
       .map_err(|errs| Self::reformat_errors(source, errs))?;

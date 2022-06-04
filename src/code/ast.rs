@@ -182,6 +182,8 @@ impl AstGenerator {
   fn class_stmt(&mut self) {
     if let Some(loc) = self.meta_at::<0>() {
       if let Some(Token::Identifier(class_name)) = self.current() {
+        println!("declaring class {}", class_name);
+
         self.advance();
 
         if !self.consume(Token::LeftBrace, "expected '{' after class name") {
@@ -195,6 +197,7 @@ impl AstGenerator {
         while let Some(token) = self.current() {
           match token {
             Token::New => {
+              println!("found initializer");
               self.advance();
               if initializer.is_none() {
                 if self.consume(Token::LeftParen, "expected '(' after 'new'") {
@@ -215,16 +218,19 @@ impl AstGenerator {
               if let Some(Token::Identifier(ident)) = self.current() {
                 if !declared_functions.contains(&ident) {
                   self.advance();
-                  if let Some(function) = self.lambda_expr(|params, body| {
-                    declared_functions.insert(ident.clone());
-                    Some(Expression::new(LambdaExpression::new(
-                      params,
-                      Statement::new(body),
-                      loc,
-                    )))
-                  }) {
-                    let ident = Ident::new(ident.clone());
-                    methods.push((ident, function));
+                  if self.consume(Token::LeftParen, "expected '(' after identifier") {
+                    if let Some(function) = self.lambda_expr(|params, body| {
+                      println!("declaring method {}", ident);
+                      declared_functions.insert(ident.clone());
+                      Some(Expression::new(MethodExpression::new(
+                        params,
+                        Statement::new(body),
+                        loc,
+                      )))
+                    }) {
+                      let ident = Ident::new(ident.clone());
+                      methods.push((ident, function));
+                    }
                   }
                 } else {
                   self.error::<0>(String::from("duplicate method definition"));
@@ -239,6 +245,7 @@ impl AstGenerator {
           return;
         }
 
+        println!("created class");
         self.statements.push(Statement::new(ClassStatement::new(
           Ident::new(class_name),
           initializer,
@@ -1774,6 +1781,7 @@ pub enum Expression {
   MemberAssign(MemberAssignExpression),
   Lambda(LambdaExpression),
   Closure(ClosureExpression),
+  Method(MethodExpression),
 }
 
 impl Display for Expression {
@@ -1788,14 +1796,15 @@ impl Display for Expression {
       Self::Ident(i) => write!(f, "ident {}", i.ident.name),
       Self::Assign(_) => write!(f, "assign"),
       Self::OpAssign(_) => write!(f, "op assign"),
+      Self::MemberAccess(_) => write!(f, "member access"),
+      Self::MemberAssign(_) => write!(f, "member assign"),
       Self::Call(_) => write!(f, "call"),
       Self::List(_) => write!(f, "list"),
       Self::Index(_) => write!(f, "index"),
       Self::Struct(_) => write!(f, "struct"),
       Self::Lambda(_) => write!(f, "lambda"),
       Self::Closure(_) => write!(f, "closure"),
-      Self::MemberAccess(_) => write!(f, "member access"),
-      Self::MemberAssign(_) => write!(f, "member assign"),
+      Self::Method(_) => write!(f, "method"),
     }
   }
 }
@@ -1899,6 +1908,12 @@ impl New<LambdaExpression> for Expression {
 impl New<ClosureExpression> for Expression {
   fn new(expr: ClosureExpression) -> Self {
     Self::Closure(expr)
+  }
+}
+
+impl New<MethodExpression> for Expression {
+  fn new(expr: MethodExpression) -> Self {
+    Self::Method(expr)
   }
 }
 
@@ -2206,6 +2221,22 @@ impl ClosureExpression {
   ) -> Self {
     Self {
       captures,
+      params,
+      body: Box::new(body),
+      loc,
+    }
+  }
+}
+
+pub struct MethodExpression {
+  pub params: Vec<Ident>,
+  pub body: Box<Statement>,
+  pub loc: SourceLocation,
+}
+
+impl MethodExpression {
+  fn new(params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
+    Self {
       params,
       body: Box::new(body),
       loc,

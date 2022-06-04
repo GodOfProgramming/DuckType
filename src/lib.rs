@@ -8,7 +8,7 @@ pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection};
 use ptr::SmartPtr;
-use std::{collections::BTreeMap, fs};
+use std::{collections::BTreeMap, fs, ops::Deref};
 use types::{Closure, Error};
 pub use types::{Struct, Value, ValueOpResult};
 
@@ -350,38 +350,39 @@ impl ExecutionThread {
     location: usize,
   ) -> ExecResult {
     match ctx.const_at(location) {
-      Some(name) => match self.stack_pop() {
-        Some(value) => match self.stack_peek() {
-          Some(obj) => match obj {
-            Value::Struct(mut obj) => match name {
-              Value::String(name) => {
+      Some(name) => match name {
+        Value::String(name) => match self.stack_pop() {
+          Some(value) => match self.stack_peek() {
+            Some(obj) => match obj {
+              Value::Struct(mut obj) => {
                 obj.set(name, value);
                 Ok(())
               }
-              _ => Err(self.error(ctx, opcode, String::from("member name is not a identifier"))),
-            },
-            Value::Class(mut class) => match name {
-              Value::String(name) => class
+              Value::Class(mut class) => class
                 .set_method(name, value)
                 .map_err(|e| self.error(ctx, opcode, e)),
+              Value::Instance(mut instance) => {
+                instance.set(name, value);
+                Ok(())
+              }
               _ => Err(self.error(
                 ctx,
                 opcode,
-                String::from("member name is not an identifier"),
+                format!("cannot assign member to invalid type {}", obj),
               )),
             },
-            _ => Err(self.error(
-              ctx,
-              opcode,
-              String::from("tried to assigning to non object"),
-            )),
+            None => Err(self.error(ctx, opcode, String::from("no object on stack to assign to"))),
           },
-          None => Err(self.error(ctx, opcode, String::from("no object on stack to assign to"))),
+          None => Err(self.error(
+            ctx,
+            opcode,
+            String::from("no value on stack to assign to member"),
+          )),
         },
-        None => Err(self.error(
+        _ => Err(self.error(
           ctx,
           opcode,
-          String::from("no value on stack to assign to member"),
+          String::from("tried to assigning to non object"),
         )),
       },
       None => Err(self.error(ctx, opcode, String::from("no member ident to assign to"))),
@@ -403,7 +404,14 @@ impl ExecutionThread {
               self.stack_push(obj.get(ident));
               Ok(())
             }
-            _ => Err(self.error(ctx, opcode, String::from("invalid member name"))),
+            v => Err(self.error(ctx, opcode, format!("invalid member name {}", v))),
+          },
+          Value::Instance(obj) => match name {
+            Value::String(ident) => {
+              self.stack_push(obj.get(ident));
+              Ok(())
+            }
+            v => Err(self.error(ctx, opcode, format!("invalid member name {}", v))),
           },
           _ => Err(self.error(ctx, opcode, String::from("invalid type for member access"))),
         },
@@ -421,10 +429,9 @@ impl ExecutionThread {
     match self.stack_pop() {
       Some(initializer) => match self.stack_peek() {
         Some(value) => match value {
-          Value::Class(mut class) => {
-            class.set_initializer(initializer);
-            Ok(())
-          }
+          Value::Class(mut class) => class
+            .set_initializer(initializer)
+            .map_err(|e| self.error(ctx, opcode, e)),
           _ => Err(self.error(
             ctx,
             opcode,
@@ -844,8 +851,8 @@ impl ExecutionThread {
     if self.stack.is_empty() {
       println!("          | [ ]");
     } else {
-      for item in self.stack.iter() {
-        println!("          | [ {} ]", item);
+      for (index, item) in self.stack.iter().enumerate() {
+        println!("{:#10}| [ {} ]", index, item);
       }
     }
   }
@@ -856,6 +863,7 @@ pub enum Library {
   Time,
   String,
   Console,
+  Ptr,
 }
 
 #[derive(Default)]
@@ -907,6 +915,7 @@ impl Vm {
       Library::Time => ("time", Self::load_time()),
       Library::String => ("string", Self::load_string()),
       Library::Console => ("console", Self::load_console()),
+      Library::Ptr => ("ptr", Self::load_ptr()),
     }
   }
 
@@ -985,6 +994,38 @@ impl Vm {
     });
 
     obj.set("write", write);
+
+    Value::new(obj)
+  }
+
+  fn load_ptr() -> Value {
+    let mut obj = Struct::default();
+
+    let deref = Value::native(String::from("deref"), |_env, mut args: Vec<Value>| {
+      fn deref_value(v: Value) -> Value {
+        if let Value::Instance(v) = v {
+          (***v).clone()
+        } else {
+          v
+        }
+      }
+
+      if !args.is_empty() {
+        if args.len() == 1 {
+          Ok(deref_value(args.swap_remove(0)))
+        } else {
+          let mut derefs = Vec::with_capacity(args.len());
+          for arg in args {
+            derefs.push(deref_value(arg))
+          }
+          Ok(Value::new(derefs))
+        }
+      } else {
+        Err(String::from("deref called with no arguments"))
+      }
+    });
+
+    obj.set("deref", deref);
 
     Value::new(obj)
   }

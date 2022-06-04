@@ -6,6 +6,7 @@ fn main() {
 
   let mut args = env::args().collect::<Vec<String>>().into_iter().skip(1);
   let file = args.next();
+  eprintln!();
 
   let vm = Vm::new_with_libs(
     &args.collect::<Vec<String>>(),
@@ -14,6 +15,7 @@ fn main() {
       Library::Time,
       Library::String,
       Library::Console,
+      Library::Ptr,
     ],
   );
 

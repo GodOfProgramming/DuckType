@@ -7,7 +7,7 @@ use std::{
   cmp::{Ordering, PartialEq, PartialOrd},
   collections::BTreeMap,
   fmt::{self, Debug, Display, Formatter},
-  ops::{Add, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
+  ops::{Add, Deref, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
 };
 
 #[derive(Default, PartialEq)]
@@ -37,7 +37,7 @@ impl Error {
 }
 
 impl Debug for Error {
-  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     writeln!(
       f,
       "{} ({}, {}): {}",
@@ -47,35 +47,12 @@ impl Debug for Error {
 }
 
 impl Display for Error {
-  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     writeln!(
       f,
       "{} ({}, {}): {}",
       self.file, self.line, self.column, self.msg
     )
-  }
-}
-
-pub struct NativeFn {
-  pub name: String,
-  pub callee: Box<dyn FnMut(&mut Env, Vec<Value>) -> ValueOpResult>,
-}
-
-pub type NativeFnPtr = SmartPtr<NativeFn>;
-
-impl NativeFn {
-  pub fn new<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
-    name: String,
-    callee: F,
-  ) -> Self {
-    Self {
-      name,
-      callee: Box::new(callee),
-    }
-  }
-
-  pub fn call(&mut self, env: &mut Env, args: Vec<Value>) -> ValueOpResult {
-    (self.callee)(env, args)
   }
 }
 
@@ -91,8 +68,8 @@ pub enum Value {
   NativeFunction(NativeFnPtr),
   Struct(Struct),
   Method(Method),
-  Class(Class),
-  Instance(Instance),
+  Class(SmartPtr<Class>),
+  Instance(SmartPtr<Instance>),
 
   U128(u128), // internal use only
 }
@@ -153,7 +130,7 @@ impl Value {
       Value::Closure(c) => c.call(thread, env, args),
       Value::NativeFunction(f) => f.call(env, args).map_err(|e| vec![e]),
       Value::Method(m) => m.call(thread, env, args),
-      Value::Class(c) => c.construct(thread, env, args),
+      Value::Class(c) => Class::construct(c.clone(), thread, env, args),
       _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
     }
   }
@@ -189,6 +166,25 @@ impl Value {
         _ => Err(format!("cannot index string with {}", index)),
       },
       _ => Err(format!("cannot index {}", self)),
+    }
+  }
+
+  pub fn set<N: ToString>(&mut self, name: N, value: Value) -> Result<(), String> {
+    match self {
+      Self::Instance(obj) => obj.set(name, value),
+      Self::Struct(obj) => {
+        obj.set(name, value);
+        Ok(())
+      }
+      v => Err(format!("cannot set member on type {}", v)),
+    }
+  }
+
+  pub fn get<N: ToString>(&self, name: &N) -> Value {
+    match self {
+      Self::Instance(obj) => obj.get(name),
+      Self::Struct(obj) => obj.get(name),
+      _ => Value::Nil,
     }
   }
 
@@ -286,13 +282,13 @@ impl New<Method> for Value {
 
 impl New<Class> for Value {
   fn new(item: Class) -> Self {
-    Self::Class(item)
+    Self::Class(SmartPtr::new(item))
   }
 }
 
 impl New<Instance> for Value {
   fn new(item: Instance) -> Self {
-    Self::Instance(item)
+    Self::Instance(SmartPtr::new(item))
   }
 }
 
@@ -318,6 +314,7 @@ impl Add for Value {
         Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
         Self::U128(b) => Ok(Self::String(format!("{}{}", a, b))),
         Self::Struct(b) => Ok(Self::String(format!("{}{}", a, b))),
+        Self::Bool(b) => Ok(Self::String(format!("{}{}", a, b))),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
       Self::U128(a) => match other {
@@ -326,6 +323,10 @@ impl Add for Value {
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
       Self::Struct(a) => match other {
+        Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
+        _ => Err(format!("cannot add {} and {}", a, other)),
+      },
+      Self::Bool(a) => match other {
         Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
@@ -498,28 +499,28 @@ impl PartialEq for Value {
       }
       Self::Struct(a) => {
         if let Self::Struct(b) = other {
-          a.members.raw() == b.members.raw()
+          a == b
         } else {
           false
         }
       }
       Self::Method(a) => {
         if let Self::Method(b) = other {
-          a.this == b.this && a.function == b.function
+          a.this.raw() == b.this.raw() && a.function == b.function
         } else {
           false
         }
       }
       Self::Class(a) => {
         if let Self::Class(b) = other {
-          a.methods.raw() == b.methods.raw()
+          a.raw() == b.raw()
         } else {
           false
         }
       }
       Self::Instance(a) => {
         if let Self::Instance(b) = other {
-          a.data == b.data && a.class.methods.raw() == b.class.methods.raw()
+          a.data == b.data && a.class.raw() == b.class.raw()
         } else {
           false
         }
@@ -559,7 +560,7 @@ impl PartialOrd for Value {
 }
 
 impl Display for Value {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
       Self::Nil => write!(f, "nil"),
       Self::Bool(b) => write!(f, "{}", b),
@@ -567,17 +568,12 @@ impl Display for Value {
       Self::U128(n) => write!(f, "{}", n),
       Self::String(s) => write!(f, "{}", s),
       Self::List(l) => write!(f, "{}", l),
-      Self::Function(func) => write!(
-        f,
-        "<function {} {}>",
-        func.context().id,
-        func.context().name()
-      ),
+      Self::Function(func) => write!(f, "<{}>", func),
       Self::Closure(_) => write!(f, "<closure>"),
       Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
       Self::Struct(obj) => write!(f, "{:?}", obj),
       Self::Method(_) => write!(f, "<method>"), // TODO consider class.name
-      Self::Class(class) => write!(f, "<class {}>", class.name),
+      Self::Class(class) => write!(f, "<class {}>", class),
       Self::Instance(instance) => {
         write!(f, "<instance of {}> {}", instance.class.name, instance.data)
       }
@@ -586,7 +582,7 @@ impl Display for Value {
 }
 
 impl Debug for Value {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
       Self::String(s) => write!(f, "'{}'", s),
       v => Display::fmt(v, f),
@@ -639,7 +635,7 @@ impl IntoIterator for Values {
 }
 
 impl Display for Values {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     let mut out = Vec::with_capacity(self.len());
     for item in self.0.iter() {
       out.push(item.to_string());
@@ -707,6 +703,23 @@ impl Function {
   }
 }
 
+impl Display for Function {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(
+      f,
+      "function {} {}",
+      self.context().id,
+      self.context().name()
+    )
+  }
+}
+
+impl Debug for Function {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self)
+  }
+}
+
 impl PartialEq for Function {
   fn eq(&self, other: &Self) -> bool {
     self.context_ptr().raw() == other.context_ptr().raw()
@@ -717,7 +730,7 @@ impl PartialEq for Function {
 pub struct Closure {
   capture_count: usize,
   captures: SmartPtr<Vec<Value>>,
-  function: Function,
+  pub function: Function,
 }
 
 impl Closure {
@@ -782,7 +795,30 @@ impl Closure {
   }
 }
 
-#[derive(Default, Debug, Clone)]
+pub type NativeFnPtr = SmartPtr<NativeFn>;
+
+pub struct NativeFn {
+  pub name: String,
+  pub callee: Box<dyn FnMut(&mut Env, Vec<Value>) -> ValueOpResult>,
+}
+
+impl NativeFn {
+  pub fn new<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+    name: String,
+    callee: F,
+  ) -> Self {
+    Self {
+      name,
+      callee: Box::new(callee),
+    }
+  }
+
+  pub fn call(&mut self, env: &mut Env, args: Vec<Value>) -> ValueOpResult {
+    (self.callee)(env, args)
+  }
+}
+
+#[derive(Debug, Clone)]
 pub struct Struct {
   members: SmartPtr<BTreeMap<String, Value>>,
 }
@@ -792,7 +828,7 @@ impl Struct {
     self.members.insert(name.to_string(), value);
   }
 
-  pub fn get<T: ToString>(&self, name: T) -> Value {
+  pub fn get<T: ToString>(&self, name: &T) -> Value {
     self
       .members
       .get(&name.to_string())
@@ -805,24 +841,35 @@ impl Struct {
   }
 }
 
+impl Default for Struct {
+  fn default() -> Self {
+    Self {
+      members: SmartPtr::new(BTreeMap::default()),
+    }
+  }
+}
+
 impl Display for Struct {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{:?}", self)
   }
 }
 
+impl PartialEq for Struct {
+  fn eq(&self, other: &Self) -> bool {
+    self.members.raw() == other.members.raw()
+  }
+}
+
 #[derive(Clone)]
 pub struct Method {
-  this: Box<Value>,
-  function: Function,
+  this: SmartPtr<Instance>,
+  pub function: Function,
 }
 
 impl Method {
-  pub fn new(this: Value, function: Function) -> Self {
-    Self {
-      this: Box::new(this),
-      function,
-    }
+  pub fn new(this: SmartPtr<Instance>, function: Function) -> Self {
+    Self { this, function }
   }
 }
 
@@ -848,7 +895,7 @@ impl Method {
     let prev_ip = thread.ip;
 
     let mut args_with_self = Vec::with_capacity(args.len() + 1);
-    args_with_self.push((*self.this).clone());
+    args_with_self.push(Value::Instance(self.this.clone()));
     args_with_self.extend(args);
 
     let prev_stack = thread.stack_move(args_with_self);
@@ -867,17 +914,17 @@ impl Method {
 
 #[derive(Clone)]
 pub struct Class {
-  name: SmartPtr<String>,
-  initializer: Option<Function>,
-  methods: SmartPtr<BTreeMap<String, Function>>,
+  pub name: String,
+  pub initializer: Option<Function>,
+  pub methods: BTreeMap<String, Function>,
 }
 
 impl Class {
   pub fn new(name: String) -> Self {
     Self {
-      name: SmartPtr::new(name),
+      name,
       initializer: None,
-      methods: SmartPtr::new(BTreeMap::default()),
+      methods: BTreeMap::default(),
     }
   }
 
@@ -886,28 +933,25 @@ impl Class {
   // another for custom construction
   // to save a cpu cycle or two
   pub fn construct(
-    &mut self,
+    mut class: SmartPtr<Self>,
     thread: &mut ExecutionThread,
     env: &mut Env,
     args: Vec<Value>,
   ) -> Result<Value, Vec<String>> {
-    let instance = Value::new(Struct::default());
+    let value = if let Some(initializer) = &mut class.initializer {
+      initializer.call(thread, env, args)?
+    } else {
+      Value::new(Struct::default())
+    };
 
-    if let Some(initializer) = &mut self.initializer {
-      let mut args_with_self = Vec::from([instance.clone()]);
-      args_with_self.extend(args);
-      initializer.call(thread, env, args_with_self)?;
+    let mut instance = SmartPtr::new(Instance::new(value, class.clone()));
+
+    for (name, function) in class.methods.iter() {
+      let method = Method::new(instance.clone(), function.clone());
+      instance.set_method(name.clone(), method);
     }
 
-    let mut methods = BTreeMap::default();
-
-    for (name, method) in self.methods.iter() {
-      methods.insert(name.clone(), Method::new(instance.clone(), method.clone()));
-    }
-
-    let instance = Instance::new(instance, methods, self.clone());
-
-    Ok(Value::new(instance))
+    Ok(Value::Instance(instance))
   }
 
   pub fn set_initializer(&mut self, value: Value) -> Result<(), String> {
@@ -929,30 +973,54 @@ impl Class {
   }
 }
 
+impl Display for Class {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{} {:?}", self.name, self.methods)
+  }
+}
+
 #[derive(Clone)]
 pub struct Instance {
-  data: SmartPtr<Value>,
-  methods: SmartPtr<BTreeMap<String, Method>>,
-  class: Class,
+  data: Value,
+  methods: BTreeMap<String, Method>,
+  class: SmartPtr<Class>,
 }
 
 impl Instance {
-  pub fn new(data: Value, methods: BTreeMap<String, Method>, class: Class) -> Self {
+  pub fn new(data: Value, class: SmartPtr<Class>) -> Self {
     Self {
-      data: SmartPtr::new(data),
-      methods: SmartPtr::new(methods),
+      data,
+      methods: BTreeMap::default(),
       class,
     }
   }
 
-  pub fn get<N: ToString>(&self, name: N) -> Value {
-    if let Value::Struct(data) = &**self.data {
-      data.get(name)
-    } else if let Some(method) = self.methods.get(&name.to_string()) {
-      Value::new(method.clone())
-    } else {
-      Value::Nil
+  pub fn set<N: ToString>(&mut self, name: N, value: Value) -> Result<(), String> {
+    self.data.set(name, value)
+  }
+
+  pub fn get<N: ToString>(&self, name: &N) -> Value {
+    match self.data.get(name) {
+      Value::Nil => {
+        if let Some(method) = self.methods.get(&name.to_string()) {
+          Value::new(method.clone())
+        } else {
+          Value::Nil
+        }
+      }
+      value => value,
     }
+  }
+
+  pub fn set_method<N: ToString>(&mut self, name: N, method: Method) {
+    self.methods.insert(name.to_string(), method);
+  }
+}
+
+impl Deref for Instance {
+  type Target = Value;
+  fn deref(&self) -> &Self::Target {
+    &self.data
   }
 }
 
