@@ -8,7 +8,11 @@ pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection};
 use ptr::SmartPtr;
-use std::{collections::BTreeMap, fs, ops::Deref};
+use std::{
+  collections::BTreeMap,
+  fs,
+  path::{Path, PathBuf},
+};
 use types::{Closure, Error};
 pub use types::{Struct, Value, ValueOpResult};
 
@@ -361,10 +365,9 @@ impl ExecutionThread {
               Value::Class(mut class) => class
                 .set_method(name, value)
                 .map_err(|e| self.error(ctx, opcode, e)),
-              Value::Instance(mut instance) => {
-                instance.set(name, value);
-                Ok(())
-              }
+              Value::Instance(mut instance) => instance
+                .set(name, value)
+                .map_err(|e| self.error(ctx, opcode, e)),
               _ => Err(self.error(
                 ctx,
                 opcode,
@@ -665,7 +668,27 @@ impl ExecutionThread {
           self.stack_push(lib);
           Ok(())
         } else {
-          match fs::read_to_string(&file) {
+          let mut p = PathBuf::from(file.as_str());
+
+          if !Path::exists(&p) {
+            if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
+              if let Value::List(list) = library_mod.get(&"path") {
+                for item in list {
+                  if let Value::String(path) = item {
+                    let base = PathBuf::from(path);
+                    let whole = base.join(&p);
+                    println!("checking {:?}", whole);
+                    if Path::exists(&whole) {
+                      p = whole;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          match fs::read_to_string(p) {
             Ok(data) => {
               let ip = self.ip;
               let mut stack = self.stack_move(Vec::default());

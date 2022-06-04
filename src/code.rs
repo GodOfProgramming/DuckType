@@ -4,7 +4,7 @@ pub mod lex;
 pub mod opt;
 
 use crate::{
-  types::{Error, Value, ValueOpResult},
+  types::{Error, Struct, Value, ValueOpResult},
   New,
 };
 use ast::Ast;
@@ -14,6 +14,7 @@ use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
+  env,
   fmt::{Debug, Display, Formatter},
   str,
 };
@@ -513,6 +514,24 @@ pub struct Env {
 }
 
 impl Env {
+  pub fn with_library_path() -> Self {
+    let mut env = Env::default();
+
+    let mut lib_paths = Vec::default();
+
+    if let Ok(paths) = env::var("SIMPLE_LIBRARY_PATHS") {
+      lib_paths.extend(paths.split_terminator(';').map(Value::new));
+    }
+
+    let mut module = Struct::default();
+    let lib_paths = Value::new(lib_paths);
+    module.set("path", lib_paths);
+
+    env.assign("$LIBRARY", Value::new(module));
+
+    env
+  }
+
   pub fn define<T: ToString>(&mut self, name: T, value: Value) -> bool {
     self.vars.insert(name.to_string(), value).is_none()
   }

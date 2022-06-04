@@ -7,9 +7,8 @@ struct ValueTest;
 impl ValueTest {
   fn run_assertions(&self, funcs: Vec<fn(Value)>, values: Vec<Value>) {
     for func in funcs {
-      let values = values.clone();
-      for value in values {
-        func(value);
+      for value in &values {
+        func(value.clone());
       }
     }
   }
@@ -82,15 +81,8 @@ mod tests {
       assert!(matches!(t + num, Err(_)));
     };
 
-    let assert_err_with_str = |t: Value| {
-      let s = Value::new("a");
-      assert!(matches!(s + t.clone(), Err(_)));
-      let s = Value::new("a");
-      assert!(matches!(t + s, Err(_)));
-    };
-
     t.run_assertions(
-      vec![assert_err_with_num, assert_err_with_str],
+      vec![assert_err_with_num],
       vec![
         Value::Nil,
         Value::new(true),

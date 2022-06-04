@@ -36,7 +36,7 @@ fn run_file(mut vm: Vm, file: String) -> bool {
     match fs::read_to_string(p) {
       Ok(contents) => match vm.load(file, &contents) {
         Ok(ctx) => {
-          let mut env = Env::default();
+          let mut env = Env::with_library_path();
 
           match vm.run(ctx, &mut env) {
             Ok(v) => println!("{}", v),
