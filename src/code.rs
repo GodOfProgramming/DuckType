@@ -333,8 +333,8 @@ impl Context {
     &self.consts
   }
 
-  pub fn global_const_at(&self, index: usize) -> Option<Value> {
-    self.global_ctx().consts.get(index).cloned()
+  pub fn global_const_at(&self, index: usize) -> Option<&Value> {
+    self.global_ctx().consts.get(index)
   }
 
   fn write(&mut self, op: OpCode, line: usize, column: usize) {
@@ -347,18 +347,28 @@ impl Context {
   }
 
   fn write_const(&mut self, c: Value, line: usize, column: usize) {
-    self.write(OpCode::Const(self.consts.len()), line, column);
-    self.consts.push(c);
+    let c = self.add_const(c);
+    self.write(OpCode::Const(c), line, column);
   }
 
   fn add_const(&mut self, c: Value) -> usize {
-    if let Value::String(string) = &c {
+    let string = if let Value::String(string) = &c {
       if let Some(index) = self.strings.get(string) {
         return *index;
       }
-    }
+      Some(string.clone())
+    } else {
+      None
+    };
+
     self.consts.push(c);
-    self.consts.len() - 1
+    let index = self.consts.len() - 1;
+
+    if let Some(string) = string {
+      self.strings.insert(string, index);
+    }
+
+    index
   }
 
   fn num_instructions(&self) -> usize {
@@ -397,15 +407,16 @@ impl Context {
     }
   }
 
+  pub fn display_str(&self) -> String {
+    if self.id == 0 {
+      String::from("MAIN")
+    } else {
+      format!("function {} {}", self.id, self.name())
+    }
+  }
+
   pub fn display_opcodes(&self) {
-    println!(
-      "<< {} >>",
-      if self.id == 0 {
-        String::from("MAIN")
-      } else {
-        format!("function {} {}", self.id, self.name())
-      }
-    );
+    println!("<< {} >>", self.display_str());
 
     for (i, op) in self.instructions.iter().enumerate() {
       self.display_instruction(op, i);
@@ -452,25 +463,25 @@ impl Context {
         "{} {} {}",
         Self::opcode_column("LookupGlobal"),
         Self::value_column(*name),
-        self.const_at_column(*name),
+        self.global_const_at_column(*name),
       ),
       OpCode::ForceAssignGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("ForceAssignGlobal"),
         Self::value_column(*name),
-        self.const_at_column(*name)
+        self.global_const_at_column(*name)
       ),
       OpCode::DefineGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("DefineGlobal"),
         Self::value_column(*name),
-        self.const_at_column(*name),
+        self.global_const_at_column(*name),
       ),
       OpCode::AssignGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("AssignGlobal"),
         Self::value_column(*name),
-        self.const_at_column(*name),
+        self.global_const_at_column(*name),
       ),
       OpCode::LookupLocal(index) => {
         println!(
@@ -551,12 +562,17 @@ impl Context {
     format!("{: >4}", value)
   }
 
+  fn global_const_at_column(&self, index: usize) -> String {
+    format!(
+      "{: >4}",
+      self.global_const_at(index).unwrap_or(&Value::new("????"))
+    )
+  }
+
   fn const_at_column(&self, index: usize) -> String {
     format!(
       "{: >4}",
-      self
-        .global_const_at(index)
-        .unwrap_or_else(|| Value::new("????"))
+      self.const_at(index).unwrap_or(&Value::new("????"))
     )
   }
 

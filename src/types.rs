@@ -884,7 +884,8 @@ impl Method {
       )]);
     }
 
-    while args.len() < self.function.airity {
+    // - 1 for self
+    while args.len() < self.function.airity - 1 {
       args.push(Value::Nil);
     }
 
