@@ -525,6 +525,7 @@ impl Env {
 
     let mut module = Struct::default();
     let lib_paths = Value::new(lib_paths);
+
     module.set("path", lib_paths);
 
     env.assign("$LIBRARY", Value::new(module));

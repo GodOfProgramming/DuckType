@@ -7,7 +7,8 @@ use std::{
   cmp::{Ordering, PartialEq, PartialOrd},
   collections::BTreeMap,
   fmt::{self, Debug, Display, Formatter},
-  ops::{Add, Deref, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
+  ops::{Add, Deref, Div, Index, IndexMut, Mul, Neg, Not, RangeBounds, Rem, Sub},
+  slice::Iter,
 };
 
 #[derive(Default, PartialEq)]
@@ -62,12 +63,12 @@ pub enum Value {
   Bool(bool),
   Num(f64),
   String(String),
-  List(Values),
-  Function(Function),
-  Closure(Closure),
-  NativeFunction(NativeFnPtr),
-  Struct(Struct),
-  Method(Method),
+  List(SmartPtr<List>),
+  Function(SmartPtr<Function>),
+  Closure(SmartPtr<Closure>),
+  NativeFunction(SmartPtr<NativeFn>),
+  Struct(SmartPtr<Struct>),
+  Method(SmartPtr<Method>),
   Class(SmartPtr<Class>),
   Instance(SmartPtr<Instance>),
 
@@ -246,37 +247,37 @@ impl New<&str> for Value {
 
 impl New<Vec<Value>> for Value {
   fn new(item: Vec<Value>) -> Self {
-    Self::List(Values::new(item))
+    Self::List(SmartPtr::new(List::new(item)))
   }
 }
 
-impl New<Values> for Value {
-  fn new(item: Values) -> Self {
-    Self::List(item)
+impl New<List> for Value {
+  fn new(item: List) -> Self {
+    Self::List(SmartPtr::new(item))
   }
 }
 
 impl New<Function> for Value {
   fn new(func: Function) -> Self {
-    Self::Function(func)
+    Self::Function(SmartPtr::new(func))
   }
 }
 
 impl New<Closure> for Value {
   fn new(func: Closure) -> Self {
-    Self::Closure(func)
+    Self::Closure(SmartPtr::new(func))
   }
 }
 
 impl New<Struct> for Value {
   fn new(item: Struct) -> Self {
-    Self::Struct(item)
+    Self::Struct(SmartPtr::new(item))
   }
 }
 
 impl New<Method> for Value {
   fn new(item: Method) -> Self {
-    Self::Method(item)
+    Self::Method(SmartPtr::new(item))
   }
 }
 
@@ -499,7 +500,7 @@ impl PartialEq for Value {
       }
       Self::Struct(a) => {
         if let Self::Struct(b) = other {
-          a == b
+          a.raw() == b.raw()
         } else {
           false
         }
@@ -591,11 +592,11 @@ impl Debug for Value {
 }
 
 #[derive(Clone)]
-pub struct Values(SmartPtr<Vec<Value>>);
+pub struct List(Vec<Value>);
 
-impl Values {
+impl List {
   pub fn new(values: Vec<Value>) -> Self {
-    Self(SmartPtr::new(values))
+    Self(values)
   }
 
   pub fn len(&self) -> usize {
@@ -609,9 +610,25 @@ impl Values {
   pub fn get(&self, index: usize) -> Option<&Value> {
     self.0.get(index)
   }
+
+  pub fn extend<I: IntoIterator<Item = Value>>(&mut self, iter: I) {
+    self.0.extend(iter);
+  }
+
+  pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) {
+    self.0.drain(range);
+  }
+
+  pub fn exchange(&mut self, other: &mut Vec<Value>) {
+    std::mem::swap(&mut self.0, other);
+  }
+
+  pub fn iter(&self) -> Iter<'_, Value> {
+    self.0.iter()
+  }
 }
 
-impl Index<usize> for Values {
+impl Index<usize> for List {
   type Output = Value;
 
   fn index(&self, idx: usize) -> &Self::Output {
@@ -619,28 +636,23 @@ impl Index<usize> for Values {
   }
 }
 
-impl IndexMut<usize> for Values {
+impl IndexMut<usize> for List {
   fn index_mut(&mut self, idx: usize) -> &mut Value {
     &mut self.0[idx]
   }
 }
 
-impl IntoIterator for Values {
-  type Item = Value;
-  type IntoIter = std::vec::IntoIter<Self::Item>;
-
-  fn into_iter(self) -> Self::IntoIter {
-    self.0.localize().into_iter()
-  }
-}
-
-impl Display for Values {
+impl Display for List {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    let mut out = Vec::with_capacity(self.len());
-    for item in self.0.iter() {
-      out.push(item.to_string());
-    }
-    write!(f, "[{}]", out.join(", "))
+    write!(
+      f,
+      "[{}]",
+      self
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<String>>()
+        .join(", ")
+    )
   }
 }
 
@@ -729,15 +741,15 @@ impl PartialEq for Function {
 #[derive(Clone)]
 pub struct Closure {
   capture_count: usize,
-  captures: SmartPtr<Vec<Value>>,
-  pub function: Function,
+  captures: SmartPtr<List>,
+  pub function: SmartPtr<Function>,
 }
 
 impl Closure {
-  pub fn new(captures: Values, function: Function) -> Self {
+  pub fn new(captures: SmartPtr<List>, function: SmartPtr<Function>) -> Self {
     Self {
       capture_count: captures.len(),
-      captures: SmartPtr::new(captures.0.localize()),
+      captures,
       function,
     }
   }
@@ -765,7 +777,7 @@ impl Closure {
     self.captures.extend(args);
 
     let mut captures_with_args = Vec::default();
-    std::mem::swap(&mut captures_with_args, &mut self.captures);
+    self.captures.exchange(&mut captures_with_args);
 
     let prev_stack = thread.stack_move(captures_with_args);
 
@@ -776,7 +788,7 @@ impl Closure {
     thread.ip = prev_ip;
 
     let mut captures = thread.stack_move(prev_stack);
-    std::mem::swap(&mut captures, &mut self.captures);
+    self.captures.exchange(&mut captures);
 
     // remove leftover elements in bulk in event of early return
     if self.captures.len() > self.capture_count {
@@ -794,8 +806,6 @@ impl Closure {
     &self.function.ctx
   }
 }
-
-pub type NativeFnPtr = SmartPtr<NativeFn>;
 
 pub struct NativeFn {
   pub name: String,
@@ -818,9 +828,9 @@ impl NativeFn {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default)]
 pub struct Struct {
-  members: SmartPtr<BTreeMap<String, Value>>,
+  members: BTreeMap<String, Value>,
 }
 
 impl Struct {
@@ -841,34 +851,20 @@ impl Struct {
   }
 }
 
-impl Default for Struct {
-  fn default() -> Self {
-    Self {
-      members: SmartPtr::new(BTreeMap::default()),
-    }
-  }
-}
-
 impl Display for Struct {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{:?}", self)
   }
 }
 
-impl PartialEq for Struct {
-  fn eq(&self, other: &Self) -> bool {
-    self.members.raw() == other.members.raw()
-  }
-}
-
 #[derive(Clone)]
 pub struct Method {
   this: SmartPtr<Instance>,
-  pub function: Function,
+  pub function: SmartPtr<Function>,
 }
 
 impl Method {
-  pub fn new(this: SmartPtr<Instance>, function: Function) -> Self {
+  pub fn new(this: SmartPtr<Instance>, function: SmartPtr<Function>) -> Self {
     Self { this, function }
   }
 }
@@ -915,8 +911,8 @@ impl Method {
 #[derive(Clone)]
 pub struct Class {
   pub name: String,
-  pub initializer: Option<Function>,
-  pub methods: BTreeMap<String, Function>,
+  pub initializer: Option<SmartPtr<Function>>,
+  pub methods: BTreeMap<String, SmartPtr<Function>>,
 }
 
 impl Class {

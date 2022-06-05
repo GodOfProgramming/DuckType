@@ -673,7 +673,7 @@ impl ExecutionThread {
           if !Path::exists(&p) {
             if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
               if let Value::List(list) = library_mod.get(&"path") {
-                for item in list {
+                for item in list.iter() {
                   if let Value::String(path) = item {
                     let base = PathBuf::from(path);
                     let whole = base.join(&p);
