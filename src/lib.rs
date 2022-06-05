@@ -127,11 +127,14 @@ impl ExecutionThread {
         OpCode::False => self.exec_false(),
         OpCode::Pop => self.exec_pop(),
         OpCode::PopN(count) => self.exec_pop_n(count),
+        OpCode::ForceAssignGlobal(index) => {
+          self.exec_force_assign_global(&mut ctx, env, &opcode, index)?
+        }
+        OpCode::DefineGlobal(index) => self.exec_define_global(&mut ctx, env, &opcode, index)?,
+        OpCode::LookupGlobal(index) => self.exec_lookup_global(&mut ctx, env, &opcode, index)?,
+        OpCode::AssignGlobal(index) => self.exec_assign_global(&mut ctx, env, &opcode, index)?,
         OpCode::LookupLocal(index) => self.exec_lookup_local(&mut ctx, &opcode, index)?,
         OpCode::AssignLocal(index) => self.exec_assign_local(&mut ctx, &opcode, index)?,
-        OpCode::LookupGlobal(index) => self.exec_lookup_global(&mut ctx, env, &opcode, index)?,
-        OpCode::DefineGlobal(index) => self.exec_define_global(&mut ctx, env, &opcode, index)?,
-        OpCode::AssignGlobal(index) => self.exec_assign_global(&mut ctx, env, &opcode, index)?,
         OpCode::AssignMember(index) => self.exec_assign_member(&mut ctx, &opcode, index)?,
         OpCode::LookupMember(index) => self.exec_lookup_member(&mut ctx, &opcode, index)?,
         OpCode::AssignInitializer => self.exec_assign_initializer(&mut ctx, &opcode)?,
@@ -284,6 +287,58 @@ impl ExecutionThread {
         Ok(())
       } else {
         Err(this.error(ctx, opcode, String::from("use of undefined variable")))
+      }
+    })
+  }
+
+  #[inline]
+  fn exec_force_assign_global(
+    &mut self,
+    ctx: &mut Context,
+    env: &mut Env,
+    opcode: &OpCode,
+    location: usize,
+  ) -> ExecResult {
+    self.global_op(ctx, opcode, location, |this, ctx, name| {
+      // used with functions & classes only, so pop
+      if let Some(v) = this.stack_pop() {
+        env.assign(name, v.clone());
+        Ok(())
+      } else {
+        Err(this.error(
+          ctx,
+          opcode,
+          String::from("can not define global using empty stack"),
+        ))
+      }
+    })
+  }
+
+  #[inline]
+  fn exec_define_class(
+    &mut self,
+    ctx: &mut Context,
+    env: &mut Env,
+    opcode: &OpCode,
+    location: usize,
+  ) -> ExecResult {
+    self.global_op(ctx, opcode, location, |this, ctx, name| {
+      if let Some(v) = this.stack_peek() {
+        if env.define(name, v.clone()) {
+          Ok(())
+        } else {
+          Err(this.error(
+            ctx,
+            opcode,
+            String::from("tried redefining global variable"),
+          ))
+        }
+      } else {
+        Err(this.error(
+          ctx,
+          opcode,
+          String::from("can not define global using empty stack"),
+        ))
       }
     })
   }
@@ -700,9 +755,7 @@ impl ExecutionThread {
                 new_ctx.disassemble();
               }
 
-              let mut env = Env::with_library_path();
-
-              let result = match self.run(new_ctx, &mut env) {
+              let result = match self.run(new_ctx, env) {
                 Ok(v) => {
                   stack.push(v);
                   Ok(())

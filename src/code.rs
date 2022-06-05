@@ -39,6 +39,8 @@ pub enum OpCode {
   LookupLocal(usize),
   /** Assigns a value to the local variable indexed by the tuple. The value comes off the top of the stack */
   AssignLocal(usize),
+  /** Assigns to a global, defining it if it already doesn't exist. The name is stored in the enum. The value comes off the top of the stack */
+  ForceAssignGlobal(usize),
   /** Defines a new global variable. The name is stored in the enum. The value comes off the top of the stack */
   DefineGlobal(usize),
   /** Looks up a global variable. The name is stored in the enum */
@@ -434,73 +436,128 @@ impl Context {
 
     match op {
       OpCode::Const(index) => {
-        print!("{:<16} {:4} ", "Const", index);
-        let c = self.const_at(*index);
-        match c {
-          Some(v) => println!("{}", v),
-          None => println!("INVALID INDEX"),
-        }
+        println!(
+          "{} {} {}",
+          Self::opcode_column("Const"),
+          Self::value_column(*index),
+          self.const_at_column(*index)
+        );
       }
-      OpCode::PopN(count) => println!("{:<16} {:4}", "PopN", count),
-      OpCode::LookupLocal(index) => println!("{:<16} {:4}", "LookupLocal", index),
-      OpCode::AssignLocal(index) => println!("{:<16} {:4}", "AssignLocal", index),
+      OpCode::PopN(count) => println!(
+        "{} {}",
+        Self::opcode_column("PopN"),
+        Self::value_column(*count)
+      ),
       OpCode::LookupGlobal(name) => println!(
-        "{:<16} {:4} {:?}",
-        "LookupGlobal",
-        name,
-        if let Some(name) = self.global_const_at(*name) {
-          name.clone()
-        } else {
-          Value::new("????")
-        }
+        "{} {} {}",
+        Self::opcode_column("LookupGlobal"),
+        Self::value_column(*name),
+        self.const_at_column(*name),
+      ),
+      OpCode::ForceAssignGlobal(name) => println!(
+        "{} {} {}",
+        Self::opcode_column("ForceAssignGlobal"),
+        Self::value_column(*name),
+        self.const_at_column(*name)
       ),
       OpCode::DefineGlobal(name) => println!(
-        "{:<16} {:4} {:?}",
-        "DefineGlobal",
-        name,
-        if let Some(name) = self.global_const_at(*name) {
-          name.clone()
-        } else {
-          Value::new("????")
-        }
+        "{} {} {}",
+        Self::opcode_column("DefineGlobal"),
+        Self::value_column(*name),
+        self.const_at_column(*name),
       ),
       OpCode::AssignGlobal(name) => println!(
-        "{:<16} {:4} {:?}",
-        "AssignGlobal",
-        name,
-        if let Some(name) = self.global_const_at(*name) {
-          name.clone()
-        } else {
-          Value::new("????")
-        }
+        "{} {} {}",
+        Self::opcode_column("AssignGlobal"),
+        Self::value_column(*name),
+        self.const_at_column(*name),
       ),
+      OpCode::LookupLocal(index) => {
+        println!(
+          "{} {}",
+          Self::opcode_column("LookupLocal"),
+          Self::value_column(*index)
+        )
+      }
+      OpCode::AssignLocal(index) => {
+        println!(
+          "{} {}",
+          Self::opcode_column("AssignLocal"),
+          Self::value_column(*index)
+        )
+      }
       OpCode::AssignMember(index) => {
-        print!("{:<16} {:4} ", "AssignMember", index);
-        let c = self.const_at(*index);
-        match c {
-          Some(v) => println!("{}", v),
-          None => println!("INVALID INDEX"),
-        }
+        println!(
+          "{} {} {}",
+          Self::opcode_column("AssignMember"),
+          Self::value_column(*index),
+          self.const_at_column(*index)
+        );
       }
       OpCode::LookupMember(index) => {
-        print!("{:<16} {:4} ", "LookupMember", index);
-        let c = self.const_at(*index);
-        match c {
-          Some(v) => println!("{}", v),
-          None => println!("INVALID INDEX"),
-        }
+        println!(
+          "{} {} {}",
+          Self::opcode_column("LookupMember"),
+          Self::value_column(*index),
+          self.const_at_column(*index)
+        );
       }
-      OpCode::Jump(count) => println!("{:<19} {}", "Jump", Self::address_of(offset + count)),
+      OpCode::Jump(count) => println!(
+        "{} {: >14}",
+        Self::opcode_column("Jump"),
+        Self::address_of(offset + count)
+      ),
       OpCode::JumpIfFalse(count) => {
-        println!("{:<19} {}", "JumpIfFalse", Self::address_of(offset + count))
+        println!(
+          "{} {: >14}",
+          Self::opcode_column("JumpIfFalse"),
+          Self::address_of(offset + count)
+        )
       }
-      OpCode::Loop(count) => println!("{:<19} {}", "Loop", Self::address_of(offset - count)),
-      OpCode::Or(count) => println!("{:<19} {}", "Or", Self::address_of(offset + count)),
-      OpCode::And(count) => println!("{:<19} {}", "And", Self::address_of(offset + count)),
-      OpCode::Call(count) => println!("{:<16} {:4}", "Call", count),
-      OpCode::CreateList(count) => println!("{:<16} {:4}", "CreateList", count),
-      x => println!("{:<16?}", x),
+      OpCode::Loop(count) => println!(
+        "{} {: >14}",
+        Self::opcode_column("Loop"),
+        Self::address_of(offset - count)
+      ),
+      OpCode::Or(count) => println!(
+        "{} {: >14}",
+        Self::opcode_column("Or"),
+        Self::address_of(offset + count)
+      ),
+      OpCode::And(count) => println!(
+        "{} {: >14}",
+        Self::opcode_column("And"),
+        Self::address_of(offset + count)
+      ),
+      OpCode::Call(count) => println!(
+        "{} {}",
+        Self::opcode_column("Call"),
+        Self::value_column(*count)
+      ),
+      OpCode::CreateList(count) => println!(
+        "{} {}",
+        Self::opcode_column("CreateList"),
+        Self::value_column(*count)
+      ),
+      x => println!("{}", Self::opcode_column(format!("{:?}", x))),
     }
+  }
+
+  fn opcode_column<O: ToString>(opcode: O) -> String {
+    format!("{:<20}", opcode.to_string())
+  }
+
+  fn value_column(value: usize) -> String {
+    format!("{: >4}", value)
+  }
+
+  fn const_at_column(&self, index: usize) -> String {
+    format!(
+      "{: >4}",
+      self
+        .global_const_at(index)
+        .unwrap_or_else(|| Value::new("????"))
+    )
   }
 
   fn address_of(offset: usize) -> String {

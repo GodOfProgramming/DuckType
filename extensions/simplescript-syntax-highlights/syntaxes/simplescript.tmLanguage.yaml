@@ -48,8 +48,11 @@ repository:
         patterns:
           - include: "#function"
   class:
-    name: "entity.name.type.class"
-    match: "(?<=class)\\s+${ IDENT }"
+    patterns:
+      - name: "entity.name.type.class"
+        match: "(?<=class)\\s+${ IDENT }"
+      - name: "entity.name.type"
+        match: "\\b([A-Z]\\w*)\\b"
   function:
     name: "entity.name.function"
     match: "(?<=fn)\\s+${ IDENT }"
