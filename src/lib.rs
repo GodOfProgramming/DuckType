@@ -143,6 +143,11 @@ impl ExecutionThread {
         OpCode::AssignMember(index) => self.exec_assign_member(&ctx, &opcode, index)?,
         OpCode::LookupMember(index) => self.exec_lookup_member(&ctx, &opcode, index)?,
         OpCode::AssignInitializer => self.exec_assign_initializer(&ctx, &opcode)?,
+        OpCode::Deref => self.exec_deref(&ctx, &opcode)?,
+        OpCode::DerefAssignLocal(index) => self.exec_deref_assign_local(&ctx, &opcode, index)?,
+        OpCode::DerefAssignGlobal(index) => {
+          self.exec_deref_assign_global(&ctx, &opcode, env, index)?
+        }
         OpCode::Equal => self.exec_equal(&ctx, &opcode)?,
         OpCode::NotEqual => self.exec_not_equal(&ctx, &opcode)?,
         OpCode::Greater => self.exec_greater(&ctx, &opcode)?,
@@ -470,6 +475,87 @@ impl ExecutionThread {
   }
 
   #[inline]
+  fn exec_deref(&mut self, ctx: &Context, opcode: &OpCode) -> ExecResult {
+    match self.stack_pop() {
+      Some(instance) => match instance {
+        Value::Instance(instance) => {
+          self.stack_push(instance.deref());
+          Ok(())
+        }
+        v => Err(self.error(ctx, opcode, format!("cannot deref value type {}", v))),
+      },
+      None => Err(self.error(ctx, opcode, String::from("no item on stack to dereference"))),
+    }
+  }
+
+  #[inline]
+  fn exec_deref_assign_local(
+    &mut self,
+    ctx: &Context,
+    opcode: &OpCode,
+    index: usize,
+  ) -> ExecResult {
+    if let Some(value) = self.stack_peek() {
+      if let Some(obj) = self.stack_index(index) {
+        match obj {
+          Value::Instance(mut instance) => {
+            instance.assign(value);
+            Ok(())
+          }
+          v => Err(self.error(ctx, opcode, format!("cannot assign to non instance {}", v))),
+        }
+      } else {
+        Err(self.error(
+          ctx,
+          opcode,
+          format!("no item on stack at location {}", index),
+        ))
+      }
+    } else {
+      Err(self.error(
+        ctx,
+        opcode,
+        format!("could not replace stack value at pos {}", index),
+      ))
+    }
+  }
+
+  #[inline]
+  fn exec_deref_assign_global(
+    &mut self,
+    ctx: &Context,
+    opcode: &OpCode,
+    env: &Env,
+    index: usize,
+  ) -> ExecResult {
+    self.global_op(ctx, opcode, index, |this, ctx, name| {
+      if let Some(value) = this.stack_peek() {
+        if let Some(instance) = env.lookup(name) {
+          match instance {
+            Value::Instance(mut instance) => {
+              instance.assign(value);
+              Ok(())
+            }
+            v => Err(this.error(ctx, opcode, format!("cannot assign to value type {}", v))),
+          }
+        } else {
+          Err(this.error(
+            ctx,
+            opcode,
+            String::from("tried to assign to nonexistent global"),
+          ))
+        }
+      } else {
+        Err(this.error(
+          ctx,
+          opcode,
+          String::from("can not assign to global using empty stack"),
+        ))
+      }
+    })
+  }
+
+  #[inline]
   fn exec_bool<F: FnOnce(Value, Value) -> bool>(
     &mut self,
     ctx: &Context,
@@ -520,9 +606,9 @@ impl ExecutionThread {
           self.stack_push(Value::new(a == b));
           Ok(())
         }
-        None => Err(self.error(ctx, opcode, String::from("stack peek failed"))),
+        None => Err(self.error(ctx, opcode, "stack peek failed")),
       },
-      None => Err(self.error(ctx, opcode, String::from("stack pop failed"))),
+      None => Err(self.error(ctx, opcode, "stack pop failed")),
     }
   }
 
@@ -585,7 +671,7 @@ impl ExecutionThread {
           Ok(false)
         }
       }
-      None => Err(self.error(ctx, opcode, String::from("no item on the stack to peek"))),
+      None => Err(self.error(ctx, opcode, "no item on the stack to peek")),
     }
   }
 
@@ -642,7 +728,7 @@ impl ExecutionThread {
           Ok(false)
         }
       }
-      None => Err(self.error(ctx, opcode, String::from("no item on the stack to pop"))),
+      None => Err(self.error(ctx, opcode, "no item on the stack to pop")),
     }
   }
 
@@ -669,7 +755,7 @@ impl ExecutionThread {
         ),
       }
     } else {
-      Err(self.error(ctx, opcode, String::from("cannot operate on empty stack")))
+      Err(self.error(ctx, opcode, "cannot operate on empty stack"))
     }
   }
 
@@ -756,11 +842,7 @@ impl ExecutionThread {
         ))
       }
     } else {
-      Err(self.error(
-        ctx,
-        opcode,
-        String::from("cannot operate with an empty stack"),
-      ))
+      Err(self.error(ctx, opcode, "cannot operate with an empty stack"))
     }
   }
 
@@ -776,10 +858,10 @@ impl ExecutionThread {
           Err(err) => Err(self.error(ctx, opcode, format!("unable to index value: {}", err))),
         }
       } else {
-        Err(self.error(ctx, opcode, String::from("no item to index")))
+        Err(self.error(ctx, opcode, "no item to index"))
       }
     } else {
-      Err(self.error(ctx, opcode, String::from("no item to use as an index")))
+      Err(self.error(ctx, opcode, "no item to use as an index"))
     }
   }
 
@@ -799,20 +881,20 @@ impl ExecutionThread {
               self.stack_push(Value::new(Closure::new(captures, function)));
               Ok(())
             }
-            _ => Err(self.error(ctx, opcode, String::from("capture list must be a struct"))),
+            _ => Err(self.error(ctx, opcode, "capture list must be a struct")),
           },
-          _ => Err(self.error(ctx, opcode, String::from("closure must be a function"))),
+          _ => Err(self.error(ctx, opcode, "closure must be a function")),
         },
         None => Err(self.error(
           ctx,
           opcode,
-          String::from("no item on the stack to pop for closure captures"),
+          "no item on the stack to pop for closure captures",
         )),
       },
       None => Err(self.error(
         ctx,
         opcode,
-        String::from("no item on the stack to pop for closure function"),
+        "no item on the stack to pop for closure function",
       )),
     }
   }

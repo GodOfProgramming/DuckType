@@ -604,6 +604,7 @@ impl AstGenerator {
       let op = match operator_token {
         Token::Bang => UnaryOperator::Not,
         Token::Minus => UnaryOperator::Negate,
+        Token::At => UnaryOperator::Deref,
         _ => {
           self.error::<1>(String::from("invalid unary operator"));
           return None;
@@ -737,47 +738,31 @@ impl AstGenerator {
   }
 
   fn assign_expr(&mut self, left: Expression) -> Option<Expression> {
-    if let Expression::Ident(ident) = left {
+    if let Expression::Ident(ident_expr) = left {
+      let op = self.previous()?;
       let op_meta = self.meta_at::<1>()?;
       let value = self.expression()?;
+
+      let op = match op {
+        Token::Equal => AssignOperator::Assign,
+        Token::BackArrow => AssignOperator::DerefAssign,
+        Token::PlusEqual => AssignOperator::Add,
+        Token::MinusEqual => AssignOperator::Sub,
+        Token::AsteriskEqual => AssignOperator::Mul,
+        Token::SlashEqual => AssignOperator::Div,
+        Token::PercentEqual => AssignOperator::Mod,
+        t => {
+          self.error::<1>(format!("invalid token {}", t));
+          return None;
+        }
+      };
+
       Some(Expression::new(AssignExpression::new(
-        ident.ident,
+        ident_expr.ident,
+        op,
         value,
         op_meta,
       )))
-    } else {
-      self.error::<1>(String::from("can only assign to variables"));
-      None
-    }
-  }
-
-  fn op_assign_expr(&mut self, left: Expression) -> Option<Expression> {
-    if let Expression::Ident(ident) = left {
-      if let Some(op) = self.previous() {
-        let op = match op {
-          Token::PlusEqual => OpAssignOperation::Add,
-          Token::MinusEqual => OpAssignOperation::Sub,
-          Token::AsteriskEqual => OpAssignOperation::Mul,
-          Token::SlashEqual => OpAssignOperation::Div,
-          Token::PercentEqual => OpAssignOperation::Mod,
-          t => {
-            self.error::<1>(format!("invalid token {}", t));
-            return None;
-          }
-        };
-
-        let op_meta = self.meta_at::<1>()?;
-        let value = self.expression()?;
-        Some(Expression::new(OpAssignExpression::new(
-          ident.ident,
-          op,
-          value,
-          op_meta,
-        )))
-      } else {
-        self.error::<1>(String::from("can only assign to variables"));
-        None
-      }
     } else {
       self.error::<1>(String::from("can only assign to variables"));
       None
@@ -936,7 +921,7 @@ impl AstGenerator {
   ) -> Option<Expression> {
     let params = self.parse_parameters()?;
 
-    if !self.consume(Token::RightParen, "expected ')' after arguments") {
+    if !self.consume(Token::RightParen, "expected ')' after parameters") {
       return None;
     }
 
@@ -974,6 +959,10 @@ impl AstGenerator {
     } else {
       None
     }
+  }
+
+  fn seek(&self, index: usize) -> Option<Token> {
+    self.tokens.get(self.index + index).cloned()
   }
 
   fn check_peek_after<const I: usize>(&self, expected: Token) -> bool {
@@ -1323,24 +1312,21 @@ impl AstGenerator {
       Token::Dot => ParseRule::new(None, Some(Self::member_expr), Precedence::Call),
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
       Token::Colon => ParseRule::new(None, None, Precedence::None),
+      Token::At => ParseRule::new(Some(Self::unary_expr), None, Precedence::Unary),
       Token::Plus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Term),
-      Token::PlusEqual => ParseRule::new(None, Some(Self::op_assign_expr), Precedence::Assignment),
+      Token::PlusEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
       Token::Minus => ParseRule::new(
         Some(Self::unary_expr),
         Some(Self::binary_expr),
         Precedence::Term,
       ),
-      Token::MinusEqual => ParseRule::new(None, Some(Self::op_assign_expr), Precedence::Assignment),
+      Token::MinusEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
       Token::Asterisk => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
-      Token::AsteriskEqual => {
-        ParseRule::new(None, Some(Self::op_assign_expr), Precedence::Assignment)
-      }
+      Token::AsteriskEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
       Token::Slash => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
-      Token::SlashEqual => ParseRule::new(None, Some(Self::op_assign_expr), Precedence::Assignment),
+      Token::SlashEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
       Token::Percent => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
-      Token::PercentEqual => {
-        ParseRule::new(None, Some(Self::op_assign_expr), Precedence::Assignment)
-      }
+      Token::PercentEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
       Token::Bang => ParseRule::new(Some(Self::unary_expr), None, Precedence::None),
       Token::BangEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Equality),
       Token::Equal => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
@@ -1350,6 +1336,7 @@ impl AstGenerator {
       Token::Less => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
       Token::LessEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
       Token::Arrow => ParseRule::new(None, None, Precedence::None),
+      Token::BackArrow => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
       Token::Identifier(_) => ParseRule::new(Some(Self::ident_expr), None, Precedence::None),
       Token::String(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
       Token::Number(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
@@ -1767,7 +1754,6 @@ pub enum Expression {
   Group(GroupExpression),
   Ident(IdentExpression),
   Assign(AssignExpression),
-  OpAssign(OpAssignExpression),
   Call(CallExpression),
   List(ListExpression),
   Index(IndexExpression),
@@ -1790,7 +1776,6 @@ impl Display for Expression {
       Self::Group(_) => write!(f, "group"),
       Self::Ident(i) => write!(f, "ident {}", i.ident.name),
       Self::Assign(_) => write!(f, "assign"),
-      Self::OpAssign(_) => write!(f, "op assign"),
       Self::MemberAccess(_) => write!(f, "member access"),
       Self::MemberAssign(_) => write!(f, "member assign"),
       Self::Call(_) => write!(f, "call"),
@@ -1849,12 +1834,6 @@ impl New<IdentExpression> for Expression {
 impl New<AssignExpression> for Expression {
   fn new(expr: AssignExpression) -> Self {
     Self::Assign(expr)
-  }
-}
-
-impl New<OpAssignExpression> for Expression {
-  fn new(expr: OpAssignExpression) -> Self {
-    Self::OpAssign(expr)
   }
 }
 
@@ -1928,6 +1907,7 @@ impl LiteralExpression {
 pub enum UnaryOperator {
   Not,
   Negate,
+  Deref,
 }
 
 pub struct UnaryExpression {
@@ -2040,24 +2020,9 @@ impl IdentExpression {
   }
 }
 
-pub struct AssignExpression {
-  pub ident: Ident,
-  pub value: Box<Expression>,
-
-  pub loc: SourceLocation, // location of the =
-}
-
-impl AssignExpression {
-  fn new(ident: Ident, value: Expression, loc: SourceLocation) -> Self {
-    Self {
-      ident,
-      value: Box::new(value),
-      loc,
-    }
-  }
-}
-
-pub enum OpAssignOperation {
+pub enum AssignOperator {
+  Assign,
+  DerefAssign,
   Add,
   Sub,
   Mul,
@@ -2065,16 +2030,16 @@ pub enum OpAssignOperation {
   Mod,
 }
 
-pub struct OpAssignExpression {
+pub struct AssignExpression {
   pub ident: Ident,
-  pub op: OpAssignOperation,
+  pub op: AssignOperator,
   pub value: Box<Expression>,
 
   pub loc: SourceLocation, // location of the =
 }
 
-impl OpAssignExpression {
-  fn new(ident: Ident, op: OpAssignOperation, value: Expression, loc: SourceLocation) -> Self {
+impl AssignExpression {
+  fn new(ident: Ident, op: AssignOperator, value: Expression, loc: SourceLocation) -> Self {
     Self {
       ident,
       op,
@@ -2242,14 +2207,14 @@ impl MethodExpression {
 #[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
 enum Precedence {
   None,
-  Assignment, // =
+  Assignment, // = <-
   Or,         // or
   And,        // and
   Equality,   // == !=
   Comparison, // < > <= >=
   Term,       // + -
   Factor,     // / *
-  Unary,      // - !
+  Unary,      // - ! @
   Call,       // . () []
   Primary,
 }
