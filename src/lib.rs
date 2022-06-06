@@ -701,6 +701,7 @@ impl ExecutionThread {
                   let base = PathBuf::from(path);
                   let whole = base.join(&p);
                   if Path::exists(&whole) {
+                    println!("found {:?}", whole);
                     p = whole;
                     break;
                   }
