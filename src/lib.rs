@@ -682,63 +682,67 @@ impl ExecutionThread {
   fn exec_req(&mut self, ctx: &Context, env: &mut Env, opcode: &OpCode) -> ExecResult {
     if let Some(file) = self.stack_pop() {
       if let Value::String(file) = file {
-        if let Some(lib) = self.libs.get(file.as_str()).cloned() {
-          self.stack_push(lib);
-          Ok(())
-        } else {
-          let mut p = PathBuf::from(file.as_str());
+        // load global libs only once
 
-          if !Path::exists(&p) {
-            if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
-              if let Value::List(list) = library_mod.get(&"path") {
-                for item in list.iter() {
-                  if let Value::String(path) = item {
-                    let base = PathBuf::from(path);
-                    let whole = base.join(&p);
-                    if Path::exists(&whole) {
-                      p = whole;
-                      break;
-                    }
+        if !env.is_defined(&file) {
+          if let Some(lib) = self.libs.get(file.as_str()).cloned() {
+            env.define(file, lib);
+            return Ok(());
+          }
+        }
+
+        let mut p = PathBuf::from(file.as_str());
+
+        if !Path::exists(&p) {
+          if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
+            if let Value::List(list) = library_mod.get(&"path") {
+              for item in list.iter() {
+                if let Value::String(path) = item {
+                  let base = PathBuf::from(path);
+                  let whole = base.join(&p);
+                  if Path::exists(&whole) {
+                    p = whole;
+                    break;
                   }
                 }
               }
             }
           }
+        }
 
-          match fs::read_to_string(p) {
-            Ok(data) => {
-              let ip = self.ip;
-              let mut stack = self.stack_move(Vec::default());
+        match fs::read_to_string(p) {
+          Ok(data) => {
+            let ip = self.ip;
+            let mut stack = self.stack_move(Vec::default());
 
-              let new_ctx = Compiler::compile(&file, &data)?;
+            let new_ctx = Compiler::compile(&file, &data)?;
 
-              #[cfg(feature = "disassemble")]
-              {
-                new_ctx.disassemble();
-              }
-
-              let result = match self.run(new_ctx, env) {
-                Ok(v) => {
-                  stack.push(v);
-                  Ok(())
-                }
-                Err(mut errors) => {
-                  let req_err = self.error(
-                    ctx,
-                    opcode,
-                    format!("errors detected while loading file {}", file),
-                  );
-                  errors.extend(req_err);
-                  Err(errors)
-                }
-              };
-
-              self.ip = ip;
-              self.stack = stack;
-              result
+            #[cfg(feature = "disassemble")]
+            {
+              new_ctx.disassemble();
             }
-            Err(e) => Err(self.error(ctx, opcode, format!("unable to read file {}: {}", file, e))),
+
+            let result = match self.run(new_ctx, env) {
+              Ok(v) => {
+                stack.push(v);
+                Ok(())
+              }
+              Err(mut errors) => {
+                let req_err = self.error(
+                  ctx,
+                  opcode,
+                  format!("errors detected while loading file {}", file),
+                );
+                errors.extend(req_err);
+                Err(errors)
+              }
+            };
+
+            self.ip = ip;
+            self.stack = stack;
+            result
           }
+          Err(e) => Err(self.error(ctx, opcode, format!("unable to read file {}: {}", file, e))),
         }
       } else {
         Err(self.error(
@@ -1105,11 +1109,19 @@ impl Vm {
       for arg in args {
         print!("{}", arg);
       }
+      Ok(Value::Nil)
+    });
+
+    let writeln = Value::native(String::from("write"), |_thread, _env, args: Vec<Value>| {
+      for arg in args {
+        print!("{}", arg);
+      }
       println!();
       Ok(Value::Nil)
     });
 
     obj.set("write", write);
+    obj.set("writeln", writeln);
 
     Value::new(obj)
   }

@@ -564,14 +564,14 @@ impl Context {
 
   fn global_const_at_column(&self, index: usize) -> String {
     format!(
-      "{: >4}",
+      "{: >4?}",
       self.global_const_at(index).unwrap_or(&Value::new("????"))
     )
   }
 
   fn const_at_column(&self, index: usize) -> String {
     format!(
-      "{: >4}",
+      "{: >4?}",
       self.const_at(index).unwrap_or(&Value::new("????"))
     )
   }
@@ -608,6 +608,10 @@ impl Env {
 
   pub fn define<T: ToString>(&mut self, name: T, value: Value) -> bool {
     self.vars.insert(name.to_string(), value).is_none()
+  }
+
+  pub fn is_defined(&self, name: &str) -> bool {
+    self.vars.contains_key(name)
   }
 
   pub fn assign<T: ToString>(&mut self, name: T, value: Value) -> bool {

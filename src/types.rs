@@ -578,7 +578,7 @@ impl Display for Value {
       Self::Bool(b) => write!(f, "{}", b),
       Self::Num(n) => write!(f, "{}", n),
       Self::U128(n) => write!(f, "{}", n),
-      Self::String(s) => write!(f, "\"{}\"", s),
+      Self::String(s) => write!(f, "{}", s),
       Self::List(l) => write!(f, "{}", l),
       Self::Function(func) => write!(f, "<{}>", func),
       Self::Closure(_) => write!(f, "<closure>"),
@@ -596,7 +596,7 @@ impl Display for Value {
 impl Debug for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
-      Self::String(s) => write!(f, "'{}'", s),
+      Self::String(s) => write!(f, "\"{}\"", s),
       v => Display::fmt(v, f),
     }
   }
@@ -660,7 +660,7 @@ impl Display for List {
       "[{}]",
       self
         .iter()
-        .map(|v| v.to_string())
+        .map(|v| format!("{:?}", v))
         .collect::<Vec<String>>()
         .join(", ")
     )
