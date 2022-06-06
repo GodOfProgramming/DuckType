@@ -182,8 +182,6 @@ impl AstGenerator {
   fn class_stmt(&mut self) {
     if let Some(loc) = self.meta_at::<0>() {
       if let Some(Token::Identifier(class_name)) = self.current() {
-        println!("declaring class {}", class_name);
-
         self.advance();
 
         if !self.consume(Token::LeftBrace, "expected '{' after class name") {
@@ -197,7 +195,6 @@ impl AstGenerator {
         while let Some(token) = self.current() {
           match token {
             Token::New => {
-              println!("found initializer");
               self.advance();
               if initializer.is_none() {
                 if self.consume(Token::LeftParen, "expected '(' after 'new'") {
@@ -220,7 +217,6 @@ impl AstGenerator {
                   self.advance();
                   if self.consume(Token::LeftParen, "expected '(' after identifier") {
                     if let Some(function) = self.lambda_expr(|params, body| {
-                      println!("declaring method {}", ident);
                       declared_functions.insert(ident.clone());
                       Some(Expression::new(MethodExpression::new(
                         params,
@@ -245,7 +241,6 @@ impl AstGenerator {
           return;
         }
 
-        println!("created class");
         self.statements.push(Statement::new(ClassStatement::new(
           Ident::new(class_name),
           initializer,

@@ -1,4 +1,9 @@
 req "ptr" => $ptr;
+req "test/test.ss" => test;
+
+print $LIBRARY;
+
+print test;
 
 class Example {
   new(word) {

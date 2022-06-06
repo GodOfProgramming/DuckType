@@ -7,7 +7,8 @@ use std::{
   cmp::{Ordering, PartialEq, PartialOrd},
   collections::BTreeMap,
   fmt::{self, Debug, Display, Formatter},
-  ops::{Add, Deref, Div, Index, IndexMut, Mul, Neg, Not, Rem, Sub},
+  ops::{Add, Deref, Div, Index, IndexMut, Mul, Neg, Not, RangeBounds, Rem, Sub},
+  slice::Iter,
 };
 
 #[derive(Default, PartialEq)]
@@ -19,9 +20,9 @@ pub struct Error {
 }
 
 impl Error {
-  pub fn from_ref(msg: String, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
+  pub fn from_ref<M: ToString>(msg: M, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
     let mut e = Self {
-      msg,
+      msg: msg.to_string(),
       file: opcode_ref.file.clone(),
       line: opcode_ref.line,
       column: opcode_ref.column,
@@ -62,12 +63,12 @@ pub enum Value {
   Bool(bool),
   Num(f64),
   String(String),
-  List(Values),
-  Function(Function),
-  Closure(Closure),
-  NativeFunction(NativeFnPtr),
-  Struct(Struct),
-  Method(Method),
+  List(SmartPtr<List>),
+  Function(SmartPtr<Function>),
+  Closure(SmartPtr<Closure>),
+  NativeFunction(SmartPtr<NativeFn>),
+  Struct(SmartPtr<Struct>),
+  Method(SmartPtr<Method>),
   Class(SmartPtr<Class>),
   Instance(SmartPtr<Instance>),
 
@@ -128,14 +129,19 @@ impl Value {
     match self {
       Value::Function(f) => f.call(thread, env, args),
       Value::Closure(c) => c.call(thread, env, args),
-      Value::NativeFunction(f) => f.call(env, args).map_err(|e| vec![e]),
+      Value::NativeFunction(f) => f.call(thread, env, args).map_err(|e| vec![e]),
       Value::Method(m) => m.call(thread, env, args),
       Value::Class(c) => Class::construct(c.clone(), thread, env, args),
       _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
     }
   }
 
-  pub fn index(&self, index: Value) -> ValueOpResult {
+  pub fn index(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    index: Value,
+  ) -> ValueOpResult {
     match self {
       Value::List(values) => match index {
         Value::Num(n) => {
@@ -165,6 +171,7 @@ impl Value {
         }
         _ => Err(format!("cannot index string with {}", index)),
       },
+      Value::Instance(instance) => instance.call_method("__index__", thread, env, vec![index]),
       _ => Err(format!("cannot index {}", self)),
     }
   }
@@ -188,11 +195,14 @@ impl Value {
     }
   }
 
-  pub fn native<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
-    name: String,
+  pub fn native<
+    N: ToString,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static,
+  >(
+    name: N,
     call: F,
   ) -> Self {
-    Self::new((name, call))
+    Self::new((name.to_string(), call))
   }
 }
 
@@ -246,37 +256,37 @@ impl New<&str> for Value {
 
 impl New<Vec<Value>> for Value {
   fn new(item: Vec<Value>) -> Self {
-    Self::List(Values::new(item))
+    Self::List(SmartPtr::new(List::new(item)))
   }
 }
 
-impl New<Values> for Value {
-  fn new(item: Values) -> Self {
-    Self::List(item)
+impl New<List> for Value {
+  fn new(item: List) -> Self {
+    Self::List(SmartPtr::new(item))
   }
 }
 
 impl New<Function> for Value {
   fn new(func: Function) -> Self {
-    Self::Function(func)
+    Self::Function(SmartPtr::new(func))
   }
 }
 
 impl New<Closure> for Value {
   fn new(func: Closure) -> Self {
-    Self::Closure(func)
+    Self::Closure(SmartPtr::new(func))
   }
 }
 
 impl New<Struct> for Value {
   fn new(item: Struct) -> Self {
-    Self::Struct(item)
+    Self::Struct(SmartPtr::new(item))
   }
 }
 
 impl New<Method> for Value {
   fn new(item: Method) -> Self {
-    Self::Method(item)
+    Self::Method(SmartPtr::new(item))
   }
 }
 
@@ -292,7 +302,9 @@ impl New<Instance> for Value {
   }
 }
 
-impl<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static> New<(String, F)> for Value {
+impl<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static>
+  New<(String, F)> for Value
+{
   fn new((name, call): (String, F)) -> Self {
     Self::NativeFunction(SmartPtr::new(NativeFn::new(name, call)))
   }
@@ -499,7 +511,7 @@ impl PartialEq for Value {
       }
       Self::Struct(a) => {
         if let Self::Struct(b) = other {
-          a == b
+          a.raw() == b.raw()
         } else {
           false
         }
@@ -584,18 +596,18 @@ impl Display for Value {
 impl Debug for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
-      Self::String(s) => write!(f, "'{}'", s),
+      Self::String(s) => write!(f, "\"{}\"", s),
       v => Display::fmt(v, f),
     }
   }
 }
 
 #[derive(Clone)]
-pub struct Values(SmartPtr<Vec<Value>>);
+pub struct List(Vec<Value>);
 
-impl Values {
+impl List {
   pub fn new(values: Vec<Value>) -> Self {
-    Self(SmartPtr::new(values))
+    Self(values)
   }
 
   pub fn len(&self) -> usize {
@@ -609,9 +621,25 @@ impl Values {
   pub fn get(&self, index: usize) -> Option<&Value> {
     self.0.get(index)
   }
+
+  pub fn extend<I: IntoIterator<Item = Value>>(&mut self, iter: I) {
+    self.0.extend(iter);
+  }
+
+  pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) {
+    self.0.drain(range);
+  }
+
+  pub fn exchange(&mut self, other: &mut Vec<Value>) {
+    std::mem::swap(&mut self.0, other);
+  }
+
+  pub fn iter(&self) -> Iter<'_, Value> {
+    self.0.iter()
+  }
 }
 
-impl Index<usize> for Values {
+impl Index<usize> for List {
   type Output = Value;
 
   fn index(&self, idx: usize) -> &Self::Output {
@@ -619,28 +647,23 @@ impl Index<usize> for Values {
   }
 }
 
-impl IndexMut<usize> for Values {
+impl IndexMut<usize> for List {
   fn index_mut(&mut self, idx: usize) -> &mut Value {
     &mut self.0[idx]
   }
 }
 
-impl IntoIterator for Values {
-  type Item = Value;
-  type IntoIter = std::vec::IntoIter<Self::Item>;
-
-  fn into_iter(self) -> Self::IntoIter {
-    self.0.localize().into_iter()
-  }
-}
-
-impl Display for Values {
+impl Display for List {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    let mut out = Vec::with_capacity(self.len());
-    for item in self.0.iter() {
-      out.push(item.to_string());
-    }
-    write!(f, "[{}]", out.join(", "))
+    write!(
+      f,
+      "[{}]",
+      self
+        .iter()
+        .map(|v| format!("{:?}", v))
+        .collect::<Vec<String>>()
+        .join(", ")
+    )
   }
 }
 
@@ -729,15 +752,15 @@ impl PartialEq for Function {
 #[derive(Clone)]
 pub struct Closure {
   capture_count: usize,
-  captures: SmartPtr<Vec<Value>>,
-  pub function: Function,
+  captures: SmartPtr<List>,
+  pub function: SmartPtr<Function>,
 }
 
 impl Closure {
-  pub fn new(captures: Values, function: Function) -> Self {
+  pub fn new(captures: SmartPtr<List>, function: SmartPtr<Function>) -> Self {
     Self {
       capture_count: captures.len(),
-      captures: SmartPtr::new(captures.0.localize()),
+      captures,
       function,
     }
   }
@@ -765,7 +788,7 @@ impl Closure {
     self.captures.extend(args);
 
     let mut captures_with_args = Vec::default();
-    std::mem::swap(&mut captures_with_args, &mut self.captures);
+    self.captures.exchange(&mut captures_with_args);
 
     let prev_stack = thread.stack_move(captures_with_args);
 
@@ -776,7 +799,7 @@ impl Closure {
     thread.ip = prev_ip;
 
     let mut captures = thread.stack_move(prev_stack);
-    std::mem::swap(&mut captures, &mut self.captures);
+    self.captures.exchange(&mut captures);
 
     // remove leftover elements in bulk in event of early return
     if self.captures.len() > self.capture_count {
@@ -795,15 +818,13 @@ impl Closure {
   }
 }
 
-pub type NativeFnPtr = SmartPtr<NativeFn>;
-
 pub struct NativeFn {
   pub name: String,
-  pub callee: Box<dyn FnMut(&mut Env, Vec<Value>) -> ValueOpResult>,
+  pub callee: Box<dyn FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult>,
 }
 
 impl NativeFn {
-  pub fn new<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+  pub fn new<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static>(
     name: String,
     callee: F,
   ) -> Self {
@@ -813,14 +834,19 @@ impl NativeFn {
     }
   }
 
-  pub fn call(&mut self, env: &mut Env, args: Vec<Value>) -> ValueOpResult {
-    (self.callee)(env, args)
+  pub fn call(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    args: Vec<Value>,
+  ) -> ValueOpResult {
+    (self.callee)(thread, env, args)
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default)]
 pub struct Struct {
-  members: SmartPtr<BTreeMap<String, Value>>,
+  members: BTreeMap<String, Value>,
 }
 
 impl Struct {
@@ -841,34 +867,20 @@ impl Struct {
   }
 }
 
-impl Default for Struct {
-  fn default() -> Self {
-    Self {
-      members: SmartPtr::new(BTreeMap::default()),
-    }
-  }
-}
-
 impl Display for Struct {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{:?}", self)
   }
 }
 
-impl PartialEq for Struct {
-  fn eq(&self, other: &Self) -> bool {
-    self.members.raw() == other.members.raw()
-  }
-}
-
 #[derive(Clone)]
 pub struct Method {
   this: SmartPtr<Instance>,
-  pub function: Function,
+  pub function: Value,
 }
 
 impl Method {
-  pub fn new(this: SmartPtr<Instance>, function: Function) -> Self {
+  pub fn new(this: SmartPtr<Instance>, function: Value) -> Self {
     Self { this, function }
   }
 }
@@ -880,49 +892,64 @@ impl Method {
     env: &mut Env,
     mut args: Vec<Value>,
   ) -> Result<Value, Vec<String>> {
-    if args.len() > self.function.airity {
-      return Err(vec![format!(
-        "too many arguments number of arguments, expected {}, got {}",
-        self.function.airity,
-        args.len()
-      )]);
+    match &mut self.function {
+      Value::Function(function) => {
+        if args.len() > function.airity {
+          return Err(vec![format!(
+            "too many arguments number of arguments, expected {}, got {}",
+            function.airity,
+            args.len()
+          )]);
+        }
+
+        // - 1 for self
+        while args.len() < function.airity - 1 {
+          args.push(Value::Nil);
+        }
+
+        let prev_ip = thread.ip;
+
+        let mut args_with_self = Vec::with_capacity(args.len() + 1);
+        args_with_self.push(Value::Instance(self.this.clone()));
+        args_with_self.extend(args);
+
+        let prev_stack = thread.stack_move(args_with_self);
+
+        let res = thread
+          .run(function.ctx.clone(), env)
+          .map_err(|e| e.into_iter().map(|e| e.msg).collect());
+
+        thread.ip = prev_ip;
+
+        thread.stack_move(prev_stack);
+
+        res
+      }
+      Value::NativeFunction(native) => {
+        let mut args_with_self = Vec::with_capacity(args.len() + 1);
+        args_with_self.push(Value::Instance(self.this.clone()));
+        args_with_self.extend(args);
+
+        native
+          .call(thread, env, args_with_self)
+          .map_err(|e| vec![e])
+      }
+      v => Err(vec![format!("invalid type for class initializer {}", v)]),
     }
-
-    while args.len() < self.function.airity {
-      args.push(Value::Nil);
-    }
-
-    let prev_ip = thread.ip;
-
-    let mut args_with_self = Vec::with_capacity(args.len() + 1);
-    args_with_self.push(Value::Instance(self.this.clone()));
-    args_with_self.extend(args);
-
-    let prev_stack = thread.stack_move(args_with_self);
-
-    let res = thread
-      .run(self.function.ctx.clone(), env)
-      .map_err(|e| e.into_iter().map(|e| e.msg).collect());
-
-    thread.ip = prev_ip;
-
-    thread.stack_move(prev_stack);
-
-    res
   }
 }
 
 #[derive(Clone)]
 pub struct Class {
   pub name: String,
-  pub initializer: Option<Function>,
-  pub methods: BTreeMap<String, Function>,
+  pub initializer: Option<Value>,
+  pub methods: BTreeMap<String, Value>,
 }
 
 impl Class {
-  pub fn new(name: String) -> Self {
+  pub fn new<N: ToString>(name: N) -> Self {
     Self {
-      name,
+      name: name.to_string(),
       initializer: None,
       methods: BTreeMap::default(),
     }
@@ -954,22 +981,12 @@ impl Class {
     Ok(Value::Instance(instance))
   }
 
-  pub fn set_initializer(&mut self, value: Value) -> Result<(), String> {
-    if let Value::Function(function) = value {
-      self.initializer = Some(function);
-      Ok(())
-    } else {
-      Err(format!("cannot set initializer to value {}", value))
-    }
+  pub fn set_initializer(&mut self, value: Value) {
+    self.initializer = Some(value);
   }
 
-  pub fn set_method<N: ToString>(&mut self, name: N, value: Value) -> Result<(), String> {
-    if let Value::Function(function) = value {
-      self.methods.insert(name.to_string(), function);
-      Ok(())
-    } else {
-      Err(format!("cannot set method to value {}", value))
-    }
+  pub fn set_method<N: ToString>(&mut self, name: N, value: Value) {
+    self.methods.insert(name.to_string(), value);
   }
 }
 
@@ -981,7 +998,7 @@ impl Display for Class {
 
 #[derive(Clone)]
 pub struct Instance {
-  data: Value,
+  pub data: Value,
   methods: BTreeMap<String, Method>,
   class: SmartPtr<Class>,
 }
@@ -1014,6 +1031,23 @@ impl Instance {
 
   pub fn set_method<N: ToString>(&mut self, name: N, method: Method) {
     self.methods.insert(name.to_string(), method);
+  }
+
+  pub fn call_method<N: ToString>(
+    &mut self,
+    name: N,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    args: Vec<Value>,
+  ) -> ValueOpResult {
+    if let Some(method) = self.methods.get_mut(&name.to_string()) {
+      method.call(thread, env, args).map_err(|e| e.join(", "))
+    } else {
+      Err(format!(
+        "no method found on object with name {}",
+        name.to_string()
+      ))
+    }
   }
 }
 

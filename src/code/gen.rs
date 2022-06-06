@@ -123,8 +123,7 @@ impl BytecodeGenerator {
       self.emit(OpCode::AssignMember(ident), stmt.loc);
     }
 
-    self.define_global(var, stmt.loc);
-    self.emit(OpCode::Pop, stmt.loc);
+    self.define_class(var, stmt.loc);
   }
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
@@ -145,8 +144,7 @@ impl BytecodeGenerator {
       stmt.loc,
     );
 
-    self.define_global(var, stmt.loc);
-    self.emit(OpCode::Pop, stmt.loc);
+    self.define_function(var, stmt.loc);
   }
 
   fn for_stmt(&mut self, stmt: ForStatement) {
@@ -740,6 +738,14 @@ impl BytecodeGenerator {
     } else {
       false
     }
+  }
+
+  fn define_function(&mut self, var: usize, loc: SourceLocation) {
+    self.emit(OpCode::ForceAssignGlobal(var), loc);
+  }
+
+  fn define_class(&mut self, var: usize, loc: SourceLocation) {
+    self.emit(OpCode::ForceAssignGlobal(var), loc);
   }
 
   /**
