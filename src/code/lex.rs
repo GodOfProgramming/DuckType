@@ -60,6 +60,7 @@ impl<'src> Scanner<'src> {
           '.' => Token::Dot,
           ':' => Token::Colon,
           ';' => Token::Semicolon,
+          '@' => Token::At,
           '+' => {
             if self.advance_if_match('=') {
               Token::PlusEqual
@@ -70,6 +71,8 @@ impl<'src> Scanner<'src> {
           '-' => {
             if self.advance_if_match('=') {
               Token::MinusEqual
+            } else if self.advance_if_match('>') {
+              Token::Arrow
             } else {
               Token::Minus
             }
@@ -105,8 +108,6 @@ impl<'src> Scanner<'src> {
           '=' => {
             if self.advance_if_match('=') {
               Token::EqualEqual
-            } else if self.advance_if_match('>') {
-              Token::Arrow
             } else {
               Token::Equal
             }
@@ -114,6 +115,8 @@ impl<'src> Scanner<'src> {
           '<' => {
             if self.advance_if_match('=') {
               Token::LessEqual
+            } else if self.advance_if_match('-') {
+              Token::BackArrow
             } else {
               Token::Less
             }
@@ -434,7 +437,7 @@ impl<'src> Scanner<'src> {
   fn is_alpha(c: char) -> bool {
     const A_Z_LOCASE: RangeInclusive<char> = 'a'..='z';
     const A_Z_UPCASE: RangeInclusive<char> = 'A'..='Z';
-    A_Z_LOCASE.contains(&c) || A_Z_UPCASE.contains(&c) || c == '_' || c == '@' || c == '$'
+    A_Z_LOCASE.contains(&c) || A_Z_UPCASE.contains(&c) || c == '_' || c == '$'
   }
 
   fn is_alphanumeric(c: char) -> bool {

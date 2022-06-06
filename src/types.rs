@@ -11,51 +11,8 @@ use std::{
   slice::Iter,
 };
 
-#[derive(Default, PartialEq)]
-pub struct Error {
-  pub msg: String,
-  pub file: String,
-  pub line: usize,
-  pub column: usize,
-}
-
-impl Error {
-  pub fn from_ref<M: ToString>(msg: M, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
-    let mut e = Self {
-      msg: msg.to_string(),
-      file: opcode_ref.file.clone(),
-      line: opcode_ref.line,
-      column: opcode_ref.column,
-    };
-    e.format_with_src_line(opcode_ref.source_line);
-    e.msg = format!("{}\nOffending OpCode: {:?}", e.msg, opcode);
-    e
-  }
-
-  pub fn format_with_src_line(&mut self, src: String) {
-    self.msg = format!("{}\n{}\n{}^", self.msg, src, " ".repeat(self.column - 1));
-  }
-}
-
-impl Debug for Error {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    writeln!(
-      f,
-      "{} ({}, {}): {}",
-      self.file, self.line, self.column, self.msg
-    )
-  }
-}
-
-impl Display for Error {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    writeln!(
-      f,
-      "{} ({}, {}): {}",
-      self.file, self.line, self.column, self.msg
-    )
-  }
-}
+#[cfg(test)]
+mod test;
 
 #[derive(Clone)]
 pub enum Value {
@@ -1033,6 +990,14 @@ impl Instance {
     self.methods.insert(name.to_string(), method);
   }
 
+  pub fn assign(&mut self, value: Value) {
+    self.data = value;
+  }
+
+  pub fn deref(&self) -> Value {
+    self.data.clone()
+  }
+
   pub fn call_method<N: ToString>(
     &mut self,
     name: N,
@@ -1058,5 +1023,48 @@ impl Deref for Instance {
   }
 }
 
-#[cfg(test)]
-mod test;
+#[derive(Default, PartialEq)]
+pub struct Error {
+  pub msg: String,
+  pub file: String,
+  pub line: usize,
+  pub column: usize,
+}
+
+impl Error {
+  pub fn from_ref<M: ToString>(msg: M, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
+    let mut e = Self {
+      msg: msg.to_string(),
+      file: opcode_ref.file.clone(),
+      line: opcode_ref.line,
+      column: opcode_ref.column,
+    };
+    e.format_with_src_line(opcode_ref.source_line);
+    e.msg = format!("{}\nOffending OpCode: {:?}", e.msg, opcode);
+    e
+  }
+
+  pub fn format_with_src_line(&mut self, src: String) {
+    self.msg = format!("{}\n{}\n{}^", self.msg, src, " ".repeat(self.column - 1));
+  }
+}
+
+impl Debug for Error {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    writeln!(
+      f,
+      "{} ({}, {}): {}",
+      self.file, self.line, self.column, self.msg
+    )
+  }
+}
+
+impl Display for Error {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    writeln!(
+      f,
+      "{} ({}, {}): {}",
+      self.file, self.line, self.column, self.msg
+    )
+  }
+}

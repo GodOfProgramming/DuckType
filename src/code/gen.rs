@@ -16,6 +16,8 @@ struct Local {
   initialized: bool,
 }
 
+type OpCodeConstructor = fn(usize) -> OpCode;
+
 #[derive(PartialEq)]
 enum LookupKind {
   Local,
@@ -289,10 +291,10 @@ impl BytecodeGenerator {
 
   fn unary_expr(&mut self, expr: UnaryExpression) {
     self.emit_expr(*expr.expr);
-
     match expr.op {
       UnaryOperator::Not => self.emit(OpCode::Not, expr.loc),
       UnaryOperator::Negate => self.emit(OpCode::Negate, expr.loc),
+      UnaryOperator::Deref => self.emit(OpCode::Deref, expr.loc),
     }
   }
 
@@ -344,10 +346,42 @@ impl BytecodeGenerator {
   }
 
   fn assign_expr(&mut self, expr: AssignExpression) {
+    match expr.op {
+      AssignOperator::Assign => {
+        self.normal_assign_expr(
+          expr,
+          (
+            OpCode::AssignLocal as fn(usize) -> OpCode,
+            OpCode::AssignGlobal as fn(usize) -> OpCode,
+          ),
+        );
+      }
+      AssignOperator::DerefAssign => {
+        self.normal_assign_expr(
+          expr,
+          (
+            OpCode::DerefAssignLocal as fn(usize) -> OpCode,
+            OpCode::DerefAssignGlobal as fn(usize) -> OpCode,
+          ),
+        );
+      }
+      AssignOperator::Add => self.op_assign_expr(expr, OpCode::Add),
+      AssignOperator::Sub => self.op_assign_expr(expr, OpCode::Sub),
+      AssignOperator::Mul => self.op_assign_expr(expr, OpCode::Mul),
+      AssignOperator::Div => self.op_assign_expr(expr, OpCode::Div),
+      AssignOperator::Mod => self.op_assign_expr(expr, OpCode::Mod),
+    }
+  }
+
+  fn normal_assign_expr(
+    &mut self,
+    expr: AssignExpression,
+    (local, global): (OpCodeConstructor, OpCodeConstructor),
+  ) {
     if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
       let set = match lookup.kind {
-        LookupKind::Local => OpCode::AssignLocal(lookup.index),
-        LookupKind::Global => OpCode::AssignGlobal(self.declare_global(expr.ident)),
+        LookupKind::Local => local(lookup.index),
+        LookupKind::Global => global(self.declare_global(expr.ident)),
       };
 
       self.emit_expr(*expr.value);
@@ -356,7 +390,7 @@ impl BytecodeGenerator {
     }
   }
 
-  fn op_assign_expr(&mut self, expr: OpAssignExpression) {
+  fn op_assign_expr(&mut self, expr: AssignExpression, opcode: OpCode) {
     if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
       let (set, get) = match lookup.kind {
         LookupKind::Local => (
@@ -376,13 +410,7 @@ impl BytecodeGenerator {
 
       self.emit_expr(*expr.value);
 
-      match expr.op {
-        OpAssignOperation::Add => self.emit(OpCode::Add, expr.loc),
-        OpAssignOperation::Sub => self.emit(OpCode::Sub, expr.loc),
-        OpAssignOperation::Mul => self.emit(OpCode::Mul, expr.loc),
-        OpAssignOperation::Div => self.emit(OpCode::Div, expr.loc),
-        OpAssignOperation::Mod => self.emit(OpCode::Mod, expr.loc),
-      }
+      self.emit(opcode, expr.loc);
 
       self.emit(set, expr.loc);
     }
@@ -514,7 +542,6 @@ impl BytecodeGenerator {
       Expression::Group(expr) => self.group_expr(expr),
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
-      Expression::OpAssign(expr) => self.op_assign_expr(expr),
       Expression::MemberAccess(expr) => self.member_access_expr(expr),
       Expression::MemberAssign(expr) => self.member_assign_expr(expr),
       Expression::Call(expr) => self.call_expr(expr),

@@ -53,6 +53,12 @@ pub enum OpCode {
   LookupMember(usize),
   /** Assigns an initializer function to the class which is the next item on the stack */
   AssignInitializer,
+  /** Pops a value off the stack and pushes its dereferenced value on the stack (data field of a class instance) */
+  Deref,
+  /** Pops an item off the stack and stores it into the dereference value (data field of a class instance) */
+  DerefAssignLocal(usize),
+  /** Pops an item off the stack and stores it into the dereference value (data field of a class instance) */
+  DerefAssignGlobal(usize),
   /** Pops two values off the stack, compares, then pushes the result back on */
   Equal,
   /** Pops two values off the stack, compares, then pushes the result back on */
@@ -120,6 +126,7 @@ pub enum Token {
   Dot,
   Colon,
   Semicolon,
+  At,
 
   // One or two character tokens.
   Bang,
@@ -131,6 +138,7 @@ pub enum Token {
   Less,
   LessEqual,
   Arrow,
+  BackArrow,
   Plus,
   PlusEqual,
   Minus,
