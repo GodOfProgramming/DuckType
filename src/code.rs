@@ -5,7 +5,7 @@ pub mod opt;
 
 use crate::{
   types::{Error, Struct, Value, ValueOpResult},
-  New,
+  ExecutionThread, New,
 };
 use ast::Ast;
 use gen::BytecodeGenerator;
@@ -618,7 +618,10 @@ impl Env {
     self.vars.get(&name.to_string()).cloned()
   }
 
-  pub fn create_native<K: ToString, F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+  pub fn create_native<
+    K: ToString,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static,
+  >(
     &mut self,
     name: K,
     native: F,

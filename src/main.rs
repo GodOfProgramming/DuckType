@@ -11,6 +11,7 @@ fn main() {
   let vm = Vm::new_with_libs(
     &args.collect::<Vec<String>>(),
     &[
+      Library::Std,
       Library::Env,
       Library::Time,
       Library::String,

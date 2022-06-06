@@ -13,8 +13,8 @@ use std::{
   fs,
   path::{Path, PathBuf},
 };
+pub use types::{Class, Struct, Value, ValueOpResult};
 use types::{Closure, Error};
-pub use types::{Struct, Value, ValueOpResult};
 
 pub trait New<T> {
   fn new(item: T) -> Self;
@@ -105,7 +105,7 @@ impl ExecutionThread {
   }
 
   #[cold]
-  fn error(&self, ctx: &Context, opcode: &OpCode, msg: String) -> Vec<Error> {
+  fn error<M: ToString>(&self, ctx: &Context, opcode: &OpCode, msg: M) -> Vec<Error> {
     vec![self.error_at(ctx, |opcode_ref| Error::from_ref(msg, opcode, opcode_ref))]
   }
 
@@ -184,7 +184,7 @@ impl ExecutionThread {
         OpCode::Call(airity) => self.exec_call(&ctx, env, &opcode, airity)?,
         OpCode::Ret => return Ok(self.exec_ret()),
         OpCode::Req => self.exec_req(&ctx, env, &opcode)?,
-        OpCode::Index => self.exec_index(&ctx, &opcode)?,
+        OpCode::Index => self.exec_index(&ctx, &opcode, env)?,
         OpCode::CreateList(num_items) => self.exec_create_list(num_items),
         OpCode::CreateClosure => self.exec_create_closure(&ctx, &opcode)?,
       }
@@ -383,9 +383,10 @@ impl ExecutionThread {
                 obj.set(name, value);
                 Ok(())
               }
-              Value::Class(mut class) => class
-                .set_method(name, value)
-                .map_err(|e| self.error(ctx, opcode, e)),
+              Value::Class(mut class) => {
+                class.set_method(name, value);
+                Ok(())
+              }
               Value::Instance(mut instance) => instance
                 .set(name, value)
                 .map_err(|e| self.error(ctx, opcode, e)),
@@ -448,9 +449,10 @@ impl ExecutionThread {
     match self.stack_pop() {
       Some(initializer) => match self.stack_peek() {
         Some(value) => match value {
-          Value::Class(mut class) => class
-            .set_initializer(initializer)
-            .map_err(|e| self.error(ctx, opcode, e)),
+          Value::Class(mut class) => {
+            class.set_initializer(initializer);
+            Ok(())
+          }
           _ => Err(self.error(
             ctx,
             opcode,
@@ -758,19 +760,15 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_index(&mut self, ctx: &Context, opcode: &OpCode) -> ExecResult {
+  fn exec_index(&mut self, ctx: &Context, opcode: &OpCode, env: &mut Env) -> ExecResult {
     if let Some(index) = self.stack_pop() {
-      if let Some(indexable) = self.stack_pop() {
-        match indexable.index(index) {
+      if let Some(mut indexable) = self.stack_pop() {
+        match indexable.index(self, env, index) {
           Ok(value) => {
             self.stack_push(value);
             Ok(())
           }
-          Err(err) => Err(self.error(
-            ctx,
-            opcode,
-            format!("unable to index item {}: {}", indexable, err),
-          )),
+          Err(err) => Err(self.error(ctx, opcode, format!("unable to index value: {}", err))),
         }
       } else {
         Err(self.error(ctx, opcode, String::from("no item to index")))
@@ -897,6 +895,7 @@ impl ExecutionThread {
 }
 
 pub enum Library {
+  Std,
   Env,
   Time,
   String,
@@ -949,12 +948,85 @@ impl Vm {
 
   fn load_lib(args: &[String], lib: &Library) -> (&'static str, Value) {
     match lib {
+      Library::Std => ("std", Self::load_std()),
       Library::Env => ("env", Self::load_env(args)),
       Library::Time => ("time", Self::load_time()),
       Library::String => ("string", Self::load_string()),
       Library::Console => ("console", Self::load_console()),
       Library::Ptr => ("ptr", Self::load_ptr()),
     }
+  }
+
+  fn load_std() -> Value {
+    let mut obj = Struct::default();
+
+    let mut array = Class::new("Array");
+
+    array.set_initializer(Value::native("Array.new", |_thread, _env, args| {
+      Ok(Value::new(args))
+    }));
+
+    array.set_method(
+      "push",
+      Value::native("push", |_thread, _env, mut args| {
+        if args.len() > 1 {
+          let this = args.get(0).cloned().unwrap();
+          let rest = args.drain(1..);
+
+          match this {
+            Value::Instance(mut instance) => match &mut instance.data {
+              Value::List(list) => list.extend(rest.into_iter()),
+              v => return Err(format!("somehow called push on non array type {}", v)),
+            },
+            v => return Err(format!("somehow called push on a primitive type {}", v)),
+          }
+        }
+
+        Ok(Value::Nil)
+      }),
+    );
+
+    array.set_method(
+      "__index__",
+      Value::native("__index__", |thread, env, mut args| {
+        if args.len() == 2 {
+          let value = args.swap_remove(1);
+          let this = args.get_mut(0).unwrap();
+
+          match this {
+            Value::Instance(instance) => instance.data.index(thread, env, value),
+            c => Err(format!(
+              "somehow called index method for non array instance {}",
+              c
+            )),
+          }
+        } else {
+          Err(String::from("invalid number of arguments for index"))
+        }
+      }),
+    );
+
+    array.set_method(
+      "len",
+      Value::native("len", |_thread, _env, args| {
+        let this = args.get(0).unwrap();
+
+        match this {
+          Value::Instance(instance) => match &instance.data {
+            Value::List(list) => Ok(Value::new(list.len() as f64)),
+            c => Err(format!("somehow called len on non instance of array {}", c)),
+          },
+          c => Err(format!(
+            "somehow called index method for non array instance {}",
+            c
+          )),
+        }
+      }),
+    );
+
+    obj.set("Array", Value::new(array));
+
+    Value::new(obj)
   }
 
   fn load_env(args: &[String]) -> Value {
@@ -974,24 +1046,27 @@ impl Vm {
   fn load_time() -> Value {
     let mut obj = Struct::default();
 
-    let clock = Value::native(String::from("clock"), |_env, _args: Vec<Value>| {
+    let clock = Value::native(String::from("clock"), |_thread, _env, _args: Vec<Value>| {
       use std::time::{SystemTime, UNIX_EPOCH};
       let now = SystemTime::now();
       let since = now.duration_since(UNIX_EPOCH).expect("time went backwards");
       Ok(Value::new(since.as_nanos()))
     });
 
-    let clock_diff = Value::native(String::from("clock_diff"), |_env, args: Vec<Value>| {
-      if let Some(Value::U128(before)) = args.get(0) {
-        if let Some(Value::U128(after)) = args.get(1) {
-          let diff = std::time::Duration::from_nanos((after - before) as u64);
-          return Ok(Value::new(diff.as_secs_f64()));
+    let clock_diff = Value::native(
+      String::from("clock_diff"),
+      |_thread, _env, args: Vec<Value>| {
+        if let Some(Value::U128(before)) = args.get(0) {
+          if let Some(Value::U128(after)) = args.get(1) {
+            let diff = std::time::Duration::from_nanos((after - before) as u64);
+            return Ok(Value::new(diff.as_secs_f64()));
+          }
         }
-      }
-      Err(String::from(
-        "clock_diff called with wrong number of arguments or invalid types",
-      ))
-    });
+        Err(String::from(
+          "clock_diff called with wrong number of arguments or invalid types",
+        ))
+      },
+    );
 
     obj.set("clock", clock);
     obj.set("clock_diff", clock_diff);
@@ -1002,18 +1077,21 @@ impl Vm {
   fn load_string() -> Value {
     let mut obj = Struct::default();
 
-    let parse_number = Value::native(String::from("parse_number"), |_env, args: Vec<Value>| {
-      if let Some(arg) = args.get(0) {
-        match arg {
-          Value::String(string) => Ok(Value::new(
-            string.parse::<f64>().map_err(|e| format!("{}", e))?,
-          )),
-          v => Err(format!("can not convert {} to a number", v)),
+    let parse_number = Value::native(
+      String::from("parse_number"),
+      |_thread, _env, args: Vec<Value>| {
+        if let Some(arg) = args.get(0) {
+          match arg {
+            Value::String(string) => Ok(Value::new(
+              string.parse::<f64>().map_err(|e| format!("{}", e))?,
+            )),
+            v => Err(format!("can not convert {} to a number", v)),
+          }
+        } else {
+          Err(String::from("expected 1 argument"))
         }
-      } else {
-        Err(String::from("expected 1 argument"))
-      }
-    });
+      },
+    );
 
     obj.set("parse_number", parse_number);
 
@@ -1023,7 +1101,7 @@ impl Vm {
   fn load_console() -> Value {
     let mut obj = Struct::default();
 
-    let write = Value::native(String::from("write"), |_env, args: Vec<Value>| {
+    let write = Value::native(String::from("write"), |_thread, _env, args: Vec<Value>| {
       for arg in args {
         print!("{}", arg);
       }
@@ -1039,29 +1117,32 @@ impl Vm {
   fn load_ptr() -> Value {
     let mut obj = Struct::default();
 
-    let deref = Value::native(String::from("deref"), |_env, mut args: Vec<Value>| {
-      fn deref_value(v: Value) -> Value {
-        if let Value::Instance(v) = v {
-          (***v).clone()
-        } else {
-          v
-        }
-      }
-
-      if !args.is_empty() {
-        if args.len() == 1 {
-          Ok(deref_value(args.swap_remove(0)))
-        } else {
-          let mut derefs = Vec::with_capacity(args.len());
-          for arg in args {
-            derefs.push(deref_value(arg))
+    let deref = Value::native(
+      String::from("deref"),
+      |_thread, _env, mut args: Vec<Value>| {
+        fn deref_value(v: Value) -> Value {
+          if let Value::Instance(v) = v {
+            (***v).clone()
+          } else {
+            v
           }
-          Ok(Value::new(derefs))
         }
-      } else {
-        Err(String::from("deref called with no arguments"))
-      }
-    });
+
+        if !args.is_empty() {
+          if args.len() == 1 {
+            Ok(deref_value(args.swap_remove(0)))
+          } else {
+            let mut derefs = Vec::with_capacity(args.len());
+            for arg in args {
+              derefs.push(deref_value(arg))
+            }
+            Ok(Value::new(derefs))
+          }
+        } else {
+          Err(String::from("deref called with no arguments"))
+        }
+      },
+    );
 
     obj.set("deref", deref);
 

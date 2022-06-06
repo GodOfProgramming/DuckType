@@ -20,9 +20,9 @@ pub struct Error {
 }
 
 impl Error {
-  pub fn from_ref(msg: String, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
+  pub fn from_ref<M: ToString>(msg: M, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
     let mut e = Self {
-      msg,
+      msg: msg.to_string(),
       file: opcode_ref.file.clone(),
       line: opcode_ref.line,
       column: opcode_ref.column,
@@ -129,14 +129,19 @@ impl Value {
     match self {
       Value::Function(f) => f.call(thread, env, args),
       Value::Closure(c) => c.call(thread, env, args),
-      Value::NativeFunction(f) => f.call(env, args).map_err(|e| vec![e]),
+      Value::NativeFunction(f) => f.call(thread, env, args).map_err(|e| vec![e]),
       Value::Method(m) => m.call(thread, env, args),
       Value::Class(c) => Class::construct(c.clone(), thread, env, args),
       _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
     }
   }
 
-  pub fn index(&self, index: Value) -> ValueOpResult {
+  pub fn index(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    index: Value,
+  ) -> ValueOpResult {
     match self {
       Value::List(values) => match index {
         Value::Num(n) => {
@@ -166,6 +171,7 @@ impl Value {
         }
         _ => Err(format!("cannot index string with {}", index)),
       },
+      Value::Instance(instance) => instance.call_method("__index__", thread, env, vec![index]),
       _ => Err(format!("cannot index {}", self)),
     }
   }
@@ -189,11 +195,14 @@ impl Value {
     }
   }
 
-  pub fn native<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
-    name: String,
+  pub fn native<
+    N: ToString,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static,
+  >(
+    name: N,
     call: F,
   ) -> Self {
-    Self::new((name, call))
+    Self::new((name.to_string(), call))
   }
 }
 
@@ -293,7 +302,9 @@ impl New<Instance> for Value {
   }
 }
 
-impl<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static> New<(String, F)> for Value {
+impl<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static>
+  New<(String, F)> for Value
+{
   fn new((name, call): (String, F)) -> Self {
     Self::NativeFunction(SmartPtr::new(NativeFn::new(name, call)))
   }
@@ -567,7 +578,7 @@ impl Display for Value {
       Self::Bool(b) => write!(f, "{}", b),
       Self::Num(n) => write!(f, "{}", n),
       Self::U128(n) => write!(f, "{}", n),
-      Self::String(s) => write!(f, "{}", s),
+      Self::String(s) => write!(f, "\"{}\"", s),
       Self::List(l) => write!(f, "{}", l),
       Self::Function(func) => write!(f, "<{}>", func),
       Self::Closure(_) => write!(f, "<closure>"),
@@ -809,11 +820,11 @@ impl Closure {
 
 pub struct NativeFn {
   pub name: String,
-  pub callee: Box<dyn FnMut(&mut Env, Vec<Value>) -> ValueOpResult>,
+  pub callee: Box<dyn FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult>,
 }
 
 impl NativeFn {
-  pub fn new<F: FnMut(&mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+  pub fn new<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static>(
     name: String,
     callee: F,
   ) -> Self {
@@ -823,8 +834,13 @@ impl NativeFn {
     }
   }
 
-  pub fn call(&mut self, env: &mut Env, args: Vec<Value>) -> ValueOpResult {
-    (self.callee)(env, args)
+  pub fn call(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    args: Vec<Value>,
+  ) -> ValueOpResult {
+    (self.callee)(thread, env, args)
   }
 }
 
@@ -860,11 +876,11 @@ impl Display for Struct {
 #[derive(Clone)]
 pub struct Method {
   this: SmartPtr<Instance>,
-  pub function: SmartPtr<Function>,
+  pub function: Value,
 }
 
 impl Method {
-  pub fn new(this: SmartPtr<Instance>, function: SmartPtr<Function>) -> Self {
+  pub fn new(this: SmartPtr<Instance>, function: Value) -> Self {
     Self { this, function }
   }
 }
@@ -876,50 +892,64 @@ impl Method {
     env: &mut Env,
     mut args: Vec<Value>,
   ) -> Result<Value, Vec<String>> {
-    if args.len() > self.function.airity {
-      return Err(vec![format!(
-        "too many arguments number of arguments, expected {}, got {}",
-        self.function.airity,
-        args.len()
-      )]);
+    match &mut self.function {
+      Value::Function(function) => {
+        if args.len() > function.airity {
+          return Err(vec![format!(
+            "too many arguments number of arguments, expected {}, got {}",
+            function.airity,
+            args.len()
+          )]);
+        }
+
+        // - 1 for self
+        while args.len() < function.airity - 1 {
+          args.push(Value::Nil);
+        }
+
+        let prev_ip = thread.ip;
+
+        let mut args_with_self = Vec::with_capacity(args.len() + 1);
+        args_with_self.push(Value::Instance(self.this.clone()));
+        args_with_self.extend(args);
+
+        let prev_stack = thread.stack_move(args_with_self);
+
+        let res = thread
+          .run(function.ctx.clone(), env)
+          .map_err(|e| e.into_iter().map(|e| e.msg).collect());
+
+        thread.ip = prev_ip;
+
+        thread.stack_move(prev_stack);
+
+        res
+      }
+      Value::NativeFunction(native) => {
+        let mut args_with_self = Vec::with_capacity(args.len() + 1);
+        args_with_self.push(Value::Instance(self.this.clone()));
+        args_with_self.extend(args);
+
+        native
+          .call(thread, env, args_with_self)
+          .map_err(|e| vec![e])
+      }
+      v => Err(vec![format!("invalid type for class initializer {}", v)]),
     }
-
-    // - 1 for self
-    while args.len() < self.function.airity - 1 {
-      args.push(Value::Nil);
-    }
-
-    let prev_ip = thread.ip;
-
-    let mut args_with_self = Vec::with_capacity(args.len() + 1);
-    args_with_self.push(Value::Instance(self.this.clone()));
-    args_with_self.extend(args);
-
-    let prev_stack = thread.stack_move(args_with_self);
-
-    let res = thread
-      .run(self.function.ctx.clone(), env)
-      .map_err(|e| e.into_iter().map(|e| e.msg).collect());
-
-    thread.ip = prev_ip;
-
-    thread.stack_move(prev_stack);
-
-    res
   }
 }
 
 #[derive(Clone)]
 pub struct Class {
   pub name: String,
-  pub initializer: Option<SmartPtr<Function>>,
-  pub methods: BTreeMap<String, SmartPtr<Function>>,
+  pub initializer: Option<Value>,
+  pub methods: BTreeMap<String, Value>,
 }
 
 impl Class {
-  pub fn new(name: String) -> Self {
+  pub fn new<N: ToString>(name: N) -> Self {
     Self {
-      name,
+      name: name.to_string(),
       initializer: None,
       methods: BTreeMap::default(),
     }
@@ -951,22 +981,12 @@ impl Class {
     Ok(Value::Instance(instance))
   }
 
-  pub fn set_initializer(&mut self, value: Value) -> Result<(), String> {
-    if let Value::Function(function) = value {
-      self.initializer = Some(function);
-      Ok(())
-    } else {
-      Err(format!("cannot set initializer to value {}", value))
-    }
+  pub fn set_initializer(&mut self, value: Value) {
+    self.initializer = Some(value);
   }
 
-  pub fn set_method<N: ToString>(&mut self, name: N, value: Value) -> Result<(), String> {
-    if let Value::Function(function) = value {
-      self.methods.insert(name.to_string(), function);
-      Ok(())
-    } else {
-      Err(format!("cannot set method to value {}", value))
-    }
+  pub fn set_method<N: ToString>(&mut self, name: N, value: Value) {
+    self.methods.insert(name.to_string(), value);
   }
 }
 
@@ -978,7 +998,7 @@ impl Display for Class {
 
 #[derive(Clone)]
 pub struct Instance {
-  data: Value,
+  pub data: Value,
   methods: BTreeMap<String, Method>,
   class: SmartPtr<Class>,
 }
@@ -1011,6 +1031,23 @@ impl Instance {
 
   pub fn set_method<N: ToString>(&mut self, name: N, method: Method) {
     self.methods.insert(name.to_string(), method);
+  }
+
+  pub fn call_method<N: ToString>(
+    &mut self,
+    name: N,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    args: Vec<Value>,
+  ) -> ValueOpResult {
+    if let Some(method) = self.methods.get_mut(&name.to_string()) {
+      method.call(thread, env, args).map_err(|e| e.join(", "))
+    } else {
+      Err(format!(
+        "no method found on object with name {}",
+        name.to_string()
+      ))
+    }
   }
 }
 
