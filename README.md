@@ -17,24 +17,14 @@ class Demo {
 ```
 
 ```rust
-  fn() {
+  new(offset) {
     print "This is a constructor";
-  }
-  
-  fn ~() {
-    print "This is a destructor";
-  }
-  
-  fn @static_method(param1, param2) {
-    let instance = Demo();
-    instance.x = param1;
-    instance.y = param2;
-    return instance;
+    ret {offset};
   }
 
-  fn instance_method(self, param1, param2) {
-    self.x = param1;
-    self.y = param2;
+  fn method(param1, param2) {
+    self.x = self.offset + param1;
+    self.y = self.offset + param2;
   }
 ```
 
@@ -42,9 +32,10 @@ class Demo {
 }
 
 
-let demo = Demo.static_method("x's value", "y's value");
+let demo = Demo(123);
+demo.method(45, 67);
 ```
 
 ```perl
-print demo;
+print demo; # <instance of Demo> Struct { offset: 123, x: 168, y: 190 }
 ```
