@@ -199,7 +199,7 @@ impl AstGenerator {
               if initializer.is_none() {
                 if self.consume(Token::LeftParen, "expected '(' after 'new'") {
                   initializer = self.lambda_expr(|params, body| {
-                    Some(Expression::new(LambdaExpression::new(
+                    Some(Expression::new(MethodExpression::new(
                       params,
                       Statement::new(body),
                       loc,
@@ -961,10 +961,6 @@ impl AstGenerator {
     }
   }
 
-  fn seek(&self, index: usize) -> Option<Token> {
-    self.tokens.get(self.index + index).cloned()
-  }
-
   fn check_peek_after<const I: usize>(&self, expected: Token) -> bool {
     if let Some(token) = self.peek_after::<I>() {
       expected == token
@@ -1360,6 +1356,7 @@ impl AstGenerator {
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
+      Token::Yield => ParseRule::new(None, None, Precedence::None),
     }
   }
 }

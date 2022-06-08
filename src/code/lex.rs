@@ -349,6 +349,7 @@ impl<'src> Scanner<'src> {
 
       't' => this.check_keyword(d, "rue", Token::True),
       'w' => this.check_keyword(d, "hile", Token::While),
+      'y' => this.check_keyword(d, "ield", Token::Yield),
       _ => this.create_ident(),
     })
   }

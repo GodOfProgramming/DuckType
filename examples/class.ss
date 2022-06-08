@@ -13,9 +13,7 @@ let example = Example("hello world");
 example.output();
 
 class Number {
-  new(n) {
-    ret n;
-  }
+  new(n) { self <- n; }
 
   fn increment() {
     self <- @self + 1;

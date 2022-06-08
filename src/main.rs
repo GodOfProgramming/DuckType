@@ -1,4 +1,4 @@
-use simple_script::{Env, Library, Vm};
+use simple_script::{Env, Library, RunResult, Vm};
 use std::{env, fs, path::Path, process};
 
 fn main() {
@@ -16,7 +16,6 @@ fn main() {
       Library::Time,
       Library::String,
       Library::Console,
-      Library::Ptr,
     ],
   );
 
@@ -40,7 +39,10 @@ fn run_file(mut vm: Vm, file: String) -> bool {
           let mut env = Env::with_library_path();
 
           match vm.run(ctx, &mut env) {
-            Ok(v) => println!("{}", v),
+            Ok(result) => match result {
+              RunResult::Value(v) => println!("{}", v),
+              RunResult::Yield(y) => println!("yielded at {}", y),
+            },
             Err(errors) => {
               for err in errors {
                 println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
