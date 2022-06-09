@@ -2,6 +2,14 @@ req "env";
 req "time";
 req "str";
 req "console";
+req "ps";
+
+let times_str = env.ARGV[0];
+
+if !times_str {
+  print "forgot to give argument";
+  ps.exit(1);
+}
 
 fn fib(n) {
   if n <= 1 {
@@ -26,7 +34,7 @@ fn fib_it(count) {
   ret prev;
 }
 
-let times = str.parse_number(env.ARGV[0]);
+let times = str.parse_number(times_str);
 print "times = " + times;
 let before = time.clock();
 print fib(times);

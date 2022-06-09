@@ -16,6 +16,7 @@ fn main() {
       Library::Time,
       Library::String,
       Library::Console,
+      Library::Ps,
     ],
   );
 

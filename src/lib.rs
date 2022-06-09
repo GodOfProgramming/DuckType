@@ -44,7 +44,7 @@ impl ExecutionThread {
   fn new_with_libs(libs: BTreeMap<&'static str, Value>) -> Self {
     Self {
       current_frame: Default::default(),
-      stack_frames: Default::default(),
+      stack_frames: Vec::with_capacity(256),
       libs,
     }
   }
@@ -770,6 +770,7 @@ impl ExecutionThread {
           Ok(data) => {
             let new_ctx = Compiler::compile(&file, &data)?;
 
+            #[cfg(debug_assertions)]
             #[cfg(feature = "disassemble")]
             {
               new_ctx.disassemble();
@@ -947,6 +948,7 @@ pub enum Library {
   Time,
   String,
   Console,
+  Ps,
 }
 
 #[derive(Default)]
@@ -979,6 +981,7 @@ impl Vm {
   }
 
   pub fn run(&mut self, ctx: SmartPtr<Context>, env: &mut Env) -> Result<RunResult, Vec<Error>> {
+    #[cfg(debug_assertions)]
     #[cfg(feature = "disassemble")]
     {
       ctx.disassemble();
@@ -999,6 +1002,7 @@ impl Vm {
       Library::Time => ("time", Self::load_time()),
       Library::String => ("str", Self::load_string()),
       Library::Console => ("console", Self::load_console()),
+      Library::Ps => ("ps", Self::load_ps()),
     }
   }
 
@@ -1173,6 +1177,26 @@ impl Vm {
 
     obj.set("write", write);
     obj.set("writeln", writeln);
+
+    Value::new(obj)
+  }
+
+  fn load_ps() -> Value {
+    let mut obj = Struct::default();
+
+    let exit = Value::native(String::from("write"), |_thread, _env, args: Vec<Value>| {
+      let exit_code = args
+        .get(0)
+        .map(|v| match v {
+          Value::Num(n) => *n as i32,
+          _ => 0,
+        })
+        .unwrap_or(0);
+
+      std::process::exit(exit_code);
+    });
+
+    obj.set("exit", exit);
 
     Value::new(obj)
   }
