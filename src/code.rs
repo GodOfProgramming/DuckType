@@ -101,8 +101,10 @@ pub enum OpCode {
   Loop(usize),
   /** Calls the instruction on the stack. Number of arguments is specified by the modifying bits */
   Call(usize),
-  /** Exits from a function */
+  /** Exits from a function, returning nil on the previous frame */
   Ret,
+  /** Exits from a function, returning the last value on the stack to the previous frame */
+  RetValue,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
   /** Index into the indexable. The first argument off the stack is the index, the second is the indexable */
@@ -111,6 +113,8 @@ pub enum OpCode {
   CreateList(usize),
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
   CreateClosure,
+  /** Returns the argument at the 0 position, only used with class constructors as their last instruction */
+  DefaultConstructorRet,
 }
 
 #[derive(Debug, PartialEq, Clone)]

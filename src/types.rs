@@ -773,8 +773,7 @@ impl NativeFn {
     env: &mut Env,
     args: Vec<Value>,
   ) -> Result<(), String> {
-    (self.callee)(thread, env, args)?;
-    Ok(())
+    (self.callee)(thread, env, args)
   }
 }
 
@@ -881,10 +880,6 @@ impl Class {
     }
   }
 
-  // TODO crate two types of classes,
-  // one for default construction,
-  // another for custom construction
-  // to save a cpu cycle or two
   pub fn construct(
     mut class: SmartPtr<Self>,
     thread: &mut ExecutionThread,

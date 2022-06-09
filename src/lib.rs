@@ -123,6 +123,9 @@ impl ExecutionThread {
         println!("<< {} >>", self.current_frame.ctx.display_str());
       }
 
+      let mut returned_value = false;
+      let mut return_self = false;
+
       while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
         #[cfg(feature = "runtime-disassembly")]
         {
@@ -196,14 +199,22 @@ impl ExecutionThread {
             self.exec_call(env, &opcode, airity)?;
             continue;
           }
-          OpCode::Ret => break,
+          OpCode::Ret => {
+            break;
+          }
+          OpCode::RetValue => {
+            returned_value = true;
+            break;
+          }
           OpCode::Req => {
+            self.current_frame.ip += 1;
             self.exec_req(env, &opcode)?;
             continue;
           }
           OpCode::Index => self.exec_index(&opcode, env)?,
           OpCode::CreateList(num_items) => self.exec_create_list(num_items),
           OpCode::CreateClosure => self.exec_create_closure(&opcode)?,
+          OpCode::DefaultConstructorRet => return_self = true,
         }
 
         self.current_frame.ip += 1;
@@ -214,7 +225,16 @@ impl ExecutionThread {
         println!("<< END >>");
       }
 
-      let ret_val = self.stack_pop().unwrap_or(Value::Nil);
+      let ret_val = if return_self {
+        // return self value, failure here is a logic error so unwrap
+        self.stack_index_0().unwrap()
+      } else if returned_value {
+        // return actual value, failure here is a logic error so unwrap
+        self.stack_pop().unwrap()
+      } else {
+        // if implicit/void return nil
+        Value::Nil
+      };
 
       if let Some(stack_frame) = self.stack_frames.pop() {
         if stack_frame.ip < stack_frame.ctx.num_instructions() {
@@ -688,14 +708,26 @@ impl ExecutionThread {
 
   #[inline]
   fn exec_call(&mut self, env: &mut Env, opcode: &OpCode, airity: usize) -> ExecResult {
-    if let Some(mut value) = self.stack_pop() {
+    if let Some(mut callable) = self.stack_pop() {
       let args = self.stack_drain_from(airity);
-      value.call(self, env, args).map_err(|errors| {
-        errors
-          .into_iter()
-          .map(|e| self.error_at(|opcode_ref| Error::from_ref(e, opcode, opcode_ref)))
-          .collect()
-      })
+
+      if cfg!(feature = "runtime-disassembly") {
+        let res = callable.call(self, env, args).map_err(|errors| {
+          errors
+            .into_iter()
+            .map(|e| self.error_at(|opcode_ref| Error::from_ref(e, opcode, opcode_ref)))
+            .collect()
+        });
+        println!("<< {} >>", self.current_frame.ctx.display_str());
+        res
+      } else {
+        callable.call(self, env, args).map_err(|errors| {
+          errors
+            .into_iter()
+            .map(|e| self.error_at(|opcode_ref| Error::from_ref(e, opcode, opcode_ref)))
+            .collect()
+        })
+      }
     } else {
       Err(self.error(opcode, "cannot operate on empty stack"))
     }
@@ -843,6 +875,10 @@ impl ExecutionThread {
     self.current_frame.stack.get(index).cloned()
   }
 
+  pub fn stack_index_0(&self) -> Option<Value> {
+    self.current_frame.stack.first().cloned()
+  }
+
   pub fn stack_index_rev(&self, index: usize) -> Option<Value> {
     self
       .current_frame
@@ -961,7 +997,7 @@ impl Vm {
       Library::Std => ("std", Self::load_std()),
       Library::Env => ("env", Self::load_env(args)),
       Library::Time => ("time", Self::load_time()),
-      Library::String => ("string", Self::load_string()),
+      Library::String => ("str", Self::load_string()),
       Library::Console => ("console", Self::load_console()),
     }
   }

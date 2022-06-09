@@ -1,7 +1,7 @@
-req "env" => env;
-req "time" => time;
-req "string" => str;
-req "console" => console;
+req "env";
+req "time";
+req "str";
+req "console";
 
 fn fib(n) {
   if n <= 1 {

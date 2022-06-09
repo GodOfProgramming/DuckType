@@ -1,6 +1,6 @@
 class Example {
   new(word) {
-    ret {word};
+    self <- {word};
   }
 
   fn output() {

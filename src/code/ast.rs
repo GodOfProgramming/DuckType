@@ -198,7 +198,10 @@ impl AstGenerator {
               self.advance();
               if initializer.is_none() {
                 if self.consume(Token::LeftParen, "expected '(' after 'new'") {
-                  initializer = self.lambda_expr(|params, body| {
+                  initializer = self.lambda_expr(|params, mut body| {
+                    body
+                      .statements
+                      .push(Statement::new(DefaultConstructorRet::new(loc)));
                     Some(Expression::new(MethodExpression::new(
                       params,
                       Statement::new(body),
@@ -1383,6 +1386,7 @@ pub enum Statement {
   Break(BreakStatement),
   Cont(ContStatement),
   Class(ClassStatement),
+  DefaultConstructorRet(DefaultConstructorRet),
   Fn(FnStatement),
   For(ForStatement),
   If(IfStatement),
@@ -1403,6 +1407,7 @@ impl Display for Statement {
       Self::Break(_) => write!(f, "break"),
       Self::Cont(_) => write!(f, "cont"),
       Self::Class(c) => write!(f, "class {}", c.ident.name),
+      Self::DefaultConstructorRet(_) => write!(f, "default constructor ret"),
       Self::Fn(function) => write!(f, "fn {}", function.ident.name),
       Self::For(_) => write!(f, "for"),
       Self::If(_) => write!(f, "if"),
@@ -1439,6 +1444,12 @@ impl New<ContStatement> for Statement {
 impl New<ClassStatement> for Statement {
   fn new(stmt: ClassStatement) -> Self {
     Self::Class(stmt)
+  }
+}
+
+impl New<DefaultConstructorRet> for Statement {
+  fn new(stmt: DefaultConstructorRet) -> Self {
+    Self::DefaultConstructorRet(stmt)
   }
 }
 
@@ -1543,7 +1554,6 @@ pub struct ClassStatement {
   pub ident: Ident,
   pub initializer: Option<Expression>,
   pub methods: Vec<(Ident, Expression)>,
-
   pub loc: SourceLocation,
 }
 
@@ -1560,6 +1570,16 @@ impl ClassStatement {
       methods,
       loc,
     }
+  }
+}
+
+pub struct DefaultConstructorRet {
+  pub loc: SourceLocation,
+}
+
+impl DefaultConstructorRet {
+  fn new(loc: SourceLocation) -> Self {
+    Self { loc }
   }
 }
 
