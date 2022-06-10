@@ -284,6 +284,10 @@ impl BytecodeGenerator {
     self.patch_inst(end_jump, OpCode::JumpIfFalse);
   }
 
+  fn yield_stmt(&mut self, stmt: YieldStatement) {
+    self.emit(OpCode::Yield, stmt.loc);
+  }
+
   fn expr_stmt(&mut self, stmt: ExpressionStatement) {
     self.emit_expr(stmt.expr);
     self.emit(OpCode::Pop, stmt.loc);
@@ -531,6 +535,7 @@ impl BytecodeGenerator {
       Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
+      Statement::Yield(stmt) => self.yield_stmt(stmt),
       Statement::Expression(stmt) => self.expr_stmt(stmt),
     }
   }

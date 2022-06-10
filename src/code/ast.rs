@@ -118,6 +118,10 @@ impl AstGenerator {
         self.advance();
         self.while_stmt();
       }
+      Token::Yield => {
+        self.advance();
+        self.yield_stmt();
+      }
       _ => self.expression_stmt(),
     }
   }
@@ -529,6 +533,16 @@ impl AstGenerator {
       }
 
       self.in_loop = prev;
+    }
+  }
+
+  fn yield_stmt(&mut self) {
+    if let Some(loc) = self.meta_at::<0>() {
+      if self.consume(Token::Semicolon, "expected ';' after yield") {
+        self
+          .statements
+          .push(Statement::new(YieldStatement::new(loc)));
+      }
     }
   }
 
@@ -1397,6 +1411,7 @@ pub enum Statement {
   Req(ReqStatement),
   Ret(RetStatement),
   While(WhileStatement),
+  Yield(YieldStatement),
   Expression(ExpressionStatement),
 }
 
@@ -1418,6 +1433,7 @@ impl Display for Statement {
       Self::Req(_) => write!(f, "req"),
       Self::Ret(_) => write!(f, "ret"),
       Self::While(_) => write!(f, "while"),
+      Self::Yield(_) => write!(f, "yield"),
       Self::Expression(_) => write!(f, "expression"),
     }
   }
@@ -1510,6 +1526,12 @@ impl New<RetStatement> for Statement {
 impl New<WhileStatement> for Statement {
   fn new(stmt: WhileStatement) -> Self {
     Self::While(stmt)
+  }
+}
+
+impl New<YieldStatement> for Statement {
+  fn new(stmt: YieldStatement) -> Self {
+    Self::Yield(stmt)
   }
 }
 
@@ -1748,6 +1770,16 @@ impl WhileStatement {
       block: Box::new(block),
       loc,
     }
+  }
+}
+
+pub struct YieldStatement {
+  pub loc: SourceLocation,
+}
+
+impl YieldStatement {
+  fn new(loc: SourceLocation) -> Self {
+    Self { loc }
   }
 }
 

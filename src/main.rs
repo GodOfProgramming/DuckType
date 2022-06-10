@@ -39,16 +39,63 @@ fn run_file(mut vm: Vm, file: String) -> bool {
         Ok(ctx) => {
           let mut env = Env::with_library_path();
 
-          match vm.run(ctx, &mut env) {
-            Ok(result) => match result {
-              RunResult::Value(v) => println!("{}", v),
-              RunResult::Yield(y) => println!("yielded at {}", y),
-            },
-            Err(errors) => {
-              for err in errors {
-                println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
+          let mut yield_result = None;
+
+          loop {
+            if let Some(y) = yield_result.take() {
+              match vm.resume(y, &mut env) {
+                Ok(result) => match result {
+                  RunResult::Value(v) => {
+                    println!("{}", v);
+                    break;
+                  }
+                  RunResult::Yield(y) => {
+                    use std::io::{self, prelude::*};
+
+                    println!("yielded at {}", y);
+
+                    print!("press eny key to continue...");
+                    io::stdout().flush().unwrap();
+
+                    let _ = io::stdin().read(&mut [0u8]).unwrap();
+
+                    yield_result = Some(y);
+                  }
+                },
+                Err(errors) => {
+                  for err in errors {
+                    println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
+                  }
+                  return false;
+                }
               }
-              return false;
+            } else {
+              match vm.run(ctx.clone(), &mut env) {
+                Ok(result) => match result {
+                  RunResult::Value(v) => {
+                    println!("{}", v);
+                    break;
+                  }
+                  RunResult::Yield(y) => {
+                    use std::io::{self, prelude::*};
+
+                    println!("yielded at {}", y);
+
+                    print!("press eny key to continue...");
+                    io::stdout().flush().unwrap();
+
+                    let _ = io::stdin().read(&mut [0u8]).unwrap();
+
+                    yield_result = Some(y);
+                  }
+                },
+                Err(errors) => {
+                  for err in errors {
+                    println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
+                  }
+                  return false;
+                }
+              }
             }
           }
         }

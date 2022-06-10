@@ -215,6 +215,16 @@ impl ExecutionThread {
           OpCode::CreateList(num_items) => self.exec_create_list(num_items),
           OpCode::CreateClosure => self.exec_create_closure(&opcode)?,
           OpCode::DefaultConstructorRet => return_self = true,
+          OpCode::Yield => {
+            self.current_frame.ip += 1;
+
+            let current_frame = self.current_frame.clear_out();
+
+            let mut stack_frames = Vec::default();
+            std::mem::swap(&mut stack_frames, &mut self.stack_frames);
+
+            return Ok(RunResult::Yield(Yield::new(current_frame, stack_frames)));
+          }
         }
 
         self.current_frame.ip += 1;
@@ -978,6 +988,10 @@ impl Vm {
 
   pub fn load(&self, file: String, code: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
     Compiler::compile(&file, code)
+  }
+
+  pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<RunResult, Vec<Error>> {
+    self.main.resume(y, env)
   }
 
   pub fn run(&mut self, ctx: SmartPtr<Context>, env: &mut Env) -> Result<RunResult, Vec<Error>> {

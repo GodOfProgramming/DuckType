@@ -115,6 +115,8 @@ pub enum OpCode {
   CreateClosure,
   /** Returns the argument at the 0 position, only used with class constructors as their last instruction */
   DefaultConstructorRet,
+  /** Yield at the current location */
+  Yield,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -615,11 +617,29 @@ impl StackFrame {
       stack: Default::default(),
     }
   }
+
+  /**
+   * Clear the current stack frame, returning the previous
+   */
+  pub fn clear_out(&mut self) -> Self {
+    let mut old = Self::default();
+    std::mem::swap(&mut old, self);
+    old
+  }
 }
 
 pub struct Yield {
   pub current_frame: StackFrame,
   pub stack_frames: Vec<StackFrame>,
+}
+
+impl Yield {
+  pub fn new(current_frame: StackFrame, stack_frames: Vec<StackFrame>) -> Self {
+    Self {
+      current_frame,
+      stack_frames,
+    }
+  }
 }
 
 impl Display for Yield {

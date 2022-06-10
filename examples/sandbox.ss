@@ -29,6 +29,10 @@ class ExampleBuilder {
   }
 }
 
+print "testing builder class";
+
+yield;
+
 let builder = ExampleBuilder();
 
 let example = builder.enable_option().build();
