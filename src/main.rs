@@ -49,18 +49,7 @@ fn run_file(mut vm: Vm, file: String) -> bool {
                     println!("{}", v);
                     break;
                   }
-                  RunResult::Yield(y) => {
-                    use std::io::{self, prelude::*};
-
-                    println!("yielded at {}", y);
-
-                    print!("press eny key to continue...");
-                    io::stdout().flush().unwrap();
-
-                    let _ = io::stdin().read(&mut [0u8]).unwrap();
-
-                    yield_result = Some(y);
-                  }
+                  RunResult::Yield(y) => yield_result = Some(y),
                 },
                 Err(errors) => {
                   for err in errors {
@@ -76,18 +65,7 @@ fn run_file(mut vm: Vm, file: String) -> bool {
                     println!("{}", v);
                     break;
                   }
-                  RunResult::Yield(y) => {
-                    use std::io::{self, prelude::*};
-
-                    println!("yielded at {}", y);
-
-                    print!("press eny key to continue...");
-                    io::stdout().flush().unwrap();
-
-                    let _ = io::stdin().read(&mut [0u8]).unwrap();
-
-                    yield_result = Some(y);
-                  }
+                  RunResult::Yield(y) => yield_result = Some(y),
                 },
                 Err(errors) => {
                   for err in errors {

@@ -133,6 +133,7 @@ pub enum Token {
   Colon,
   Semicolon,
   At,
+  Pipe,
 
   // One or two character tokens.
   Bang,

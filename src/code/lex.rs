@@ -61,6 +61,7 @@ impl<'src> Scanner<'src> {
           ':' => Token::Colon,
           ';' => Token::Semicolon,
           '@' => Token::At,
+          '|' => Token::Pipe,
           '+' => {
             if self.advance_if_match('=') {
               Token::PlusEqual

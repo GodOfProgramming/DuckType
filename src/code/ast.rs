@@ -202,7 +202,7 @@ impl AstGenerator {
               self.advance();
               if initializer.is_none() {
                 if self.consume(Token::LeftParen, "expected '(' after 'new'") {
-                  initializer = self.lambda_expr(|params, mut body| {
+                  initializer = self.lambda_expr(Token::RightParen, |params, mut body| {
                     body
                       .statements
                       .push(Statement::new(DefaultConstructorRet::new(loc)));
@@ -223,7 +223,7 @@ impl AstGenerator {
                 if !declared_functions.contains(&ident) {
                   self.advance();
                   if self.consume(Token::LeftParen, "expected '(' after identifier") {
-                    if let Some(function) = self.lambda_expr(|params, body| {
+                    if let Some(function) = self.lambda_expr(Token::RightParen, |params, body| {
                       declared_functions.insert(ident.clone());
                       Some(Expression::new(MethodExpression::new(
                         params,
@@ -704,31 +704,6 @@ impl AstGenerator {
 
   fn group_expr(&mut self) -> Option<Expression> {
     let paren_meta = self.meta_at::<1>()?;
-
-    let is_lambda = if let Some(token) = self.current() {
-      if matches!(token, Token::Identifier(_)) {
-        if let Some(after_ident) = self.peek_after::<1>() {
-          after_ident == Token::RightParen || after_ident == Token::Comma
-        } else {
-          false
-        }
-      } else {
-        token == Token::RightParen
-      }
-    } else {
-      false
-    };
-
-    if is_lambda {
-      return self.lambda_expr(|params, body| {
-        Some(Expression::new(LambdaExpression::new(
-          params,
-          Statement::new(body),
-          paren_meta,
-        )))
-      });
-    }
-
     let expr = self.expression()?;
     if self.consume(Token::RightParen, "expected ')' after expression") {
       Some(Expression::new(GroupExpression::new(expr, paren_meta)))
@@ -908,8 +883,8 @@ impl AstGenerator {
     }
 
     if self.consume(Token::RightBrace, "expected '}' after struct") {
-      if self.advance_if_matches(Token::LeftParen) {
-        self.closure_expr(StructExpression::new(members, struct_meta))
+      if self.advance_if_matches(Token::Pipe) {
+        self.closure_expr(Token::Pipe, StructExpression::new(members, struct_meta))
       } else {
         Some(Expression::new(StructExpression::new(members, struct_meta)))
       }
@@ -919,10 +894,22 @@ impl AstGenerator {
     }
   }
 
-  fn closure_expr(&mut self, captures: StructExpression) -> Option<Expression> {
+  fn anon_fn_expr(&mut self) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
-    self.lambda_expr(|params, body| {
+    self.lambda_expr(Token::Pipe, |params, body| {
+      Some(Expression::new(LambdaExpression::new(
+        params,
+        Statement::new(body),
+        loc,
+      )))
+    })
+  }
+
+  fn closure_expr(&mut self, param_term: Token, captures: StructExpression) -> Option<Expression> {
+    let loc = self.meta_at::<0>()?;
+
+    self.lambda_expr(param_term, |params, body| {
       Some(Expression::new(ClosureExpression::new(
         captures,
         params,
@@ -934,11 +921,12 @@ impl AstGenerator {
 
   fn lambda_expr<F: FnOnce(Vec<Ident>, BlockStatement) -> Option<Expression>>(
     &mut self,
+    param_term: Token,
     f: F,
   ) -> Option<Expression> {
-    let params = self.parse_parameters()?;
+    let params = self.parse_parameters(param_term.clone())?;
 
-    if !self.consume(Token::RightParen, "expected ')' after parameters") {
+    if !self.consume(param_term, "expected terminator after parameters") {
       return None;
     }
 
@@ -1028,7 +1016,7 @@ impl AstGenerator {
           return None;
         }
 
-        if let Some(params) = self.parse_parameters() {
+        if let Some(params) = self.parse_parameters(Token::RightParen) {
           if !self.consume(Token::RightParen, "expected ')' after arguments") {
             return None;
           }
@@ -1203,10 +1191,10 @@ impl AstGenerator {
     None
   }
 
-  fn parse_parameters(&mut self) -> Option<Vec<Ident>> {
+  fn parse_parameters(&mut self, terminator: Token) -> Option<Vec<Ident>> {
     let mut params = Vec::default();
     if let Some(mut token) = self.current() {
-      if token != Token::RightParen {
+      if token != terminator {
         loop {
           if let Token::Identifier(ident) = token {
             params.push(Ident::new(ident));
@@ -1313,7 +1301,7 @@ impl AstGenerator {
         Precedence::Call,
       ),
       Token::RightParen => ParseRule::new(None, None, Precedence::None),
-      Token::LeftBrace => ParseRule::new(Some(Self::struct_expr), None, Precedence::None),
+      Token::LeftBrace => ParseRule::new(Some(Self::struct_expr), None, Precedence::Primary),
       Token::RightBrace => ParseRule::new(None, None, Precedence::None),
       Token::LeftBracket => ParseRule::new(
         Some(Self::list_expr),
@@ -1326,6 +1314,7 @@ impl AstGenerator {
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
       Token::Colon => ParseRule::new(None, None, Precedence::None),
       Token::At => ParseRule::new(Some(Self::unary_expr), None, Precedence::Unary),
+      Token::Pipe => ParseRule::new(Some(Self::anon_fn_expr), None, Precedence::Primary),
       Token::Plus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Term),
       Token::PlusEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
       Token::Minus => ParseRule::new(
