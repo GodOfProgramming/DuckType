@@ -788,7 +788,7 @@ impl AstGenerator {
     let mut items = Vec::default();
 
     if let Some(token) = self.current() {
-      if token != Token::RightParen {
+      if token != Token::RightBracket {
         loop {
           items.push(self.expression()?);
           if !self.advance_if_matches(Token::Comma) {
