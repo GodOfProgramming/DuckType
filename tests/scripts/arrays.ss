@@ -3,10 +3,8 @@ req "lib/sspec/sspec.ss";
 
 describe("arrays.size_0", |t| {
   let arr = [];
-  let len = std.Array.len(arr);
-  print len;
-  t.expect(len).to_be(0);
-  # t.expect(arr[0]).to_be(nil);
+  t.expect(std.Array.len(arr)).to_be(0);
+  t.expect(arr[0]).to_be(nil);
 });
 
 describe("arrays.size_x", |t| {

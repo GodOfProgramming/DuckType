@@ -30,7 +30,8 @@ fn main() {
   process::exit(exit_code);
 }
 
-fn run_file(mut vm: Vm, file: String) -> bool {
+fn run_file<T: ToString>(mut vm: Vm, file: T) -> bool {
+  let file = file.to_string();
   let p = Path::new(&file);
   if p.exists() {
     match fs::read_to_string(p) {

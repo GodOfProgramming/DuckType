@@ -40,7 +40,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn runs_test_scripts(test: &mut ScriptTest) {
+  fn run_test_scripts(test: &mut ScriptTest) {
     fs::read_dir("tests/scripts").into_iter().for_each(|dir| {
       dir
         .flatten()

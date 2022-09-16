@@ -772,7 +772,7 @@ impl NativeFn {
 
 #[derive(Debug, Default)]
 pub struct Struct {
-  members: BTreeMap<String, Value>,
+  pub members: BTreeMap<String, Value>,
 }
 
 impl Struct {
@@ -998,7 +998,7 @@ impl Instance {
     self.data = value;
   }
 
-  pub fn deref(&self) -> Value {
+  pub fn extract(&self) -> Value {
     self.data.clone()
   }
 

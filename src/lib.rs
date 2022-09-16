@@ -8,6 +8,7 @@ pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
 use ptr::SmartPtr;
+use std::ops::Deref;
 use std::{
   collections::BTreeMap,
   fs,
@@ -22,6 +23,10 @@ pub trait New<T> {
 
 type ExecResult = Result<(), Vec<Error>>;
 type ExecBoolResult = Result<bool, Vec<Error>>;
+
+pub mod prelude {
+  pub use super::{Context, Env, ExecutionThread, Library, New, RunResult, Value, Vm};
+}
 
 // yield must store ip and stack and return ctx
 // or better yet, have ctx have an Option<usize> and option<Vec<Value>>
@@ -47,6 +52,11 @@ impl ExecutionThread {
       stack_frames: Vec::with_capacity(256),
       libs,
     }
+  }
+
+  fn reset(&mut self) {
+    self.current_frame = Default::default();
+    self.stack_frames = Default::default();
   }
 
   fn unary_op<F: FnOnce(&mut Self, Value) -> ExecResult>(
@@ -106,6 +116,7 @@ impl ExecutionThread {
 
   #[inline]
   fn run(&mut self, ctx: SmartPtr<Context>, env: &mut Env) -> Result<RunResult, Vec<Error>> {
+    self.reset();
     self.current_frame.ctx = ctx;
     self.execute(env)
   }
@@ -493,7 +504,7 @@ impl ExecutionThread {
     match self.stack_pop() {
       Some(instance) => match instance {
         Value::Instance(instance) => {
-          self.stack_push(instance.deref());
+          self.stack_push(instance.extract());
           Ok(())
         }
         v => Err(self.error(opcode, format!("cannot deref value type {}", v))),
@@ -788,7 +799,15 @@ impl ExecutionThread {
 
             Ok(())
           }
-          Err(e) => Err(self.error(opcode, format!("unable to read file {}: {}", file, e))),
+          Err(e) => Err(self.error(
+            opcode,
+            format!(
+              "unable to read file '{}': {}\ncurrently loaded libs: {:#?}",
+              file,
+              e,
+              self.libs.keys()
+            ),
+          )),
         }
       } else {
         Err(self.error(
@@ -984,8 +1003,8 @@ impl Vm {
     }
   }
 
-  pub fn load(&self, file: String, code: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
-    Compiler::compile(&file, code)
+  pub fn load<T: ToString>(&self, file: T, code: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
+    Compiler::compile(&file.to_string(), code)
   }
 
   pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<RunResult, Vec<Error>> {
@@ -1121,7 +1140,7 @@ impl Vm {
           match this {
             Value::Instance(mut instance) => match &mut instance.data {
               Value::List(list) => list.extend(rest.into_iter()),
-              v => return Err(format!("somehow called push on non array type {}", v)),
+              v => return Err(format!("called push on non array type {}", v)),
             },
             v => return Err(format!("called push on a primitive type {}", v)),
           }
@@ -1130,6 +1149,40 @@ impl Vm {
       });
 
       obj.set("Vec", Value::new(vec));
+    }
+
+    // Structs
+    {
+      let mut object = Class::new("Object");
+
+      object.set_static_fn("fields", |_thread, _env, args| {
+        let obj = args.get(0).unwrap();
+        let mut fields = Vec::default();
+
+        let get_fields = |s: &SmartPtr<Struct>| {
+          s.members
+            .keys()
+            .cloned()
+            .map(|k| Value::new(k))
+            .collect::<Vec<Value>>()
+        };
+
+        match obj {
+          Value::Instance(i) => {
+            if let Value::Struct(s) = &i.data {
+              fields.extend(get_fields(s));
+            }
+          }
+          Value::Struct(s) => {
+            fields.extend(get_fields(s));
+          }
+          _ => (),
+        }
+
+        Ok(Value::new(fields))
+      });
+
+      obj.set("Object", Value::new(object));
     }
 
     Value::new(obj)
