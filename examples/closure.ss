@@ -1,5 +1,5 @@
 class Number {
-  new(n) {
+  new(self, n) {
     self <- n;
   }
 

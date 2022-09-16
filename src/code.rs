@@ -423,8 +423,30 @@ impl Context {
     self.display_opcodes();
 
     for value in self.consts() {
-      if let Value::Function(f) = value {
-        f.context().disassemble()
+      match value {
+        Value::Function(f) => f.context().disassemble(),
+        Value::Class(c) => {
+          if let Some(i) = &c.initializer {
+            match i {
+              Value::Function(f) => f.context().disassemble(),
+              _ => (),
+            }
+          }
+          for (_name, method) in &c.methods {
+            match method {
+              Value::Function(f) => f.context().disassemble(),
+              _ => (),
+            }
+          }
+
+          for (_name, static_method) in &c.static_members {
+            match static_method {
+              Value::Function(f) => f.context().disassemble(),
+              _ => (),
+            }
+          }
+        }
+        _ => (),
       }
     }
   }
@@ -692,7 +714,7 @@ impl Env {
 
   pub fn create_native<
     K: ToString,
-    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<(), String> + 'static,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
   >(
     &mut self,
     name: K,

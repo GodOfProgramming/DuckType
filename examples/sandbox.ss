@@ -1,40 +1,23 @@
-class Example {
-  new(option) {
-    if option {
-      self <- "example of true";
-    } else {
-      self <- "example of false";
+req "std";
+req "ps";
+req "console";
+
+fn describe(descriptor, func) {
+  let vec = std.Vec(1);
+  let t = "xyz";
+  func(t);
+
+  console.writeln();
+
+  if vec.len() == 0 {
+    print "PASSED: " + descriptor;
+  } else {
+    print "FAILED: " + descriptor;
+    for let i = 0; i < vec.len(); i += 1 {
+      print vec[i];
     }
-  }
-
-  fn output() {
-    print @self;
+    ps.exit(1);
   }
 }
 
-class ExampleBuilder {
-  new() {
-    self <- {
-      option: false,
-    };
-  }
-
-  fn build() {
-    ret Example(self.option);
-  }
-
-  fn enable_option() {
-    self.option = false;
-    ret self;
-  }
-}
-
-print "testing builder class";
-
-yield;
-
-let builder = ExampleBuilder();
-
-let example = builder.enable_option().build();
-
-example.output();
+describe("foobar", |t|{});

@@ -1,9 +1,9 @@
 class Example {
-  new(word) {
+  new(self, word) {
     self <- {word};
   }
 
-  fn output() {
+  fn output(self) {
     print self.word;
   }
 }
@@ -13,17 +13,17 @@ let example = Example("hello world");
 example.output();
 
 class Number {
-  new(n) { self <- n; }
+  new(self, n) { self <- n; }
 
-  fn increment() {
+  fn increment(self) {
     self <- @self + 1;
   }
 
-  fn is_odd() {
+  fn is_odd(self) {
     ret @self % 2 != 0;
   }
 
-  fn is_even() {
+  fn is_even(self) {
     ret @self % 2 == 0;
   }
 }

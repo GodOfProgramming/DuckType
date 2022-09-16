@@ -73,7 +73,11 @@ impl BytecodeGenerator {
       self.emit_stmt(stmt);
     }
 
-    Ok(self.ctx)
+    if self.errors.is_empty() {
+      Ok(self.ctx)
+    } else {
+      Err(self.errors)
+    }
   }
 
   /* Statements */
@@ -111,19 +115,47 @@ impl BytecodeGenerator {
     }
 
     let var = self.declare_global(stmt.ident.clone());
-
-    self.emit_const(Value::new(Class::new(stmt.ident.name)), stmt.loc);
+    let mut class = Class::new(stmt.ident.name.clone());
 
     if let Some(initializer) = stmt.initializer {
-      self.emit_expr(initializer);
-      self.emit(OpCode::AssignInitializer, stmt.loc);
+      if let Some((function, is_static)) =
+        self.create_fn_from_expr(ContextName::Method, initializer)
+      {
+        if is_static {
+          class.set_initializer(Value::new(function));
+        } else {
+          self.error(
+            stmt.loc,
+            String::from("method was used as initializer somehow (logic error)"),
+          );
+        }
+      } else {
+        self.error(
+          stmt.loc,
+          format!(
+            "unable to create initializer function for class {}",
+            stmt.ident.name,
+          ),
+        );
+      }
     }
 
-    for (name, method) in stmt.methods {
-      let ident = self.add_const_ident(name);
-      self.emit_expr(method);
-      self.emit(OpCode::AssignMember(ident), stmt.loc);
+    for (method_name, method) in stmt.methods {
+      if let Some((function, is_static)) = self.create_fn_from_expr(ContextName::Method, method) {
+        if is_static {
+          class.set_static(method_name.name, Value::new(function));
+        } else {
+          class.set_method(method_name.name, Value::new(function));
+        }
+      } else {
+        self.error(
+          stmt.loc,
+          format!("unable to create method {}", method_name.name),
+        );
+      }
     }
+
+    self.emit_const(Value::new(class), stmt.loc);
 
     self.define_class(var, stmt.loc);
   }
@@ -593,7 +625,7 @@ impl BytecodeGenerator {
   }
 
   fn emit_fn(&mut self, name: ContextName, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
-    let function = self.create_fn(name, args, body, loc);
+    let function = self.create_fn(name, args, body, loc, None);
     self.emit_const(Value::new(function), loc);
   }
 
@@ -806,12 +838,37 @@ impl BytecodeGenerator {
     count
   }
 
+  fn create_fn_from_expr(
+    &mut self,
+    name: ContextName,
+    expr: Expression,
+  ) -> Option<(Function, bool)> {
+    match expr {
+      Expression::Method(m) => {
+        let airity = m.params.len();
+        Some((
+          self.create_fn(name, m.params, *m.body, m.loc, Some(airity - 1)),
+          false,
+        ))
+      }
+      Expression::Lambda(l) => {
+        let airity = l.params.len();
+        Some((
+          self.create_fn(name, l.params, *l.body, l.loc, Some(airity)),
+          true,
+        ))
+      }
+      _ => None,
+    }
+  }
+
   fn create_fn(
     &mut self,
     name: ContextName,
     args: Vec<Ident>,
     body: Statement,
     loc: SourceLocation,
+    airity_override: Option<usize>,
   ) -> Function {
     self.function_id += 1;
 
@@ -831,7 +888,7 @@ impl BytecodeGenerator {
     )));
 
     self.new_scope(|this| {
-      let airity = args.len();
+      let airity = airity_override.unwrap_or(args.len());
 
       for arg in args {
         if arg.global() {

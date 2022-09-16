@@ -413,7 +413,7 @@ impl ExecutionThread {
                 Ok(())
               }
               Value::Class(mut class) => {
-                class.set_method(name, value);
+                class.set_static(name, value);
                 Ok(())
               }
               Value::Instance(mut instance) => {
@@ -441,16 +441,17 @@ impl ExecutionThread {
   fn exec_lookup_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
     let value = match self.stack_pop() {
       Some(obj) => match self.current_frame.ctx.const_at(location) {
-        Some(name) => match obj {
-          Value::Struct(obj) => match name {
-            Value::String(ident) => Ok(obj.get(ident)),
-            v => Err(self.error(opcode, format!("invalid member name {}", v))),
+        Some(name) => match name {
+          Value::String(ident) => match obj {
+            Value::Struct(obj) => Ok(obj.get(ident)),
+            Value::Instance(obj) => Ok(obj.get(ident)),
+            Value::Class(class) => Ok(class.get_static(ident)),
+            Value::Nil => {
+              Err(self.error(opcode, String::from("cannot lookup a member on nil type")))
+            }
+            v => Err(self.error(opcode, format!("invalid type for member access: {}", v))),
           },
-          Value::Instance(obj) => match name {
-            Value::String(ident) => Ok(obj.get(ident)),
-            v => Err(self.error(opcode, format!("invalid member name {}", v))),
-          },
-          _ => Err(self.error(opcode, String::from("invalid type for member access"))),
+          v => Err(self.error(opcode, format!("invalid member name {}", v))),
         },
         None => Err(self.error(opcode, String::from("no constant specified by index"))),
       },
@@ -721,23 +722,18 @@ impl ExecutionThread {
     if let Some(mut callable) = self.stack_pop() {
       let args = self.stack_drain_from(airity);
 
+      let res = callable.call(self, env, args).map_err(|errors| {
+        errors
+          .into_iter()
+          .map(|e| self.error_at(|opcode_ref| Error::from_ref(e, opcode, opcode_ref)))
+          .collect()
+      });
+
       if cfg!(feature = "runtime-disassembly") {
-        let res = callable.call(self, env, args).map_err(|errors| {
-          errors
-            .into_iter()
-            .map(|e| self.error_at(|opcode_ref| Error::from_ref(e, opcode, opcode_ref)))
-            .collect()
-        });
-        println!("<< {} >>", self.current_frame.ctx.display_str());
-        res
-      } else {
-        callable.call(self, env, args).map_err(|errors| {
-          errors
-            .into_iter()
-            .map(|e| self.error_at(|opcode_ref| Error::from_ref(e, opcode, opcode_ref)))
-            .collect()
-        })
+        println!("<< entering {} >>", self.current_frame.ctx.display_str());
       }
+
+      res
     } else {
       Err(self.error(opcode, "cannot operate on empty stack"))
     }
@@ -754,6 +750,9 @@ impl ExecutionThread {
             env.define(file, lib);
             return Ok(());
           }
+        } else if self.libs.contains_key(file.as_str()) {
+          // builtin library already loaded
+          return Ok(());
         }
 
         let mut p = PathBuf::from(file.as_str());
@@ -766,7 +765,6 @@ impl ExecutionThread {
                   let base = PathBuf::from(path);
                   let whole = base.join(&p);
                   if Path::exists(&whole) {
-                    println!("found {:?}", whole);
                     p = whole;
                     break;
                   }
@@ -943,10 +941,10 @@ impl ExecutionThread {
   #[cfg(feature = "runtime-disassembly")]
   pub fn stack_display(&self) {
     if self.current_frame.stack.is_empty() {
-      println!("          | [ ]");
+      println!("               | [ ]");
     } else {
       for (index, item) in self.current_frame.stack.iter().enumerate() {
-        println!("{:#10}| [ {} ]", index, item);
+        println!("{:#15}| [ {} ]", index, item);
       }
     }
   }
@@ -1023,16 +1021,41 @@ impl Vm {
   fn load_std() -> Value {
     let mut obj = Struct::default();
 
-    let mut array = Class::new("Array");
+    // Arrays
+    {
+      let mut array = Class::new("Array");
 
-    array.set_initializer(Value::native("Array.new", |thread, _env, args| {
-      thread.stack_push(Value::new(args));
-      Ok(())
-    }));
+      array.set_static_fn("len", |_thread, _env, args| {
+        if !args.is_empty() {
+          let obj = &args[0];
+          match obj {
+            Value::List(list) => Ok(Value::new(list.len() as f64)),
+            v => return Err(format!("unable to get length of object {}", v)),
+          }
+        } else {
+          Err("no object to get length of".to_string())
+        }
+      });
 
-    array.set_method(
-      "push",
-      Value::native("push", |_thread, _env, mut args| {
+      obj.set("Array", Value::new(array));
+    }
+
+    // Vectors
+    {
+      let mut vec = Class::new("Vec");
+
+      vec.set_initializer(Value::native("Vec.new", |_thread, _env, mut args| {
+        let values = Value::new(args.drain(1..).collect::<Vec<Value>>());
+        let this = args.get(0).cloned().unwrap();
+        if let Value::Instance(mut instance) = this.clone() {
+          instance.assign(values);
+          Ok(this)
+        } else {
+          Err(format!("self not instance type {} (logic error)", this))
+        }
+      }));
+
+      vec.set_method_fn("push", |_thread, _env, mut args| {
         if args.len() > 1 {
           let this = args.get(0).cloned().unwrap();
           let rest = args.drain(1..);
@@ -1046,52 +1069,68 @@ impl Vm {
           }
         }
 
-        Ok(())
-      }),
-    );
+        Ok(Value::Nil)
+      });
 
-    array.set_method(
-      "__index__",
-      Value::native("__index__", |thread, env, mut args| {
+      vec.set_method_fn("__index__", |_thread, _env, mut args| {
         if args.len() == 2 {
           let value = args.swap_remove(1);
           let this = args.get_mut(0).unwrap();
 
-          match this {
-            Value::Instance(instance) => instance.data.index(thread, env, value),
-            c => Err(format!(
-              "somehow called index method for non array instance {}",
-              c
-            )),
+          if let Value::Instance(this) = this {
+            if let Value::List(this) = &this.data {
+              if let Value::Num(n) = value {
+                Ok(this[n as usize].clone())
+              } else {
+                Ok(Value::Nil)
+              }
+            } else {
+              Err(String::from(
+                "somehow have non-list as internal data for vector type",
+              ))
+            }
+          } else {
+            Err(String::from(
+              "index method called with self not pointing to class instance",
+            ))
           }
         } else {
           Err(String::from("invalid number of arguments for index"))
         }
-      }),
-    );
+      });
 
-    array.set_method(
-      "len",
-      Value::native("len", |thread, _env, args| {
+      vec.set_method_fn("len", |_thread, _env, args| {
         let this = args.get(0).unwrap();
-
         match this {
           Value::Instance(instance) => match &instance.data {
-            Value::List(list) => {
-              thread.stack_push(Value::new(list.len() as f64));
-              Ok(())
-            }
-            c => Err(format!("somehow called len on non instance of array {}", c)),
+            Value::List(list) => Ok(Value::new(list.len() as f64)),
+            c => Err(format!("somehow called len on non instance of vec {}", c)),
           },
           c => Err(format!(
             "somehow called index method for non array instance {}",
             c
           )),
         }
-      }),
-    );
+      });
 
-    obj.set("Array", Value::new(array));
+      vec.set_static_fn("push", |_thread, _env, mut args| {
+        if args.len() > 1 {
+          let this = args.get(0).cloned().unwrap();
+          let rest = args.drain(1..);
+
+          match this {
+            Value::Instance(mut instance) => match &mut instance.data {
+              Value::List(list) => list.extend(rest.into_iter()),
+              v => return Err(format!("somehow called push on non array type {}", v)),
+            },
+            v => return Err(format!("called push on a primitive type {}", v)),
+          }
+        }
+        Ok(Value::Nil)
+      });
+
+      obj.set("Vec", Value::new(vec));
+    }
 
     Value::new(obj)
   }
@@ -1117,18 +1156,16 @@ impl Vm {
       use std::time::{SystemTime, UNIX_EPOCH};
       let now = SystemTime::now();
       let since = now.duration_since(UNIX_EPOCH).expect("time went backwards");
-      thread.stack_push(Value::new(since.as_nanos()));
-      Ok(())
+      Ok(Value::new(since.as_nanos()))
     });
 
     let clock_diff = Value::native(
       String::from("clock_diff"),
-      |thread, _env, args: Vec<Value>| {
+      |_thread, _env, args: Vec<Value>| {
         if let Some(Value::U128(before)) = args.get(0) {
           if let Some(Value::U128(after)) = args.get(1) {
             let diff = std::time::Duration::from_nanos((after - before) as u64);
-            thread.stack_push(Value::new(diff.as_secs_f64()));
-            return Ok(());
+            return Ok(Value::new(diff.as_secs_f64()));
           }
         }
         Err(String::from(
@@ -1148,14 +1185,12 @@ impl Vm {
 
     let parse_number = Value::native(
       String::from("parse_number"),
-      |thread, _env, args: Vec<Value>| {
+      |_thread, _env, args: Vec<Value>| {
         if let Some(arg) = args.get(0) {
           match arg {
-            Value::String(string) => {
-              let value = string.parse::<f64>().map_err(|e| format!("{}", e))?;
-              thread.stack_push(Value::new(value));
-              Ok(())
-            }
+            Value::String(string) => Ok(Value::new(
+              string.parse::<f64>().map_err(|e| format!("{}", e))?,
+            )),
             v => Err(format!("can not convert {} to a number", v)),
           }
         } else {
@@ -1177,7 +1212,7 @@ impl Vm {
         print!("{}", arg);
       }
 
-      Ok(())
+      Ok(Value::Nil)
     });
 
     let writeln = Value::native(String::from("write"), |_thread, _env, args: Vec<Value>| {
@@ -1186,7 +1221,7 @@ impl Vm {
       }
       println!();
 
-      Ok(())
+      Ok(Value::Nil)
     });
 
     obj.set("write", write);

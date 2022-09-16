@@ -156,7 +156,7 @@ impl Value {
 
   pub fn native<
     N: ToString,
-    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<(), String> + 'static,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
   >(
     name: N,
     call: F,
@@ -261,7 +261,7 @@ impl New<Instance> for Value {
   }
 }
 
-impl<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<(), String> + 'static>
+impl<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static>
   New<(String, F)> for Value
 {
   fn new((name, call): (String, F)) -> Self {
@@ -280,14 +280,7 @@ impl Add for Value {
         Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
-      Self::String(a) => match other {
-        Self::Num(b) => Ok(Self::String(format!("{}{}", a, b))),
-        Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
-        Self::U128(b) => Ok(Self::String(format!("{}{}", a, b))),
-        Self::Struct(b) => Ok(Self::String(format!("{}{}", a, b))),
-        Self::Bool(b) => Ok(Self::String(format!("{}{}", a, b))),
-        _ => Err(format!("cannot add {} and {}", a, other)),
-      },
+      Self::String(a) => Ok(Self::String(format!("{}{}", a, other.to_string()))),
       Self::U128(a) => match other {
         Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
         Self::U128(b) => Ok(Self::U128(a + b)),
@@ -544,10 +537,8 @@ impl Display for Value {
       Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
       Self::Struct(obj) => write!(f, "{:?}", obj),
       Self::Method(_) => write!(f, "<method>"), // TODO consider class.name
-      Self::Class(class) => write!(f, "<class {}>", class),
-      Self::Instance(instance) => {
-        write!(f, "<instance of {}> {}", instance.class.name, instance.data)
-      }
+      Self::Class(class) => write!(f, "<{}>", class),
+      Self::Instance(instance) => write!(f, "<{}>", instance),
     }
   }
 }
@@ -645,7 +636,7 @@ impl Function {
   ) -> Result<(), Vec<String>> {
     if args.len() > self.airity {
       return Err(vec![format!(
-        "too many arguments number of arguments, expected {}, got {}",
+        "<function> too many arguments, expected {}, got {}",
         self.airity,
         args.len()
       )]);
@@ -717,7 +708,7 @@ impl Closure {
   ) -> Result<(), Vec<String>> {
     if args.len() > self.function.airity {
       return Err(vec![format!(
-        "too many arguments number of arguments, expected {}, got {}",
+        "<closure> too many arguments, expected {}, got {}",
         self.function.airity,
         args.len()
       )]);
@@ -747,7 +738,7 @@ impl Closure {
   }
 }
 
-type RawNative = dyn FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<(), String>;
+type RawNative = dyn FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String>;
 
 pub struct NativeFn {
   pub name: String,
@@ -756,7 +747,7 @@ pub struct NativeFn {
 
 impl NativeFn {
   pub fn new<
-    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<(), String> + 'static,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
   >(
     name: String,
     callee: F,
@@ -773,7 +764,9 @@ impl NativeFn {
     env: &mut Env,
     args: Vec<Value>,
   ) -> Result<(), String> {
-    (self.callee)(thread, env, args)
+    let result = (self.callee)(thread, env, args)?;
+    thread.stack_push(result);
+    Ok(())
   }
 }
 
@@ -829,20 +822,19 @@ impl Method {
       Value::Function(function) => {
         if args.len() > function.airity {
           return Err(vec![format!(
-            "too many arguments number of arguments, expected {}, got {}",
+            "<method> too many arguments, expected {}, got {}",
             function.airity,
             args.len()
           )]);
         }
 
-        // - 1 for self
-        while args.len() < function.airity - 1 {
+        while args.len() < function.airity {
           args.push(Value::Nil);
         }
 
         thread.new_frame(function.ctx.clone());
 
-        let mut args_with_self = Vec::with_capacity(args.len() + 1);
+        let mut args_with_self = Vec::with_capacity(1 + args.len());
         args_with_self.push(Value::Instance(self.this.clone()));
         args_with_self.extend(args);
 
@@ -869,6 +861,7 @@ pub struct Class {
   pub name: String,
   pub initializer: Option<Value>,
   pub methods: BTreeMap<String, Value>,
+  pub static_members: BTreeMap<String, Value>,
 }
 
 impl Class {
@@ -876,7 +869,8 @@ impl Class {
     Self {
       name: name.to_string(),
       initializer: None,
-      methods: BTreeMap::default(),
+      methods: Default::default(),
+      static_members: Default::default(),
     }
   }
 
@@ -911,15 +905,55 @@ impl Class {
   pub fn set_method<N: ToString>(&mut self, name: N, value: Value) {
     self.methods.insert(name.to_string(), value);
   }
+
+  pub fn set_method_fn<
+    N: ToString,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
+  >(
+    &mut self,
+    name: N,
+    value: F,
+  ) {
+    self
+      .methods
+      .insert(name.to_string(), Value::native(name, value));
+  }
+
+  pub fn set_static<N: ToString>(&mut self, name: N, value: Value) {
+    self.static_members.insert(name.to_string(), value);
+  }
+
+  pub fn set_static_fn<
+    N: ToString,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
+  >(
+    &mut self,
+    name: N,
+    value: F,
+  ) {
+    self.set_static(name.to_string(), Value::native(name, value));
+  }
+
+  pub fn get_static<N: ToString>(&self, name: &N) -> Value {
+    self
+      .static_members
+      .get(&name.to_string())
+      .cloned()
+      .unwrap_or(Value::Nil)
+  }
 }
 
 impl Display for Class {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(
-      f,
-      "{} initializer = {:?} {:?}",
-      self.name, self.initializer, self.methods
-    )
+    if cfg!(debug_assertions) && cfg!(feature = "verbose-debug") {
+      write!(
+        f,
+        "class {} initializer = {:?} <method> {:?} <static> {:?}",
+        self.name, self.initializer, self.methods, self.static_members
+      )
+    } else {
+      write!(f, "class {}", self.name)
+    }
   }
 }
 
@@ -990,6 +1024,22 @@ impl Deref for Instance {
   type Target = Value;
   fn deref(&self) -> &Self::Target {
     &self.data
+  }
+}
+
+impl Display for Instance {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    if cfg!(debug_assertions) && cfg!(feature = "verbose-debug") {
+      write!(
+        f,
+        "instance of {}> <data {} > <methods {:#?}",
+        self.class.name,
+        self.data,
+        self.methods.keys()
+      )
+    } else {
+      write!(f, "instance of {}", self.class.name)
+    }
   }
 }
 

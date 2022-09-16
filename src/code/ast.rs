@@ -29,8 +29,6 @@ struct AstGenerator {
   index: usize,
 
   in_loop: bool,
-
-  test: usize,
 }
 
 impl AstGenerator {
@@ -42,7 +40,6 @@ impl AstGenerator {
       errors: Default::default(),
       index: Default::default(),
       in_loop: Default::default(),
-      test: Default::default(),
     }
   }
 
@@ -202,15 +199,20 @@ impl AstGenerator {
               self.advance();
               if initializer.is_none() {
                 if self.consume(Token::LeftParen, "expected '(' after 'new'") {
-                  initializer = self.lambda_expr(Token::RightParen, |params, mut body| {
-                    body
-                      .statements
-                      .push(Statement::new(DefaultConstructorRet::new(loc)));
-                    Some(Expression::new(MethodExpression::new(
-                      params,
-                      Statement::new(body),
-                      loc,
-                    )))
+                  initializer = self.lambda_expr(Token::RightParen, |this, params, mut body| {
+                    if params.is_empty() || params[0].name != "self" {
+                      this.error::<0>(String::from("missing self arg in initializer"));
+                      None
+                    } else {
+                      body
+                        .statements
+                        .push(Statement::new(DefaultConstructorRet::new(loc)));
+                      Some(Expression::new(LambdaExpression::new(
+                        params,
+                        Statement::new(body),
+                        loc,
+                      )))
+                    }
                   });
                 }
               } else {
@@ -223,14 +225,24 @@ impl AstGenerator {
                 if !declared_functions.contains(&ident) {
                   self.advance();
                   if self.consume(Token::LeftParen, "expected '(' after identifier") {
-                    if let Some(function) = self.lambda_expr(Token::RightParen, |params, body| {
-                      declared_functions.insert(ident.clone());
-                      Some(Expression::new(MethodExpression::new(
-                        params,
-                        Statement::new(body),
-                        loc,
-                      )))
-                    }) {
+                    if let Some(function) =
+                      self.lambda_expr(Token::RightParen, |_this, params, body| {
+                        if params.is_empty() || params[0].name != "self" {
+                          Some(Expression::new(LambdaExpression::new(
+                            params,
+                            Statement::new(body),
+                            loc,
+                          )))
+                        } else {
+                          declared_functions.insert(ident.clone());
+                          Some(Expression::new(MethodExpression::new(
+                            params,
+                            Statement::new(body),
+                            loc,
+                          )))
+                        }
+                      })
+                    {
                       let ident = Ident::new(ident.clone());
                       methods.push((ident, function));
                     }
@@ -897,7 +909,7 @@ impl AstGenerator {
   fn anon_fn_expr(&mut self) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
-    self.lambda_expr(Token::Pipe, |params, body| {
+    self.lambda_expr(Token::Pipe, |_, params, body| {
       Some(Expression::new(LambdaExpression::new(
         params,
         Statement::new(body),
@@ -909,7 +921,7 @@ impl AstGenerator {
   fn closure_expr(&mut self, param_term: Token, captures: StructExpression) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
-    self.lambda_expr(param_term, |params, body| {
+    self.lambda_expr(param_term, |_, params, body| {
       Some(Expression::new(ClosureExpression::new(
         captures,
         params,
@@ -919,7 +931,7 @@ impl AstGenerator {
     })
   }
 
-  fn lambda_expr<F: FnOnce(Vec<Ident>, BlockStatement) -> Option<Expression>>(
+  fn lambda_expr<F: FnOnce(&mut Self, Vec<Ident>, BlockStatement) -> Option<Expression>>(
     &mut self,
     param_term: Token,
     f: F,
@@ -936,7 +948,7 @@ impl AstGenerator {
 
     if let Some(block_loc) = self.meta_at::<1>() {
       let body = self.block(block_loc)?;
-      f(params, body)
+      f(self, params, body)
     } else {
       // sanity check
       self.error::<0>(String::from("could not find original token"));
@@ -1118,7 +1130,6 @@ impl AstGenerator {
   }
 
   fn block(&mut self, loc: SourceLocation) -> Option<BlockStatement> {
-    self.test += 1;
     let statements = self.scope(|this| {
       while let Some(token) = this.current() {
         if token == Token::RightBrace {
@@ -1129,10 +1140,8 @@ impl AstGenerator {
     });
 
     if self.consume(Token::RightBrace, "expected '}' after block") {
-      self.test -= 1;
       Some(BlockStatement::new(statements, loc))
     } else {
-      self.test -= 1;
       None
     }
   }
@@ -1228,11 +1237,7 @@ impl AstGenerator {
         self.advance();
 
         let value = if self.advance_if_matches(Token::Equal) {
-          if let Some(expr) = self.expression() {
-            Some(expr)
-          } else {
-            return None;
-          }
+          self.expression()
         } else {
           None
         };
@@ -1249,17 +1254,20 @@ impl AstGenerator {
     }
   }
 
-  fn parse_precedence(&mut self, precedence: Precedence) -> Option<Expression> {
+  fn parse_precedence(&mut self, root_token_precedence: Precedence) -> Option<Expression> {
     self.advance();
 
     if let Some(prev) = self.previous() {
       let mut expr: Expression;
-      let rule = Self::rule_for(&prev);
+      let prev_token_rule = Self::rule_for(&prev);
 
-      if let Some(prefix) = rule.prefix {
+      if let Some(prefix) = prev_token_rule.prefix {
         match prefix(self) {
           Some(e) => expr = e,
-          None => return None,
+          None => {
+            self.error::<1>(format!("no prefix rule for {}", prev));
+            return None;
+          }
         }
       } else {
         self.error::<1>(String::from("expected an expression"));
@@ -1267,17 +1275,20 @@ impl AstGenerator {
       }
 
       while let Some(curr) = self.current() {
-        let rule = Self::rule_for(&curr);
-        if precedence <= rule.precedence {
-          self.advance();
-          if let Some(infix) = rule.infix {
+        let current_token_rule = Self::rule_for(&curr);
+        if root_token_precedence <= current_token_rule.precedence {
+          if let Some(infix) = current_token_rule.infix {
+            self.advance();
             match infix(self, expr) {
               Some(e) => expr = e,
               None => return None,
             }
           } else {
-            self.error::<0>(format!("no rule for {:?}", prev));
-            return None;
+            // TODO if weird results start happening, this could be the cause
+            // allows for structs to be made and braces to still work for scoping purposes
+            //   self.error::<0>(format!("no infix rule for {:?}", curr));
+            //   return None;
+            break;
           }
         } else {
           break;
