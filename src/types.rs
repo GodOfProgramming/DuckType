@@ -9,6 +9,7 @@ use std::{
   fmt::{self, Debug, Display, Formatter},
   ops::{Add, Deref, Div, Index, IndexMut, Mul, Neg, Not, RangeBounds, Rem, Sub},
   slice::Iter,
+  time::Instant,
 };
 
 #[cfg(test)]
@@ -30,6 +31,7 @@ pub enum Value {
   Instance(SmartPtr<Instance>),
 
   U128(u128), // internal use only
+  Instant(Instant),
 }
 
 impl Value {
@@ -261,6 +263,12 @@ impl New<Instance> for Value {
   }
 }
 
+impl New<Instant> for Value {
+  fn new(item: Instant) -> Self {
+    Self::Instant(item)
+  }
+}
+
 impl<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static>
   New<(String, F)> for Value
 {
@@ -489,6 +497,13 @@ impl PartialEq for Value {
           false
         }
       }
+      Self::Instant(a) => {
+        if let Self::Instant(b) = other {
+          a == b
+        } else {
+          false
+        }
+      }
     }
   }
 }
@@ -539,6 +554,7 @@ impl Display for Value {
       Self::Method(_) => write!(f, "<method>"), // TODO consider class.name
       Self::Class(class) => write!(f, "<{}>", class),
       Self::Instance(instance) => write!(f, "<{}>", instance),
+      Self::Instant(instant) => write!(f, "{:?}", instant),
     }
   }
 }
