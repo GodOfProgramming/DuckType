@@ -303,6 +303,29 @@ impl BytecodeGenerator {
     }
   }
 
+  fn use_stmt(&mut self, stmt: UseStatement) {
+    let initial = stmt.path.first().cloned().unwrap(); // validated in ast
+    let var = stmt.path.last().cloned().unwrap(); // validated in ast
+    let var_idx = self.declare_global(var);
+
+    if let Some(lookup) = self.resolve_ident(&initial, stmt.loc) {
+      let get = match lookup.kind {
+        LookupKind::Local => OpCode::LookupLocal(lookup.index),
+        LookupKind::Global => OpCode::LookupGlobal(self.declare_global(initial)),
+      };
+
+      self.emit(get, stmt.loc);
+
+      for name in stmt.path.into_iter().skip(1) {
+        let ident = self.add_const_ident(name);
+        self.emit(OpCode::LookupMember(ident), stmt.loc);
+      }
+
+      self.define_global(var_idx, stmt.loc);
+      self.emit(OpCode::Pop, stmt.loc);
+    }
+  }
+
   fn while_stmt(&mut self, stmt: WhileStatement) {
     let before_compare = self.current_instruction_count();
     self.emit_expr(stmt.comparison);
@@ -566,6 +589,7 @@ impl BytecodeGenerator {
       Statement::Print(stmt) => self.print_stmt(stmt),
       Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
+      Statement::Use(stmt) => self.use_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
       Statement::Yield(stmt) => self.yield_stmt(stmt),
       Statement::Expression(stmt) => self.expr_stmt(stmt),
