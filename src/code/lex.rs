@@ -61,6 +61,7 @@ impl<'src> Scanner<'src> {
           ':' => Token::Colon,
           ';' => Token::Semicolon,
           '@' => Token::At,
+          '|' => Token::Pipe,
           '+' => {
             if self.advance_if_match('=') {
               Token::PlusEqual
@@ -349,6 +350,7 @@ impl<'src> Scanner<'src> {
 
       't' => this.check_keyword(d, "rue", Token::True),
       'w' => this.check_keyword(d, "hile", Token::While),
+      'y' => this.check_keyword(d, "ield", Token::Yield),
       _ => this.create_ident(),
     })
   }

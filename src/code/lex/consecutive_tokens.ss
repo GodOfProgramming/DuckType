@@ -1,0 +1,1 @@
+(){},.;+-*/%bang!bang_equal!=equal=equal_equal==greater>greater_equal>=less<less_equal<=arrow->1!1.0!=12=123==1234>12345>=123456<1234567<=12345678->"bang"!"bang_equal"!="equal"="equal_equal"=="greater">"greater_equal">="less"<"less_equal"<="arrow"->

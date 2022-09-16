@@ -82,10 +82,10 @@ impl Value {
     thread: &mut ExecutionThread,
     env: &mut Env,
     args: Vec<Value>,
-  ) -> Result<Value, Vec<String>> {
+  ) -> Result<(), Vec<String>> {
     match self {
-      Value::Function(f) => f.call(thread, env, args),
-      Value::Closure(c) => c.call(thread, env, args),
+      Value::Function(f) => f.call(thread, args),
+      Value::Closure(c) => c.call(thread, args),
       Value::NativeFunction(f) => f.call(thread, env, args).map_err(|e| vec![e]),
       Value::Method(m) => m.call(thread, env, args),
       Value::Class(c) => Class::construct(c.clone(), thread, env, args),
@@ -98,19 +98,20 @@ impl Value {
     thread: &mut ExecutionThread,
     env: &mut Env,
     index: Value,
-  ) -> ValueOpResult {
+  ) -> Result<(), String> {
     match self {
       Value::List(values) => match index {
         Value::Num(n) => {
           if n == n as usize as f64 {
             if let Some(v) = values.get(n as usize) {
-              Ok(v.clone())
+              thread.stack_push(v.clone());
             } else {
-              Ok(Value::Nil)
+              thread.stack_push(Value::Nil);
             }
           } else {
-            Ok(Value::Nil)
+            thread.stack_push(Value::Nil);
           }
+          Ok(())
         }
         _ => Err(format!("cannot index list with {}", index)),
       },
@@ -118,13 +119,14 @@ impl Value {
         Value::Num(n) => {
           if n == n as usize as f64 {
             if let Some(c) = string.chars().nth(n as usize) {
-              Ok(Value::new(String::from(c)))
+              thread.stack_push(Value::new(String::from(c)));
             } else {
-              Ok(Value::Nil)
+              thread.stack_push(Value::Nil);
             }
           } else {
-            Ok(Value::Nil)
+            thread.stack_push(Value::Nil);
           }
+          Ok(())
         }
         _ => Err(format!("cannot index string with {}", index)),
       },
@@ -154,7 +156,7 @@ impl Value {
 
   pub fn native<
     N: ToString,
-    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
   >(
     name: N,
     call: F,
@@ -259,7 +261,7 @@ impl New<Instance> for Value {
   }
 }
 
-impl<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static>
+impl<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static>
   New<(String, F)> for Value
 {
   fn new((name, call): (String, F)) -> Self {
@@ -278,14 +280,7 @@ impl Add for Value {
         Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
         _ => Err(format!("cannot add {} and {}", a, other)),
       },
-      Self::String(a) => match other {
-        Self::Num(b) => Ok(Self::String(format!("{}{}", a, b))),
-        Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
-        Self::U128(b) => Ok(Self::String(format!("{}{}", a, b))),
-        Self::Struct(b) => Ok(Self::String(format!("{}{}", a, b))),
-        Self::Bool(b) => Ok(Self::String(format!("{}{}", a, b))),
-        _ => Err(format!("cannot add {} and {}", a, other)),
-      },
+      Self::String(a) => Ok(Self::String(format!("{}{}", a, other.to_string()))),
       Self::U128(a) => match other {
         Self::String(b) => Ok(Self::String(format!("{}{}", a, b))),
         Self::U128(b) => Ok(Self::U128(a + b)),
@@ -542,10 +537,8 @@ impl Display for Value {
       Self::NativeFunction(func) => write!(f, "<native '{}' @{:p}>", func.name, func.raw()),
       Self::Struct(obj) => write!(f, "{:?}", obj),
       Self::Method(_) => write!(f, "<method>"), // TODO consider class.name
-      Self::Class(class) => write!(f, "<class {}>", class),
-      Self::Instance(instance) => {
-        write!(f, "<instance of {}> {}", instance.class.name, instance.data)
-      }
+      Self::Class(class) => write!(f, "<{}>", class),
+      Self::Instance(instance) => write!(f, "<{}>", instance),
     }
   }
 }
@@ -585,10 +578,6 @@ impl List {
 
   pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) {
     self.0.drain(range);
-  }
-
-  pub fn exchange(&mut self, other: &mut Vec<Value>) {
-    std::mem::swap(&mut self.0, other);
   }
 
   pub fn iter(&self) -> Iter<'_, Value> {
@@ -643,12 +632,11 @@ impl Function {
   pub fn call(
     &mut self,
     thread: &mut ExecutionThread,
-    env: &mut Env,
     mut args: Vec<Value>,
-  ) -> Result<Value, Vec<String>> {
+  ) -> Result<(), Vec<String>> {
     if args.len() > self.airity {
       return Err(vec![format!(
-        "too many arguments number of arguments, expected {}, got {}",
+        "<function> too many arguments, expected {}, got {}",
         self.airity,
         args.len()
       )]);
@@ -658,20 +646,13 @@ impl Function {
       args.push(Value::Nil);
     }
 
-    let prev_ip = thread.ip;
-
     args.reserve(self.locals);
 
-    let prev_stack = thread.stack_move(args);
+    thread.new_frame(self.ctx.clone());
 
-    let res = thread
-      .run(self.ctx.clone(), env)
-      .map_err(|e| e.into_iter().map(|e| e.msg).collect());
+    thread.set_stack(args);
 
-    thread.ip = prev_ip;
-    thread.stack_move(prev_stack);
-
-    res
+    Ok(())
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
@@ -708,16 +689,14 @@ impl PartialEq for Function {
 
 #[derive(Clone)]
 pub struct Closure {
-  capture_count: usize,
-  captures: SmartPtr<List>,
-  pub function: SmartPtr<Function>,
+  captures: Vec<Value>,
+  function: SmartPtr<Function>,
 }
 
 impl Closure {
   pub fn new(captures: SmartPtr<List>, function: SmartPtr<Function>) -> Self {
     Self {
-      capture_count: captures.len(),
-      captures,
+      captures: captures.0.clone(),
       function,
     }
   }
@@ -725,12 +704,11 @@ impl Closure {
   pub fn call(
     &mut self,
     thread: &mut ExecutionThread,
-    env: &mut Env,
     mut args: Vec<Value>,
-  ) -> Result<Value, Vec<String>> {
+  ) -> Result<(), Vec<String>> {
     if args.len() > self.function.airity {
       return Err(vec![format!(
-        "too many arguments number of arguments, expected {}, got {}",
+        "<closure> too many arguments, expected {}, got {}",
         self.function.airity,
         args.len()
       )]);
@@ -740,30 +718,15 @@ impl Closure {
       args.push(Value::Nil);
     }
 
-    let prev_ip = thread.ip;
+    let mut captures_with_args = Vec::with_capacity(self.captures.len() + args.len());
+    captures_with_args.extend(self.captures.clone());
+    captures_with_args.extend(args);
 
-    self.captures.extend(args);
+    thread.new_frame(self.function.ctx.clone());
 
-    let mut captures_with_args = Vec::default();
-    self.captures.exchange(&mut captures_with_args);
+    thread.set_stack(captures_with_args);
 
-    let prev_stack = thread.stack_move(captures_with_args);
-
-    let res = thread
-      .run(self.function.ctx.clone(), env)
-      .map_err(|e| e.into_iter().map(|e| e.msg).collect());
-
-    thread.ip = prev_ip;
-
-    let mut captures = thread.stack_move(prev_stack);
-    self.captures.exchange(&mut captures);
-
-    // remove leftover elements in bulk in event of early return
-    if self.captures.len() > self.capture_count {
-      self.captures.drain(self.capture_count..);
-    }
-
-    res
+    Ok(())
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
@@ -775,13 +738,17 @@ impl Closure {
   }
 }
 
+type RawNative = dyn FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String>;
+
 pub struct NativeFn {
   pub name: String,
-  pub callee: Box<dyn FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult>,
+  pub callee: Box<RawNative>,
 }
 
 impl NativeFn {
-  pub fn new<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static>(
+  pub fn new<
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
+  >(
     name: String,
     callee: F,
   ) -> Self {
@@ -796,14 +763,16 @@ impl NativeFn {
     thread: &mut ExecutionThread,
     env: &mut Env,
     args: Vec<Value>,
-  ) -> ValueOpResult {
-    (self.callee)(thread, env, args)
+  ) -> Result<(), String> {
+    let result = (self.callee)(thread, env, args)?;
+    thread.stack_push(result);
+    Ok(())
   }
 }
 
 #[derive(Debug, Default)]
 pub struct Struct {
-  members: BTreeMap<String, Value>,
+  pub members: BTreeMap<String, Value>,
 }
 
 impl Struct {
@@ -848,39 +817,30 @@ impl Method {
     thread: &mut ExecutionThread,
     env: &mut Env,
     mut args: Vec<Value>,
-  ) -> Result<Value, Vec<String>> {
+  ) -> Result<(), Vec<String>> {
     match &mut self.function {
       Value::Function(function) => {
         if args.len() > function.airity {
           return Err(vec![format!(
-            "too many arguments number of arguments, expected {}, got {}",
+            "<method> too many arguments, expected {}, got {}",
             function.airity,
             args.len()
           )]);
         }
 
-        // - 1 for self
-        while args.len() < function.airity - 1 {
+        while args.len() < function.airity {
           args.push(Value::Nil);
         }
 
-        let prev_ip = thread.ip;
+        thread.new_frame(function.ctx.clone());
 
-        let mut args_with_self = Vec::with_capacity(args.len() + 1);
+        let mut args_with_self = Vec::with_capacity(1 + args.len());
         args_with_self.push(Value::Instance(self.this.clone()));
         args_with_self.extend(args);
 
-        let prev_stack = thread.stack_move(args_with_self);
+        thread.set_stack(args_with_self);
 
-        let res = thread
-          .run(function.ctx.clone(), env)
-          .map_err(|e| e.into_iter().map(|e| e.msg).collect());
-
-        thread.ip = prev_ip;
-
-        thread.stack_move(prev_stack);
-
-        res
+        Ok(())
       }
       Value::NativeFunction(native) => {
         let mut args_with_self = Vec::with_capacity(args.len() + 1);
@@ -901,6 +861,7 @@ pub struct Class {
   pub name: String,
   pub initializer: Option<Value>,
   pub methods: BTreeMap<String, Value>,
+  pub static_members: BTreeMap<String, Value>,
 }
 
 impl Class {
@@ -908,34 +869,33 @@ impl Class {
     Self {
       name: name.to_string(),
       initializer: None,
-      methods: BTreeMap::default(),
+      methods: Default::default(),
+      static_members: Default::default(),
     }
   }
 
-  // TODO crate two types of classes,
-  // one for default construction,
-  // another for custom construction
-  // to save a cpu cycle or two
   pub fn construct(
     mut class: SmartPtr<Self>,
     thread: &mut ExecutionThread,
     env: &mut Env,
     args: Vec<Value>,
-  ) -> Result<Value, Vec<String>> {
-    let value = if let Some(initializer) = &mut class.initializer {
-      initializer.call(thread, env, args)?
-    } else {
-      Value::new(Struct::default())
-    };
-
-    let mut instance = SmartPtr::new(Instance::new(value, class.clone()));
+  ) -> Result<(), Vec<String>> {
+    let mut instance = SmartPtr::new(Instance::new(Value::Nil, class.clone()));
 
     for (name, function) in class.methods.iter() {
       let method = Method::new(instance.clone(), function.clone());
       instance.set_method(name.clone(), method);
     }
 
-    Ok(Value::Instance(instance))
+    if let Some(initializer) = &mut class.initializer {
+      let mut args_with_self = Vec::with_capacity(args.len() + 1);
+      args_with_self.push(Value::Instance(instance));
+      args_with_self.extend(args);
+      initializer.call(thread, env, args_with_self)
+    } else {
+      thread.stack_push(Value::Instance(instance));
+      Ok(())
+    }
   }
 
   pub fn set_initializer(&mut self, value: Value) {
@@ -945,11 +905,55 @@ impl Class {
   pub fn set_method<N: ToString>(&mut self, name: N, value: Value) {
     self.methods.insert(name.to_string(), value);
   }
+
+  pub fn set_method_fn<
+    N: ToString,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
+  >(
+    &mut self,
+    name: N,
+    value: F,
+  ) {
+    self
+      .methods
+      .insert(name.to_string(), Value::native(name, value));
+  }
+
+  pub fn set_static<N: ToString>(&mut self, name: N, value: Value) {
+    self.static_members.insert(name.to_string(), value);
+  }
+
+  pub fn set_static_fn<
+    N: ToString,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
+  >(
+    &mut self,
+    name: N,
+    value: F,
+  ) {
+    self.set_static(name.to_string(), Value::native(name, value));
+  }
+
+  pub fn get_static<N: ToString>(&self, name: &N) -> Value {
+    self
+      .static_members
+      .get(&name.to_string())
+      .cloned()
+      .unwrap_or(Value::Nil)
+  }
 }
 
 impl Display for Class {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{} {:?}", self.name, self.methods)
+    if cfg!(debug_assertions) && cfg!(feature = "verbose-debug") {
+      write!(
+        f,
+        "class {} initializer = {:?} <method> {:?} <static> {:?}",
+        self.name, self.initializer, self.methods, self.static_members
+      )
+    } else {
+      write!(f, "class {}", self.name)
+    }
   }
 }
 
@@ -994,7 +998,7 @@ impl Instance {
     self.data = value;
   }
 
-  pub fn deref(&self) -> Value {
+  pub fn extract(&self) -> Value {
     self.data.clone()
   }
 
@@ -1004,7 +1008,7 @@ impl Instance {
     thread: &mut ExecutionThread,
     env: &mut Env,
     args: Vec<Value>,
-  ) -> ValueOpResult {
+  ) -> Result<(), String> {
     if let Some(method) = self.methods.get_mut(&name.to_string()) {
       method.call(thread, env, args).map_err(|e| e.join(", "))
     } else {
@@ -1020,6 +1024,22 @@ impl Deref for Instance {
   type Target = Value;
   fn deref(&self) -> &Self::Target {
     &self.data
+  }
+}
+
+impl Display for Instance {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    if cfg!(debug_assertions) && cfg!(feature = "verbose-debug") {
+      write!(
+        f,
+        "instance of {}> <data {} > <methods {:#?}",
+        self.class.name,
+        self.data,
+        self.methods.keys()
+      )
+    } else {
+      write!(f, "instance of {}", self.class.name)
+    }
   }
 }
 

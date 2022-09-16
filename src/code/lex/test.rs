@@ -4,7 +4,7 @@ use tfix::{fixture, TestFixture};
 
 const ALL_TOKENS: &str = include_str!("all_tokens.ss");
 
-const TOKENS_THAT_IGNORE_WHITESPACE: &str = include_str!("tokens_that_ignore_whitespace.ss");
+const CONSECUTIVE_TOKENS: &str = include_str!("consecutive_tokens.ss");
 
 const SCANNING_ERRORS: &str = include_str!("scanning_errors.ss");
 
@@ -51,6 +51,8 @@ impl TestFixture for ScannerTest {
 #[fixture(ScannerTest)]
 mod tests {
   use super::*;
+
+  #[test]
   fn scanner_scans(test: &mut ScannerTest) {
     let expected = vec![
       Token::LeftParen,
@@ -74,6 +76,7 @@ mod tests {
       Token::Less,
       Token::LessEqual,
       Token::Arrow,
+      Token::BackArrow,
       Token::Identifier(String::from("foobar")),
       Token::String(String::from("some string")),
       Token::Number(PI),
@@ -109,7 +112,8 @@ mod tests {
     });
   }
 
-  fn scanner_ignores_whitespace_when_applicable(t: &mut ScannerTest) {
+  #[test]
+  fn scanner_scans_consecutively(t: &mut ScannerTest) {
     let expected = vec![
       Token::LeftParen,
       Token::RightParen,
@@ -123,70 +127,73 @@ mod tests {
       Token::Asterisk,
       Token::Slash,
       Token::Percent,
+      Token::Identifier(String::from("bang")),
       Token::Bang,
-      Token::Identifier(String::from("foo")),
+      Token::Identifier(String::from("bang_equal")),
       Token::BangEqual,
-      Token::Identifier(String::from("bar")),
+      Token::Identifier(String::from("equal")),
       Token::Equal,
-      Token::Identifier(String::from("foo")),
+      Token::Identifier(String::from("equal_equal")),
       Token::EqualEqual,
-      Token::Identifier(String::from("bar")),
+      Token::Identifier(String::from("greater")),
       Token::Greater,
-      Token::Identifier(String::from("foo")),
+      Token::Identifier(String::from("greater_equal")),
       Token::GreaterEqual,
-      Token::Identifier(String::from("bar")),
+      Token::Identifier(String::from("less")),
       Token::Less,
-      Token::Identifier(String::from("foo")),
+      Token::Identifier(String::from("less_equal")),
       Token::LessEqual,
-      Token::Identifier(String::from("bar")),
+      Token::Identifier(String::from("arrow")),
       Token::Arrow,
       Token::Number(1.0),
       Token::Bang,
       Token::Number(1.0),
       Token::BangEqual,
-      Token::Number(1.0),
+      Token::Number(12.0),
       Token::Equal,
-      Token::Number(1.0),
+      Token::Number(123.0),
       Token::EqualEqual,
-      Token::Number(1.0),
+      Token::Number(1234.0),
       Token::Greater,
-      Token::Number(1.0),
+      Token::Number(12345.0),
       Token::GreaterEqual,
-      Token::Number(1.0),
+      Token::Number(123456.0),
       Token::Less,
-      Token::Number(1.0),
+      Token::Number(1234567.0),
       Token::LessEqual,
-      Token::Number(1.0),
+      Token::Number(12345678.0),
       Token::Arrow,
-      Token::String(String::from("str")),
+      Token::String(String::from("bang")),
       Token::Bang,
-      Token::String(String::from("str")),
+      Token::String(String::from("bang_equal")),
       Token::BangEqual,
-      Token::String(String::from("str")),
+      Token::String(String::from("equal")),
       Token::Equal,
-      Token::String(String::from("str")),
+      Token::String(String::from("equal_equal")),
       Token::EqualEqual,
-      Token::String(String::from("str")),
+      Token::String(String::from("greater")),
       Token::Greater,
-      Token::String(String::from("str")),
+      Token::String(String::from("greater_equal")),
       Token::GreaterEqual,
-      Token::String(String::from("str")),
+      Token::String(String::from("less")),
       Token::Less,
-      Token::String(String::from("str")),
+      Token::String(String::from("less_equal")),
       Token::LessEqual,
-      Token::String(String::from("str")),
+      Token::String(String::from("arrow")),
       Token::Arrow,
     ];
 
-    t.tokens = TOKENS_THAT_IGNORE_WHITESPACE.to_string();
+    t.tokens = CONSECUTIVE_TOKENS.to_string();
 
     t.test_scan(|actual, _| {
       assert_eq!(
         actual.len(),
         expected.len(),
-        "actual len = {}, expected len = {}",
+        "actual len = {}, expected len = {}\nactual tokens = {:#?}\nexpected tokens = {:#?}",
         actual.len(),
         expected.len(),
+        actual,
+        expected
       );
 
       for (a, e) in actual.iter().zip(expected.iter()) {
@@ -195,6 +202,7 @@ mod tests {
     });
   }
 
+  #[test]
   fn scans_empty_string(t: &mut ScannerTest) {
     let expected = vec![Token::String(String::from(""))];
 
@@ -209,6 +217,7 @@ mod tests {
     });
   }
 
+  #[test]
   fn returns_errors_at_right_location_when_detected(t: &mut ScannerTest) {
     let expected = vec![
       Error {
@@ -248,6 +257,7 @@ mod tests {
     });
   }
 
+  #[test]
   fn produces_the_correct_meta_information(t: &mut ScannerTest) {
     let expected_tokens = vec![
       Token::Fn,

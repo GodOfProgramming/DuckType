@@ -4,7 +4,7 @@ pub mod lex;
 pub mod opt;
 
 use crate::{
-  types::{Error, Struct, Value, ValueOpResult},
+  types::{Error, Struct, Value},
   ExecutionThread, New,
 };
 use ast::Ast;
@@ -15,7 +15,7 @@ use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
   env,
-  fmt::{Debug, Display, Formatter},
+  fmt::{self, Debug, Display, Formatter},
   str,
 };
 
@@ -101,8 +101,10 @@ pub enum OpCode {
   Loop(usize),
   /** Calls the instruction on the stack. Number of arguments is specified by the modifying bits */
   Call(usize),
-  /** Exits from a function */
+  /** Exits from a function, returning nil on the previous frame */
   Ret,
+  /** Exits from a function, returning the last value on the stack to the previous frame */
+  RetValue,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
   /** Index into the indexable. The first argument off the stack is the index, the second is the indexable */
@@ -111,6 +113,10 @@ pub enum OpCode {
   CreateList(usize),
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
   CreateClosure,
+  /** Returns the argument at the 0 position, only used with class constructors as their last instruction */
+  DefaultConstructorRet,
+  /** Yield at the current location */
+  Yield,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -127,6 +133,7 @@ pub enum Token {
   Colon,
   Semicolon,
   At,
+  Pipe,
 
   // One or two character tokens.
   Bang,
@@ -176,16 +183,60 @@ pub enum Token {
   Ret,
   True,
   While,
+  Yield,
 }
 
 impl Display for Token {
-  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
       Token::Identifier(i) => write!(f, "Identifier ({})", i),
       Token::String(s) => write!(f, "String ({})", s),
       Token::Number(n) => write!(f, "Number ({})", n),
       _ => write!(f, "{:?}", self),
     }
+  }
+}
+
+#[derive(Default)]
+pub struct Compiler;
+
+impl Compiler {
+  pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
+    let mut scanner = Scanner::new(file, source);
+
+    let (tokens, meta) = scanner
+      .scan()
+      .map_err(|errs| Self::reformat_errors(source, errs))?;
+
+    let ast = Ast::from(tokens, meta).map_err(|errs| Self::reformat_errors(source, errs))?;
+
+    let optimizer = Optimizer::<1>::new(ast);
+
+    let ast = optimizer.optimize();
+
+    let file = SmartPtr::new(String::from(file));
+    let source_ptr = SmartPtr::new(String::from(source));
+
+    let reflection = Reflection::new(file, source_ptr.clone());
+    let ctx = SmartPtr::new(Context::new(reflection));
+
+    let generator = BytecodeGenerator::new(ctx);
+
+    generator
+      .generate(ast)
+      .map_err(|errs| Self::reformat_errors(source, errs))
+  }
+
+  fn reformat_errors(source: &str, errs: Vec<Error>) -> Vec<Error> {
+    errs
+      .into_iter()
+      .map(|mut e| {
+        if let Some(src) = source.lines().nth(e.line - 1) {
+          e.format_with_src_line(String::from(src));
+        }
+        e
+      })
+      .collect()
   }
 }
 
@@ -207,43 +258,6 @@ pub struct OpCodeReflection {
   pub source_line: String,
   pub line: usize,
   pub column: usize,
-}
-
-pub struct Reflection {
-  pub file: SmartPtr<String>,
-  pub source: SmartPtr<String>,
-  pub opcode_info: Vec<OpCodeInfo>,
-}
-
-impl Reflection {
-  fn new(file: SmartPtr<String>, source: SmartPtr<String>) -> Self {
-    Reflection {
-      file,
-      source,
-      opcode_info: Vec::default(),
-    }
-  }
-
-  fn add(&mut self, line: usize, column: usize) {
-    self.opcode_info.push(OpCodeInfo { line, column });
-  }
-
-  pub fn get(&self, offset: usize) -> Option<OpCodeReflection> {
-    if let Some(info) = self.opcode_info.get(offset).cloned() {
-      self
-        .source
-        .lines()
-        .nth(info.line - 1)
-        .map(|src| OpCodeReflection {
-          file: self.file.access().clone(),
-          source_line: String::from(src),
-          line: info.line,
-          column: info.column,
-        })
-    } else {
-      None
-    }
-  }
 }
 
 enum ContextName {
@@ -379,7 +393,7 @@ impl Context {
     index
   }
 
-  fn num_instructions(&self) -> usize {
+  pub fn num_instructions(&self) -> usize {
     self.instructions.len()
   }
 
@@ -409,8 +423,30 @@ impl Context {
     self.display_opcodes();
 
     for value in self.consts() {
-      if let Value::Function(f) = value {
-        f.context().disassemble()
+      match value {
+        Value::Function(f) => f.context().disassemble(),
+        Value::Class(c) => {
+          if let Some(i) = &c.initializer {
+            match i {
+              Value::Function(f) => f.context().disassemble(),
+              _ => (),
+            }
+          }
+          for (_name, method) in &c.methods {
+            match method {
+              Value::Function(f) => f.context().disassemble(),
+              _ => (),
+            }
+          }
+
+          for (_name, static_method) in &c.static_members {
+            match static_method {
+              Value::Function(f) => f.context().disassemble(),
+              _ => (),
+            }
+          }
+        }
+        _ => (),
       }
     }
   }
@@ -584,8 +620,54 @@ impl Context {
     )
   }
 
-  fn address_of(offset: usize) -> String {
+  pub fn address_of(offset: usize) -> String {
     format!("{:#010X} ", offset)
+  }
+}
+
+#[derive(Default)]
+pub struct StackFrame {
+  pub ip: usize,
+  pub ctx: SmartPtr<Context>,
+  pub stack: Vec<Value>,
+}
+
+impl StackFrame {
+  pub fn new(ctx: SmartPtr<Context>) -> Self {
+    Self {
+      ip: Default::default(),
+      ctx,
+      stack: Default::default(),
+    }
+  }
+
+  /**
+   * Clear the current stack frame, returning the previous
+   */
+  pub fn clear_out(&mut self) -> Self {
+    let mut old = Self::default();
+    std::mem::swap(&mut old, self);
+    old
+  }
+}
+
+pub struct Yield {
+  pub current_frame: StackFrame,
+  pub stack_frames: Vec<StackFrame>,
+}
+
+impl Yield {
+  pub fn new(current_frame: StackFrame, stack_frames: Vec<StackFrame>) -> Self {
+    Self {
+      current_frame,
+      stack_frames,
+    }
+  }
+}
+
+impl Display for Yield {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.current_frame.ctx.name())
   }
 }
 
@@ -632,7 +714,7 @@ impl Env {
 
   pub fn create_native<
     K: ToString,
-    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> ValueOpResult + 'static,
+    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
   >(
     &mut self,
     name: K,
@@ -642,45 +724,39 @@ impl Env {
   }
 }
 
-#[derive(Default)]
-pub struct Compiler;
+pub struct Reflection {
+  pub file: SmartPtr<String>,
+  pub source: SmartPtr<String>,
+  pub opcode_info: Vec<OpCodeInfo>,
+}
 
-impl Compiler {
-  pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
-    let mut scanner = Scanner::new(file, source);
-
-    let (tokens, meta) = scanner
-      .scan()
-      .map_err(|errs| Self::reformat_errors(source, errs))?;
-
-    let ast = Ast::from(tokens, meta).map_err(|errs| Self::reformat_errors(source, errs))?;
-
-    let optimizer = Optimizer::<1>::new(ast);
-
-    let ast = optimizer.optimize();
-
-    let file = SmartPtr::new(String::from(file));
-    let source_ptr = SmartPtr::new(String::from(source));
-
-    let reflection = Reflection::new(file, source_ptr.clone());
-    let ctx = SmartPtr::new(Context::new(reflection));
-
-    let generator = BytecodeGenerator::new(ctx);
-
-    generator
-      .generate(ast)
-      .map_err(|errs| Self::reformat_errors(source, errs))
+impl Reflection {
+  fn new(file: SmartPtr<String>, source: SmartPtr<String>) -> Self {
+    Reflection {
+      file,
+      source,
+      opcode_info: Vec::default(),
+    }
   }
 
-  fn reformat_errors(source: &str, errs: Vec<Error>) -> Vec<Error> {
-    errs
-      .into_iter()
-      .map(|mut e| {
-        if let Some(src) = source.lines().nth(e.line - 1) {
-          e.format_with_src_line(String::from(src));
-        }
-        e
-      })
-      .collect()
+  fn add(&mut self, line: usize, column: usize) {
+    self.opcode_info.push(OpCodeInfo { line, column });
+  }
+
+  pub fn get(&self, offset: usize) -> Option<OpCodeReflection> {
+    if let Some(info) = self.opcode_info.get(offset).cloned() {
+      self
+        .source
+        .lines()
+        .nth(info.line - 1)
+        .map(|src| OpCodeReflection {
+          file: self.file.access().clone(),
+          source_line: String::from(src),
+          line: info.line,
+          column: info.column,
+        })
+    } else {
+      None
+    }
   }
 }

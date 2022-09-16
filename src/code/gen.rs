@@ -73,7 +73,11 @@ impl BytecodeGenerator {
       self.emit_stmt(stmt);
     }
 
-    Ok(self.ctx)
+    if self.errors.is_empty() {
+      Ok(self.ctx)
+    } else {
+      Err(self.errors)
+    }
   }
 
   /* Statements */
@@ -111,21 +115,53 @@ impl BytecodeGenerator {
     }
 
     let var = self.declare_global(stmt.ident.clone());
-
-    self.emit_const(Value::new(Class::new(stmt.ident.name)), stmt.loc);
+    let mut class = Class::new(stmt.ident.name.clone());
 
     if let Some(initializer) = stmt.initializer {
-      self.emit_expr(initializer);
-      self.emit(OpCode::AssignInitializer, stmt.loc);
+      if let Some((function, is_static)) =
+        self.create_fn_from_expr(ContextName::Method, initializer)
+      {
+        if is_static {
+          class.set_initializer(Value::new(function));
+        } else {
+          self.error(
+            stmt.loc,
+            String::from("method was used as initializer somehow (logic error)"),
+          );
+        }
+      } else {
+        self.error(
+          stmt.loc,
+          format!(
+            "unable to create initializer function for class {}",
+            stmt.ident.name,
+          ),
+        );
+      }
     }
 
-    for (name, method) in stmt.methods {
-      let ident = self.add_const_ident(name);
-      self.emit_expr(method);
-      self.emit(OpCode::AssignMember(ident), stmt.loc);
+    for (method_name, method) in stmt.methods {
+      if let Some((function, is_static)) = self.create_fn_from_expr(ContextName::Method, method) {
+        if is_static {
+          class.set_static(method_name.name, Value::new(function));
+        } else {
+          class.set_method(method_name.name, Value::new(function));
+        }
+      } else {
+        self.error(
+          stmt.loc,
+          format!("unable to create method {}", method_name.name),
+        );
+      }
     }
+
+    self.emit_const(Value::new(class), stmt.loc);
 
     self.define_class(var, stmt.loc);
+  }
+
+  fn default_constructor_ret(&mut self, stmt: DefaultConstructorRet) {
+    self.emit(OpCode::DefaultConstructorRet, stmt.loc);
   }
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
@@ -261,8 +297,10 @@ impl BytecodeGenerator {
   fn ret_stmt(&mut self, stmt: RetStatement) {
     if let Some(expr) = stmt.expr {
       self.emit_expr(expr);
+      self.emit(OpCode::RetValue, stmt.loc);
+    } else {
+      self.emit(OpCode::Ret, stmt.loc);
     }
-    self.emit(OpCode::Ret, stmt.loc);
   }
 
   fn while_stmt(&mut self, stmt: WhileStatement) {
@@ -276,6 +314,10 @@ impl BytecodeGenerator {
     });
 
     self.patch_inst(end_jump, OpCode::JumpIfFalse);
+  }
+
+  fn yield_stmt(&mut self, stmt: YieldStatement) {
+    self.emit(OpCode::Yield, stmt.loc);
   }
 
   fn expr_stmt(&mut self, stmt: ExpressionStatement) {
@@ -514,6 +556,7 @@ impl BytecodeGenerator {
       Statement::Break(stmt) => self.break_stmt(stmt),
       Statement::Cont(stmt) => self.cont_stmt(stmt),
       Statement::Class(stmt) => self.class_stmt(stmt),
+      Statement::DefaultConstructorRet(stmt) => self.default_constructor_ret(stmt),
       Statement::Fn(stmt) => self.fn_stmt(stmt),
       Statement::For(stmt) => self.for_stmt(stmt),
       Statement::If(stmt) => self.if_stmt(stmt),
@@ -524,6 +567,7 @@ impl BytecodeGenerator {
       Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
+      Statement::Yield(stmt) => self.yield_stmt(stmt),
       Statement::Expression(stmt) => self.expr_stmt(stmt),
     }
   }
@@ -581,60 +625,8 @@ impl BytecodeGenerator {
   }
 
   fn emit_fn(&mut self, name: ContextName, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
-    self.function_id += 1;
-
-    let mut locals = Vec::default();
-    std::mem::swap(&mut locals, &mut self.locals);
-
-    let parent_ctx = self.current_ctx_ptr();
-    let prev_fn = self.current_fn.take();
-
-    let reflection = Reflection::new(parent_ctx.meta.file.clone(), parent_ctx.meta.source.clone());
-
-    self.current_fn = Some(SmartPtr::new(Context::new_child(
-      parent_ctx,
-      reflection,
-      self.function_id,
-      name,
-    )));
-
-    self.new_scope(|this| {
-      let airity = args.len();
-
-      for arg in args {
-        if arg.global() {
-          this.error(loc, String::from("parameter cannot be a global variable"));
-          continue;
-        }
-
-        if !this.declare_local(arg, loc) {
-          continue;
-        }
-
-        if !this.define_local() {
-          this.error(
-            loc,
-            String::from("failed to define local who was just declared (sanity check)"),
-          )
-        }
-      }
-
-      this.emit_stmt(body);
-
-      let ctx = this.current_fn.take().unwrap();
-
-      let num_locals = this.num_locals_in_depth(this.scope_depth);
-      if num_locals != 0 {
-        this.emit(OpCode::PopN(num_locals), loc);
-      }
-
-      let local_count = this.locals.len();
-      // restore here so const is emitted to correct place
-      this.current_fn = prev_fn;
-      this.locals = locals;
-
-      this.emit_const(Value::new(Function::new(airity, local_count, ctx)), loc)
-    });
+    let function = self.create_fn(name, args, body, loc, None);
+    self.emit_const(Value::new(function), loc);
   }
 
   fn emit_loop(&mut self, start: usize, loc: SourceLocation) {
@@ -697,10 +689,11 @@ impl BytecodeGenerator {
     self.current_ctx().num_instructions()
   }
 
-  fn new_scope<F: FnOnce(&mut BytecodeGenerator)>(&mut self, f: F) {
+  fn new_scope<R, F: FnOnce(&mut BytecodeGenerator) -> R>(&mut self, f: F) -> R {
     self.scope_depth += 1;
-    f(self);
+    let ret = f(self);
     self.scope_depth -= 1;
+    ret
   }
 
   /**
@@ -843,6 +836,94 @@ impl BytecodeGenerator {
       }
     }
     count
+  }
+
+  fn create_fn_from_expr(
+    &mut self,
+    name: ContextName,
+    expr: Expression,
+  ) -> Option<(Function, bool)> {
+    match expr {
+      Expression::Method(m) => {
+        let airity = m.params.len();
+        Some((
+          self.create_fn(name, m.params, *m.body, m.loc, Some(airity - 1)),
+          false,
+        ))
+      }
+      Expression::Lambda(l) => {
+        let airity = l.params.len();
+        Some((
+          self.create_fn(name, l.params, *l.body, l.loc, Some(airity)),
+          true,
+        ))
+      }
+      _ => None,
+    }
+  }
+
+  fn create_fn(
+    &mut self,
+    name: ContextName,
+    args: Vec<Ident>,
+    body: Statement,
+    loc: SourceLocation,
+    airity_override: Option<usize>,
+  ) -> Function {
+    self.function_id += 1;
+
+    let mut locals = Vec::default();
+    std::mem::swap(&mut locals, &mut self.locals);
+
+    let parent_ctx = self.current_ctx_ptr();
+    let prev_fn = self.current_fn.take();
+
+    let reflection = Reflection::new(parent_ctx.meta.file.clone(), parent_ctx.meta.source.clone());
+
+    self.current_fn = Some(SmartPtr::new(Context::new_child(
+      parent_ctx,
+      reflection,
+      self.function_id,
+      name,
+    )));
+
+    self.new_scope(|this| {
+      let airity = airity_override.unwrap_or(args.len());
+
+      for arg in args {
+        if arg.global() {
+          this.error(loc, String::from("parameter cannot be a global variable"));
+          continue;
+        }
+
+        if !this.declare_local(arg, loc) {
+          continue;
+        }
+
+        if !this.define_local() {
+          this.error(
+            loc,
+            String::from("failed to define local who was just declared (sanity check)"),
+          )
+        }
+      }
+
+      this.emit_stmt(body);
+
+      let ctx = this.current_fn.take().unwrap();
+
+      let num_locals = this.num_locals_in_depth(this.scope_depth);
+      if num_locals != 0 {
+        this.emit(OpCode::PopN(num_locals), loc);
+      }
+
+      let local_count = this.locals.len();
+      // restore here so const is emitted to correct place
+      this.current_fn = prev_fn;
+      this.locals = locals;
+
+      Function::new(airity, local_count, ctx)
+    })
   }
 
   fn error(&mut self, loc: SourceLocation, msg: String) {

@@ -18,7 +18,7 @@ repository:
   keywords:
     patterns:
       - name: "keyword.control"
-        match: "\\b(break|cont|else|for|if|loop|match|ret|while)\\b"
+        match: "\\b(break|cont|else|for|if|loop|match|ret|while|yield)\\b"
       - name: "keyword.operator"
         match: "\\b(and|or)\\b|\\+|\\-|\\/|\\*"
       - name: "keyword.declaration"

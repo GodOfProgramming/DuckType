@@ -1,4 +1,4 @@
-use simple_script::{Env, Library, Vm};
+use simple_script::{Env, Library, RunResult, Vm};
 use std::{env, fs, path::Path, process};
 
 fn main() {
@@ -6,7 +6,6 @@ fn main() {
 
   let mut args = env::args().collect::<Vec<String>>().into_iter().skip(1);
   let file = args.next();
-  eprintln!();
 
   let vm = Vm::new_with_libs(
     &args.collect::<Vec<String>>(),
@@ -16,7 +15,7 @@ fn main() {
       Library::Time,
       Library::String,
       Library::Console,
-      Library::Ptr,
+      Library::Ps,
     ],
   );
 
@@ -31,7 +30,8 @@ fn main() {
   process::exit(exit_code);
 }
 
-fn run_file(mut vm: Vm, file: String) -> bool {
+fn run_file<T: ToString>(mut vm: Vm, file: T) -> bool {
+  let file = file.to_string();
   let p = Path::new(&file);
   if p.exists() {
     match fs::read_to_string(p) {
@@ -39,13 +39,41 @@ fn run_file(mut vm: Vm, file: String) -> bool {
         Ok(ctx) => {
           let mut env = Env::with_library_path();
 
-          match vm.run(ctx, &mut env) {
-            Ok(v) => println!("{}", v),
-            Err(errors) => {
-              for err in errors {
-                println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
+          let mut yield_result = None;
+
+          loop {
+            if let Some(y) = yield_result.take() {
+              match vm.resume(y, &mut env) {
+                Ok(result) => match result {
+                  RunResult::Value(v) => {
+                    println!("{}", v);
+                    break;
+                  }
+                  RunResult::Yield(y) => yield_result = Some(y),
+                },
+                Err(errors) => {
+                  for err in errors {
+                    println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
+                  }
+                  return false;
+                }
               }
-              return false;
+            } else {
+              match vm.run(ctx.clone(), &mut env) {
+                Ok(result) => match result {
+                  RunResult::Value(v) => {
+                    println!("{}", v);
+                    break;
+                  }
+                  RunResult::Yield(y) => yield_result = Some(y),
+                },
+                Err(errors) => {
+                  for err in errors {
+                    println!("{} ({}, {}): {}", err.file, err.line, err.column, err.msg);
+                  }
+                  return false;
+                }
+              }
             }
           }
         }
