@@ -20,4 +20,20 @@ describe("struct fields", |t| {
   t.expect(obj.num).to_be(1);
   t.expect(obj.str).to_be("some string");
   t.expect(obj.foo).to_be("bar");
+
+  let foo = {
+    this: "this"
+  };
+
+  let bar = {
+    that: "that",
+  };
+
+  let foobar = { foo, bar, baz: {  foobarbaz: "foobarbaz" } };
+
+  t.expect(foo.this).to_be("this");
+  t.expect(bar.that).to_be("that");
+  t.expect(foobar.foo.this).to_be(foo.this);
+  t.expect(foobar.bar.that).to_be(bar.that);
+  t.expect(foobar.baz.foobarbaz).to_be("foobarbaz");
 });

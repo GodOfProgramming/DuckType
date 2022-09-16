@@ -75,7 +75,7 @@ mod integration_tests {
       .to_string();
 
     test.load(|this, ctx, env| {
-      env.create_native("test_func", |thread, _env, args: Vec<Value>| {
+      env.create_native("test_func", |_thread, _env, args: Vec<Value>| {
         assert_eq!(args.len(), 2);
         assert_eq!(args[0], Value::new(1f64));
         assert_eq!(args[1], Value::new(2f64));
