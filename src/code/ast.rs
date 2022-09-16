@@ -111,6 +111,10 @@ impl AstGenerator {
         self.advance();
         self.ret_stmt();
       }
+      Token::Use => {
+        self.advance();
+        self.use_stmt();
+      }
       Token::While => {
         self.advance();
         self.while_stmt();
@@ -518,6 +522,21 @@ impl AstGenerator {
         self
           .statements
           .push(Statement::new(RetStatement::new(expr, loc)));
+      }
+    }
+  }
+
+  fn use_stmt(&mut self) {
+    if let Some(loc) = self.meta_at::<0>() {
+      let path = self.resolve();
+      if path.is_empty() {
+        self.error::<1>(String::from("use must have a type following it"));
+      } else {
+        if self.consume(Token::Semicolon, "expecte ';' after use") {
+          self
+            .statements
+            .push(Statement::new(UseStatement::new(path, loc)));
+        }
       }
     }
   }
@@ -1060,6 +1079,21 @@ impl AstGenerator {
     }
   }
 
+  fn resolve(&mut self) -> Vec<Ident> {
+    let mut parts = Vec::default();
+
+    while let Some(current) = self.current() {
+      match current {
+        Token::Identifier(ident) => parts.push(Ident::new(ident)),
+        Token::Dot => (/* intentionally do nothing */),
+        _ => break,
+      }
+      self.advance();
+    }
+
+    parts
+  }
+
   fn meta_at<const I: usize>(&mut self) -> Option<SourceLocation> {
     self.meta.get(self.index - I).cloned().or_else(|| {
       self.error::<I>(String::from("unable to get meta at position"));
@@ -1372,6 +1406,7 @@ impl AstGenerator {
       Token::Req => ParseRule::new(None, None, Precedence::None),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
+      Token::Use => ParseRule::new(None, None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
       Token::Yield => ParseRule::new(None, None, Precedence::None),
     }
@@ -1410,6 +1445,7 @@ pub enum Statement {
   Print(PrintStatement),
   Req(ReqStatement),
   Ret(RetStatement),
+  Use(UseStatement),
   While(WhileStatement),
   Yield(YieldStatement),
   Expression(ExpressionStatement),
@@ -1433,6 +1469,7 @@ impl Display for Statement {
       Self::Req(_) => write!(f, "req"),
       Self::Ret(_) => write!(f, "ret"),
       Self::While(_) => write!(f, "while"),
+      Self::Use(_) => write!(f, "use"),
       Self::Yield(_) => write!(f, "yield"),
       Self::Expression(_) => write!(f, "expression"),
     }
@@ -1520,6 +1557,12 @@ impl New<PrintStatement> for Statement {
 impl New<RetStatement> for Statement {
   fn new(stmt: RetStatement) -> Self {
     Self::Ret(stmt)
+  }
+}
+
+impl New<UseStatement> for Statement {
+  fn new(stmt: UseStatement) -> Self {
+    Self::Use(stmt)
   }
 }
 
@@ -1754,6 +1797,17 @@ pub struct RetStatement {
 impl RetStatement {
   fn new(expr: Option<Expression>, loc: SourceLocation) -> Self {
     Self { expr, loc }
+  }
+}
+
+pub struct UseStatement {
+  pub path: Vec<Ident>,
+  pub loc: SourceLocation,
+}
+
+impl UseStatement {
+  fn new(path: Vec<Ident>, loc: SourceLocation) -> Self {
+    Self { path, loc }
   }
 }
 

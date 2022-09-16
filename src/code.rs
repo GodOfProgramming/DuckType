@@ -182,6 +182,7 @@ pub enum Token {
   Req,
   Ret,
   True,
+  Use,
   While,
   Yield,
 }
