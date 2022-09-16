@@ -1152,7 +1152,7 @@ impl Vm {
   fn load_time() -> Value {
     let mut obj = Struct::default();
 
-    let clock = Value::native(String::from("clock"), |thread, _env, _args: Vec<Value>| {
+    let clock = Value::native(String::from("clock"), |_thread, _env, _args: Vec<Value>| {
       use std::time::{SystemTime, UNIX_EPOCH};
       let now = SystemTime::now();
       let since = now.duration_since(UNIX_EPOCH).expect("time went backwards");
