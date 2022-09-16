@@ -1,23 +1,16 @@
-let REPS = 1;
+req "std";
 
-fn fib(n) {
-  if (n < 2) {
-    return n;
-  }
-  return fib(n - 1) + fib(n - 2);
-}
+use std.Array;
+use std.Vec;
 
-let begin = clock_seconds();
-for let i = 0; i < REPS; i = i + 1 {
-  fn fib(n) {
-    if (n < 2) {
-      return n;
-    }
-    return fib(n - 1) + fib(n - 2);
-  }
-  print fib(40);
-}
-let end = clock_seconds();
+print Array;
 
-let time = end - begin;
-print "fib 0..20 took " + (time / 20) + " seconds";
+let arr = [1, 2, 3];
+print arr;
+
+
+print Array.len(arr);
+
+let vec = Vec(4, 5, 6);
+print vec;
+print vec.len();

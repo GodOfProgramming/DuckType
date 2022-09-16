@@ -347,8 +347,8 @@ impl<'src> Scanner<'src> {
         }),
         _ => this.create_ident(),
       }),
-
       't' => this.check_keyword(d, "rue", Token::True),
+      'u' => this.check_keyword(d, "se", Token::Use),
       'w' => this.check_keyword(d, "hile", Token::While),
       'y' => this.check_keyword(d, "ield", Token::Yield),
       _ => this.create_ident(),
