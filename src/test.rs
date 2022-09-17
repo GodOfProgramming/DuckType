@@ -1,6 +1,8 @@
 use super::*;
 use tfix::{fixture, TestFixture};
 
+const TEST_FILE: &str = "test";
+
 struct IntegrationTest {
   script: String,
   vm: Vm,
@@ -17,7 +19,7 @@ impl IntegrationTest {
   }
 
   fn load<F: FnOnce(&mut Self, SmartPtr<Context>, &mut Env)>(&mut self, f: F) {
-    match self.vm.load(String::from("test"), &self.script) {
+    match self.vm.load(TEST_FILE, &self.script) {
       Ok(ctx) => {
         let mut env = Env::default();
         f(self, ctx, &mut env);
@@ -32,13 +34,15 @@ impl IntegrationTest {
   }
 
   fn run<F: FnOnce(SmartPtr<Context>, &Env, Value)>(&mut self, f: F) {
-    self.load(|this, ctx, env| match this.vm.run(ctx.clone(), env) {
-      Ok(v) => match v {
-        RunResult::Value(v) => f(ctx, env, v),
-        RunResult::Yield(_) => panic!("this test function should not be used for yields"),
+    self.load(
+      |this, ctx, env| match this.vm.run(TEST_FILE, ctx.clone(), env) {
+        Ok(v) => match v {
+          RunResult::Value(v) => f(ctx, env, v),
+          RunResult::Yield(_) => panic!("this test function should not be used for yields"),
+        },
+        Err(err) => panic!("{:#?}", err),
       },
-      Err(err) => panic!("{:#?}", err),
-    });
+    );
   }
 }
 
@@ -58,7 +62,7 @@ mod integration_tests {
 
     test.load(|this, ctx, env| {
       env.assign(String::from("foo"), Value::new("foo"));
-      match this.vm.run(ctx, env) {
+      match this.vm.run(TEST_FILE, ctx, env) {
         Ok(res) => match res {
           RunResult::Value(v) => assert_eq!(Value::new("foo"), v),
           RunResult::Yield(_) => panic!("should not use yields"),
@@ -81,7 +85,7 @@ mod integration_tests {
         assert_eq!(args[1], Value::new(2f64));
         Ok(Value::new(3f64))
       });
-      match this.vm.run(ctx, env) {
+      match this.vm.run("test", ctx, env) {
         Ok(res) => match res {
           RunResult::Value(v) => assert_eq!(Value::new(3f64), v),
           RunResult::Yield(_) => panic!("should not yield"),

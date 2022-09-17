@@ -1,9 +1,9 @@
-use std::alloc::System;
-
 use super::{Class, New, Struct, Value};
-use ptr::SmartPtr;
+use enum_iterator::{all, Sequence};
+use std::collections::BTreeMap;
 
-pub enum Library {
+#[derive(Clone, Sequence)]
+pub enum Lib {
   Std,
   Env,
   Time,
@@ -12,14 +12,46 @@ pub enum Library {
   Ps,
 }
 
-pub fn load_lib(args: &[String], lib: &Library) -> (&'static str, Value) {
+pub enum Library {
+  All,
+  List(Vec<Lib>),
+}
+
+impl Default for Library {
+  fn default() -> Self {
+    Self::List(Default::default())
+  }
+}
+
+pub fn load_libs(args: &[String], library: &Library) -> BTreeMap<String, Value> {
+  let mut loaded_libs = BTreeMap::default();
+
+  match library {
+    Library::All => {
+      for lib in all::<Lib>() {
+        let (key, value) = load_lib(args, &lib);
+        loaded_libs.insert(key.to_string(), value);
+      }
+    }
+    Library::List(list) => {
+      for lib in list {
+        let (key, value) = load_lib(args, lib);
+        loaded_libs.insert(key.to_string(), value);
+      }
+    }
+  }
+
+  loaded_libs
+}
+
+fn load_lib(args: &[String], lib: &Lib) -> (&'static str, Value) {
   match lib {
-    Library::Std => ("std", load_std()),
-    Library::Env => ("env", load_env(args)),
-    Library::Time => ("time", load_time()),
-    Library::String => ("str", load_string()),
-    Library::Console => ("console", load_console()),
-    Library::Ps => ("ps", load_ps()),
+    Lib::Std => ("std", load_std()),
+    Lib::Env => ("env", load_env(args)),
+    Lib::Time => ("time", load_time()),
+    Lib::String => ("str", load_string()),
+    Lib::Console => ("console", load_console()),
+    Lib::Ps => ("ps", load_ps()),
   }
 }
 
@@ -219,23 +251,45 @@ fn load_time() -> Value {
 fn load_string() -> Value {
   let mut obj = Struct::default();
 
-  let parse_number = Value::native(
-    String::from("parse_number"),
-    |_thread, _env, args: Vec<Value>| {
-      if let Some(arg) = args.get(0) {
-        match arg {
-          Value::String(string) => Ok(Value::new(
-            string.parse::<f64>().map_err(|e| format!("{}", e))?,
-          )),
-          v => Err(format!("can not convert {} to a number", v)),
-        }
-      } else {
-        Err(String::from("expected 1 argument"))
+  let parse_number = Value::native("parse_number", |_thread, _env, args: Vec<Value>| {
+    let mut args = args.into_iter();
+    if let Some(arg) = args.next() {
+      match arg {
+        Value::String(string) => Ok(Value::new(
+          string.parse::<f64>().map_err(|e| format!("{}", e))?,
+        )),
+        v => Err(format!("can not convert {} to a number", v)),
       }
-    },
-  );
+    } else {
+      Err(String::from("expected 1 argument"))
+    }
+  });
 
   obj.set("parse_number", parse_number);
+
+  let contains = Value::native("contains", |_thread, _env, args| {
+    let mut args = args.into_iter();
+    if let Some(Value::String(string)) = args.next() {
+      if let Some(Value::String(value)) = args.next() {
+        return Ok(Value::new(string.contains(&value)));
+      }
+    }
+    Ok(Value::new(false))
+  });
+
+  obj.set("contains", contains);
+
+  let is_prefix = Value::native("is_prefix", |_thread, _env, args| {
+    let mut args = args.into_iter();
+    if let Some(Value::String(string)) = args.next() {
+      if let Some(Value::String(value)) = args.next() {
+        return Ok(Value::new(string.strip_prefix(&value).is_some()));
+      }
+    }
+    Ok(Value::new(false))
+  });
+
+  obj.set("is_prefix", is_prefix);
 
   Value::new(obj)
 }

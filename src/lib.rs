@@ -10,8 +10,11 @@ pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
 use ptr::SmartPtr;
+use std::env;
+use std::iter::FromIterator;
 use std::{
   collections::BTreeMap,
+  ffi::OsStr,
   fs,
   path::{Path, PathBuf},
 };
@@ -42,19 +45,11 @@ pub enum RunResult {
 pub struct ExecutionThread {
   current_frame: StackFrame,
   stack_frames: Vec<StackFrame>,
-
-  libs: BTreeMap<&'static str, Value>,
+  // usize for what frame to pop on, string for file path
+  opened_files: Vec<(usize, PathBuf)>,
 }
 
 impl ExecutionThread {
-  fn new_with_libs(libs: BTreeMap<&'static str, Value>) -> Self {
-    Self {
-      current_frame: Default::default(),
-      stack_frames: Vec::with_capacity(256),
-      libs,
-    }
-  }
-
   fn reset(&mut self) {
     self.current_frame = Default::default();
     self.stack_frames = Default::default();
@@ -116,7 +111,13 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn run(&mut self, ctx: SmartPtr<Context>, env: &mut Env) -> Result<RunResult, Vec<Error>> {
+  fn run(
+    &mut self,
+    file: PathBuf,
+    ctx: SmartPtr<Context>,
+    env: &mut Env,
+  ) -> Result<RunResult, Vec<Error>> {
+    self.opened_files = vec![(0, file)];
     self.reset();
     self.current_frame.ctx = ctx;
     self.execute(env)
@@ -125,6 +126,7 @@ impl ExecutionThread {
   pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<RunResult, Vec<Error>> {
     self.current_frame = y.current_frame;
     self.stack_frames = y.stack_frames;
+    self.opened_files = y.opened_files;
     self.execute(env)
   }
 
@@ -234,7 +236,14 @@ impl ExecutionThread {
             let mut stack_frames = Vec::default();
             std::mem::swap(&mut stack_frames, &mut self.stack_frames);
 
-            return Ok(RunResult::Yield(Yield::new(current_frame, stack_frames)));
+            let mut opened_files = Vec::default();
+            std::mem::swap(&mut opened_files, &mut self.opened_files);
+
+            return Ok(RunResult::Yield(Yield::new(
+              current_frame,
+              stack_frames,
+              opened_files,
+            )));
           }
         }
 
@@ -257,6 +266,13 @@ impl ExecutionThread {
         Value::Nil
       };
 
+      let last_file = self.opened_files.last().unwrap();
+
+      // if we're at the stack frame that required this file, pop it as we're exiting the file
+      if last_file.0 == self.stack_frames.len() {
+        self.opened_files.pop();
+      }
+
       if let Some(stack_frame) = self.stack_frames.pop() {
         if stack_frame.ip < stack_frame.ctx.num_instructions() {
           self.current_frame = stack_frame;
@@ -265,6 +281,7 @@ impl ExecutionThread {
           break Ok(RunResult::Value(ret_val));
         }
       } else {
+        // TODO is this even possible to reach?
         break Ok(RunResult::Value(ret_val));
       }
     }
@@ -762,40 +779,84 @@ impl ExecutionThread {
 
   #[inline]
   fn exec_req(&mut self, env: &mut Env, opcode: &OpCode) -> ExecResult {
-    if let Some(file) = self.stack_pop() {
-      if let Value::String(file) = file {
-        // load global libs only once
+    if let Some(value) = self.stack_pop() {
+      let mut attempts = Vec::with_capacity(10);
 
-        if !env.is_defined(&file) {
-          if let Some(lib) = self.libs.get(file.as_str()).cloned() {
-            env.define(file, lib);
-            return Ok(());
+      let file = value.to_string();
+      let this_file = &self.opened_files.last().unwrap().1; // must exist by program logic
+      let required_file = PathBuf::from(file.as_str());
+      let required_file_with_ext = if required_file.extension().is_none() {
+        Some(required_file.with_extension("ss"))
+      } else {
+        // if already given ext, assume it was intentional to not follow convention
+        None
+      };
+
+      let mut found_file = None;
+
+      // find relative first, if not already at cwd
+      if let Some(this_dir) = this_file.parent() {
+        let relative_path = this_dir.join(&required_file);
+        if Path::exists(&relative_path) {
+          found_file = Some(relative_path);
+        } else if let Some(required_file_with_ext) = &required_file_with_ext {
+          attempts.push(relative_path);
+          // then try with the .ss extension
+          let relative_path = this_dir.join(required_file_with_ext);
+          if Path::exists(&relative_path) {
+            found_file = Some(relative_path);
+          } else {
+            attempts.push(relative_path);
           }
-        } else if self.libs.contains_key(file.as_str()) {
-          // builtin library already loaded
-          return Ok(());
         }
+      }
 
-        let mut p = PathBuf::from(file.as_str());
+      if found_file.is_none() {
+        // then try to find from cwd
+        if Path::exists(&required_file) {
+          found_file = Some(required_file);
+        } else {
+          attempts.push(required_file.clone());
+          // then try with the .ss extension
+          if let Some(required_file_with_ext) = &required_file_with_ext {
+            if Path::exists(&required_file_with_ext) {
+              found_file = Some(required_file_with_ext.clone());
+            } else {
+              attempts.push(required_file_with_ext.to_path_buf());
+            }
+          }
 
-        if !Path::exists(&p) {
-          if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
-            if let Value::List(list) = library_mod.get(&"path") {
-              for item in list.iter() {
-                if let Value::String(path) = item {
-                  let base = PathBuf::from(path);
-                  let whole = base.join(&p);
-                  if Path::exists(&whole) {
-                    p = whole;
+          // if still not found, try searching library paths
+          if found_file.is_none() {
+            if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
+              if let Value::List(list) = library_mod.get(&"path") {
+                for item in list.iter() {
+                  let base = PathBuf::from(item.to_string());
+                  let path = base.join(&required_file);
+
+                  if Path::exists(&path) {
+                    found_file = Some(path);
                     break;
+                  } else if let Some(required_file_with_ext) = &required_file_with_ext {
+                    attempts.push(path);
+                    let path = base.join(required_file_with_ext);
+
+                    if Path::exists(&path) {
+                      found_file = Some(path);
+                      break;
+                    } else {
+                      attempts.push(path);
+                    }
                   }
                 }
               }
             }
           }
         }
+      }
 
-        match fs::read_to_string(p) {
+      if let Some(found_file) = found_file {
+        match fs::read_to_string(&found_file) {
           Ok(data) => {
             let new_ctx = Compiler::compile(&file, &data)?;
 
@@ -807,29 +868,22 @@ impl ExecutionThread {
 
             self.new_frame(new_ctx);
 
+            self
+              .opened_files
+              .push((self.stack_frames.len(), found_file));
+
             Ok(())
           }
-          Err(e) => Err(self.error(
-            opcode,
-            format!(
-              "unable to read file '{}': {}\ncurrently loaded libs: {:#?}",
-              file,
-              e,
-              self.libs.keys()
-            ),
-          )),
+          Err(e) => Err(self.error(opcode, format!("unable to read file '{}': {}", file, e,))),
         }
       } else {
         Err(self.error(
           opcode,
-          format!(
-            "can only load files specified by strings or objects convertible to strings, got {}",
-            file
-          ),
+          format!("unable to find file, tried: {:#?}", attempts),
         ))
       }
     } else {
-      Err(self.error(opcode, "cannot operate with an empty stack"))
+      Err(self.error(opcode, "no item on stack to require (logic error)"))
     }
   }
 
@@ -991,19 +1045,6 @@ impl Vm {
     }
   }
 
-  pub fn new_with_libs(args: &[String], libs: &[Library]) -> Self {
-    let mut loaded_libs = BTreeMap::default();
-
-    for lib in libs {
-      let (key, value) = builtin::load_lib(args, lib);
-      loaded_libs.insert(key, value);
-    }
-
-    Self {
-      main: ExecutionThread::new_with_libs(loaded_libs),
-    }
-  }
-
   pub fn load<T: ToString>(&self, file: T, code: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
     Compiler::compile(&file.to_string(), code)
   }
@@ -1012,7 +1053,12 @@ impl Vm {
     self.main.resume(y, env)
   }
 
-  pub fn run(&mut self, ctx: SmartPtr<Context>, env: &mut Env) -> Result<RunResult, Vec<Error>> {
+  pub fn run<T: ToString>(
+    &mut self,
+    file: T,
+    ctx: SmartPtr<Context>,
+    env: &mut Env,
+  ) -> Result<RunResult, Vec<Error>> {
     #[cfg(debug_assertions)]
     #[cfg(feature = "disassemble")]
     {
@@ -1024,6 +1070,6 @@ impl Vm {
       }
     }
 
-    self.main.run(ctx, env)
+    self.main.run(PathBuf::from(file.to_string()), ctx, env)
   }
 }

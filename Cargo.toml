@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 ptr = { path = "lib/ptr" }
 tfix = { path = "lib/tfix" }
+enum-iterator = "1.2.0"
 
 [features]
 visit_ast = []
