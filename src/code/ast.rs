@@ -863,20 +863,83 @@ impl AstGenerator {
 
         self.advance();
 
-        if self.advance_if_matches(Token::Equal) {
-          let value = self.expression()?;
-          Some(Expression::new(MemberAssignExpression::new(
-            obj,
-            Ident::new(ident),
-            value,
-            ident_meta,
-          )))
+        if let Some(current) = self.current() {
+          match current {
+            Token::Equal => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Assign,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::PlusEqual => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Add,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::MinusEqual => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Sub,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::AsteriskEqual => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Mul,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::SlashEqual => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Div,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::PercentEqual => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Mod,
+                value,
+                ident_meta,
+              )))
+            }
+            _ => Some(Expression::new(MemberAccessExpression::new(
+              obj,
+              Ident::new(ident),
+              ident_meta,
+            ))),
+          }
         } else {
-          Some(Expression::new(MemberAccessExpression::new(
-            obj,
-            Ident::new(ident),
-            ident_meta,
-          )))
+          self.error::<1>(String::from("expected token following member access"));
+          None
         }
       } else {
         self.error::<1>(String::from("expected identifier"));
@@ -2218,15 +2281,23 @@ impl MemberAccessExpression {
 pub struct MemberAssignExpression {
   pub obj: Box<Expression>,
   pub ident: Ident,
+  pub op: AssignOperator,
   pub value: Box<Expression>,
   pub loc: SourceLocation,
 }
 
 impl MemberAssignExpression {
-  fn new(obj: Expression, ident: Ident, value: Expression, loc: SourceLocation) -> Self {
+  fn new(
+    obj: Expression,
+    ident: Ident,
+    op: AssignOperator,
+    value: Expression,
+    loc: SourceLocation,
+  ) -> Self {
     Self {
       obj: Box::new(obj),
       ident,
+      op,
       value: Box::new(value),
       loc,
     }

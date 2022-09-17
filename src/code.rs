@@ -49,8 +49,12 @@ pub enum OpCode {
   AssignGlobal(usize),
   /** Defines a member on an object type. The first item popped off the stack is the value. The object is next which is left on for further assignments. The member name is specified by the modifying bits */
   AssignMember(usize),
+  /** Initializes a member of an object, keeping the object on the stack for further assignments */
+  InitializeMember(usize),
   /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
   LookupMember(usize),
+  /** Uses the constant pointed to by the modifying bits to peek at a value on the next item on the stack */
+  PeekMember(usize),
   /** Assigns an initializer function to the class which is the next item on the stack */
   AssignInitializer,
   /** Pops two values off the stack, compares, then pushes the result back on */

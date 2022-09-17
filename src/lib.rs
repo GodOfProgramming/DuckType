@@ -162,8 +162,10 @@ impl ExecutionThread {
           OpCode::AssignGlobal(index) => self.exec_assign_global(env, &opcode, index)?,
           OpCode::LookupLocal(index) => self.exec_lookup_local(&opcode, index)?,
           OpCode::AssignLocal(index) => self.exec_assign_local(&opcode, index)?,
+          OpCode::InitializeMember(index) => self.exec_initialize_member(&opcode, index)?,
           OpCode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
           OpCode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
+          OpCode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
           OpCode::AssignInitializer => self.exec_assign_initializer(&opcode)?,
           OpCode::Equal => self.exec_equal(&opcode)?,
           OpCode::NotEqual => self.exec_not_equal(&opcode)?,
@@ -411,7 +413,7 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_assign_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_initialize_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
     match self.stack_pop() {
       Some(value) => match self.current_frame.ctx.const_at(location) {
         Some(name) => match name {
@@ -448,8 +450,80 @@ impl ExecutionThread {
   }
 
   #[inline]
+  fn exec_assign_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+    let value = self.stack_pop();
+    let obj = self.stack_pop();
+
+    match value {
+      Some(value) => match self.current_frame.ctx.const_at(location) {
+        Some(name) => match name {
+          Value::String(name) => match obj {
+            Some(obj) => match obj {
+              Value::Struct(mut obj) => {
+                obj.set(name, value.clone());
+                self.stack_push(value);
+                Ok(())
+              }
+              Value::Class(mut class) => {
+                class.set_static(name, value.clone());
+                self.stack_push(value);
+                Ok(())
+              }
+              Value::Instance(mut instance) => {
+                instance.set(name, value.clone());
+                self.stack_push(value);
+                Ok(())
+              }
+              _ => Err(self.error(
+                opcode,
+                format!("cannot assign member to invalid type {}", obj),
+              )),
+            },
+            None => Err(self.error(opcode, String::from("no object on stack to assign to"))),
+          },
+          _ => Err(self.error(opcode, String::from("tried to assigning to non object"))),
+        },
+        None => Err(self.error(opcode, String::from("no member ident to assign to"))),
+      },
+      None => Err(self.error(
+        opcode,
+        String::from("no value on stack to assign to member"),
+      )),
+    }
+  }
+
+  #[inline]
   fn exec_lookup_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
     let value = match self.stack_pop() {
+      Some(obj) => match self.current_frame.ctx.const_at(location) {
+        Some(name) => match name {
+          Value::String(ident) => match obj {
+            Value::Struct(obj) => Ok(obj.get(ident)),
+            Value::Instance(obj) => Ok(obj.get(ident)),
+            Value::Class(class) => Ok(class.get_static(ident)),
+            Value::Nil => {
+              Err(self.error(opcode, String::from("cannot lookup a member on nil type")))
+            }
+            v => Err(self.error(opcode, format!("invalid type for member access: {}", v))),
+          },
+          v => Err(self.error(opcode, format!("invalid member name {}", v))),
+        },
+        None => Err(self.error(opcode, String::from("no constant specified by index"))),
+      },
+      None => Err(self.error(
+        opcode,
+        String::from("no object to for member access on the stack"),
+      )),
+    }?;
+
+    self.stack_push(value);
+
+    Ok(())
+  }
+
+  #[inline]
+  fn exec_peek_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+    let value = match self.stack_peek() {
       Some(obj) => match self.current_frame.ctx.const_at(location) {
         Some(name) => match name {
           Value::String(ident) => match obj {

@@ -6,8 +6,7 @@ class Number {
   }
 
   fn add_and_store(self, n) {
-    self.n = self.n + n;
-    ret self.n;
+    ret self.n += n;
   }
 }
 
