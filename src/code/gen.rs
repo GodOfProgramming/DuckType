@@ -517,12 +517,7 @@ impl BytecodeGenerator {
   }
 
   fn method_expr(&mut self, expr: MethodExpression) {
-    let mut params = Vec::with_capacity(expr.params.len() + 1);
-
-    params.push(Ident::new("self"));
-    params.extend(expr.params);
-
-    self.emit_fn(ContextName::Method, params, *expr.body, expr.loc);
+    self.emit_fn(ContextName::Method, expr.params, *expr.body, expr.loc);
   }
 
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
