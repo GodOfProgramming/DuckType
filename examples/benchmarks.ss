@@ -1,16 +1,14 @@
-req "time";
+req "lib/clock.ss";
 
 let REPS = 1000;
 
-use time.Monotonic;
-
 let x = 0;
 
-let elapsed = 0;
-for let i = 0; i < REPS; i += 1 {
-  let before = Monotonic.now();
+let clock = Clock();
+for let i = 1; i < REPS; i += 1 {
+  clock.start();
   x += i + i * i / i % i;
-  elapsed += Monotonic.elapsed(before);
+  clock.stop();
 }
 
-print "took " + (elapsed / REPS) + " seconds";
+print "took " + (clock.elapsed() / REPS) + " seconds";
