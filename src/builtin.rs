@@ -251,23 +251,45 @@ fn load_time() -> Value {
 fn load_string() -> Value {
   let mut obj = Struct::default();
 
-  let parse_number = Value::native(
-    String::from("parse_number"),
-    |_thread, _env, args: Vec<Value>| {
-      if let Some(arg) = args.get(0) {
-        match arg {
-          Value::String(string) => Ok(Value::new(
-            string.parse::<f64>().map_err(|e| format!("{}", e))?,
-          )),
-          v => Err(format!("can not convert {} to a number", v)),
-        }
-      } else {
-        Err(String::from("expected 1 argument"))
+  let parse_number = Value::native("parse_number", |_thread, _env, args: Vec<Value>| {
+    let mut args = args.into_iter();
+    if let Some(arg) = args.next() {
+      match arg {
+        Value::String(string) => Ok(Value::new(
+          string.parse::<f64>().map_err(|e| format!("{}", e))?,
+        )),
+        v => Err(format!("can not convert {} to a number", v)),
       }
-    },
-  );
+    } else {
+      Err(String::from("expected 1 argument"))
+    }
+  });
 
   obj.set("parse_number", parse_number);
+
+  let contains = Value::native("contains", |_thread, _env, args| {
+    let mut args = args.into_iter();
+    if let Some(Value::String(string)) = args.next() {
+      if let Some(Value::String(value)) = args.next() {
+        return Ok(Value::new(string.contains(&value)));
+      }
+    }
+    Ok(Value::new(false))
+  });
+
+  obj.set("contains", contains);
+
+  let is_prefix = Value::native("is_prefix", |_thread, _env, args| {
+    let mut args = args.into_iter();
+    if let Some(Value::String(string)) = args.next() {
+      if let Some(Value::String(value)) = args.next() {
+        return Ok(Value::new(string.strip_prefix(&value).is_some()));
+      }
+    }
+    Ok(Value::new(false))
+  });
+
+  obj.set("is_prefix", is_prefix);
 
   Value::new(obj)
 }

@@ -1,17 +1,34 @@
 require 'time'
 
-REPS = 1000
+def benchmark(descriptor, reps)
+  unless descriptor.start_with?("DISABLED")
+    puts "running #{descriptor}"
+
+    total = 0
+
+    (1..reps).each do |i|
+      now = Time.now
+
+      yield i
+
+      total += (Time.now - now).to_f
+    end
+
+    puts("#{descriptor} took #{total / REPS} seconds")
+  end
+end
+
+REPS = 1_000_000
 
 x = 0
 
-total = 0
-
-(1..REPS).each do |i|
-  now = Time.now
-
+benchmark('DISABLED simple math', REPS) do |i|
   x += i + i * i / i % i
-
-  total += (Time.now - now).to_f
 end
 
-puts("took #{total / REPS}")
+def simple_function
+end
+
+benchmark('function calls', REPS) do |_i|
+  simple_function()
+end

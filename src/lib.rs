@@ -265,6 +265,13 @@ impl ExecutionThread {
         Value::Nil
       };
 
+      let last_file = self.opened_files.last().unwrap();
+
+      // if we're at the stack frame that required this file, pop it as we're exiting the file
+      if last_file.0 == self.stack_frames.len() {
+        self.opened_files.pop();
+      }
+
       if let Some(stack_frame) = self.stack_frames.pop() {
         if stack_frame.ip < stack_frame.ctx.num_instructions() {
           self.current_frame = stack_frame;
@@ -273,6 +280,7 @@ impl ExecutionThread {
           break Ok(RunResult::Value(ret_val));
         }
       } else {
+        // TODO is this even possible to reach?
         break Ok(RunResult::Value(ret_val));
       }
     }
@@ -771,6 +779,8 @@ impl ExecutionThread {
   #[inline]
   fn exec_req(&mut self, env: &mut Env, opcode: &OpCode) -> ExecResult {
     if let Some(value) = self.stack_pop() {
+      let mut attempts = Vec::with_capacity(10);
+
       let file = value.to_string();
       let this_file = &self.opened_files.last().unwrap().1; // must exist by program logic
       let required_file = PathBuf::from(file.as_str());
@@ -789,10 +799,13 @@ impl ExecutionThread {
         if Path::exists(&relative_path) {
           found_file = Some(relative_path);
         } else if let Some(required_file_with_ext) = &required_file_with_ext {
+          attempts.push(relative_path);
           // then try with the .ss extension
           let relative_path = this_dir.join(required_file_with_ext);
           if Path::exists(&relative_path) {
             found_file = Some(relative_path);
+          } else {
+            attempts.push(relative_path);
           }
         }
       }
@@ -802,10 +815,13 @@ impl ExecutionThread {
         if Path::exists(&required_file) {
           found_file = Some(required_file);
         } else {
+          attempts.push(required_file.clone());
           // then try with the .ss extension
           if let Some(required_file_with_ext) = &required_file_with_ext {
             if Path::exists(&required_file_with_ext) {
               found_file = Some(required_file_with_ext.clone());
+            } else {
+              attempts.push(required_file_with_ext.to_path_buf());
             }
           }
 
@@ -821,11 +837,14 @@ impl ExecutionThread {
                     found_file = Some(path);
                     break;
                   } else if let Some(required_file_with_ext) = &required_file_with_ext {
+                    attempts.push(path);
                     let path = base.join(required_file_with_ext);
 
                     if Path::exists(&path) {
                       found_file = Some(path);
                       break;
+                    } else {
+                      attempts.push(path);
                     }
                   }
                 }
@@ -836,7 +855,7 @@ impl ExecutionThread {
       }
 
       if let Some(found_file) = found_file {
-        match fs::read_to_string(found_file) {
+        match fs::read_to_string(&found_file) {
           Ok(data) => {
             let new_ctx = Compiler::compile(&file, &data)?;
 
@@ -848,12 +867,19 @@ impl ExecutionThread {
 
             self.new_frame(new_ctx);
 
+            self
+              .opened_files
+              .push((self.stack_frames.len(), found_file));
+
             Ok(())
           }
           Err(e) => Err(self.error(opcode, format!("unable to read file '{}': {}", file, e,))),
         }
       } else {
-        Err(self.error(opcode, "unable to find file"))
+        Err(self.error(
+          opcode,
+          format!("unable to find file, tried: {:#?}", attempts),
+        ))
       }
     } else {
       Err(self.error(opcode, "no item on stack to require (logic error)"))

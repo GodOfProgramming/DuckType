@@ -1,14 +1,13 @@
-req "lib/clock.ss";
+req "lib/sspec/bench";
 
-let REPS = 1000;
+let REPS = 1000000;
 
-let x = 0;
-
-let clock = Clock();
-for let i = 1; i < REPS; i += 1 {
-  clock.start();
+benchmark("DISABLED simple math", REPS, {x: 0} |i| {
   x += i + i * i / i % i;
-  clock.stop();
-}
+});
 
-print "took " + (clock.elapsed() / REPS) + " seconds";
+fn simple_function() {}
+
+benchmark("function calls", REPS, |_i| {
+  simple_function();
+});
