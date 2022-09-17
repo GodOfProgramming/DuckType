@@ -1,10 +1,6 @@
-req "env";
-req "time";
-req "str";
-req "console";
-req "ps";
+use env.ARGV;
 
-let times_str = env.ARGV[0];
+let times_str = ARGV[0];
 
 if !times_str {
   print "forgot to give argument";

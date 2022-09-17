@@ -2,4 +2,4 @@
 
 ## Introduction
 
-It's syntax is _mostly_ based on rust, though there are some weird things while this is going through development. Specifically the whole "self <- value" and "ret @self" syntax;
+It's syntax is _mostly_ similar to Rust in many ways. Currently 4x - 6x slower than Ruby for simple tests/benchmarks

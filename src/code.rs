@@ -3,6 +3,7 @@ pub mod gen;
 pub mod lex;
 pub mod opt;
 
+use super::{builtin, Library};
 use crate::{
   types::{Error, Struct, Value},
   ExecutionThread, New,
@@ -16,6 +17,7 @@ use std::{
   collections::BTreeMap,
   env,
   fmt::{self, Debug, Display, Formatter},
+  path::PathBuf,
   str,
 };
 
@@ -49,16 +51,14 @@ pub enum OpCode {
   AssignGlobal(usize),
   /** Defines a member on an object type. The first item popped off the stack is the value. The object is next which is left on for further assignments. The member name is specified by the modifying bits */
   AssignMember(usize),
+  /** Initializes a member of an object, keeping the object on the stack for further assignments */
+  InitializeMember(usize),
   /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
   LookupMember(usize),
+  /** Uses the constant pointed to by the modifying bits to peek at a value on the next item on the stack */
+  PeekMember(usize),
   /** Assigns an initializer function to the class which is the next item on the stack */
   AssignInitializer,
-  /** Pops a value off the stack and pushes its dereferenced value on the stack (data field of a class instance) */
-  Deref,
-  /** Pops an item off the stack and stores it into the dereference value (data field of a class instance) */
-  DerefAssignLocal(usize),
-  /** Pops an item off the stack and stores it into the dereference value (data field of a class instance) */
-  DerefAssignGlobal(usize),
   /** Pops two values off the stack, compares, then pushes the result back on */
   Equal,
   /** Pops two values off the stack, compares, then pushes the result back on */
@@ -272,9 +272,7 @@ enum ContextName {
 pub struct Context {
   name: ContextName,
 
-  pub id: usize,          // the function id within the local file
-  pub file_id: usize,     // the id of the file it was loaded from
-  pub instance_id: usize, // the instance of the file it was loaded from
+  pub id: usize, // the function id within the local file
 
   global: SmartPtr<Context>,
 
@@ -292,8 +290,6 @@ impl Context {
     Self {
       name: ContextName::Main,
       id: Default::default(),
-      file_id: Default::default(),
-      instance_id: Default::default(),
       global: Default::default(),
       instructions: Default::default(),
       consts: Default::default(),
@@ -317,8 +313,6 @@ impl Context {
     Self {
       name,
       id,
-      file_id: Default::default(),
-      instance_id: Default::default(),
       global,
       consts: Default::default(),
       strings: Default::default(),
@@ -655,13 +649,19 @@ impl StackFrame {
 pub struct Yield {
   pub current_frame: StackFrame,
   pub stack_frames: Vec<StackFrame>,
+  pub opened_files: Vec<(usize, PathBuf)>,
 }
 
 impl Yield {
-  pub fn new(current_frame: StackFrame, stack_frames: Vec<StackFrame>) -> Self {
+  pub fn new(
+    current_frame: StackFrame,
+    stack_frames: Vec<StackFrame>,
+    opened_files: Vec<(usize, PathBuf)>,
+  ) -> Self {
     Self {
       current_frame,
       stack_frames,
+      opened_files,
     }
   }
 }
@@ -675,11 +675,18 @@ impl Display for Yield {
 #[derive(Default)]
 pub struct Env {
   vars: BTreeMap<String, Value>,
+
+  with_lib_support: bool,
+
+  library: Library,
+  args: Vec<String>,
 }
 
 impl Env {
-  pub fn with_library_path() -> Self {
+  pub fn with_library_support(args: &[String], library: Library) -> Self {
     let mut env = Env::default();
+
+    env.vars = builtin::load_libs(args, &library);
 
     let mut lib_paths = Vec::default();
 
@@ -693,6 +700,10 @@ impl Env {
     module.set("path", lib_paths);
 
     env.assign("$LIBRARY", Value::new(module));
+
+    env.args.extend(args.iter().cloned());
+    env.library = library;
+    env.with_lib_support = true;
 
     env
   }

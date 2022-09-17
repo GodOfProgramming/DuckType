@@ -652,7 +652,6 @@ impl AstGenerator {
       let op = match operator_token {
         Token::Bang => UnaryOperator::Not,
         Token::Minus => UnaryOperator::Negate,
-        Token::At => UnaryOperator::Deref,
         _ => {
           self.error::<1>(String::from("invalid unary operator"));
           return None;
@@ -761,6 +760,12 @@ impl AstGenerator {
   }
 
   fn assign_expr(&mut self, left: Expression) -> Option<Expression> {
+    if let Expression::Ident(expr) = &left {
+      if expr.ident.name == "self" {
+        self.error::<0>(String::from("cannot change the value of self"));
+      }
+    }
+
     if let Expression::Ident(ident_expr) = left {
       let op = self.previous()?;
       let op_meta = self.meta_at::<1>()?;
@@ -768,7 +773,6 @@ impl AstGenerator {
 
       let op = match op {
         Token::Equal => AssignOperator::Assign,
-        Token::BackArrow => AssignOperator::DerefAssign,
         Token::PlusEqual => AssignOperator::Add,
         Token::MinusEqual => AssignOperator::Sub,
         Token::AsteriskEqual => AssignOperator::Mul,
@@ -859,20 +863,83 @@ impl AstGenerator {
 
         self.advance();
 
-        if self.advance_if_matches(Token::Equal) {
-          let value = self.expression()?;
-          Some(Expression::new(MemberAssignExpression::new(
-            obj,
-            Ident::new(ident),
-            value,
-            ident_meta,
-          )))
+        if let Some(current) = self.current() {
+          match current {
+            Token::Equal => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Assign,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::PlusEqual => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Add,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::MinusEqual => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Sub,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::AsteriskEqual => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Mul,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::SlashEqual => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Div,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::PercentEqual => {
+              self.advance();
+              let value = self.expression()?;
+              Some(Expression::new(MemberAssignExpression::new(
+                obj,
+                Ident::new(ident),
+                AssignOperator::Mod,
+                value,
+                ident_meta,
+              )))
+            }
+            _ => Some(Expression::new(MemberAccessExpression::new(
+              obj,
+              Ident::new(ident),
+              ident_meta,
+            ))),
+          }
         } else {
-          Some(Expression::new(MemberAccessExpression::new(
-            obj,
-            Ident::new(ident),
-            ident_meta,
-          )))
+          self.error::<1>(String::from("expected token following member access"));
+          None
         }
       } else {
         self.error::<1>(String::from("expected identifier"));
@@ -1358,7 +1425,7 @@ impl AstGenerator {
       Token::Dot => ParseRule::new(None, Some(Self::member_expr), Precedence::Call),
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
       Token::Colon => ParseRule::new(None, None, Precedence::None),
-      Token::At => ParseRule::new(Some(Self::unary_expr), None, Precedence::Unary),
+      Token::At => ParseRule::new(None, None, Precedence::None),
       Token::Pipe => ParseRule::new(Some(Self::anon_fn_expr), None, Precedence::Primary),
       Token::Plus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Term),
       Token::PlusEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
@@ -1383,7 +1450,7 @@ impl AstGenerator {
       Token::Less => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
       Token::LessEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
       Token::Arrow => ParseRule::new(None, None, Precedence::None),
-      Token::BackArrow => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
+      Token::BackArrow => ParseRule::new(None, None, Precedence::None),
       Token::Identifier(_) => ParseRule::new(Some(Self::ident_expr), None, Precedence::None),
       Token::String(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
       Token::Number(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
@@ -2010,7 +2077,6 @@ impl LiteralExpression {
 pub enum UnaryOperator {
   Not,
   Negate,
-  Deref,
 }
 
 pub struct UnaryExpression {
@@ -2125,7 +2191,6 @@ impl IdentExpression {
 
 pub enum AssignOperator {
   Assign,
-  DerefAssign,
   Add,
   Sub,
   Mul,
@@ -2216,15 +2281,23 @@ impl MemberAccessExpression {
 pub struct MemberAssignExpression {
   pub obj: Box<Expression>,
   pub ident: Ident,
+  pub op: AssignOperator,
   pub value: Box<Expression>,
   pub loc: SourceLocation,
 }
 
 impl MemberAssignExpression {
-  fn new(obj: Expression, ident: Ident, value: Expression, loc: SourceLocation) -> Self {
+  fn new(
+    obj: Expression,
+    ident: Ident,
+    op: AssignOperator,
+    value: Expression,
+    loc: SourceLocation,
+  ) -> Self {
     Self {
       obj: Box::new(obj),
       ident,
+      op,
       value: Box::new(value),
       loc,
     }
