@@ -1,1 +1,3 @@
-use std.Vec;
+req "other";
+
+some_func();

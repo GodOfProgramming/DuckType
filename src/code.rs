@@ -17,6 +17,7 @@ use std::{
   collections::BTreeMap,
   env,
   fmt::{self, Debug, Display, Formatter},
+  path::PathBuf,
   str,
 };
 
@@ -271,9 +272,7 @@ enum ContextName {
 pub struct Context {
   name: ContextName,
 
-  pub id: usize,          // the function id within the local file
-  pub file_id: usize,     // the id of the file it was loaded from
-  pub instance_id: usize, // the instance of the file it was loaded from
+  pub id: usize, // the function id within the local file
 
   global: SmartPtr<Context>,
 
@@ -291,8 +290,6 @@ impl Context {
     Self {
       name: ContextName::Main,
       id: Default::default(),
-      file_id: Default::default(),
-      instance_id: Default::default(),
       global: Default::default(),
       instructions: Default::default(),
       consts: Default::default(),
@@ -316,8 +313,6 @@ impl Context {
     Self {
       name,
       id,
-      file_id: Default::default(),
-      instance_id: Default::default(),
       global,
       consts: Default::default(),
       strings: Default::default(),
@@ -654,13 +649,19 @@ impl StackFrame {
 pub struct Yield {
   pub current_frame: StackFrame,
   pub stack_frames: Vec<StackFrame>,
+  pub opened_files: Vec<(usize, PathBuf)>,
 }
 
 impl Yield {
-  pub fn new(current_frame: StackFrame, stack_frames: Vec<StackFrame>) -> Self {
+  pub fn new(
+    current_frame: StackFrame,
+    stack_frames: Vec<StackFrame>,
+    opened_files: Vec<(usize, PathBuf)>,
+  ) -> Self {
     Self {
       current_frame,
       stack_frames,
+      opened_files,
     }
   }
 }

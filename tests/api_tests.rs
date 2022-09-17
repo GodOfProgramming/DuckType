@@ -1,6 +1,8 @@
 use simple_script::prelude::*;
 use tfix::prelude::*;
 
+const TEST_FILE: &str = "test";
+
 #[derive(Default)]
 struct ApiTest {
   vm: Vm,
@@ -19,11 +21,11 @@ mod tests {
   #[test]
   fn can_register_global_variables(t: &mut ApiTest) {
     let script = "ret some_var;";
-    let ctx = t.vm.load("test", script).unwrap();
+    let ctx = t.vm.load(TEST_FILE, script).unwrap();
     let mut env = Env::with_library_support(&[], Library::All);
     env.define("some_var", Value::new(true));
     assert!(matches!(
-      t.vm.run(ctx, &mut env).unwrap(),
+      t.vm.run(TEST_FILE, ctx, &mut env).unwrap(),
       RunResult::Value(Value::Bool(true))
     ));
   }
@@ -35,7 +37,7 @@ mod tests {
     let mut env = Env::with_library_support(&[], Library::All);
     env.create_native("some_func", |_thread, _env, _args| Ok(Value::new(true)));
     assert!(matches!(
-      t.vm.run(ctx, &mut env).unwrap(),
+      t.vm.run(TEST_FILE, ctx, &mut env).unwrap(),
       RunResult::Value(Value::Bool(true))
     ));
   }
@@ -45,7 +47,7 @@ mod tests {
     let script = "let x = true; yield; ret x;";
     let ctx = t.vm.load("test", script).unwrap();
     let mut env = Env::with_library_support(&[], Library::All);
-    let result = t.vm.run(ctx, &mut env).unwrap();
+    let result = t.vm.run(TEST_FILE, ctx, &mut env).unwrap();
 
     if let RunResult::Yield(y) = result {
       assert!(matches!(

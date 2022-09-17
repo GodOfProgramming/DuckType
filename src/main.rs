@@ -25,7 +25,7 @@ fn run_file<T: ToString>(mut vm: Vm, file: T, args: &[String]) -> bool {
   let p = Path::new(&file);
   if p.exists() {
     match fs::read_to_string(p) {
-      Ok(contents) => match vm.load(file, &contents) {
+      Ok(contents) => match vm.load(&file, &contents) {
         Ok(ctx) => {
           let mut env = Env::with_library_support(args, Library::All);
 
@@ -49,7 +49,7 @@ fn run_file<T: ToString>(mut vm: Vm, file: T, args: &[String]) -> bool {
                 }
               }
             } else {
-              match vm.run(ctx.clone(), &mut env) {
+              match vm.run(&file, ctx.clone(), &mut env) {
                 Ok(result) => match result {
                   RunResult::Value(v) => {
                     println!("{}", v);

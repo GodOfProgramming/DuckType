@@ -10,8 +10,11 @@ pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
 use ptr::SmartPtr;
+use std::env;
+use std::iter::FromIterator;
 use std::{
   collections::BTreeMap,
+  ffi::OsStr,
   fs,
   path::{Path, PathBuf},
 };
@@ -42,16 +45,11 @@ pub enum RunResult {
 pub struct ExecutionThread {
   current_frame: StackFrame,
   stack_frames: Vec<StackFrame>,
+  // usize for what frame to pop on, string for file path
+  opened_files: Vec<(usize, PathBuf)>,
 }
 
 impl ExecutionThread {
-  fn new_with_libs(libs: BTreeMap<&'static str, Value>) -> Self {
-    Self {
-      current_frame: Default::default(),
-      stack_frames: Vec::with_capacity(256),
-    }
-  }
-
   fn reset(&mut self) {
     self.current_frame = Default::default();
     self.stack_frames = Default::default();
@@ -113,7 +111,13 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn run(&mut self, ctx: SmartPtr<Context>, env: &mut Env) -> Result<RunResult, Vec<Error>> {
+  fn run(
+    &mut self,
+    file: PathBuf,
+    ctx: SmartPtr<Context>,
+    env: &mut Env,
+  ) -> Result<RunResult, Vec<Error>> {
+    self.opened_files = vec![(0, file)];
     self.reset();
     self.current_frame.ctx = ctx;
     self.execute(env)
@@ -231,7 +235,14 @@ impl ExecutionThread {
             let mut stack_frames = Vec::default();
             std::mem::swap(&mut stack_frames, &mut self.stack_frames);
 
-            return Ok(RunResult::Yield(Yield::new(current_frame, stack_frames)));
+            let mut opened_files = Vec::default();
+            std::mem::swap(&mut opened_files, &mut self.opened_files);
+
+            return Ok(RunResult::Yield(Yield::new(
+              current_frame,
+              stack_frames,
+              opened_files,
+            )));
           }
         }
 
@@ -761,34 +772,62 @@ impl ExecutionThread {
   fn exec_req(&mut self, env: &mut Env, opcode: &OpCode) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       let file = value.to_string();
-      let mut p = PathBuf::from(file.as_str());
-      let mut found = Path::exists(&p);
+      let this_file = &self.opened_files.last().unwrap().1; // must exist by program logic
+      let required_file = PathBuf::from(file.as_str());
+      let required_file_with_ext = if required_file.extension().is_none() {
+        Some(required_file.with_extension("ss"))
+      } else {
+        // if already given ext, assume it was intentional to not follow convention
+        None
+      };
 
-      if !found {
-        let mut with_extension = p.clone();
-        with_extension.set_extension("ss");
-        found = Path::exists(&with_extension);
-        if found {
-          p = with_extension;
-        } else if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
-          if let Value::List(list) = library_mod.get(&"path") {
-            for item in list.iter() {
-              if let Value::String(path) = item {
-                let base = PathBuf::from(path);
-                let mut whole = base.join(&p);
+      let mut found_file = None;
 
-                found = Path::exists(&whole);
-                if found {
-                  p = whole;
-                  break;
-                }
+      // find relative first, if not already at cwd
+      if let Some(this_dir) = this_file.parent() {
+        let relative_path = this_dir.join(&required_file);
+        if Path::exists(&relative_path) {
+          found_file = Some(relative_path);
+        } else if let Some(required_file_with_ext) = &required_file_with_ext {
+          // then try with the .ss extension
+          let relative_path = this_dir.join(required_file_with_ext);
+          if Path::exists(&relative_path) {
+            found_file = Some(relative_path);
+          }
+        }
+      }
 
-                whole.set_extension("ss");
+      if found_file.is_none() {
+        // then try to find from cwd
+        if Path::exists(&required_file) {
+          found_file = Some(required_file);
+        } else {
+          // then try with the .ss extension
+          if let Some(required_file_with_ext) = &required_file_with_ext {
+            if Path::exists(&required_file_with_ext) {
+              found_file = Some(required_file_with_ext.clone());
+            }
+          }
 
-                found = Path::exists(&whole);
-                if found {
-                  p = whole;
-                  break;
+          // if still not found, try searching library paths
+          if found_file.is_none() {
+            if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
+              if let Value::List(list) = library_mod.get(&"path") {
+                for item in list.iter() {
+                  let base = PathBuf::from(item.to_string());
+                  let path = base.join(&required_file);
+
+                  if Path::exists(&path) {
+                    found_file = Some(path);
+                    break;
+                  } else if let Some(required_file_with_ext) = &required_file_with_ext {
+                    let path = base.join(required_file_with_ext);
+
+                    if Path::exists(&path) {
+                      found_file = Some(path);
+                      break;
+                    }
+                  }
                 }
               }
             }
@@ -796,8 +835,8 @@ impl ExecutionThread {
         }
       }
 
-      if found {
-        match fs::read_to_string(p) {
+      if let Some(found_file) = found_file {
+        match fs::read_to_string(found_file) {
           Ok(data) => {
             let new_ctx = Compiler::compile(&file, &data)?;
 
@@ -987,7 +1026,12 @@ impl Vm {
     self.main.resume(y, env)
   }
 
-  pub fn run(&mut self, ctx: SmartPtr<Context>, env: &mut Env) -> Result<RunResult, Vec<Error>> {
+  pub fn run<T: ToString>(
+    &mut self,
+    file: T,
+    ctx: SmartPtr<Context>,
+    env: &mut Env,
+  ) -> Result<RunResult, Vec<Error>> {
     #[cfg(debug_assertions)]
     #[cfg(feature = "disassemble")]
     {
@@ -999,6 +1043,6 @@ impl Vm {
       }
     }
 
-    self.main.run(ctx, env)
+    self.main.run(PathBuf::from(file.to_string()), ctx, env)
   }
 }

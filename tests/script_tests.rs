@@ -16,7 +16,11 @@ impl ScriptTest {
       .unwrap();
     self
       .vm
-      .run(ctx, &mut Env::with_library_support(&[], Library::All))
+      .run(
+        script.to_string_lossy().to_string(),
+        ctx,
+        &mut Env::with_library_support(&[], Library::All),
+      )
       .unwrap();
   }
 }
