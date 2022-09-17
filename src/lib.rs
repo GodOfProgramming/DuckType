@@ -126,6 +126,7 @@ impl ExecutionThread {
   pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<RunResult, Vec<Error>> {
     self.current_frame = y.current_frame;
     self.stack_frames = y.stack_frames;
+    self.opened_files = y.opened_files;
     self.execute(env)
   }
 
