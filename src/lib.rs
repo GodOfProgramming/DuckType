@@ -165,9 +165,6 @@ impl ExecutionThread {
           OpCode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
           OpCode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
           OpCode::AssignInitializer => self.exec_assign_initializer(&opcode)?,
-          OpCode::Deref => self.exec_deref(&opcode)?,
-          OpCode::DerefAssignLocal(index) => self.exec_deref_assign_local(&opcode, index)?,
-          OpCode::DerefAssignGlobal(index) => self.exec_deref_assign_global(&opcode, env, index)?,
           OpCode::Equal => self.exec_equal(&opcode)?,
           OpCode::NotEqual => self.exec_not_equal(&opcode)?,
           OpCode::Greater => self.exec_greater(&opcode)?,
@@ -429,7 +426,8 @@ impl ExecutionThread {
                 Ok(())
               }
               Value::Instance(mut instance) => {
-                instance.set(name, value).map_err(|e| self.error(opcode, e))
+                instance.set(name, value);
+                Ok(())
               }
               _ => Err(self.error(
                 opcode,
@@ -498,69 +496,6 @@ impl ExecutionThread {
         String::from("no value on stack to assign to class initializer"),
       )),
     }
-  }
-
-  #[inline]
-  fn exec_deref(&mut self, opcode: &OpCode) -> ExecResult {
-    match self.stack_pop() {
-      Some(instance) => match instance {
-        Value::Instance(instance) => {
-          self.stack_push(instance.extract());
-          Ok(())
-        }
-        v => Err(self.error(opcode, format!("cannot deref value type {}", v))),
-      },
-      None => Err(self.error(opcode, String::from("no item on stack to dereference"))),
-    }
-  }
-
-  #[inline]
-  fn exec_deref_assign_local(&mut self, opcode: &OpCode, index: usize) -> ExecResult {
-    if let Some(value) = self.stack_peek() {
-      if let Some(obj) = self.stack_index(index) {
-        match obj {
-          Value::Instance(mut instance) => {
-            instance.assign(value);
-            Ok(())
-          }
-          v => Err(self.error(opcode, format!("cannot assign to non instance {}", v))),
-        }
-      } else {
-        Err(self.error(opcode, format!("no item on stack at location {}", index)))
-      }
-    } else {
-      Err(self.error(
-        opcode,
-        format!("could not replace stack value at pos {}", index),
-      ))
-    }
-  }
-
-  #[inline]
-  fn exec_deref_assign_global(&mut self, opcode: &OpCode, env: &Env, index: usize) -> ExecResult {
-    self.global_op(opcode, index, |this, name| {
-      if let Some(value) = this.stack_peek() {
-        if let Some(instance) = env.lookup(name) {
-          match instance {
-            Value::Instance(mut instance) => {
-              instance.assign(value);
-              Ok(())
-            }
-            v => Err(this.error(opcode, format!("cannot assign to value type {}", v))),
-          }
-        } else {
-          Err(this.error(
-            opcode,
-            String::from("tried to assign to nonexistent global"),
-          ))
-        }
-      } else {
-        Err(this.error(
-          opcode,
-          String::from("can not assign to global using empty stack"),
-        ))
-      }
-    })
   }
 
   #[inline]

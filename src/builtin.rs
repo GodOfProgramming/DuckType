@@ -53,7 +53,7 @@ fn load_std() -> Value {
       let values = Value::new(args.drain(1..).collect::<Vec<Value>>());
       let this = args.get(0).cloned().unwrap();
       if let Value::Instance(mut instance) = this.clone() {
-        instance.assign(values);
+        instance.set("_buffer", values);
         Ok(this)
       } else {
         Err(format!("self not instance type {} (logic error)", this))
@@ -66,7 +66,7 @@ fn load_std() -> Value {
         let rest = args.drain(1..);
 
         match this {
-          Value::Instance(mut instance) => match &mut instance.data {
+          Value::Instance(mut instance) => match &mut instance.get("_buffer") {
             Value::List(list) => list.extend(rest.into_iter()),
             v => return Err(format!("somehow called push on non array type {}", v)),
           },
@@ -83,7 +83,7 @@ fn load_std() -> Value {
         let this = args.get_mut(0).unwrap();
 
         if let Value::Instance(this) = this {
-          if let Value::List(this) = &this.data {
+          if let Value::List(this) = &this.get("_buffer") {
             if let Value::Num(n) = value {
               Ok(this[n as usize].clone())
             } else {
@@ -107,7 +107,7 @@ fn load_std() -> Value {
     vec.set_method_fn("len", |_thread, _env, args| {
       let this = args.get(0).unwrap();
       match this {
-        Value::Instance(instance) => match &instance.data {
+        Value::Instance(instance) => match instance.get("_buffer") {
           Value::List(list) => Ok(Value::new(list.len() as f64)),
           c => Err(format!("somehow called len on non instance of vec {}", c)),
         },
@@ -124,8 +124,8 @@ fn load_std() -> Value {
         let rest = args.drain(1..);
 
         match this {
-          Value::Instance(mut instance) => match &mut instance.data {
-            Value::List(list) => list.extend(rest.into_iter()),
+          Value::Instance(instance) => match instance.get("_buffer") {
+            Value::List(mut list) => list.extend(rest.into_iter()),
             v => return Err(format!("called push on non array type {}", v)),
           },
           v => return Err(format!("called push on a primitive type {}", v)),
@@ -145,7 +145,7 @@ fn load_std() -> Value {
       let obj = args.get(0).unwrap();
       let mut fields = Vec::default();
 
-      let get_fields = |s: &SmartPtr<Struct>| {
+      let get_fields = |s: &Struct| {
         s.members
           .keys()
           .cloned()
@@ -155,12 +155,10 @@ fn load_std() -> Value {
 
       match obj {
         Value::Instance(i) => {
-          if let Value::Struct(s) = &i.data {
-            fields.extend(get_fields(s));
-          }
+          fields.extend(get_fields(&i.data));
         }
         Value::Struct(s) => {
-          fields.extend(get_fields(s));
+          fields.extend(get_fields(&s));
         }
         _ => (),
       }

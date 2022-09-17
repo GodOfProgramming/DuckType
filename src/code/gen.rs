@@ -359,7 +359,6 @@ impl BytecodeGenerator {
     match expr.op {
       UnaryOperator::Not => self.emit(OpCode::Not, expr.loc),
       UnaryOperator::Negate => self.emit(OpCode::Negate, expr.loc),
-      UnaryOperator::Deref => self.emit(OpCode::Deref, expr.loc),
     }
   }
 
@@ -418,15 +417,6 @@ impl BytecodeGenerator {
           (
             OpCode::AssignLocal as fn(usize) -> OpCode,
             OpCode::AssignGlobal as fn(usize) -> OpCode,
-          ),
-        );
-      }
-      AssignOperator::DerefAssign => {
-        self.normal_assign_expr(
-          expr,
-          (
-            OpCode::DerefAssignLocal as fn(usize) -> OpCode,
-            OpCode::DerefAssignGlobal as fn(usize) -> OpCode,
           ),
         );
       }

@@ -139,7 +139,10 @@ impl Value {
 
   pub fn set<N: ToString>(&mut self, name: N, value: Value) -> Result<(), String> {
     match self {
-      Self::Instance(obj) => obj.set(name, value),
+      Self::Instance(obj) => {
+        obj.set(name, value);
+        Ok(())
+      }
       Self::Struct(obj) => {
         obj.set(name, value);
         Ok(())
@@ -492,7 +495,7 @@ impl PartialEq for Value {
       }
       Self::Instance(a) => {
         if let Self::Instance(b) = other {
-          a.data == b.data && a.class.raw() == b.class.raw()
+          a.data.members == b.data.members && a.class.raw() == b.class.raw()
         } else {
           false
         }
@@ -796,7 +799,7 @@ impl Struct {
     self.members.insert(name.to_string(), value);
   }
 
-  pub fn get<T: ToString>(&self, name: &T) -> Value {
+  pub fn get<T: ToString + ?Sized>(&self, name: &T) -> Value {
     self
       .members
       .get(&name.to_string())
@@ -896,7 +899,7 @@ impl Class {
     env: &mut Env,
     args: Vec<Value>,
   ) -> Result<(), Vec<String>> {
-    let mut instance = SmartPtr::new(Instance::new(Value::Nil, class.clone()));
+    let mut instance = SmartPtr::new(Instance::new(Struct::default(), class.clone()));
 
     for (name, function) in class.methods.iter() {
       let method = Method::new(instance.clone(), function.clone());
@@ -973,15 +976,14 @@ impl Display for Class {
   }
 }
 
-#[derive(Clone)]
 pub struct Instance {
-  pub data: Value,
+  pub data: Struct,
   methods: BTreeMap<String, Method>,
   class: SmartPtr<Class>,
 }
 
 impl Instance {
-  pub fn new(data: Value, class: SmartPtr<Class>) -> Self {
+  pub fn new(data: Struct, class: SmartPtr<Class>) -> Self {
     Self {
       data,
       methods: BTreeMap::default(),
@@ -989,11 +991,11 @@ impl Instance {
     }
   }
 
-  pub fn set<N: ToString>(&mut self, name: N, value: Value) -> Result<(), String> {
-    self.data.set(name, value)
+  pub fn set<N: ToString>(&mut self, name: N, value: Value) {
+    self.data.set(name, value);
   }
 
-  pub fn get<N: ToString>(&self, name: &N) -> Value {
+  pub fn get<N: ToString + ?Sized>(&self, name: &N) -> Value {
     match self.data.get(name) {
       Value::Nil => {
         if let Some(method) = self.methods.get(&name.to_string()) {
@@ -1008,14 +1010,6 @@ impl Instance {
 
   pub fn set_method<N: ToString>(&mut self, name: N, method: Method) {
     self.methods.insert(name.to_string(), method);
-  }
-
-  pub fn assign(&mut self, value: Value) {
-    self.data = value;
-  }
-
-  pub fn extract(&self) -> Value {
-    self.data.clone()
   }
 
   pub fn call_method<N: ToString>(
@@ -1033,13 +1027,6 @@ impl Instance {
         name.to_string()
       ))
     }
-  }
-}
-
-impl Deref for Instance {
-  type Target = Value;
-  fn deref(&self) -> &Self::Target {
-    &self.data
   }
 }
 
