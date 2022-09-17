@@ -2,12 +2,11 @@ req "lib/sspec/sspec.ss";
 
 class Number {
   new(self, n) {
-    self <- n;
+    self.n = n;
   }
 
   fn add_and_store(self, n) {
-    self <- @self + n;
-    ret @self;
+    ret self.n += n;
   }
 }
 

@@ -1,14 +1,15 @@
+mod builtin;
 mod code;
 pub mod types;
 
 #[cfg(test)]
 mod test;
 
+pub use builtin::Library;
 pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
 use ptr::SmartPtr;
-use std::ops::Deref;
 use std::{
   collections::BTreeMap,
   fs,
@@ -161,12 +162,11 @@ impl ExecutionThread {
           OpCode::AssignGlobal(index) => self.exec_assign_global(env, &opcode, index)?,
           OpCode::LookupLocal(index) => self.exec_lookup_local(&opcode, index)?,
           OpCode::AssignLocal(index) => self.exec_assign_local(&opcode, index)?,
+          OpCode::InitializeMember(index) => self.exec_initialize_member(&opcode, index)?,
           OpCode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
           OpCode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
+          OpCode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
           OpCode::AssignInitializer => self.exec_assign_initializer(&opcode)?,
-          OpCode::Deref => self.exec_deref(&opcode)?,
-          OpCode::DerefAssignLocal(index) => self.exec_deref_assign_local(&opcode, index)?,
-          OpCode::DerefAssignGlobal(index) => self.exec_deref_assign_global(&opcode, env, index)?,
           OpCode::Equal => self.exec_equal(&opcode)?,
           OpCode::NotEqual => self.exec_not_equal(&opcode)?,
           OpCode::Greater => self.exec_greater(&opcode)?,
@@ -413,7 +413,7 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_assign_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_initialize_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
     match self.stack_pop() {
       Some(value) => match self.current_frame.ctx.const_at(location) {
         Some(name) => match name {
@@ -428,7 +428,51 @@ impl ExecutionThread {
                 Ok(())
               }
               Value::Instance(mut instance) => {
-                instance.set(name, value).map_err(|e| self.error(opcode, e))
+                instance.set(name, value);
+                Ok(())
+              }
+              _ => Err(self.error(
+                opcode,
+                format!("cannot assign member to invalid type {}", obj),
+              )),
+            },
+            None => Err(self.error(opcode, String::from("no object on stack to assign to"))),
+          },
+          _ => Err(self.error(opcode, String::from("tried to assigning to non object"))),
+        },
+        None => Err(self.error(opcode, String::from("no member ident to assign to"))),
+      },
+      None => Err(self.error(
+        opcode,
+        String::from("no value on stack to assign to member"),
+      )),
+    }
+  }
+
+  #[inline]
+  fn exec_assign_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+    let value = self.stack_pop();
+    let obj = self.stack_pop();
+
+    match value {
+      Some(value) => match self.current_frame.ctx.const_at(location) {
+        Some(name) => match name {
+          Value::String(name) => match obj {
+            Some(obj) => match obj {
+              Value::Struct(mut obj) => {
+                obj.set(name, value.clone());
+                self.stack_push(value);
+                Ok(())
+              }
+              Value::Class(mut class) => {
+                class.set_static(name, value.clone());
+                self.stack_push(value);
+                Ok(())
+              }
+              Value::Instance(mut instance) => {
+                instance.set(name, value.clone());
+                self.stack_push(value);
+                Ok(())
               }
               _ => Err(self.error(
                 opcode,
@@ -477,6 +521,35 @@ impl ExecutionThread {
     Ok(())
   }
 
+  #[inline]
+  fn exec_peek_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+    let value = match self.stack_peek() {
+      Some(obj) => match self.current_frame.ctx.const_at(location) {
+        Some(name) => match name {
+          Value::String(ident) => match obj {
+            Value::Struct(obj) => Ok(obj.get(ident)),
+            Value::Instance(obj) => Ok(obj.get(ident)),
+            Value::Class(class) => Ok(class.get_static(ident)),
+            Value::Nil => {
+              Err(self.error(opcode, String::from("cannot lookup a member on nil type")))
+            }
+            v => Err(self.error(opcode, format!("invalid type for member access: {}", v))),
+          },
+          v => Err(self.error(opcode, format!("invalid member name {}", v))),
+        },
+        None => Err(self.error(opcode, String::from("no constant specified by index"))),
+      },
+      None => Err(self.error(
+        opcode,
+        String::from("no object to for member access on the stack"),
+      )),
+    }?;
+
+    self.stack_push(value);
+
+    Ok(())
+  }
+
   fn exec_assign_initializer(&mut self, opcode: &OpCode) -> ExecResult {
     match self.stack_pop() {
       Some(initializer) => match self.stack_peek() {
@@ -497,69 +570,6 @@ impl ExecutionThread {
         String::from("no value on stack to assign to class initializer"),
       )),
     }
-  }
-
-  #[inline]
-  fn exec_deref(&mut self, opcode: &OpCode) -> ExecResult {
-    match self.stack_pop() {
-      Some(instance) => match instance {
-        Value::Instance(instance) => {
-          self.stack_push(instance.extract());
-          Ok(())
-        }
-        v => Err(self.error(opcode, format!("cannot deref value type {}", v))),
-      },
-      None => Err(self.error(opcode, String::from("no item on stack to dereference"))),
-    }
-  }
-
-  #[inline]
-  fn exec_deref_assign_local(&mut self, opcode: &OpCode, index: usize) -> ExecResult {
-    if let Some(value) = self.stack_peek() {
-      if let Some(obj) = self.stack_index(index) {
-        match obj {
-          Value::Instance(mut instance) => {
-            instance.assign(value);
-            Ok(())
-          }
-          v => Err(self.error(opcode, format!("cannot assign to non instance {}", v))),
-        }
-      } else {
-        Err(self.error(opcode, format!("no item on stack at location {}", index)))
-      }
-    } else {
-      Err(self.error(
-        opcode,
-        format!("could not replace stack value at pos {}", index),
-      ))
-    }
-  }
-
-  #[inline]
-  fn exec_deref_assign_global(&mut self, opcode: &OpCode, env: &Env, index: usize) -> ExecResult {
-    self.global_op(opcode, index, |this, name| {
-      if let Some(value) = this.stack_peek() {
-        if let Some(instance) = env.lookup(name) {
-          match instance {
-            Value::Instance(mut instance) => {
-              instance.assign(value);
-              Ok(())
-            }
-            v => Err(this.error(opcode, format!("cannot assign to value type {}", v))),
-          }
-        } else {
-          Err(this.error(
-            opcode,
-            String::from("tried to assign to nonexistent global"),
-          ))
-        }
-      } else {
-        Err(this.error(
-          opcode,
-          String::from("can not assign to global using empty stack"),
-        ))
-      }
-    })
   }
 
   #[inline]
@@ -969,15 +979,6 @@ impl ExecutionThread {
   }
 }
 
-pub enum Library {
-  Std,
-  Env,
-  Time,
-  String,
-  Console,
-  Ps,
-}
-
 #[derive(Default)]
 pub struct Vm {
   main: ExecutionThread,
@@ -994,7 +995,7 @@ impl Vm {
     let mut loaded_libs = BTreeMap::default();
 
     for lib in libs {
-      let (key, value) = Self::load_lib(args, lib);
+      let (key, value) = builtin::load_lib(args, lib);
       loaded_libs.insert(key, value);
     }
 
@@ -1024,282 +1025,5 @@ impl Vm {
     }
 
     self.main.run(ctx, env)
-  }
-
-  fn load_lib(args: &[String], lib: &Library) -> (&'static str, Value) {
-    match lib {
-      Library::Std => ("std", Self::load_std()),
-      Library::Env => ("env", Self::load_env(args)),
-      Library::Time => ("time", Self::load_time()),
-      Library::String => ("str", Self::load_string()),
-      Library::Console => ("console", Self::load_console()),
-      Library::Ps => ("ps", Self::load_ps()),
-    }
-  }
-
-  fn load_std() -> Value {
-    let mut obj = Struct::default();
-
-    // Arrays
-    {
-      let mut array = Class::new("Array");
-
-      array.set_static_fn("len", |_thread, _env, args| {
-        if !args.is_empty() {
-          let obj = &args[0];
-          match obj {
-            Value::List(list) => Ok(Value::new(list.len() as f64)),
-            v => return Err(format!("unable to get length of object {}", v)),
-          }
-        } else {
-          Err("no object to get length of".to_string())
-        }
-      });
-
-      obj.set("Array", Value::new(array));
-    }
-
-    // Vectors
-    {
-      let mut vec = Class::new("Vec");
-
-      vec.set_initializer(Value::native("Vec.new", |_thread, _env, mut args| {
-        let values = Value::new(args.drain(1..).collect::<Vec<Value>>());
-        let this = args.get(0).cloned().unwrap();
-        if let Value::Instance(mut instance) = this.clone() {
-          instance.assign(values);
-          Ok(this)
-        } else {
-          Err(format!("self not instance type {} (logic error)", this))
-        }
-      }));
-
-      vec.set_method_fn("push", |_thread, _env, mut args| {
-        if args.len() > 1 {
-          let this = args.get(0).cloned().unwrap();
-          let rest = args.drain(1..);
-
-          match this {
-            Value::Instance(mut instance) => match &mut instance.data {
-              Value::List(list) => list.extend(rest.into_iter()),
-              v => return Err(format!("somehow called push on non array type {}", v)),
-            },
-            v => return Err(format!("somehow called push on a primitive type {}", v)),
-          }
-        }
-
-        Ok(Value::Nil)
-      });
-
-      vec.set_method_fn("__index__", |_thread, _env, mut args| {
-        if args.len() == 2 {
-          let value = args.swap_remove(1);
-          let this = args.get_mut(0).unwrap();
-
-          if let Value::Instance(this) = this {
-            if let Value::List(this) = &this.data {
-              if let Value::Num(n) = value {
-                Ok(this[n as usize].clone())
-              } else {
-                Ok(Value::Nil)
-              }
-            } else {
-              Err(String::from(
-                "somehow have non-list as internal data for vector type",
-              ))
-            }
-          } else {
-            Err(String::from(
-              "index method called with self not pointing to class instance",
-            ))
-          }
-        } else {
-          Err(String::from("invalid number of arguments for index"))
-        }
-      });
-
-      vec.set_method_fn("len", |_thread, _env, args| {
-        let this = args.get(0).unwrap();
-        match this {
-          Value::Instance(instance) => match &instance.data {
-            Value::List(list) => Ok(Value::new(list.len() as f64)),
-            c => Err(format!("somehow called len on non instance of vec {}", c)),
-          },
-          c => Err(format!(
-            "somehow called index method for non array instance {}",
-            c
-          )),
-        }
-      });
-
-      vec.set_static_fn("push", |_thread, _env, mut args| {
-        if args.len() > 1 {
-          let this = args.get(0).cloned().unwrap();
-          let rest = args.drain(1..);
-
-          match this {
-            Value::Instance(mut instance) => match &mut instance.data {
-              Value::List(list) => list.extend(rest.into_iter()),
-              v => return Err(format!("called push on non array type {}", v)),
-            },
-            v => return Err(format!("called push on a primitive type {}", v)),
-          }
-        }
-        Ok(Value::Nil)
-      });
-
-      obj.set("Vec", Value::new(vec));
-    }
-
-    // Structs
-    {
-      let mut object = Class::new("Object");
-
-      object.set_static_fn("fields", |_thread, _env, args| {
-        let obj = args.get(0).unwrap();
-        let mut fields = Vec::default();
-
-        let get_fields = |s: &SmartPtr<Struct>| {
-          s.members
-            .keys()
-            .cloned()
-            .map(|k| Value::new(k))
-            .collect::<Vec<Value>>()
-        };
-
-        match obj {
-          Value::Instance(i) => {
-            if let Value::Struct(s) = &i.data {
-              fields.extend(get_fields(s));
-            }
-          }
-          Value::Struct(s) => {
-            fields.extend(get_fields(s));
-          }
-          _ => (),
-        }
-
-        Ok(Value::new(fields))
-      });
-
-      obj.set("Object", Value::new(object));
-    }
-
-    Value::new(obj)
-  }
-
-  fn load_env(args: &[String]) -> Value {
-    let mut obj = Struct::default();
-    obj.set(
-      "ARGV",
-      Value::new(
-        args
-          .iter()
-          .map(|arg| Value::new(arg.clone()))
-          .collect::<Vec<Value>>(),
-      ),
-    );
-    Value::new(obj)
-  }
-
-  fn load_time() -> Value {
-    let mut obj = Struct::default();
-
-    let clock = Value::native(String::from("clock"), |_thread, _env, _args: Vec<Value>| {
-      use std::time::{SystemTime, UNIX_EPOCH};
-      let now = SystemTime::now();
-      let since = now.duration_since(UNIX_EPOCH).expect("time went backwards");
-      Ok(Value::new(since.as_nanos()))
-    });
-
-    let clock_diff = Value::native(
-      String::from("clock_diff"),
-      |_thread, _env, args: Vec<Value>| {
-        if let Some(Value::U128(before)) = args.get(0) {
-          if let Some(Value::U128(after)) = args.get(1) {
-            let diff = std::time::Duration::from_nanos((after - before) as u64);
-            return Ok(Value::new(diff.as_secs_f64()));
-          }
-        }
-        Err(String::from(
-          "clock_diff called with wrong number of arguments or invalid types",
-        ))
-      },
-    );
-
-    obj.set("clock", clock);
-    obj.set("clock_diff", clock_diff);
-
-    Value::new(obj)
-  }
-
-  fn load_string() -> Value {
-    let mut obj = Struct::default();
-
-    let parse_number = Value::native(
-      String::from("parse_number"),
-      |_thread, _env, args: Vec<Value>| {
-        if let Some(arg) = args.get(0) {
-          match arg {
-            Value::String(string) => Ok(Value::new(
-              string.parse::<f64>().map_err(|e| format!("{}", e))?,
-            )),
-            v => Err(format!("can not convert {} to a number", v)),
-          }
-        } else {
-          Err(String::from("expected 1 argument"))
-        }
-      },
-    );
-
-    obj.set("parse_number", parse_number);
-
-    Value::new(obj)
-  }
-
-  fn load_console() -> Value {
-    let mut obj = Struct::default();
-
-    let write = Value::native(String::from("write"), |_thread, _env, args: Vec<Value>| {
-      for arg in args {
-        print!("{}", arg);
-      }
-
-      Ok(Value::Nil)
-    });
-
-    let writeln = Value::native(String::from("write"), |_thread, _env, args: Vec<Value>| {
-      for arg in args {
-        print!("{}", arg);
-      }
-      println!();
-
-      Ok(Value::Nil)
-    });
-
-    obj.set("write", write);
-    obj.set("writeln", writeln);
-
-    Value::new(obj)
-  }
-
-  fn load_ps() -> Value {
-    let mut obj = Struct::default();
-
-    let exit = Value::native(String::from("write"), |_thread, _env, args: Vec<Value>| {
-      let exit_code = args
-        .get(0)
-        .map(|v| match v {
-          Value::Num(n) => *n as i32,
-          _ => 0,
-        })
-        .unwrap_or(0);
-
-      std::process::exit(exit_code);
-    });
-
-    obj.set("exit", exit);
-
-    Value::new(obj)
   }
 }

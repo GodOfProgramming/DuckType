@@ -1,16 +1,11 @@
-req "std";
+# fn foo(obj, n) {
+#   ret obj.x += n;
+# }
+#
+# let obj = {x:0};
+# print foo(obj, 1);
 
-use std.Array;
-use std.Vec;
-
-print Array;
-
-let arr = [1, 2, 3];
-print arr;
-
-
-print Array.len(arr);
-
-let vec = Vec(4, 5, 6);
-print vec;
-print vec.len();
+let foo = {bar:{baz:0}};
+let x;
+let y;
+x = y = foo.bar.baz = 5;
