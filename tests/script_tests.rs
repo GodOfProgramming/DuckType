@@ -1,7 +1,8 @@
-use simple_script::{Library, Vm};
+use simple_script::{Env, Library, Vm};
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
 
+#[derive(Default)]
 struct ScriptTest {
   vm: Vm,
 }
@@ -13,25 +14,16 @@ impl ScriptTest {
       .vm
       .load(script.to_string_lossy().to_string(), &src)
       .unwrap();
-    self.vm.run(ctx, &mut Default::default()).unwrap();
+    self
+      .vm
+      .run(ctx, &mut Env::with_library_support(&[], Library::All))
+      .unwrap();
   }
 }
 
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
-    let vm = Vm::new_with_libs(
-      &[],
-      &[
-        Library::Std,
-        Library::Env,
-        Library::Time,
-        Library::String,
-        Library::Console,
-        Library::Ps,
-      ],
-    );
-
-    Self { vm }
+    Self::default()
   }
 }
 

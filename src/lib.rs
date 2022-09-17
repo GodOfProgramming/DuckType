@@ -42,8 +42,6 @@ pub enum RunResult {
 pub struct ExecutionThread {
   current_frame: StackFrame,
   stack_frames: Vec<StackFrame>,
-
-  libs: BTreeMap<&'static str, Value>,
 }
 
 impl ExecutionThread {
@@ -51,7 +49,6 @@ impl ExecutionThread {
     Self {
       current_frame: Default::default(),
       stack_frames: Vec::with_capacity(256),
-      libs,
     }
   }
 
@@ -762,39 +759,44 @@ impl ExecutionThread {
 
   #[inline]
   fn exec_req(&mut self, env: &mut Env, opcode: &OpCode) -> ExecResult {
-    if let Some(file) = self.stack_pop() {
-      if let Value::String(file) = file {
-        // load global libs only once
+    if let Some(value) = self.stack_pop() {
+      let file = value.to_string();
+      let mut p = PathBuf::from(file.as_str());
+      let mut found = Path::exists(&p);
 
-        if !env.is_defined(&file) {
-          if let Some(lib) = self.libs.get(file.as_str()).cloned() {
-            env.define(file, lib);
-            return Ok(());
-          }
-        } else if self.libs.contains_key(file.as_str()) {
-          // builtin library already loaded
-          return Ok(());
-        }
+      if !found {
+        let mut with_extension = p.clone();
+        with_extension.set_extension("ss");
+        found = Path::exists(&with_extension);
+        if found {
+          p = with_extension;
+        } else if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
+          if let Value::List(list) = library_mod.get(&"path") {
+            for item in list.iter() {
+              if let Value::String(path) = item {
+                let base = PathBuf::from(path);
+                let mut whole = base.join(&p);
 
-        let mut p = PathBuf::from(file.as_str());
+                found = Path::exists(&whole);
+                if found {
+                  p = whole;
+                  break;
+                }
 
-        if !Path::exists(&p) {
-          if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
-            if let Value::List(list) = library_mod.get(&"path") {
-              for item in list.iter() {
-                if let Value::String(path) = item {
-                  let base = PathBuf::from(path);
-                  let whole = base.join(&p);
-                  if Path::exists(&whole) {
-                    p = whole;
-                    break;
-                  }
+                whole.set_extension("ss");
+
+                found = Path::exists(&whole);
+                if found {
+                  p = whole;
+                  break;
                 }
               }
             }
           }
         }
+      }
 
+      if found {
         match fs::read_to_string(p) {
           Ok(data) => {
             let new_ctx = Compiler::compile(&file, &data)?;
@@ -809,27 +811,13 @@ impl ExecutionThread {
 
             Ok(())
           }
-          Err(e) => Err(self.error(
-            opcode,
-            format!(
-              "unable to read file '{}': {}\ncurrently loaded libs: {:#?}",
-              file,
-              e,
-              self.libs.keys()
-            ),
-          )),
+          Err(e) => Err(self.error(opcode, format!("unable to read file '{}': {}", file, e,))),
         }
       } else {
-        Err(self.error(
-          opcode,
-          format!(
-            "can only load files specified by strings or objects convertible to strings, got {}",
-            file
-          ),
-        ))
+        Err(self.error(opcode, "unable to find file"))
       }
     } else {
-      Err(self.error(opcode, "cannot operate with an empty stack"))
+      Err(self.error(opcode, "no item on stack to require (logic error)"))
     }
   }
 
@@ -988,19 +976,6 @@ impl Vm {
   pub fn new() -> Self {
     Self {
       main: Default::default(),
-    }
-  }
-
-  pub fn new_with_libs(args: &[String], libs: &[Library]) -> Self {
-    let mut loaded_libs = BTreeMap::default();
-
-    for lib in libs {
-      let (key, value) = builtin::load_lib(args, lib);
-      loaded_libs.insert(key, value);
-    }
-
-    Self {
-      main: ExecutionThread::new_with_libs(loaded_libs),
     }
   }
 

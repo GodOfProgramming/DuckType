@@ -1,5 +1,3 @@
-req "time";
-
 use time.Monotonic;
 
 class Clock {

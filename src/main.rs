@@ -4,23 +4,13 @@ use std::{env, fs, path::Path, process};
 fn main() {
   let mut exit_code = 0;
 
-  let mut args = env::args().collect::<Vec<String>>().into_iter().skip(1);
+  let mut args = env::args().into_iter().skip(1);
   let file = args.next();
 
-  let vm = Vm::new_with_libs(
-    &args.collect::<Vec<String>>(),
-    &[
-      Library::Std,
-      Library::Env,
-      Library::Time,
-      Library::String,
-      Library::Console,
-      Library::Ps,
-    ],
-  );
+  let vm = Vm::new();
 
   if let Some(file) = file {
-    if !run_file(vm, file) {
+    if !run_file(vm, file, &args.collect::<Vec<String>>()) {
       exit_code = 1;
     }
   } else {
@@ -30,14 +20,14 @@ fn main() {
   process::exit(exit_code);
 }
 
-fn run_file<T: ToString>(mut vm: Vm, file: T) -> bool {
+fn run_file<T: ToString>(mut vm: Vm, file: T, args: &[String]) -> bool {
   let file = file.to_string();
   let p = Path::new(&file);
   if p.exists() {
     match fs::read_to_string(p) {
       Ok(contents) => match vm.load(file, &contents) {
         Ok(ctx) => {
-          let mut env = Env::with_library_path();
+          let mut env = Env::with_library_support(args, Library::All);
 
           let mut yield_result = None;
 

@@ -3,6 +3,7 @@ pub mod gen;
 pub mod lex;
 pub mod opt;
 
+use super::{builtin, Library};
 use crate::{
   types::{Error, Struct, Value},
   ExecutionThread, New,
@@ -673,11 +674,18 @@ impl Display for Yield {
 #[derive(Default)]
 pub struct Env {
   vars: BTreeMap<String, Value>,
+
+  with_lib_support: bool,
+
+  library: Library,
+  args: Vec<String>,
 }
 
 impl Env {
-  pub fn with_library_path() -> Self {
+  pub fn with_library_support(args: &[String], library: Library) -> Self {
     let mut env = Env::default();
+
+    env.vars = builtin::load_libs(args, &library);
 
     let mut lib_paths = Vec::default();
 
@@ -691,6 +699,10 @@ impl Env {
     module.set("path", lib_paths);
 
     env.assign("$LIBRARY", Value::new(module));
+
+    env.args.extend(args.iter().cloned());
+    env.library = library;
+    env.with_lib_support = true;
 
     env
   }

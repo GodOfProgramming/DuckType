@@ -1,4 +1,3 @@
-req "std";
 req "lib/sspec/sspec.ss";
 
 use std.Object;
