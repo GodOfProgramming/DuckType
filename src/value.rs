@@ -57,7 +57,7 @@ impl Value {
       if self.bits < INF_VALUE {
         Tag::Float
       } else {
-        mem::transmute::<u64, Tag>((self.bits & TAG_BITMASK) as u64)
+        mem::transmute::<u64, Tag>((self.bits & TAG_BITMASK | INF_VALUE) as u64)
       }
     }
   }
@@ -72,7 +72,7 @@ impl Value {
 
   pub fn as_int(&self) -> i32 {
     debug_assert!(self.is_int());
-    unsafe { (self.bits & !(Tag::Integer as u64)) as i32 }
+    unsafe { (self.bits & !INTEGER_TAG) as i32 }
   }
 
   pub fn is_float(&self) -> bool {
@@ -84,8 +84,8 @@ impl Value {
     unsafe { self.f64 }
   }
 
-  pub fn is_struct(&self) -> bool {
-    self.is_type::<POINTER_TAG>() && self.kind() == Struct::kind()
+  pub fn is_kind<T: Object>(&self) -> bool {
+    self.is_type::<POINTER_TAG>() && self.kind() == T::kind()
   }
 
   pub fn as_struct(&self) -> &mut Struct {
@@ -123,11 +123,11 @@ impl Drop for Value {
   fn drop(&mut self) {
     if self.tag() == Tag::Pointer {
       let meta = self.meta();
-      (meta.vtable.drop)(self.pointer());
 
       meta.ref_count -= 1;
 
       if meta.ref_count == 0 {
+        (meta.vtable.drop)(self.pointer());
         (meta.vtable.dealloc)(self.pointer())
       }
     }
@@ -245,7 +245,7 @@ struct ValueMeta {
   vtable: VTable,
 }
 
-trait Object
+pub trait Object
 where
   Self: Sized + 'static,
 {
