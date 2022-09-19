@@ -1,6 +1,7 @@
 mod builtin;
 mod code;
 pub mod types;
+pub mod value;
 
 #[cfg(test)]
 mod test;

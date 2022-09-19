@@ -10,6 +10,8 @@ edition = "2018"
 ptr = { path = "lib/ptr" }
 tfix = { path = "lib/tfix" }
 enum-iterator = "1.2.0"
+static_assertions = "1.1.0"
+sysinfo = "0.26.2"
 
 [features]
 visit_ast = []
