@@ -7,7 +7,6 @@ use std::{
   collections::BTreeMap,
   fmt::{Debug, Formatter, Result as FmtResult},
   mem,
-  ptr::addr_of_mut,
 };
 
 #[cfg(test)]
@@ -50,7 +49,7 @@ pub union Value {
 
 impl Value {
   fn pointer(&self) -> MutVoid {
-    unsafe { (self.bits & (!(Tag::Pointer as u64))) as MutVoid }
+    unsafe { (self.bits & !(Tag::Pointer as u64)) as MutVoid }
   }
 
   pub fn tag(&self) -> Tag {
@@ -124,6 +123,8 @@ impl Drop for Value {
   fn drop(&mut self) {
     if self.tag() == Tag::Pointer {
       let meta = self.meta();
+      (meta.vtable.drop)(self.pointer());
+
       meta.ref_count -= 1;
 
       if meta.ref_count == 0 {
@@ -163,10 +164,19 @@ where
   fn new(item: T) -> Self {
     let allocated = unsafe { &mut *(Box::into_raw(Box::new(AllocatedObject::new(item)))) };
 
-    let ptr = addr_of_mut!(allocated.obj) as MutVoid;
+    let ptr = &mut allocated.obj as *mut T as MutVoid;
+    debug_assert_eq!(
+      allocated as *const _ as *const (),
+      &allocated._meta as *const _ as *const ()
+    );
+
+    debug_assert_eq!(
+      unsafe { (ptr as *const u8).offset(META_OFFSET) as *const () },
+      allocated as *const _ as *const ()
+    );
 
     // ensure the pointer fits in 48 bits
-    debug_assert!(ptr as u64 & Tag::Pointer as u64 == 0);
+    debug_assert_eq!(ptr as u64 & Tag::Pointer as u64, 0);
 
     Value {
       bits: ptr as u64 | Tag::Pointer as u64,
@@ -188,15 +198,15 @@ impl PartialEq for Value {
 
 impl Object for Value {
   fn set(&mut self, name: &str, value: Value) {
-    (self.vtable().set)(self as *const Self as MutVoid, name, value)
+    (self.vtable().set)(self.pointer(), name, value)
   }
 
   fn get(&self, name: &str) -> Option<Value> {
-    (self.vtable().get)(self as *const Self as MutVoid, name)
+    (self.vtable().get)(self.pointer(), name)
   }
 
   fn drop(&mut self) {
-    (self.vtable().drop)(self as *mut Self as MutVoid)
+    (self.vtable().drop)(self.pointer())
   }
 }
 
@@ -237,10 +247,10 @@ struct ValueMeta {
 
 trait Object
 where
-  Self: Sized,
+  Self: Sized + 'static,
 {
   fn kind() -> TypeId {
-    TypeId::of::<Value>()
+    TypeId::of::<Self>()
   }
 
   fn set(&mut self, name: &str, value: Value);
