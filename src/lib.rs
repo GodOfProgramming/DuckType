@@ -1,5 +1,6 @@
 mod builtin;
 mod code;
+mod dbg;
 pub mod types;
 pub mod value;
 

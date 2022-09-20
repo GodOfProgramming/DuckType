@@ -1,44 +1,36 @@
 use crate::{Env, ExecutionThread};
-
-use super::New;
 use static_assertions::assert_eq_size;
 use std::{
   any::TypeId,
   collections::BTreeMap,
-  fmt::{Debug, Formatter, Result as FmtResult},
+  fmt::{Debug, Display, Formatter, Result as FmtResult},
   mem,
 };
+pub use tags::*;
 
+mod tags;
 #[cfg(test)]
 mod test;
 
 type ConstVoid = *const ();
 type MutVoid = *mut ();
+type ObjectResult<T> = Result<T, String>;
 
 assert_eq_size!(usize, f64);
 assert_eq_size!(usize, i64);
 assert_eq_size!(usize, MutVoid);
 
-const NIL_VALUE: MutVoid = 0 as usize as MutVoid;
-
-const INF_VALUE: u64 = 0xfff8000000000000;
-const TAG_BITMASK: u64 = 0x0007000000000000;
-
 const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
-const fn make_tag<const I: u8>() -> u64 {
-  ((I as u64) << 48) | INF_VALUE
-}
-
-const INTEGER_TAG: u64 = make_tag::<1>();
-const POINTER_TAG: u64 = make_tag::<7>();
+pub struct Nil;
 
 #[repr(u64)]
 #[derive(Debug, PartialEq)]
 pub enum Tag {
-  Float = 0,
-  Integer = INTEGER_TAG,
-  Pointer = POINTER_TAG, // nil, struct, class, instance, function, etc..
+  Float,
+  Nil = tags::NIL_TAG,
+  Integer = tags::INTEGER_TAG,
+  Pointer = tags::POINTER_TAG, // struct, class, instance, function, etc..
 }
 
 pub union Value {
@@ -48,6 +40,13 @@ pub union Value {
 }
 
 impl Value {
+  #[allow(non_upper_case_globals)]
+  pub const nil: Value = Value { bits: NIL_TAG };
+
+  fn new_struct() -> Self {
+    Self::from(Struct::default())
+  }
+
   fn pointer(&self) -> MutVoid {
     unsafe { (self.bits & !(Tag::Pointer as u64)) as MutVoid }
   }
@@ -63,7 +62,7 @@ impl Value {
   }
 
   pub fn is_nil(&self) -> bool {
-    self.pointer() == NIL_VALUE
+    self.is_type::<NIL_TAG>()
   }
 
   pub fn is_int(&self) -> bool {
@@ -84,12 +83,62 @@ impl Value {
     unsafe { self.f64 }
   }
 
-  pub fn is_kind<T: Object>(&self) -> bool {
+  pub fn is_obj<T: Object>(&self) -> bool {
     self.is_type::<POINTER_TAG>() && self.kind() == T::kind()
+  }
+
+  pub fn as_obj<T: Object>(&self) -> &mut T {
+    self.convert::<T>()
   }
 
   pub fn as_struct(&self) -> &mut Struct {
     self.convert::<Struct>()
+  }
+
+  // Object Methods
+
+  pub fn set(&mut self, name: &str, value: Value) -> ObjectResult<()> {
+    (self.vtable().set)(self.pointer(), name, value)
+  }
+
+  pub fn get(&self, name: &str) -> ObjectResult<Value> {
+    (self.vtable().get)(self.pointer(), name)
+  }
+
+  pub fn add(&self, other: Value) -> ObjectResult<Value> {
+    (self.vtable().add)(self.pointer(), other)
+  }
+
+  pub fn sub(&self, other: Value) -> ObjectResult<Value> {
+    (self.vtable().sub)(self.pointer(), other)
+  }
+
+  pub fn sub_inv(&self, other: Value) -> ObjectResult<Value> {
+    (self.vtable().sub_inv)(self.pointer(), other)
+  }
+
+  pub fn mul(&self, other: Value) -> ObjectResult<Value> {
+    (self.vtable().mul)(self.pointer(), other)
+  }
+
+  pub fn div(&self, other: Value) -> ObjectResult<Value> {
+    (self.vtable().div)(self.pointer(), other)
+  }
+
+  pub fn div_inv(&self, other: Value) -> ObjectResult<Value> {
+    (self.vtable().div_inv)(self.pointer(), other)
+  }
+
+  pub fn rem(&self, other: Value) -> ObjectResult<Value> {
+    (self.vtable().rem)(self.pointer(), other)
+  }
+
+  pub fn rem_inv(&self, other: Value) -> ObjectResult<Value> {
+    (self.vtable().rem_inv)(self.pointer(), other)
+  }
+
+  pub fn basic_desc(&self) -> &'static str {
+    (self.vtable().basic_desc)()
   }
 
   fn meta(&self) -> &mut ValueMeta {
@@ -115,7 +164,7 @@ impl Value {
 
 impl Default for Value {
   fn default() -> Self {
-    Self { ptr: NIL_VALUE }
+    Self { bits: NIL_TAG }
   }
 }
 
@@ -128,7 +177,7 @@ impl Drop for Value {
 
       if meta.ref_count == 0 {
         (meta.vtable.drop)(self.pointer());
-        (meta.vtable.dealloc)(self.pointer())
+        (meta.vtable.dealloc)(self.pointer());
       }
     }
   }
@@ -143,25 +192,31 @@ impl Clone for Value {
   }
 }
 
-impl New<f64> for Value {
-  fn new(item: f64) -> Self {
+impl From<Nil> for Value {
+  fn from(_: Nil) -> Self {
+    Self { bits: NIL_TAG }
+  }
+}
+
+impl From<f64> for Value {
+  fn from(item: f64) -> Self {
     Self { f64: item }
   }
 }
 
-impl New<i32> for Value {
-  fn new(item: i32) -> Self {
+impl From<i32> for Value {
+  fn from(item: i32) -> Self {
     Self {
       bits: (item as u64) | (Tag::Integer as u64),
     }
   }
 }
 
-impl<T> New<T> for Value
+impl<T> From<T> for Value
 where
   T: Object,
 {
-  fn new(item: T) -> Self {
+  fn from(item: T) -> Self {
     let allocated = unsafe { &mut *(Box::into_raw(Box::new(AllocatedObject::new(item)))) };
 
     let ptr = &mut allocated.obj as *mut T as MutVoid;
@@ -184,6 +239,25 @@ where
   }
 }
 
+impl Assign<Nil> for Value {}
+
+impl Assign<i32> for Value {}
+
+impl Assign<f64> for Value {}
+
+impl<T: Object> Assign<T> for Value {}
+
+impl Display for Value {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    match self.tag() {
+      Tag::Float => write!(f, "{}", self.as_float()),
+      Tag::Integer => write!(f, "{}", self.as_int()),
+      Tag::Nil => write!(f, "nil"),
+      Tag::Pointer => write!(f, "{}", self.basic_desc()),
+    }
+  }
+}
+
 impl Debug for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     unsafe { write!(f, "{:p}, {:X}, {}", self.ptr, self.bits, self.f64) }
@@ -196,38 +270,42 @@ impl PartialEq for Value {
   }
 }
 
-impl Object for Value {
-  fn set(&mut self, name: &str, value: Value) {
-    (self.vtable().set)(self.pointer(), name, value)
-  }
-
-  fn get(&self, name: &str) -> Option<Value> {
-    (self.vtable().get)(self.pointer(), name)
-  }
-
-  fn drop(&mut self) {
-    (self.vtable().drop)(self.pointer())
-  }
-}
-
 struct VTable {
-  kind: fn() -> TypeId,
-  set: fn(MutVoid, name: &str, value: Value),
-  get: fn(ConstVoid, name: &str) -> Option<Value>,
+  set: fn(MutVoid, name: &str, value: Value) -> ObjectResult<()>,
+  get: fn(ConstVoid, name: &str) -> ObjectResult<Value>,
+  add: fn(ConstVoid, other: Value) -> ObjectResult<Value>,
+  sub: fn(ConstVoid, other: Value) -> ObjectResult<Value>,
+  sub_inv: fn(ConstVoid, other: Value) -> ObjectResult<Value>,
+  mul: fn(ConstVoid, other: Value) -> ObjectResult<Value>,
+  div: fn(ConstVoid, other: Value) -> ObjectResult<Value>,
+  div_inv: fn(ConstVoid, other: Value) -> ObjectResult<Value>,
+  rem: fn(ConstVoid, other: Value) -> ObjectResult<Value>,
+  rem_inv: fn(ConstVoid, other: Value) -> ObjectResult<Value>,
   drop: fn(MutVoid),
   dealloc: fn(MutVoid),
+  kind: fn() -> TypeId,
+  basic_desc: fn() -> &'static str,
 }
 
 impl VTable {
   fn new<T: Object>() -> Self {
     Self {
-      kind: || <T as Object>::kind(),
       set: |this, name, value| {
         <T as Object>::set(unsafe { &mut *Self::void_to_mut(this) }, name, value)
       },
       get: |this, name| <T as Object>::get(unsafe { &*Self::void_to(this) }, name),
+      add: |this, other| <T as Object>::add(unsafe { &*Self::void_to(this) }, other),
+      sub: |this, other| <T as Object>::sub(unsafe { &*Self::void_to(this) }, other),
+      sub_inv: |this, other| <T as Object>::sub_inv(unsafe { &*Self::void_to(this) }, other),
+      mul: |this, other| <T as Object>::mul(unsafe { &*Self::void_to(this) }, other),
+      div: |this, other| <T as Object>::div(unsafe { &*Self::void_to(this) }, other),
+      div_inv: |this, other| <T as Object>::div_inv(unsafe { &*Self::void_to(this) }, other),
+      rem: |this, other| <T as Object>::rem(unsafe { &*Self::void_to(this) }, other),
+      rem_inv: |this, other| <T as Object>::rem_inv(unsafe { &*Self::void_to(this) }, other),
       drop: |this| <T as Object>::drop(unsafe { &mut *Self::void_to_mut(this) }),
       dealloc: |this| <T as Object>::dealloc(this as *mut T),
+      kind: || <T as Object>::kind(),
+      basic_desc: || <T as Object>::basic_desc(),
     }
   }
 
@@ -249,15 +327,107 @@ pub trait Object
 where
   Self: Sized + 'static,
 {
+  #[allow(unused_variables)]
+  fn set(&mut self, name: &str, value: Value) -> ObjectResult<()> {
+    Err(UnimplementedFunction::Set.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn get(&self, name: &str) -> ObjectResult<Value> {
+    Err(UnimplementedFunction::Get.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn add(&self, other: Value) -> ObjectResult<Value> {
+    Err(UnimplementedFunction::Add.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn sub(&self, other: Value) -> ObjectResult<Value> {
+    Err(UnimplementedFunction::Sub.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn sub_inv(&self, other: Value) -> ObjectResult<Value> {
+    Err(UnimplementedFunction::SubInv.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn mul(&self, other: Value) -> ObjectResult<Value> {
+    Err(UnimplementedFunction::Mul.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn div(&self, other: Value) -> ObjectResult<Value> {
+    Err(UnimplementedFunction::Div.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn div_inv(&self, other: Value) -> ObjectResult<Value> {
+    Err(UnimplementedFunction::DivInv.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn rem(&self, other: Value) -> ObjectResult<Value> {
+    Err(UnimplementedFunction::Rem.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn rem_inv(&self, other: Value) -> ObjectResult<Value> {
+    Err(UnimplementedFunction::RemInv.to_string())
+  }
+
+  fn drop(&mut self) {}
+
+  // override this only if necessary
+  fn dealloc(this: *mut Self) {
+    consume::<Self>(this);
+  }
+
+  // below this line should not to be reimplemented by the user
+
   fn kind() -> TypeId {
     TypeId::of::<Self>()
   }
 
-  fn set(&mut self, name: &str, value: Value);
-  fn get(&self, name: &str) -> Option<Value>;
-  fn drop(&mut self) {}
-  fn dealloc(this: *mut Self) {
-    consume::<Self>(this);
+  fn basic_desc() -> &'static str {
+    std::any::type_name::<Self>()
+  }
+}
+
+pub enum UnimplementedFunction {
+  Set,
+  Get,
+  Add,
+  Sub,
+  SubInv,
+  Mul,
+  Div,
+  DivInv,
+  Rem,
+  RemInv,
+  Custom(String),
+}
+
+impl Display for UnimplementedFunction {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    write!(
+      f,
+      "{} is unimplemented",
+      match self {
+        UnimplementedFunction::Set => "set",
+        UnimplementedFunction::Get => "get",
+        UnimplementedFunction::Add => "add",
+        UnimplementedFunction::Sub => "sub",
+        UnimplementedFunction::SubInv => "sub_inv",
+        UnimplementedFunction::Mul => "mul",
+        UnimplementedFunction::Div => "div",
+        UnimplementedFunction::DivInv => "div_inv",
+        UnimplementedFunction::Rem => "rem",
+        UnimplementedFunction::RemInv => "rem_inv",
+        UnimplementedFunction::Custom(s) => s,
+      }
+    )
   }
 }
 
@@ -276,18 +446,28 @@ impl<T: Object> AllocatedObject<T> {
   }
 }
 
+pub trait Assign<T>: From<T>
+where
+  Self: Sized,
+{
+  fn assign(&mut self, t: T) {
+    *self = Self::from(t);
+  }
+}
+
 #[derive(Default)]
 pub struct Struct {
   pub members: BTreeMap<String, Value>,
 }
 
 impl Object for Struct {
-  fn set(&mut self, name: &str, value: Value) {
+  fn set(&mut self, name: &str, value: Value) -> ObjectResult<()> {
     self.members.insert(name.to_string(), value);
+    Ok(())
   }
 
-  fn get(&self, name: &str) -> Option<Value> {
-    self.members.get(name).cloned()
+  fn get(&self, name: &str) -> ObjectResult<Value> {
+    Ok(self.members.get(name).cloned().unwrap_or_default())
   }
 }
 
