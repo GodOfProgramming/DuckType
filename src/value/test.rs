@@ -137,21 +137,12 @@ impl Object for UnimplementedObject {}
 #[fixture(ValueTest)]
 mod unit_tests {
 
-  
-
   use super::*;
 
   #[test]
   fn nil_value_is_default(_: &mut ValueTest) {
     let v = Value::default();
     assert!(v.is_nil());
-  }
-
-  #[test]
-  fn integers_supported(_: &mut ValueTest) {
-    let v = Value::from(123);
-    assert!(v.is_i32());
-    assert_eq!(v.as_i32(), 123);
   }
 
   #[test]
@@ -162,11 +153,18 @@ mod unit_tests {
   }
 
   #[test]
+  fn integers_supported(_: &mut ValueTest) {
+    let v = Value::from(123);
+    assert!(v.is_i32());
+    assert_eq!(v.as_i32(), 123);
+  }
+
+  #[test]
   fn structs_supported(_: &mut ValueTest) {
     let mut v = Value::new_struct();
     assert!(v.is_obj::<Struct>());
     v.set("foo", 123.into()).unwrap();
-    assert_eq!(v.get("foo"), Value::from(123));
+    assert_eq!(v.get("foo"), 123.into());
     assert!(v.set("field", ImplementedObject::default().into()).is_ok());
     assert!(v.get("field").is_obj::<ImplementedObject>());
   }
@@ -178,7 +176,7 @@ mod unit_tests {
     {
       let mut v = Value::from(ImplementedObject::new(&mut x));
       v.set("field", 123.into()).unwrap();
-      assert_eq!(v.get("field"), Value::from(123));
+      assert_eq!(v.get("field"), 123.into());
     }
 
     assert!(x);
@@ -225,19 +223,19 @@ mod unit_tests {
     let other = Value::from(other);
 
     assert!(obj.set("field", 15.into()).is_ok());
-    assert_eq!(obj.get("field"), Value::from(15));
+    assert_eq!(obj.get("field"), 15.into());
 
-    assert_eq!(obj.add(1.into()), Value::from(16));
-    assert_eq!(obj.sub(1.into()), Value::from(14));
-    assert_eq!(obj.mul(2.into()), Value::from(30));
-    assert_eq!(obj.div(3.into()), Value::from(5));
-    assert_eq!(obj.rem(7.into()), Value::from(1));
+    assert_eq!(obj.add(1.into()), 16.into());
+    assert_eq!(obj.sub(1.into()), 14.into());
+    assert_eq!(obj.mul(2.into()), 30.into());
+    assert_eq!(obj.div(3.into()), 5.into());
+    assert_eq!(obj.rem(7.into()), 1.into());
 
-    assert_eq!(obj.add(other.clone()), Value::from(20));
-    assert_eq!(obj.sub(other.clone()), Value::from(10));
-    assert_eq!(obj.mul(other.clone()), Value::from(75));
-    assert_eq!(obj.div(other.clone()), Value::from(3));
-    assert_eq!(obj.rem(other.clone()), Value::from(0));
+    assert_eq!(obj.add(other.clone()), 20.into());
+    assert_eq!(obj.sub(other.clone()), 10.into());
+    assert_eq!(obj.mul(other.clone()), 75.into());
+    assert_eq!(obj.div(other.clone()), 3.into());
+    assert_eq!(obj.rem(other.clone()), 0.into());
 
     assert_eq!(other.as_obj::<ImplementedObject>().field, 5);
   }
@@ -247,7 +245,7 @@ mod unit_tests {
     let mut obj = UnimplementedObject;
 
     assert!(obj.set("", Value::nil).is_err());
-    assert!(obj.get("").is_err(), "{}", obj.get(""));
+    assert!(obj.get("").is_err());
     assert!(obj.add(Value::nil).is_err());
     assert!(obj.sub(Value::nil).is_err());
     assert!(obj.mul(Value::nil).is_err());

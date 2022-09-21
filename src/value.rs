@@ -7,8 +7,6 @@ use std::{
 };
 pub use tags::*;
 
-
-
 mod builtin_types;
 mod tags;
 #[cfg(test)]
@@ -190,6 +188,17 @@ impl Value {
 
   pub fn basic_desc(&self) -> &'static str {
     (self.vtable().basic_desc)()
+  }
+
+  // utility
+
+  /// Executes f only if self is nil, otherwise returns self
+  pub fn or_else<F: FnOnce() -> Self>(self, f: F) -> Self {
+    if self.is_nil() {
+      f()
+    } else {
+      self
+    }
   }
 
   fn pointer(&self) -> MutVoid {
