@@ -1,3 +1,5 @@
+use crate::{Env, ExecutionThread};
+
 use super::{AllocatedObject, Value, META_OFFSET};
 pub use array::Array;
 pub use error::Error;
@@ -29,6 +31,22 @@ where
   #[allow(unused_variables)]
   fn get(&self, name: &str) -> Value {
     Value::new_err(UnimplementedFunction::Get.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Vec<Value>) -> Value {
+    Value::new_err(UnimplementedFunction::Call.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn call_method(
+    &mut self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    this: Value,
+    args: Vec<Value>,
+  ) -> Value {
+    Value::new_err(UnimplementedFunction::Call.to_string())
   }
 
   #[allow(unused_variables)]
@@ -77,6 +95,7 @@ where
 pub enum UnimplementedFunction {
   Set,
   Get,
+  Call,
   Add,
   Sub,
   Mul,
@@ -93,6 +112,7 @@ impl Display for UnimplementedFunction {
       match self {
         UnimplementedFunction::Set => "set",
         UnimplementedFunction::Get => "get",
+        UnimplementedFunction::Call => "call",
         UnimplementedFunction::Add => "add",
         UnimplementedFunction::Sub => "sub",
         UnimplementedFunction::Mul => "mul",

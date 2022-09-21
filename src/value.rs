@@ -7,6 +7,8 @@ use std::{
 };
 pub use tags::*;
 
+use crate::{Env, ExecutionThread};
+
 mod builtin_types;
 mod tags;
 #[cfg(test)]
@@ -140,6 +142,13 @@ impl Value {
     self.convert()
   }
 
+  pub fn new_native<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Value + 'static>(
+    name: &str,
+    f: F,
+  ) -> Self {
+    Self::from(NativeFn::new(name, f))
+  }
+
   // obj pointer
 
   pub fn is_obj<T: Object>(&self) -> bool {
@@ -164,6 +173,10 @@ impl Value {
 
   pub fn get(&self, name: &str) -> Value {
     (self.vtable().get)(self.pointer(), name)
+  }
+
+  pub fn call(&self, thread: &mut ExecutionThread, env: &mut Env, args: Vec<Value>) -> Value {
+    (self.vtable().call)(self.pointer(), thread, env, args)
   }
 
   pub fn add(&self, other: Value) -> Value {
@@ -290,7 +303,15 @@ impl From<f64> for Value {
 impl From<i32> for Value {
   fn from(item: i32) -> Self {
     Self {
-      bits: (item as u64) | (Tag::I32 as u64),
+      bits: unsafe { mem::transmute::<i32, u32>(item) as u64 } | I32_TAG,
+    }
+  }
+}
+
+impl From<char> for Value {
+  fn from(item: char) -> Self {
+    Self {
+      bits: unsafe { mem::transmute::<char, u32>(item) as u64 } | CHAR_TAG,
     }
   }
 }
@@ -357,6 +378,7 @@ impl PartialEq for Value {
 struct VTable {
   set: fn(MutVoid, name: &str, value: Value) -> Result<(), Error>,
   get: fn(ConstVoid, name: &str) -> Value,
+  call: fn(MutVoid, &mut ExecutionThread, &mut Env, Vec<Value>) -> Value,
   add: fn(ConstVoid, other: Value) -> Value,
   sub: fn(ConstVoid, other: Value) -> Value,
   mul: fn(ConstVoid, other: Value) -> Value,
@@ -375,6 +397,9 @@ impl VTable {
         <T as Object>::set(unsafe { &mut *Self::void_to_mut(this) }, name, value)
       },
       get: |this, name| <T as Object>::get(unsafe { &*Self::void_to(this) }, name),
+      call: |this, thread, env, args| {
+        <T as Object>::call(unsafe { &mut *Self::void_to_mut(this) }, thread, env, args)
+      },
       add: |this, other| <T as Object>::add(unsafe { &*Self::void_to(this) }, other),
       sub: |this, other| <T as Object>::sub(unsafe { &*Self::void_to(this) }, other),
       mul: |this, other| <T as Object>::mul(unsafe { &*Self::void_to(this) }, other),

@@ -4,10 +4,46 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
-#[derive(Default)]
 pub struct Str {
   str: String,
   obj: Struct,
+
+  char_at: Value,
+}
+
+impl Str {
+  fn register_char_at(&mut self) {
+    self.char_at = Value::new_native("char_at", |_thread, _env, args| {
+      let index = args.get(1);
+
+      if let Some(index) = index {
+        if index.is_i32() {
+          let index = index.as_i32() as usize;
+          if let Some(c) = self.str.chars().nth(index) {
+            Value::from(c)
+          } else {
+            Value::new_err(format!("index out of bounds"))
+          }
+        } else {
+          Value::nil
+        }
+      } else {
+        Value::nil
+      }
+    });
+  }
+}
+
+impl Default for Str {
+  fn default() -> Self {
+    let mut str = Self {
+      ..Default::default()
+    };
+
+    str.register_char_at();
+
+    str
+  }
 }
 
 impl Object for Str {
@@ -28,6 +64,7 @@ impl Object for Str {
           result.into()
         }
       }
+      "char_at" => self.char_at.clone(),
       _ => Value::nil,
     })
   }
@@ -91,5 +128,15 @@ mod test {
     let mut s = Str::from("0123456789");
     s.set("len", Value::from(0)).unwrap();
     assert_eq!(s.get("len"), 0.into());
+  }
+
+  #[test]
+  fn str_supports_char_at() {
+    let mut s = Str::from("ab");
+    assert_eq!(s.get("char_at").call(
+      &mut Default::default(),
+      &mut Default::default(),
+      vec![0.into()]
+    ))
   }
 }
