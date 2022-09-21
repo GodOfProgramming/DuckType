@@ -13,24 +13,24 @@ pub struct Str {
 
 impl Str {
   fn register_char_at(&mut self) {
-    self.char_at = Value::new_native("char_at", |_thread, _env, args| {
-      let index = args.get(1);
+    //  self.char_at = Value::new_native("char_at", |_thread, _env, args| {
+    //    let index = args.get(1);
 
-      if let Some(index) = index {
-        if index.is_i32() {
-          let index = index.as_i32() as usize;
-          if let Some(c) = self.str.chars().nth(index) {
-            Value::from(c)
-          } else {
-            Value::new_err(format!("index out of bounds"))
-          }
-        } else {
-          Value::nil
-        }
-      } else {
-        Value::nil
-      }
-    });
+    //    if let Some(index) = index {
+    //      if index.is_i32() {
+    //        let index = index.as_i32() as usize;
+    //        if let Some(c) = self.str.chars().nth(index) {
+    //          Value::from(c)
+    //        } else {
+    //          Value::new_err(format!("index out of bounds"))
+    //        }
+    //      } else {
+    //        Value::nil
+    //      }
+    //    } else {
+    //      Value::nil
+    //    }
+    //  });
   }
 }
 
@@ -132,11 +132,6 @@ mod test {
 
   #[test]
   fn str_supports_char_at() {
-    let mut s = Str::from("ab");
-    assert_eq!(s.get("char_at").call(
-      &mut Default::default(),
-      &mut Default::default(),
-      vec![0.into()]
-    ))
+    todo!()
   }
 }

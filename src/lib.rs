@@ -13,7 +13,6 @@ pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
 use ptr::SmartPtr;
 
-
 use std::{
   fs,
   path::{Path, PathBuf},
@@ -514,15 +513,18 @@ impl ExecutionThread {
     let value = match self.stack_pop() {
       Some(obj) => match self.current_frame.ctx.const_at(location) {
         Some(name) => match name {
-          Value::String(ident) => match obj {
-            Value::Struct(obj) => Ok(obj.get(ident)),
-            Value::Instance(obj) => Ok(obj.get(ident)),
-            Value::Class(class) => Ok(class.get_static(ident)),
-            Value::Nil => {
-              Err(self.error(opcode, String::from("cannot lookup a member on nil type")))
+          Value::String(ident) => {
+            self.current_frame.last_lookup = obj.clone();
+            match obj {
+              Value::Struct(obj) => Ok(obj.get(ident)),
+              Value::Instance(obj) => Ok(obj.get(ident)),
+              Value::Class(class) => Ok(class.get_static(ident)),
+              Value::Nil => {
+                Err(self.error(opcode, String::from("cannot lookup a member on nil type")))
+              }
+              v => Err(self.error(opcode, format!("invalid type for member access: {}", v))),
             }
-            v => Err(self.error(opcode, format!("invalid type for member access: {}", v))),
-          },
+          }
           v => Err(self.error(opcode, format!("invalid member name {}", v))),
         },
         None => Err(self.error(opcode, String::from("no constant specified by index"))),
@@ -757,10 +759,22 @@ impl ExecutionThread {
 
   #[inline]
   fn exec_call(&mut self, env: &mut Env, opcode: &OpCode, airity: usize) -> ExecResult {
-    if let Some(mut callable) = self.stack_pop() {
+    if let Some(callable) = self.stack_pop() {
       let args = self.stack_drain_from(airity);
 
-      let res = callable.call(self, env, args).map_err(|errors| {
+      let res = match callable {
+        Value::Function(mut f) => f.call(self, args),
+        Value::Closure(mut c) => c.call(self, args),
+        Value::NativeFunction(mut f) => f.call(self, env, args).map_err(|e| vec![e]),
+        Value::Method(mut m) => {
+          let mut this = Value::Nil;
+          std::mem::swap(&mut this, &mut self.current_frame.last_lookup);
+          m.call(self, env, this, args)
+        }
+        Value::Class(c) => Class::construct(c.clone(), self, env, args),
+        _ => Err(vec![format!("unable to call non callable '{}'", callable)]),
+      }
+      .map_err(|errors| {
         errors
           .into_iter()
           .map(|e| self.error_at(|opcode_ref| Error::from_ref(e, opcode, opcode_ref)))

@@ -11,5 +11,5 @@ package: substitute
 	vsce package
 
 .PHONY: install
-install: substitute
+install: package
 	code --install-extension simplescript-syntax-highlights-0.0.1.vsix

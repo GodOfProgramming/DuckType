@@ -625,6 +625,7 @@ pub struct StackFrame {
   pub ip: usize,
   pub ctx: SmartPtr<Context>,
   pub stack: Vec<Value>,
+  pub last_lookup: Value,
 }
 
 impl StackFrame {
@@ -633,6 +634,7 @@ impl StackFrame {
       ip: Default::default(),
       ctx,
       stack: Default::default(),
+      last_lookup: Default::default(),
     }
   }
 

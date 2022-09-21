@@ -79,29 +79,13 @@ impl Value {
     }
   }
 
-  pub fn call(
-    &mut self,
-    thread: &mut ExecutionThread,
-    env: &mut Env,
-    args: Vec<Value>,
-  ) -> Result<(), Vec<String>> {
-    match self {
-      Value::Function(f) => f.call(thread, args),
-      Value::Closure(c) => c.call(thread, args),
-      Value::NativeFunction(f) => f.call(thread, env, args).map_err(|e| vec![e]),
-      Value::Method(m) => m.call(thread, env, args),
-      Value::Class(c) => Class::construct(c.clone(), thread, env, args),
-      _ => return Err(vec![format!("unable to call non callable '{}'", self)]),
-    }
-  }
-
   pub fn index(
     &mut self,
     thread: &mut ExecutionThread,
     env: &mut Env,
     index: Value,
   ) -> Result<(), String> {
-    match self {
+    match self.clone() {
       Value::List(values) => match index {
         Value::Num(n) => {
           if n == n as usize as f64 {
@@ -132,7 +116,9 @@ impl Value {
         }
         _ => Err(format!("cannot index string with {}", index)),
       },
-      Value::Instance(instance) => instance.call_method("__index__", thread, env, vec![index]),
+      Value::Instance(mut instance) => {
+        instance.call_method("__index__", thread, env, self.clone(), vec![index])
+      }
       _ => Err(format!("cannot index {}", self)),
     }
   }
@@ -167,6 +153,12 @@ impl Value {
     call: F,
   ) -> Self {
     Self::new((name.to_string(), call))
+  }
+}
+
+impl Default for Value {
+  fn default() -> Self {
+    Self::Nil
   }
 }
 
@@ -481,7 +473,7 @@ impl PartialEq for Value {
       }
       Self::Method(a) => {
         if let Self::Method(b) = other {
-          a.this.raw() == b.this.raw() && a.function == b.function
+          a.function == b.function
         } else {
           false
         }
@@ -820,13 +812,12 @@ impl Display for Struct {
 
 #[derive(Clone)]
 pub struct Method {
-  this: SmartPtr<Instance>,
   pub function: Value,
 }
 
 impl Method {
-  pub fn new(this: SmartPtr<Instance>, function: Value) -> Self {
-    Self { this, function }
+  pub fn new(function: Value) -> Self {
+    Self { function }
   }
 }
 
@@ -835,6 +826,7 @@ impl Method {
     &mut self,
     thread: &mut ExecutionThread,
     env: &mut Env,
+    this: Value,
     mut args: Vec<Value>,
   ) -> Result<(), Vec<String>> {
     match &mut self.function {
@@ -854,7 +846,7 @@ impl Method {
         thread.new_frame(function.ctx.clone());
 
         let mut args_with_self = Vec::with_capacity(1 + args.len());
-        args_with_self.push(Value::Instance(self.this.clone()));
+        args_with_self.push(this);
         args_with_self.extend(args);
 
         thread.set_stack(args_with_self);
@@ -862,8 +854,8 @@ impl Method {
         Ok(())
       }
       Value::NativeFunction(native) => {
-        let mut args_with_self = Vec::with_capacity(args.len() + 1);
-        args_with_self.push(Value::Instance(self.this.clone()));
+        let mut args_with_self = Vec::with_capacity(1 + args.len());
+        args_with_self.push(this);
         args_with_self.extend(args);
 
         native
@@ -902,7 +894,7 @@ impl Class {
     let mut instance = SmartPtr::new(Instance::new(Struct::default(), class.clone()));
 
     for (name, function) in class.methods.iter() {
-      let method = Method::new(instance.clone(), function.clone());
+      let method = Method::new(function.clone());
       instance.set_method(name.clone(), method);
     }
 
@@ -910,7 +902,15 @@ impl Class {
       let mut args_with_self = Vec::with_capacity(args.len() + 1);
       args_with_self.push(Value::Instance(instance));
       args_with_self.extend(args);
-      initializer.call(thread, env, args_with_self)
+
+      match initializer {
+        Value::Function(f) => f.call(thread, args_with_self),
+        Value::NativeFunction(n) => n.call(thread, env, args_with_self).map_err(|e| vec![e]),
+        _ => Err(vec![format!(
+          "invalid type for constructor {}",
+          initializer
+        )]),
+      }
     } else {
       thread.stack_push(Value::Instance(instance));
       Ok(())
@@ -1017,10 +1017,13 @@ impl Instance {
     name: N,
     thread: &mut ExecutionThread,
     env: &mut Env,
+    this: Value,
     args: Vec<Value>,
   ) -> Result<(), String> {
     if let Some(method) = self.methods.get_mut(&name.to_string()) {
-      method.call(thread, env, args).map_err(|e| e.join(", "))
+      method
+        .call(thread, env, this, args)
+        .map_err(|e| e.join(", "))
     } else {
       Err(format!(
         "no method found on object with name {}",
