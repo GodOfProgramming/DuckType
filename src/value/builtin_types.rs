@@ -3,7 +3,7 @@ use crate::{Env, ExecutionThread};
 use super::{AllocatedObject, Value, META_OFFSET};
 pub use array::Array;
 pub use error::Error;
-pub use native::NativeFn;
+pub use native::{NativeFn, NativeMethod};
 pub use r#struct::Struct;
 use std::{
   any::TypeId,
@@ -39,7 +39,7 @@ where
   }
 
   #[allow(unused_variables)]
-  fn call_method(
+  fn method_call(
     &mut self,
     thread: &mut ExecutionThread,
     env: &mut Env,

@@ -149,6 +149,15 @@ impl Value {
     Self::from(NativeFn::new(name, f))
   }
 
+  pub fn new_native_method<
+    F: FnMut(&mut ExecutionThread, &mut Env, Value, Vec<Value>) -> Value + 'static,
+  >(
+    name: &str,
+    f: F,
+  ) -> Self {
+    Self::from(NativeMethod::new(name, f))
+  }
+
   // obj pointer
 
   pub fn is_obj<T: Object>(&self) -> bool {
@@ -177,6 +186,16 @@ impl Value {
 
   pub fn call(&self, thread: &mut ExecutionThread, env: &mut Env, args: Vec<Value>) -> Value {
     (self.vtable().call)(self.pointer(), thread, env, args)
+  }
+
+  pub fn method_call(
+    &self,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    this: Value,
+    args: Vec<Value>,
+  ) -> Value {
+    (self.vtable().method_call)(self.pointer(), thread, env, this, args)
   }
 
   pub fn add(&self, other: Value) -> Value {
@@ -316,6 +335,12 @@ impl From<char> for Value {
   }
 }
 
+impl From<&str> for Value {
+  fn from(item: &str) -> Self {
+    Value::allocate::<Str>(item.into())
+  }
+}
+
 impl From<String> for Value {
   fn from(item: String) -> Self {
     Value::allocate::<Str>(item.into())
@@ -379,6 +404,7 @@ struct VTable {
   set: fn(MutVoid, name: &str, value: Value) -> Result<(), Error>,
   get: fn(ConstVoid, name: &str) -> Value,
   call: fn(MutVoid, &mut ExecutionThread, &mut Env, Vec<Value>) -> Value,
+  method_call: fn(MutVoid, &mut ExecutionThread, &mut Env, Value, Vec<Value>) -> Value,
   add: fn(ConstVoid, other: Value) -> Value,
   sub: fn(ConstVoid, other: Value) -> Value,
   mul: fn(ConstVoid, other: Value) -> Value,
@@ -399,6 +425,15 @@ impl VTable {
       get: |this, name| <T as Object>::get(unsafe { &*Self::void_to(this) }, name),
       call: |this, thread, env, args| {
         <T as Object>::call(unsafe { &mut *Self::void_to_mut(this) }, thread, env, args)
+      },
+      method_call: |this, thread, env, caller, args| {
+        <T as Object>::method_call(
+          unsafe { &mut *Self::void_to_mut(this) },
+          thread,
+          env,
+          caller,
+          args,
+        )
       },
       add: |this, other| <T as Object>::add(unsafe { &*Self::void_to(this) }, other),
       sub: |this, other| <T as Object>::sub(unsafe { &*Self::void_to(this) }, other),
@@ -450,5 +485,3 @@ where
     *self = Self::from(t);
   }
 }
-
-pub trait ValueType: Object {}

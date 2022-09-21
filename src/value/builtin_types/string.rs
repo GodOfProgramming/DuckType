@@ -11,38 +11,32 @@ pub struct Str {
   char_at: Value,
 }
 
-impl Str {
-  fn register_char_at(&mut self) {
-    //  self.char_at = Value::new_native("char_at", |_thread, _env, args| {
-    //    let index = args.get(1);
-
-    //    if let Some(index) = index {
-    //      if index.is_i32() {
-    //        let index = index.as_i32() as usize;
-    //        if let Some(c) = self.str.chars().nth(index) {
-    //          Value::from(c)
-    //        } else {
-    //          Value::new_err(format!("index out of bounds"))
-    //        }
-    //      } else {
-    //        Value::nil
-    //      }
-    //    } else {
-    //      Value::nil
-    //    }
-    //  });
-  }
-}
-
 impl Default for Str {
   fn default() -> Self {
-    let mut str = Self {
-      ..Default::default()
-    };
-
-    str.register_char_at();
-
-    str
+    Self {
+      str: Default::default(),
+      obj: Default::default(),
+      char_at: Value::new_native_method("char_at", |_thread, _env, this, args| {
+        if this.is_str() {
+          if let Some(index) = args.get(0) {
+            if index.is_i32() {
+              let this = this.as_str();
+              this
+                .chars()
+                .nth(index.as_i32() as usize)
+                .map(|c| c.into())
+                .unwrap_or_default()
+            } else {
+              Value::nil
+            }
+          } else {
+            Value::nil
+          }
+        } else {
+          Value::nil
+        }
+      }),
+    }
   }
 }
 
@@ -132,6 +126,16 @@ mod test {
 
   #[test]
   fn str_supports_char_at() {
-    todo!()
+    let s = Value::from("4321");
+    let char_at = s.get("char_at");
+    assert_eq!(
+      char_at.method_call(
+        &mut Default::default(),
+        &mut Default::default(),
+        s,
+        vec![0.into()],
+      ),
+      Value::from('4')
+    );
   }
 }
