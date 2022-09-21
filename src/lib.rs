@@ -12,11 +12,9 @@ pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
 use ptr::SmartPtr;
-use std::env;
-use std::iter::FromIterator;
+
+
 use std::{
-  collections::BTreeMap,
-  ffi::OsStr,
   fs,
   path::{Path, PathBuf},
 };

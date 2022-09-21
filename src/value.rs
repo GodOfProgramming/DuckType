@@ -7,7 +7,7 @@ use std::{
 };
 pub use tags::*;
 
-use crate::dbg::here;
+
 
 mod builtin_types;
 mod tags;
@@ -145,7 +145,7 @@ impl Value {
   // obj pointer
 
   pub fn is_obj<T: Object>(&self) -> bool {
-    (self.is_type::<POINTER_TAG>() && self.type_id() == T::type_id())
+    self.is_type::<POINTER_TAG>() && self.type_id() == T::type_id()
   }
 
   pub fn as_obj<T: Object>(&self) -> &mut T {

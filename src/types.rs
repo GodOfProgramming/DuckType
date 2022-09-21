@@ -7,7 +7,7 @@ use std::{
   cmp::{Ordering, PartialEq, PartialOrd},
   collections::BTreeMap,
   fmt::{self, Debug, Display, Formatter},
-  ops::{Add, Deref, Div, Index, IndexMut, Mul, Neg, Not, RangeBounds, Rem, Sub},
+  ops::{Add, Div, Index, IndexMut, Mul, Neg, Not, RangeBounds, Rem, Sub},
   slice::Iter,
   time::Instant,
 };

@@ -98,7 +98,7 @@ fn load_std() -> Value {
         let rest = args.drain(1..);
 
         match this {
-          Value::Instance(mut instance) => match &mut instance.get("_buffer") {
+          Value::Instance(instance) => match &mut instance.get("_buffer") {
             Value::List(list) => list.extend(rest.into_iter()),
             v => return Err(format!("somehow called push on non array type {}", v)),
           },
