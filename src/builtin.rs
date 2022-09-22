@@ -1,4 +1,4 @@
-use super::{Class, New, Struct, Value};
+use super::{Class, Struct, Value};
 use enum_iterator::{all, Sequence};
 use std::collections::BTreeMap;
 

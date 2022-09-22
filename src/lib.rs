@@ -1,7 +1,6 @@
 mod builtin;
 mod code;
 mod dbg;
-pub mod types;
 pub mod value;
 
 #[cfg(test)]
@@ -11,24 +10,22 @@ pub use builtin::Library;
 pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
+use dbg::RuntimeError;
 use ptr::SmartPtr;
+use value::Object;
 
+use std::ops::Deref;
 use std::{
   fs,
   path::{Path, PathBuf},
 };
-pub use types::{Class, Struct, Value, ValueOpResult};
-use types::{Closure, Error};
+pub use value::{Class, Struct, Value};
 
-pub trait New<T> {
-  fn new(item: T) -> Self;
-}
-
-type ExecResult = Result<(), Vec<Error>>;
-type ExecBoolResult = Result<bool, Vec<Error>>;
+type ExecResult = Result<(), Vec<RuntimeError>>;
+type ExecBoolResult = Result<bool, Vec<RuntimeError>>;
 
 pub mod prelude {
-  pub use super::{Context, Env, ExecutionThread, Library, New, RunResult, Value, Vm};
+  pub use super::{Context, Env, ExecutionThread, Library, RunResult, Value, Vm};
 }
 
 // yield must store ip and stack and return ctx
@@ -89,8 +86,8 @@ impl ExecutionThread {
     f: F,
   ) -> ExecResult {
     let name = if let Some(name) = self.current_frame.ctx.global_const_at(index) {
-      if let Value::String(name) = name {
-        Ok(name.clone())
+      if name.is_str() {
+        Ok(name.as_str().clone())
       } else {
         Err(self.error(
           opcode,
@@ -105,8 +102,8 @@ impl ExecutionThread {
   }
 
   #[cold]
-  fn error<M: ToString>(&self, opcode: &OpCode, msg: M) -> Vec<Error> {
-    vec![self.error_at(|opcode_ref| Error::from_ref(msg, opcode, opcode_ref))]
+  fn error<M: ToString>(&self, opcode: &OpCode, msg: M) -> Vec<RuntimeError> {
+    vec![self.error_at(|opcode_ref| RuntimeError::from_ref(msg, opcode, opcode_ref))]
   }
 
   #[inline]
@@ -115,21 +112,21 @@ impl ExecutionThread {
     file: PathBuf,
     ctx: SmartPtr<Context>,
     env: &mut Env,
-  ) -> Result<RunResult, Vec<Error>> {
+  ) -> Result<RunResult, Vec<RuntimeError>> {
     self.opened_files = vec![(0, file)];
     self.reset();
     self.current_frame.ctx = ctx;
     self.execute(env)
   }
 
-  pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<RunResult, Vec<Error>> {
+  pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<RunResult, Vec<RuntimeError>> {
     self.current_frame = y.current_frame;
     self.stack_frames = y.stack_frames;
     self.opened_files = y.opened_files;
     self.execute(env)
   }
 
-  fn execute(&mut self, env: &mut Env) -> Result<RunResult, Vec<Error>> {
+  fn execute(&mut self, env: &mut Env) -> Result<RunResult, Vec<RuntimeError>> {
     loop {
       #[cfg(feature = "runtime-disassembly")]
       {
@@ -137,7 +134,6 @@ impl ExecutionThread {
       }
 
       let mut returned_value = false;
-      let mut return_self = false;
 
       while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
         #[cfg(feature = "runtime-disassembly")]
@@ -226,7 +222,6 @@ impl ExecutionThread {
           OpCode::Index => self.exec_index(&opcode, env)?,
           OpCode::CreateList(num_items) => self.exec_create_list(num_items),
           OpCode::CreateClosure => self.exec_create_closure(&opcode)?,
-          OpCode::DefaultConstructorRet => return_self = true,
           OpCode::Yield => {
             self.current_frame.ip += 1;
 
@@ -254,15 +249,12 @@ impl ExecutionThread {
         println!("<< END >>");
       }
 
-      let ret_val = if return_self {
-        // return self value, failure here is a logic error so unwrap
-        self.stack_index_0().unwrap()
-      } else if returned_value {
+      let ret_val = if returned_value {
         // return actual value, failure here is a logic error so unwrap
         self.stack_pop().unwrap()
       } else {
         // if implicit/void return nil
-        Value::Nil
+        Value::nil
       };
 
       let last_file = self.opened_files.last().unwrap();
@@ -310,17 +302,17 @@ impl ExecutionThread {
 
   #[inline]
   fn exec_nil(&mut self) {
-    self.stack_push(Value::Nil);
+    self.stack_push(Value::nil);
   }
 
   #[inline]
   fn exec_true(&mut self) {
-    self.stack_push(Value::new(true));
+    self.stack_push(Value::from(true));
   }
 
   #[inline]
   fn exec_false(&mut self) {
-    self.stack_push(Value::new(false));
+    self.stack_push(Value::from(false));
   }
 
   #[inline]
@@ -430,143 +422,118 @@ impl ExecutionThread {
 
   #[inline]
   fn exec_initialize_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
-    match self.stack_pop() {
-      Some(value) => match self.current_frame.ctx.const_at(location) {
-        Some(name) => match name {
-          Value::String(name) => match self.stack_peek() {
-            Some(obj) => match obj {
-              Value::Struct(mut obj) => {
-                obj.set(name, value);
-                Ok(())
-              }
-              Value::Class(mut class) => {
-                class.set_static(name, value);
-                Ok(())
-              }
-              Value::Instance(mut instance) => {
-                instance.set(name, value);
-                Ok(())
-              }
-              _ => Err(self.error(
-                opcode,
-                format!("cannot assign member to invalid type {}", obj),
-              )),
-            },
-            None => Err(self.error(opcode, String::from("no object on stack to assign to"))),
-          },
-          _ => Err(self.error(opcode, String::from("tried to assigning to non object"))),
-        },
-        None => Err(self.error(opcode, String::from("no member ident to assign to"))),
-      },
-      None => Err(self.error(
+    if let Some(value) = self.stack_pop() {
+      if let Some(name) = self.current_frame.ctx.const_at(location) {
+        if name.is_str() {
+          let name = name.as_str();
+          if value.is_struct() {
+            value.as_struct().set(name, value);
+            Ok(())
+          } else if value.is_instance() {
+            value.as_instance().set(name, value);
+            Ok(())
+          } else if value.is_class() {
+            value.as_class().set_static(name, value);
+            Ok(())
+          } else {
+            Err(self.error(
+              opcode,
+              format!("cannot assign member to invalid type {}", value),
+            ))
+          }
+        } else {
+          Err(self.error(opcode, String::from("invalid name for member")))
+        }
+      } else {
+        Err(self.error(opcode, String::from("no identifier found at index")))
+      }
+    } else {
+      Err(self.error(
         opcode,
         String::from("no value on stack to assign to member"),
-      )),
+      ))
     }
   }
 
   #[inline]
   fn exec_assign_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
-    let value = self.stack_pop();
-    let obj = self.stack_pop();
-
-    match value {
-      Some(value) => match self.current_frame.ctx.const_at(location) {
-        Some(name) => match name {
-          Value::String(name) => match obj {
-            Some(obj) => match obj {
-              Value::Struct(mut obj) => {
-                obj.set(name, value.clone());
-                self.stack_push(value);
-                Ok(())
-              }
-              Value::Class(mut class) => {
-                class.set_static(name, value.clone());
-                self.stack_push(value);
-                Ok(())
-              }
-              Value::Instance(mut instance) => {
-                instance.set(name, value.clone());
-                self.stack_push(value);
-                Ok(())
-              }
-              _ => Err(self.error(
-                opcode,
-                format!("cannot assign member to invalid type {}", obj),
-              )),
-            },
-            None => Err(self.error(opcode, String::from("no object on stack to assign to"))),
-          },
-          _ => Err(self.error(opcode, String::from("tried to assigning to non object"))),
-        },
-        None => Err(self.error(opcode, String::from("no member ident to assign to"))),
-      },
-      None => Err(self.error(
+    if let Some(value) = self.stack_pop() {
+      if let Some(obj) = self.stack_pop() {
+        if let Some(name) = self.current_frame.ctx.const_at(location) {
+          if name.is_str() {
+            let name = &name.as_str();
+            if obj.is_ptr() {
+              obj.set(name, value.clone());
+              self.stack_push(value);
+              Ok(())
+            } else {
+              Err(self.error(opcode, format!("cannot access member of primitive {}", obj)))
+            }
+          } else {
+            Err(self.error(
+              opcode,
+              String::from("constant at index is not an identifier"),
+            ))
+          }
+        } else {
+          Err(self.error(opcode, String::from("no ident found at index")))
+        }
+      } else {
+        Err(self.error(opcode, String::from("no object to assign to")))
+      }
+    } else {
+      Err(self.error(
         opcode,
         String::from("no value on stack to assign to member"),
-      )),
+      ))
     }
   }
 
   #[inline]
   fn exec_lookup_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
-    let value = match self.stack_pop() {
-      Some(obj) => match self.current_frame.ctx.const_at(location) {
-        Some(name) => match name {
-          Value::String(ident) => {
-            self.current_frame.last_lookup = obj.clone();
-            match obj {
-              Value::Struct(obj) => Ok(obj.get(ident)),
-              Value::Instance(obj) => Ok(obj.get(ident)),
-              Value::Class(class) => Ok(class.get_static(ident)),
-              Value::Nil => {
-                Err(self.error(opcode, String::from("cannot lookup a member on nil type")))
-              }
-              v => Err(self.error(opcode, format!("invalid type for member access: {}", v))),
-            }
+    if let Some(obj) = self.stack_pop() {
+      if let Some(name) = self.current_frame.ctx.const_at(location) {
+        if name.is_str() {
+          let name = name.as_str();
+          if obj.is_ptr() {
+            self.stack_push(obj.get(name));
+            self.current_frame.last_lookup = obj;
+            Ok(())
+          } else {
+            Err(self.error(opcode, format!("cannot access member of primitive {}", obj)))
           }
-          v => Err(self.error(opcode, format!("invalid member name {}", v))),
-        },
-        None => Err(self.error(opcode, String::from("no constant specified by index"))),
-      },
-      None => Err(self.error(
-        opcode,
-        String::from("no object to for member access on the stack"),
-      )),
-    }?;
-
-    self.stack_push(value);
-
-    Ok(())
+        } else {
+          Err(self.error(opcode, format!("member identifier is not a string")))
+        }
+      } else {
+        Err(self.error(opcode, format!("no identifier at index")))
+      }
+    } else {
+      Err(self.error(opcode, format!("no value on stack to perform lookup on")))
+    }
   }
 
   #[inline]
   fn exec_peek_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
-    let value = match self.stack_peek() {
-      Some(obj) => match self.current_frame.ctx.const_at(location) {
-        Some(name) => match name {
-          Value::String(ident) => match obj {
-            Value::Struct(obj) => Ok(obj.get(ident)),
-            Value::Instance(obj) => Ok(obj.get(ident)),
-            Value::Class(class) => Ok(class.get_static(ident)),
-            Value::Nil => {
-              Err(self.error(opcode, String::from("cannot lookup a member on nil type")))
-            }
-            v => Err(self.error(opcode, format!("invalid type for member access: {}", v))),
-          },
-          v => Err(self.error(opcode, format!("invalid member name {}", v))),
-        },
-        None => Err(self.error(opcode, String::from("no constant specified by index"))),
-      },
-      None => Err(self.error(
-        opcode,
-        String::from("no object to for member access on the stack"),
-      )),
-    }?;
-
-    self.stack_push(value);
-
-    Ok(())
+    if let Some(obj) = self.stack_peek() {
+      if let Some(name) = self.current_frame.ctx.const_at(location) {
+        if name.is_str() {
+          let name = &name.as_str();
+          if obj.is_ptr() {
+            self.stack_push(obj.get(name));
+            Ok(())
+          } else {
+            Err(self.error(opcode, format!("invalid type for member access: {}", v)))
+          }
+        } else {
+          Err(self.error(opcode, format!("invalid type for member access: {}", v)))
+        }
+      } else {
+        Err(self.error(opcode, format!("invalid type for member access: {}", v)))
+      }
+    } else {
+      Err(self.error(opcode, format!("invalid type for member access: {}", v)))
+    }
   }
 
   fn exec_assign_initializer(&mut self, opcode: &OpCode) -> ExecResult {
@@ -777,7 +744,7 @@ impl ExecutionThread {
       .map_err(|errors| {
         errors
           .into_iter()
-          .map(|e| self.error_at(|opcode_ref| Error::from_ref(e, opcode, opcode_ref)))
+          .map(|e| self.error_at(|opcode_ref| RuntimeError::from_ref(e, opcode, opcode_ref)))
           .collect()
       });
 

@@ -61,10 +61,10 @@ mod integration_tests {
     test.script = "ret foo;".to_string();
 
     test.load(|this, ctx, env| {
-      env.assign(String::from("foo"), Value::new("foo"));
+      env.assign(String::from("foo"), Value::from("foo"));
       match this.vm.run(TEST_FILE, ctx, env) {
         Ok(res) => match res {
-          RunResult::Value(v) => assert_eq!(Value::new("foo"), v),
+          RunResult::Value(v) => assert_eq!(Value::from("foo"), v),
           RunResult::Yield(_) => panic!("should not use yields"),
         },
         Err(err) => panic!("{:#?}", err),
@@ -81,13 +81,13 @@ mod integration_tests {
     test.load(|this, ctx, env| {
       env.create_native("test_func", |_thread, _env, args: Vec<Value>| {
         assert_eq!(args.len(), 2);
-        assert_eq!(args[0], Value::new(1f64));
-        assert_eq!(args[1], Value::new(2f64));
-        Ok(Value::new(3f64))
+        assert_eq!(args[0], Value::from(1f64));
+        assert_eq!(args[1], Value::from(2f64));
+        Ok(Value::from(3f64))
       });
       match this.vm.run("test", ctx, env) {
         Ok(res) => match res {
-          RunResult::Value(v) => assert_eq!(Value::new(3f64), v),
+          RunResult::Value(v) => assert_eq!(Value::from(3f64), v),
           RunResult::Yield(_) => panic!("should not yield"),
         },
         Err(err) => panic!("{:#?}", err),
@@ -104,7 +104,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::Nil);
+      assert_eq!(val, Value::nil);
     });
   }
 
@@ -117,7 +117,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(true));
+      assert_eq!(val, Value::from(true));
     });
   }
 
@@ -130,7 +130,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(7.2));
+      assert_eq!(val, Value::from(7.2));
     });
   }
 
@@ -143,7 +143,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(7.2));
+      assert_eq!(val, Value::from(7.2));
     });
   }
 
@@ -153,7 +153,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(1));
+      assert_eq!(val, Value::from(1));
     });
   }
 
@@ -163,7 +163,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(1));
+      assert_eq!(val, Value::from(1));
       assert!(env.lookup("bar").is_none());
     });
   }
@@ -174,7 +174,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(1));
+      assert_eq!(val, Value::from(1));
     });
   }
 
@@ -187,7 +187,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(1));
+      assert_eq!(val, Value::from(1));
     });
   }
 
@@ -197,7 +197,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(2));
+      assert_eq!(val, Value::from(2));
     });
   }
 

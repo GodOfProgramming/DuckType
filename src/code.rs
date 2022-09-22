@@ -3,11 +3,9 @@ pub mod gen;
 pub mod lex;
 pub mod opt;
 
-use super::{builtin, Library};
-use crate::{
-  types::{Error, Struct, Value},
-  ExecutionThread, New,
-};
+use crate::dbg::RuntimeError;
+
+use super::*;
 use ast::Ast;
 use gen::BytecodeGenerator;
 use lex::Scanner;
@@ -113,8 +111,6 @@ pub enum OpCode {
   CreateList(usize),
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
   CreateClosure,
-  /** Returns the argument at the 0 position, only used with class constructors as their last instruction */
-  DefaultConstructorRet,
   /** Yield at the current location */
   Yield,
 }
@@ -202,7 +198,7 @@ impl Display for Token {
 pub struct Compiler;
 
 impl Compiler {
-  pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
+  pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
     let mut scanner = Scanner::new(file, source);
 
     let (tokens, meta) = scanner
@@ -228,7 +224,7 @@ impl Compiler {
       .map_err(|errs| Self::reformat_errors(source, errs))
   }
 
-  fn reformat_errors(source: &str, errs: Vec<Error>) -> Vec<Error> {
+  fn reformat_errors(source: &str, errs: Vec<RuntimeError>) -> Vec<RuntimeError> {
     errs
       .into_iter()
       .map(|mut e| {
@@ -369,8 +365,9 @@ impl Context {
   }
 
   fn add_const(&mut self, c: Value) -> usize {
-    let string = if let Value::String(string) = &c {
-      if let Some(index) = self.strings.get(string) {
+    let string = if c.is_str() {
+      let string = c.as_str();
+      if let Some(index) = self.strings.get(string.as_str()) {
         return *index;
       }
       Some(string.clone())
@@ -415,12 +412,15 @@ impl Context {
 
   #[cfg(debug_assertions)]
   pub fn disassemble(&self) {
+    use crate::value::Type;
+
     self.display_opcodes();
 
     for value in self.consts() {
-      match value {
-        Value::Function(f) => f.context().disassemble(),
-        Value::Class(c) => {
+      match value.type_of() {
+        Type::Function => value.as_fn().context().disassemble(),
+        Type::Class => {
+          let c = value.as_class();
           if let Some(i) = &c.initializer {
             match i {
               Value::Function(f) => f.context().disassemble(),

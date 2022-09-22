@@ -21,13 +21,13 @@ impl NativeFn {
       callee: Box::new(callee),
     }
   }
-}
 
-impl Object for NativeFn {
-  fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Vec<Value>) -> Value {
+  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Vec<Value>) -> Value {
     (*self.callee)(thread, env, args)
   }
 }
+
+impl Object for NativeFn {}
 
 impl Display for NativeFn {
   fn fmt(&self, f: &mut Formatter<'_>) -> Result {
@@ -36,39 +36,31 @@ impl Display for NativeFn {
 }
 
 // type NativeMethodTrait = FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Value + 'static;
-type NativeMethodType = dyn FnMut(&mut ExecutionThread, &mut Env, Value, Vec<Value>) -> Value;
-
 pub struct NativeMethod {
-  name: String,
-  callee: Box<NativeMethodType>,
+  this: Value,
+  callee: Value,
 }
 
 impl NativeMethod {
-  pub fn new<F: FnMut(&mut ExecutionThread, &mut Env, Value, Vec<Value>) -> Value + 'static>(
-    name: &str,
-    f: F,
-  ) -> Self {
-    Self {
-      name: name.to_string(),
-      callee: Box::new(f),
-    }
+  pub fn new(this: Value, f: F) -> Self {
+    Self { this, callee: f }
   }
-}
 
-impl Object for NativeMethod {
-  fn method_call(
+  pub fn call(
     &mut self,
     thread: &mut ExecutionThread,
     env: &mut Env,
-    this: Value,
-    args: Vec<Value>,
+    mut args: Vec<Value>,
   ) -> Value {
-    (*self.callee)(thread, env, this, args)
+    args.push(self.this.clone());
+    (*self.callee)(thread, env, args)
   }
 }
 
+impl Object for NativeMethod {}
+
 impl Display for NativeMethod {
   fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-    write!(f, "<native m {}>", self.name)
+    write!(f, "{}", self.callee)
   }
 }

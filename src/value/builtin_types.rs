@@ -1,8 +1,11 @@
-use crate::{Env, ExecutionThread};
-
 use super::{AllocatedObject, Value, META_OFFSET};
 pub use array::Array;
+pub use class::Class;
+pub use closure::Closure;
 pub use error::Error;
+pub use function::Function;
+pub use instance::Instance;
+pub use method::Method;
 pub use native::{NativeFn, NativeMethod};
 pub use r#struct::Struct;
 use std::{
@@ -12,10 +15,34 @@ use std::{
 pub use string::Str;
 
 mod array;
+mod class;
+mod closure;
 mod error;
+mod function;
+mod instance;
+mod method;
 mod native;
 mod string;
 mod r#struct;
+
+pub enum Type {
+  Nil,
+  F64,
+  I32,
+  Bool,
+  Char,
+  String,
+  Array,
+  Struct,
+  Class,
+  Instance,
+  Function,
+  Method,
+  NativeFn,
+  NativeMethod,
+  UserData,
+  Error,
+}
 
 pub struct Nil;
 
@@ -31,22 +58,6 @@ where
   #[allow(unused_variables)]
   fn get(&self, name: &str) -> Value {
     Value::new_err(UnimplementedFunction::Get.to_string())
-  }
-
-  #[allow(unused_variables)]
-  fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Vec<Value>) -> Value {
-    Value::new_err(UnimplementedFunction::Call.to_string())
-  }
-
-  #[allow(unused_variables)]
-  fn method_call(
-    &mut self,
-    thread: &mut ExecutionThread,
-    env: &mut Env,
-    this: Value,
-    args: Vec<Value>,
-  ) -> Value {
-    Value::new_err(UnimplementedFunction::Call.to_string())
   }
 
   #[allow(unused_variables)]

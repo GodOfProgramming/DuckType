@@ -1,11 +1,7 @@
-use super::{SourceLocation, Token};
-use crate::{
-  types::{Error, Value},
-  New,
-};
+use super::*;
 use std::{
   collections::BTreeSet,
-  fmt::{Display, Formatter},
+  fmt::{Display, Formatter, Result as FmtResult},
   mem,
 };
 
@@ -14,7 +10,7 @@ pub struct Ast {
 }
 
 impl Ast {
-  pub fn from(tokens: Vec<Token>, meta: Vec<SourceLocation>) -> Result<Ast, Vec<Error>> {
+  pub fn from(tokens: Vec<Token>, meta: Vec<SourceLocation>) -> Result<Ast, Vec<RuntimeError>> {
     AstGenerator::new(tokens, meta).generate()
   }
 }
@@ -24,7 +20,7 @@ struct AstGenerator {
   meta: Vec<SourceLocation>,
 
   statements: Vec<Statement>,
-  errors: Vec<Error>,
+  errors: Vec<RuntimeError>,
 
   index: usize,
 
@@ -43,7 +39,7 @@ impl AstGenerator {
     }
   }
 
-  fn generate(mut self) -> Result<Ast, Vec<Error>> {
+  fn generate(mut self) -> Result<Ast, Vec<RuntimeError>> {
     while let Some(current) = self.current() {
       self.statement(current);
     }
@@ -132,7 +128,7 @@ impl AstGenerator {
   fn block_stmt(&mut self) {
     if let Some(block_loc) = self.meta_at::<1>() {
       if let Some(block) = self.block(block_loc) {
-        self.statements.push(Statement::new(block));
+        self.statements.push(Statement::from(block));
       }
     } else {
       // sanity check
@@ -155,7 +151,7 @@ impl AstGenerator {
     if let Some(loc) = self.meta_at::<2>() {
       self
         .statements
-        .push(Statement::new(BreakStatement::new(loc)));
+        .push(Statement::from(BreakStatement::new(loc)));
     } else {
       // sanity check
       self.error::<1>(String::from("could not find original token"));
@@ -177,7 +173,7 @@ impl AstGenerator {
     if let Some(loc) = self.meta_at::<2>() {
       self
         .statements
-        .push(Statement::new(ContStatement::new(loc)));
+        .push(Statement::from(ContStatement::new(loc)));
     } else {
       // sanity check
       self.error::<1>(String::from("could not find original token"));
@@ -203,21 +199,22 @@ impl AstGenerator {
               self.advance();
               if initializer.is_none() {
                 if self.consume(Token::LeftParen, "expected '(' after 'new'") {
-                  initializer = self.lambda_expr(Token::RightParen, |this, params, mut body| {
-                    if params.is_empty() || params[0].name != "self" {
-                      this.error::<0>(String::from("missing self arg in initializer"));
-                      None
-                    } else {
-                      body
-                        .statements
-                        .push(Statement::new(DefaultConstructorRet::new(loc)));
-                      Some(Expression::new(LambdaExpression::new(
-                        params,
-                        Statement::new(body),
-                        loc,
-                      )))
-                    }
-                  });
+                  initializer =
+                    self.lambda_expr(true, Token::RightParen, |this, params, mut body| {
+                      if params.is_empty() || params[0].name != "self" {
+                        this.error::<0>(String::from("missing self arg in initializer"));
+                        None
+                      } else {
+                        body
+                          .statements
+                          .push(Statement::from(DefaultConstructorRet::new(loc)));
+                        Some(Expression::from(LambdaExpression::new(
+                          params,
+                          Statement::from(body),
+                          loc,
+                        )))
+                      }
+                    });
                 }
               } else {
                 self.error::<0>(String::from("duplicate initializer found"));
@@ -230,18 +227,18 @@ impl AstGenerator {
                   self.advance();
                   if self.consume(Token::LeftParen, "expected '(' after identifier") {
                     if let Some(function) =
-                      self.lambda_expr(Token::RightParen, |_this, params, body| {
+                      self.lambda_expr(true, Token::RightParen, |_this, params, body| {
                         if params.is_empty() || params[0].name != "self" {
-                          Some(Expression::new(LambdaExpression::new(
+                          Some(Expression::from(LambdaExpression::new(
                             params,
-                            Statement::new(body),
+                            Statement::from(body),
                             loc,
                           )))
                         } else {
                           declared_functions.insert(ident.clone());
-                          Some(Expression::new(MethodExpression::new(
+                          Some(Expression::from(MethodExpression::new(
                             params,
-                            Statement::new(body),
+                            Statement::from(body),
                             loc,
                           )))
                         }
@@ -264,7 +261,7 @@ impl AstGenerator {
           return;
         }
 
-        self.statements.push(Statement::new(ClassStatement::new(
+        self.statements.push(Statement::from(ClassStatement::new(
           Ident::new(class_name),
           initializer,
           methods,
@@ -290,12 +287,12 @@ impl AstGenerator {
       if let Some(initializer_loc) = self.meta_at::<0>() {
         let initializer = if self.advance_if_matches(Token::Let) {
           if let Some(declaration) = self.declaration() {
-            Statement::new(declaration)
+            Statement::from(declaration)
           } else {
             return;
           }
         } else if let Some(expr) = self.expression() {
-          Statement::new(ExpressionStatement::new(expr, initializer_loc))
+          Statement::from(ExpressionStatement::new(expr, initializer_loc))
         } else {
           return;
         };
@@ -315,11 +312,11 @@ impl AstGenerator {
               self.in_loop = true;
               if let Some(block_loc) = self.meta_at::<1>() {
                 if let Some(block) = self.block(block_loc) {
-                  self.statements.push(Statement::new(ForStatement::new(
+                  self.statements.push(Statement::from(ForStatement::new(
                     initializer,
                     comparison,
                     increment,
-                    Statement::new(block),
+                    Statement::from(block),
                     for_loc,
                   )));
                 }
@@ -344,7 +341,7 @@ impl AstGenerator {
 
   fn if_stmt(&mut self) {
     if let Some(if_stmt) = self.branch() {
-      self.statements.push(Statement::new(if_stmt));
+      self.statements.push(Statement::from(if_stmt));
     }
   }
 
@@ -354,7 +351,7 @@ impl AstGenerator {
         return;
       }
 
-      self.statements.push(Statement::new(declaration));
+      self.statements.push(Statement::from(declaration));
     }
   }
 
@@ -384,7 +381,7 @@ impl AstGenerator {
 
         self
           .statements
-          .push(Statement::new(ReqStatement::new(expr, ident, loc)));
+          .push(Statement::from(ReqStatement::new(expr, ident, loc)));
       }
     } else {
       // sanity check
@@ -402,8 +399,8 @@ impl AstGenerator {
 
     if let Some(loc) = self.meta_at::<1>() {
       if let Some(block) = self.block(loc) {
-        self.statements.push(Statement::new(LoopStatement::new(
-          Statement::new(block),
+        self.statements.push(Statement::from(LoopStatement::new(
+          Statement::from(block),
           loc,
         )));
       }
@@ -437,7 +434,7 @@ impl AstGenerator {
             if let Some(eval_loc) = self.meta_at::<0>() {
               let stmt = if self.advance_if_matches(Token::LeftBrace) {
                 if let Some(block) = self.block(eval_loc) {
-                  Statement::new(block)
+                  Statement::from(block)
                 } else {
                   break;
                 }
@@ -446,7 +443,7 @@ impl AstGenerator {
                   if !self.consume(Token::Comma, "expected ',' after expression") {
                     break;
                   }
-                  Statement::new(ExpressionStatement::new(eval, eval_loc))
+                  Statement::from(ExpressionStatement::new(eval, eval_loc))
                 } else {
                   break;
                 }
@@ -471,7 +468,7 @@ impl AstGenerator {
         let default =
           if self.advance_if_matches(Token::Else) && self.advance_if_matches(Token::LeftBrace) {
             if let Some(else_loc) = self.meta_at::<2>() {
-              self.block(else_loc).map(Statement::new)
+              self.block(else_loc).map(Statement::from)
             } else {
               // sanity check
               self.error::<0>(String::from("could not find original token"));
@@ -481,7 +478,7 @@ impl AstGenerator {
             None
           };
 
-        self.statements.push(Statement::new(MatchStatement::new(
+        self.statements.push(Statement::from(MatchStatement::new(
           expr, branches, default, loc,
         )))
       }
@@ -496,7 +493,7 @@ impl AstGenerator {
         }
         self
           .statements
-          .push(Statement::new(PrintStatement::new(expr, loc)));
+          .push(Statement::from(PrintStatement::new(expr, loc)));
       }
     } else {
       // sanity check
@@ -521,7 +518,7 @@ impl AstGenerator {
 
         self
           .statements
-          .push(Statement::new(RetStatement::new(expr, loc)));
+          .push(Statement::from(RetStatement::new(expr, loc)));
       }
     }
   }
@@ -535,7 +532,7 @@ impl AstGenerator {
         if self.consume(Token::Semicolon, "expecte ';' after use") {
           self
             .statements
-            .push(Statement::new(UseStatement::new(path, loc)));
+            .push(Statement::from(UseStatement::new(path, loc)));
         }
       }
     }
@@ -552,9 +549,9 @@ impl AstGenerator {
 
       if let Some(loc) = self.meta_at::<1>() {
         if let Some(block) = self.block(loc) {
-          self.statements.push(Statement::new(WhileStatement::new(
+          self.statements.push(Statement::from(WhileStatement::new(
             expr,
-            Statement::new(block),
+            Statement::from(block),
             loc,
           )));
         }
@@ -572,7 +569,7 @@ impl AstGenerator {
       if self.consume(Token::Semicolon, "expected ';' after yield") {
         self
           .statements
-          .push(Statement::new(YieldStatement::new(loc)));
+          .push(Statement::from(YieldStatement::new(loc)));
       }
     }
   }
@@ -585,7 +582,7 @@ impl AstGenerator {
         }
         self
           .statements
-          .push(Statement::new(ExpressionStatement::new(expr, loc)));
+          .push(Statement::from(ExpressionStatement::new(expr, loc)));
       }
     }
   }
@@ -602,32 +599,32 @@ impl AstGenerator {
     if let Some(prev) = self.previous() {
       match prev {
         Token::Nil => {
-          expr = Some(Expression::new(LiteralExpression::new(
-            Value::Nil,
+          expr = Some(Expression::from(LiteralExpression::new(
+            Value::nil,
             self.meta_at::<1>()?,
           )));
         }
         Token::True => {
-          expr = Some(Expression::new(LiteralExpression::new(
-            Value::new(true),
+          expr = Some(Expression::from(LiteralExpression::new(
+            Value::from(true),
             self.meta_at::<1>()?,
           )));
         }
         Token::False => {
-          expr = Some(Expression::new(LiteralExpression::new(
-            Value::new(false),
+          expr = Some(Expression::from(LiteralExpression::new(
+            Value::from(false),
             self.meta_at::<1>()?,
           )));
         }
         Token::String(s) => {
-          expr = Some(Expression::new(LiteralExpression::new(
-            Value::new(s),
+          expr = Some(Expression::from(LiteralExpression::new(
+            Value::from(s),
             self.meta_at::<1>()?,
           )))
         }
         Token::Number(n) => {
-          expr = Some(Expression::new(LiteralExpression::new(
-            Value::new(n),
+          expr = Some(Expression::from(LiteralExpression::new(
+            Value::from(n),
             self.meta_at::<1>()?,
           )))
         }
@@ -659,7 +656,7 @@ impl AstGenerator {
       };
 
       let expr = self.parse_precedence(Precedence::Unary)?;
-      Some(Expression::new(UnaryExpression::new(op, expr, op_meta)))
+      Some(Expression::from(UnaryExpression::new(op, expr, op_meta)))
     } else {
       self.error::<1>(String::from(
         "tried to make unary expression without operator",
@@ -693,7 +690,7 @@ impl AstGenerator {
 
       if let Some(next_precedence) = rule.precedence.next() {
         let expr = self.parse_precedence(next_precedence)?;
-        Some(Expression::new(BinaryExpression::new(
+        Some(Expression::from(BinaryExpression::new(
           left, op, expr, op_meta,
         )))
       } else {
@@ -712,7 +709,7 @@ impl AstGenerator {
     if let Some(next_precedence) = rule.precedence.next() {
       let op_meta = self.meta_at::<1>()?;
       let expr = self.parse_precedence(next_precedence)?;
-      Some(Expression::new(AndExpression::new(left, expr, op_meta)))
+      Some(Expression::from(AndExpression::new(left, expr, op_meta)))
     } else {
       self.error::<1>(String::from("unable to retrieve precedence for and expr")); // this may not be an error?
       None
@@ -725,7 +722,7 @@ impl AstGenerator {
     if let Some(next_precedence) = rule.precedence.next() {
       let op_meta = self.meta_at::<1>()?;
       let expr = self.parse_precedence(next_precedence)?;
-      Some(Expression::new(OrExpression::new(left, expr, op_meta)))
+      Some(Expression::from(OrExpression::new(left, expr, op_meta)))
     } else {
       self.error::<1>(String::from("unable to retrieve precedence for or expr")); // this may not be an error?
       None
@@ -736,7 +733,7 @@ impl AstGenerator {
     let paren_meta = self.meta_at::<1>()?;
     let expr = self.expression()?;
     if self.consume(Token::RightParen, "expected ')' after expression") {
-      Some(Expression::new(GroupExpression::new(expr, paren_meta)))
+      Some(Expression::from(GroupExpression::new(expr, paren_meta)))
     } else {
       None
     }
@@ -745,7 +742,7 @@ impl AstGenerator {
   fn ident_expr(&mut self) -> Option<Expression> {
     if let Some(ident_token) = self.previous() {
       if let Token::Identifier(ident_name) = ident_token {
-        Some(Expression::new(IdentExpression::new(
+        Some(Expression::from(IdentExpression::new(
           Ident::new(ident_name),
           self.meta_at::<1>()?,
         )))
@@ -784,7 +781,7 @@ impl AstGenerator {
         }
       };
 
-      Some(Expression::new(AssignExpression::new(
+      Some(Expression::from(AssignExpression::new(
         ident_expr.ident,
         op,
         value,
@@ -812,7 +809,9 @@ impl AstGenerator {
     }
 
     if self.consume(Token::RightParen, "expect ')' after arguments") {
-      Some(Expression::new(CallExpression::new(expr, args, paren_meta)))
+      Some(Expression::from(CallExpression::new(
+        expr, args, paren_meta,
+      )))
     } else {
       None
     }
@@ -834,7 +833,7 @@ impl AstGenerator {
     }
 
     if self.consume(Token::RightBracket, "expect ']' after arguments") {
-      Some(Expression::new(ListExpression::new(items, bracket_meta)))
+      Some(Expression::from(ListExpression::new(items, bracket_meta)))
     } else {
       None
     }
@@ -846,7 +845,7 @@ impl AstGenerator {
     let index = self.expression()?;
 
     if self.consume(Token::RightBracket, "expected ']' after expression") {
-      Some(Expression::new(IndexExpression::new(
+      Some(Expression::from(IndexExpression::new(
         expr,
         index,
         bracket_meta,
@@ -868,7 +867,7 @@ impl AstGenerator {
             Token::Equal => {
               self.advance();
               let value = self.expression()?;
-              Some(Expression::new(MemberAssignExpression::new(
+              Some(Expression::from(MemberAssignExpression::new(
                 obj,
                 Ident::new(ident),
                 AssignOperator::Assign,
@@ -879,7 +878,7 @@ impl AstGenerator {
             Token::PlusEqual => {
               self.advance();
               let value = self.expression()?;
-              Some(Expression::new(MemberAssignExpression::new(
+              Some(Expression::from(MemberAssignExpression::new(
                 obj,
                 Ident::new(ident),
                 AssignOperator::Add,
@@ -890,7 +889,7 @@ impl AstGenerator {
             Token::MinusEqual => {
               self.advance();
               let value = self.expression()?;
-              Some(Expression::new(MemberAssignExpression::new(
+              Some(Expression::from(MemberAssignExpression::new(
                 obj,
                 Ident::new(ident),
                 AssignOperator::Sub,
@@ -901,7 +900,7 @@ impl AstGenerator {
             Token::AsteriskEqual => {
               self.advance();
               let value = self.expression()?;
-              Some(Expression::new(MemberAssignExpression::new(
+              Some(Expression::from(MemberAssignExpression::new(
                 obj,
                 Ident::new(ident),
                 AssignOperator::Mul,
@@ -912,7 +911,7 @@ impl AstGenerator {
             Token::SlashEqual => {
               self.advance();
               let value = self.expression()?;
-              Some(Expression::new(MemberAssignExpression::new(
+              Some(Expression::from(MemberAssignExpression::new(
                 obj,
                 Ident::new(ident),
                 AssignOperator::Div,
@@ -923,7 +922,7 @@ impl AstGenerator {
             Token::PercentEqual => {
               self.advance();
               let value = self.expression()?;
-              Some(Expression::new(MemberAssignExpression::new(
+              Some(Expression::from(MemberAssignExpression::new(
                 obj,
                 Ident::new(ident),
                 AssignOperator::Mod,
@@ -931,7 +930,7 @@ impl AstGenerator {
                 ident_meta,
               )))
             }
-            _ => Some(Expression::new(MemberAccessExpression::new(
+            _ => Some(Expression::from(MemberAccessExpression::new(
               obj,
               Ident::new(ident),
               ident_meta,
@@ -965,7 +964,7 @@ impl AstGenerator {
         if self.advance_if_matches(Token::Comma) || self.check_peek_after::<0>(Token::RightBrace) {
           members.push((
             Ident::new(ident.clone()),
-            Expression::new(IdentExpression::new(Ident::new(ident), struct_meta)),
+            Expression::from(IdentExpression::new(Ident::new(ident), struct_meta)),
           ))
         } else if self.consume(Token::Colon, "expected ':' after identifier") {
           let value = self.expression()?;
@@ -984,7 +983,10 @@ impl AstGenerator {
       if self.advance_if_matches(Token::Pipe) {
         self.closure_expr(Token::Pipe, StructExpression::new(members, struct_meta))
       } else {
-        Some(Expression::new(StructExpression::new(members, struct_meta)))
+        Some(Expression::from(StructExpression::new(
+          members,
+          struct_meta,
+        )))
       }
     } else {
       self.error::<1>(String::from("expected token"));
@@ -995,10 +997,10 @@ impl AstGenerator {
   fn anon_fn_expr(&mut self) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
-    self.lambda_expr(Token::Pipe, |_, params, body| {
-      Some(Expression::new(LambdaExpression::new(
+    self.lambda_expr(false, Token::Pipe, |_, params, body| {
+      Some(Expression::from(LambdaExpression::new(
         params,
-        Statement::new(body),
+        Statement::from(body),
         loc,
       )))
     })
@@ -1007,11 +1009,11 @@ impl AstGenerator {
   fn closure_expr(&mut self, param_term: Token, captures: StructExpression) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
-    self.lambda_expr(param_term, |_, params, body| {
-      Some(Expression::new(ClosureExpression::new(
+    self.lambda_expr(false, param_term, |_, params, body| {
+      Some(Expression::from(ClosureExpression::new(
         captures,
         params,
-        Statement::new(body),
+        Statement::from(body),
         loc,
       )))
     })
@@ -1019,10 +1021,11 @@ impl AstGenerator {
 
   fn lambda_expr<F: FnOnce(&mut Self, Vec<Ident>, BlockStatement) -> Option<Expression>>(
     &mut self,
+    allow_self: bool,
     param_term: Token,
     f: F,
   ) -> Option<Expression> {
-    let params = self.parse_parameters(param_term.clone())?;
+    let params = self.parse_parameters(allow_self, param_term.clone())?;
 
     if !self.consume(param_term, "expected terminator after parameters") {
       return None;
@@ -1114,7 +1117,7 @@ impl AstGenerator {
           return None;
         }
 
-        if let Some(params) = self.parse_parameters(Token::RightParen) {
+        if let Some(params) = self.parse_parameters(false, Token::RightParen) {
           if !self.consume(Token::RightParen, "expected ')' after arguments") {
             return None;
           }
@@ -1125,7 +1128,7 @@ impl AstGenerator {
 
           if let Some(block_loc) = self.meta_at::<1>() {
             self.block(block_loc).map(|body| {
-              Statement::new(FnStatement::new(ident, params, Statement::new(body), loc))
+              Statement::from(FnStatement::new(ident, params, Statement::from(body), loc))
             })
           } else {
             // sanity check
@@ -1176,14 +1179,14 @@ impl AstGenerator {
           "TODO IMPLEMENT FILE", meta.line, meta.column, msg
         );
       }
-      self.errors.push(Error {
+      self.errors.push(RuntimeError {
         msg,
         file: String::default(), // TODO get file when loading is supported
         line: meta.line,
         column: meta.column,
       });
     } else {
-      self.errors.push(Error {
+      self.errors.push(RuntimeError {
         msg: format!("could not find location of token for msg '{}'", msg),
         file: String::default(), // TODO get file when loading is supported
         line: 0,
@@ -1261,11 +1264,11 @@ impl AstGenerator {
                 match token {
                   Token::LeftBrace => {
                     self.advance();
-                    Some(Statement::new(self.block(else_meta)?))
+                    Some(Statement::from(self.block(else_meta)?))
                   }
                   Token::If => {
                     self.advance();
-                    Some(Statement::new(self.branch()?))
+                    Some(Statement::from(self.branch()?))
                   }
                   _ => {
                     self.error::<0>(String::from("unexpected token after 'else'"));
@@ -1287,7 +1290,7 @@ impl AstGenerator {
 
           return Some(IfStatement::new(
             expr,
-            Statement::new(block),
+            Statement::from(block),
             else_block,
             block_loc,
           ));
@@ -1301,13 +1304,36 @@ impl AstGenerator {
     None
   }
 
-  fn parse_parameters(&mut self, terminator: Token) -> Option<Vec<Ident>> {
+  fn parse_parameters(&mut self, allow_self: bool, terminator: Token) -> Option<Vec<Ident>> {
     let mut params = Vec::default();
+    let mut found_self = None;
     if let Some(mut token) = self.current() {
       if token != terminator {
         loop {
           if let Token::Identifier(ident) = token {
-            params.push(Ident::new(ident));
+            if params.contains(&ident) {
+              self.error::<0>(format!(
+                "duplicate identifier '{}' found in parameter list",
+                ident
+              ));
+              return None;
+            }
+
+            if ident == "self" {
+              if allow_self {
+                if found_self.is_none() {
+                  found_self = Some(ident);
+                } else {
+                  self.error::<0>(String::from("self found twice in parameter list"));
+                  return None;
+                }
+              } else {
+                self.error::<0>(String::from("self parameter not allowed in this context"));
+                return None;
+              }
+            } else {
+              params.push(ident);
+            }
           } else {
             self.error::<0>(String::from("invalid token in parameter list"));
             return None;
@@ -1325,10 +1351,14 @@ impl AstGenerator {
             break;
           }
         }
+
+        if let Some(ident) = found_self {
+          params.push(ident)
+        }
       }
     }
 
-    Some(params)
+    Some(params.into_iter().map(|p| Ident::new(p)).collect())
   }
 
   fn declaration(&mut self) -> Option<LetStatement> {
@@ -1519,7 +1549,7 @@ pub enum Statement {
 }
 
 impl Display for Statement {
-  fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     match self {
       Self::Block(_) => write!(f, "block"),
       Self::Break(_) => write!(f, "break"),
@@ -1543,110 +1573,110 @@ impl Display for Statement {
   }
 }
 
-impl New<BlockStatement> for Statement {
-  fn new(stmt: BlockStatement) -> Self {
+impl From<BlockStatement> for Statement {
+  fn from(stmt: BlockStatement) -> Self {
     Self::Block(stmt)
   }
 }
 
-impl New<BreakStatement> for Statement {
-  fn new(stmt: BreakStatement) -> Self {
+impl From<BreakStatement> for Statement {
+  fn from(stmt: BreakStatement) -> Self {
     Self::Break(stmt)
   }
 }
 
-impl New<ContStatement> for Statement {
-  fn new(stmt: ContStatement) -> Self {
+impl From<ContStatement> for Statement {
+  fn from(stmt: ContStatement) -> Self {
     Self::Cont(stmt)
   }
 }
 
-impl New<ClassStatement> for Statement {
-  fn new(stmt: ClassStatement) -> Self {
+impl From<ClassStatement> for Statement {
+  fn from(stmt: ClassStatement) -> Self {
     Self::Class(stmt)
   }
 }
 
-impl New<DefaultConstructorRet> for Statement {
-  fn new(stmt: DefaultConstructorRet) -> Self {
+impl From<DefaultConstructorRet> for Statement {
+  fn from(stmt: DefaultConstructorRet) -> Self {
     Self::DefaultConstructorRet(stmt)
   }
 }
 
-impl New<FnStatement> for Statement {
-  fn new(stmt: FnStatement) -> Self {
+impl From<FnStatement> for Statement {
+  fn from(stmt: FnStatement) -> Self {
     Self::Fn(stmt)
   }
 }
 
-impl New<ForStatement> for Statement {
-  fn new(stmt: ForStatement) -> Self {
+impl From<ForStatement> for Statement {
+  fn from(stmt: ForStatement) -> Self {
     Self::For(stmt)
   }
 }
 
-impl New<IfStatement> for Statement {
-  fn new(stmt: IfStatement) -> Self {
+impl From<IfStatement> for Statement {
+  fn from(stmt: IfStatement) -> Self {
     Self::If(stmt)
   }
 }
 
-impl New<LetStatement> for Statement {
-  fn new(stmt: LetStatement) -> Self {
+impl From<LetStatement> for Statement {
+  fn from(stmt: LetStatement) -> Self {
     Self::Let(stmt)
   }
 }
 
-impl New<ReqStatement> for Statement {
-  fn new(stmt: ReqStatement) -> Self {
+impl From<ReqStatement> for Statement {
+  fn from(stmt: ReqStatement) -> Self {
     Self::Req(stmt)
   }
 }
 
-impl New<LoopStatement> for Statement {
-  fn new(stmt: LoopStatement) -> Self {
+impl From<LoopStatement> for Statement {
+  fn from(stmt: LoopStatement) -> Self {
     Self::Loop(stmt)
   }
 }
 
-impl New<MatchStatement> for Statement {
-  fn new(stmt: MatchStatement) -> Self {
+impl From<MatchStatement> for Statement {
+  fn from(stmt: MatchStatement) -> Self {
     Self::Match(stmt)
   }
 }
 
-impl New<PrintStatement> for Statement {
-  fn new(stmt: PrintStatement) -> Self {
+impl From<PrintStatement> for Statement {
+  fn from(stmt: PrintStatement) -> Self {
     Self::Print(stmt)
   }
 }
 
-impl New<RetStatement> for Statement {
-  fn new(stmt: RetStatement) -> Self {
+impl From<RetStatement> for Statement {
+  fn from(stmt: RetStatement) -> Self {
     Self::Ret(stmt)
   }
 }
 
-impl New<UseStatement> for Statement {
-  fn new(stmt: UseStatement) -> Self {
+impl From<UseStatement> for Statement {
+  fn from(stmt: UseStatement) -> Self {
     Self::Use(stmt)
   }
 }
 
-impl New<WhileStatement> for Statement {
-  fn new(stmt: WhileStatement) -> Self {
+impl From<WhileStatement> for Statement {
+  fn from(stmt: WhileStatement) -> Self {
     Self::While(stmt)
   }
 }
 
-impl New<YieldStatement> for Statement {
-  fn new(stmt: YieldStatement) -> Self {
+impl From<YieldStatement> for Statement {
+  fn from(stmt: YieldStatement) -> Self {
     Self::Yield(stmt)
   }
 }
 
-impl New<ExpressionStatement> for Statement {
-  fn new(stmt: ExpressionStatement) -> Self {
+impl From<ExpressionStatement> for Statement {
+  fn from(stmt: ExpressionStatement) -> Self {
     Self::Expression(stmt)
   }
 }
@@ -1959,104 +1989,104 @@ impl Display for Expression {
   }
 }
 
-impl New<LiteralExpression> for Expression {
-  fn new(expr: LiteralExpression) -> Self {
+impl From<LiteralExpression> for Expression {
+  fn from(expr: LiteralExpression) -> Self {
     Self::Literal(expr)
   }
 }
 
-impl New<UnaryExpression> for Expression {
-  fn new(expr: UnaryExpression) -> Self {
+impl From<UnaryExpression> for Expression {
+  fn from(expr: UnaryExpression) -> Self {
     Self::Unary(expr)
   }
 }
 
-impl New<BinaryExpression> for Expression {
-  fn new(expr: BinaryExpression) -> Self {
+impl From<BinaryExpression> for Expression {
+  fn from(expr: BinaryExpression) -> Self {
     Self::Binary(expr)
   }
 }
 
-impl New<AndExpression> for Expression {
-  fn new(expr: AndExpression) -> Self {
+impl From<AndExpression> for Expression {
+  fn from(expr: AndExpression) -> Self {
     Self::And(expr)
   }
 }
 
-impl New<OrExpression> for Expression {
-  fn new(expr: OrExpression) -> Self {
+impl From<OrExpression> for Expression {
+  fn from(expr: OrExpression) -> Self {
     Self::Or(expr)
   }
 }
 
-impl New<GroupExpression> for Expression {
-  fn new(expr: GroupExpression) -> Self {
+impl From<GroupExpression> for Expression {
+  fn from(expr: GroupExpression) -> Self {
     Self::Group(expr)
   }
 }
 
-impl New<IdentExpression> for Expression {
-  fn new(expr: IdentExpression) -> Self {
+impl From<IdentExpression> for Expression {
+  fn from(expr: IdentExpression) -> Self {
     Self::Ident(expr)
   }
 }
 
-impl New<AssignExpression> for Expression {
-  fn new(expr: AssignExpression) -> Self {
+impl From<AssignExpression> for Expression {
+  fn from(expr: AssignExpression) -> Self {
     Self::Assign(expr)
   }
 }
 
-impl New<CallExpression> for Expression {
-  fn new(expr: CallExpression) -> Self {
+impl From<CallExpression> for Expression {
+  fn from(expr: CallExpression) -> Self {
     Self::Call(expr)
   }
 }
 
-impl New<ListExpression> for Expression {
-  fn new(expr: ListExpression) -> Self {
+impl From<ListExpression> for Expression {
+  fn from(expr: ListExpression) -> Self {
     Self::List(expr)
   }
 }
 
-impl New<IndexExpression> for Expression {
-  fn new(expr: IndexExpression) -> Self {
+impl From<IndexExpression> for Expression {
+  fn from(expr: IndexExpression) -> Self {
     Self::Index(expr)
   }
 }
 
-impl New<StructExpression> for Expression {
-  fn new(expr: StructExpression) -> Self {
+impl From<StructExpression> for Expression {
+  fn from(expr: StructExpression) -> Self {
     Self::Struct(expr)
   }
 }
 
-impl New<MemberAccessExpression> for Expression {
-  fn new(expr: MemberAccessExpression) -> Self {
+impl From<MemberAccessExpression> for Expression {
+  fn from(expr: MemberAccessExpression) -> Self {
     Self::MemberAccess(expr)
   }
 }
 
-impl New<MemberAssignExpression> for Expression {
-  fn new(expr: MemberAssignExpression) -> Self {
+impl From<MemberAssignExpression> for Expression {
+  fn from(expr: MemberAssignExpression) -> Self {
     Self::MemberAssign(expr)
   }
 }
 
-impl New<LambdaExpression> for Expression {
-  fn new(expr: LambdaExpression) -> Self {
+impl From<LambdaExpression> for Expression {
+  fn from(expr: LambdaExpression) -> Self {
     Self::Lambda(expr)
   }
 }
 
-impl New<ClosureExpression> for Expression {
-  fn new(expr: ClosureExpression) -> Self {
+impl From<ClosureExpression> for Expression {
+  fn from(expr: ClosureExpression) -> Self {
     Self::Closure(expr)
   }
 }
 
-impl New<MethodExpression> for Expression {
-  fn new(expr: MethodExpression) -> Self {
+impl From<MethodExpression> for Expression {
+  fn from(expr: MethodExpression) -> Self {
     Self::Method(expr)
   }
 }

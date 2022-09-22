@@ -1,5 +1,4 @@
 use super::*;
-use crate::types::Error;
 use ptr::SmartPtr;
 use std::{ops::RangeInclusive, str};
 
@@ -13,7 +12,7 @@ pub struct Scanner<'src> {
   pos: usize,
   line: usize,
   column: usize,
-  errors: Option<Vec<Error>>,
+  errors: Option<Vec<RuntimeError>>,
 }
 
 impl<'src> Scanner<'src> {
@@ -29,7 +28,7 @@ impl<'src> Scanner<'src> {
     }
   }
 
-  pub fn scan(&mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), Vec<Error>> {
+  pub fn scan(&mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), Vec<RuntimeError>> {
     let mut tokens = Vec::new();
     let mut meta = Vec::new();
 
@@ -194,7 +193,7 @@ impl<'src> Scanner<'src> {
     }
 
     if let Some(errs) = &mut self.errors {
-      errs.push(Error {
+      errs.push(RuntimeError {
         msg,
         file: self.file.access().clone(),
         line: self.line + 1,

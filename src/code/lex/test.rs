@@ -29,7 +29,7 @@ impl ScannerTest {
     }
   }
 
-  fn test_failure<F: FnOnce(Vec<Error>)>(&self, f: F) {
+  fn test_failure<F: FnOnce(Vec<RuntimeError>)>(&self, f: F) {
     let mut scanner = Scanner::new("test", &self.tokens);
     match scanner.scan() {
       Ok((_actual, _meta)) => panic!("should not have succeeded"),
@@ -220,19 +220,19 @@ mod tests {
   #[test]
   fn returns_errors_at_right_location_when_detected(t: &mut ScannerTest) {
     let expected = vec![
-      Error {
+      RuntimeError {
         msg: String::from("invalid character: '^'"),
         file: String::from("test"),
         line: 6,
         column: 8,
       },
-      Error {
+      RuntimeError {
         msg: String::from("invalid character: '?'"),
         file: String::from("test"),
         line: 7,
         column: 9,
       },
-      Error {
+      RuntimeError {
         msg: String::from("invalid character: '`'"),
         file: String::from("test"),
         line: 7,

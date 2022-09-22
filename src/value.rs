@@ -49,6 +49,48 @@ impl Value {
     }
   }
 
+  pub fn type_of(&self) -> Type {
+    if self.is_f64() {
+      Type::F64
+    } else if self.is_i32() {
+      Type::I32
+    } else if self.is_bool() {
+      Type::Bool
+    } else if self.is_char() {
+      Type::Char
+    } else if self.is_str() {
+      Type::String
+    } else if self.is_array() {
+      Type::Array
+    } else if self.is_struct() {
+      Type::Struct
+    } else if self.is_class() {
+      Type::Class
+    } else if self.is_instance() {
+      Type::Instance
+    } else if self.is_fn() {
+      Type::Function
+    } else if self.is_method() {
+      Type::Method
+    } else if self.is_native_fn() {
+      Type::NativeFn
+    } else if self.is_native_method() {
+      Type::NativeMethod
+    } else if self.is_err() {
+      Type::Error
+    } else {
+      Type::UserData
+    }
+  }
+
+  pub fn truthy(&self) -> bool {
+    !self.is_nil() && (!self.is_bool() || self.as_bool())
+  }
+
+  pub fn falsy(&self) -> bool {
+    self.is_nil() || (self.is_bool() && !self.as_bool())
+  }
+
   // float
 
   pub fn is_f64(&self) -> bool {
@@ -69,6 +111,17 @@ impl Value {
   pub fn as_i32(&self) -> i32 {
     debug_assert!(self.is_i32());
     unsafe { mem::transmute::<u32, i32>((self.bits & !I32_TAG) as u32) }
+  }
+
+  // bool
+
+  pub fn is_bool(&self) -> bool {
+    self.is_type::<BOOL_TAG>()
+  }
+
+  pub fn as_bool(&self) -> bool {
+    debug_assert!(self.is_bool());
+    unsafe { self.bits & POINTER_BITMASK > 0 }
   }
 
   // char
@@ -92,7 +145,7 @@ impl Value {
     self.is_obj::<Str>()
   }
 
-  pub fn as_str(&self) -> &mut Str {
+  pub fn as_str(&mut self) -> &mut Str {
     debug_assert!(self.is_str());
     self.convert()
   }
@@ -107,7 +160,7 @@ impl Value {
     self.is_obj::<Array>()
   }
 
-  pub fn as_array(&self) -> &mut Array {
+  pub fn as_array(&mut self) -> &mut Array {
     debug_assert!(self.is_array());
     self.convert()
   }
@@ -122,7 +175,7 @@ impl Value {
     self.is_obj::<Struct>()
   }
 
-  pub fn as_struct(&self) -> &mut Struct {
+  pub fn as_struct(&mut self) -> &mut Struct {
     debug_assert!(self.is_struct());
     self.convert()
   }
@@ -137,16 +190,75 @@ impl Value {
     self.is_obj::<Error>()
   }
 
-  pub fn as_err(&self) -> &mut Error {
+  pub fn as_err(&mut self) -> &mut Error {
     debug_assert!(self.is_err());
     self.convert()
   }
 
-  pub fn new_native<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Value + 'static>(
+  // class
+
+  pub fn new_class<T: ToString>(name: T) -> Self {
+    Self::from(Class::new(name.to_string()))
+  }
+
+  pub fn is_class(&self) -> bool {
+    self.is_obj::<Class>()
+  }
+
+  pub fn as_class(&mut self) -> &mut Class {
+    debug_assert!(self.is_class());
+    self.convert()
+  }
+
+  // instance
+
+  pub fn is_instance(&self) -> bool {
+    self.is_obj::<Instance>()
+  }
+
+  pub fn as_instance(&mut self) -> &mut Instance {
+    debug_assert!(self.is_instance());
+    self.convert()
+  }
+
+  // function
+
+  pub fn is_fn(&self) -> bool {
+    self.is_obj::<Function>()
+  }
+
+  pub fn as_fn(&mut self) -> &mut Function {
+    debug_assert!(self.is_fn());
+    self.convert()
+  }
+
+  // method
+
+  pub fn is_method(&self) -> bool {
+    self.is_obj::<Method>()
+  }
+
+  pub fn as_method(&mut self) -> &mut Method {
+    debug_assert!(self.is_method());
+    self.convert()
+  }
+
+  // native
+
+  pub fn new_native_fn<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Value + 'static>(
     name: &str,
     f: F,
   ) -> Self {
     Self::from(NativeFn::new(name, f))
+  }
+
+  pub fn is_native_fn(&self) -> bool {
+    self.is_obj::<NativeFn>()
+  }
+
+  pub fn as_native_fn(&mut self) -> &mut NativeFn {
+    debug_assert!(self.is_native_fn());
+    self.convert()
   }
 
   pub fn new_native_method<
@@ -158,10 +270,23 @@ impl Value {
     Self::from(NativeMethod::new(name, f))
   }
 
+  pub fn is_native_method(&self) -> bool {
+    self.is_obj::<NativeMethod>()
+  }
+
+  pub fn as_native_method(&mut self) -> &mut NativeMethod {
+    debug_assert!(self.is_native_method());
+    self.convert()
+  }
+
   // obj pointer
 
+  pub fn is_ptr(&self) -> bool {
+    self.is_type::<POINTER_TAG>()
+  }
+
   pub fn is_obj<T: Object>(&self) -> bool {
-    self.is_type::<POINTER_TAG>() && self.type_id() == T::type_id()
+    self.is_ptr() && self.type_id() == T::type_id()
   }
 
   pub fn as_obj<T: Object>(&self) -> &mut T {
@@ -182,20 +307,6 @@ impl Value {
 
   pub fn get(&self, name: &str) -> Value {
     (self.vtable().get)(self.pointer(), name)
-  }
-
-  pub fn call(&self, thread: &mut ExecutionThread, env: &mut Env, args: Vec<Value>) -> Value {
-    (self.vtable().call)(self.pointer(), thread, env, args)
-  }
-
-  pub fn method_call(
-    &self,
-    thread: &mut ExecutionThread,
-    env: &mut Env,
-    this: Value,
-    args: Vec<Value>,
-  ) -> Value {
-    (self.vtable().method_call)(self.pointer(), thread, env, this, args)
   }
 
   pub fn add(&self, other: Value) -> Value {
@@ -327,6 +438,14 @@ impl From<i32> for Value {
   }
 }
 
+impl From<bool> for Value {
+  fn from(item: bool) -> Self {
+    Self {
+      bits: if item { 1 } else { 0 } | BOOL_TAG,
+    }
+  }
+}
+
 impl From<char> for Value {
   fn from(item: char) -> Self {
     Self {
@@ -381,6 +500,7 @@ impl Display for Value {
     match self.tag() {
       Tag::F64 => write!(f, "{}", self.as_f64()),
       Tag::I32 => write!(f, "{}", self.as_i32()),
+      Tag::Bool => write!(f, "{}", self.as_bool()),
       Tag::Char => write!(f, "{}", self.as_char()),
       Tag::Pointer => write!(f, "{}", self.basic_desc()),
       Tag::Nil => write!(f, "nil"),
@@ -403,8 +523,6 @@ impl PartialEq for Value {
 struct VTable {
   set: fn(MutVoid, name: &str, value: Value) -> Result<(), Error>,
   get: fn(ConstVoid, name: &str) -> Value,
-  call: fn(MutVoid, &mut ExecutionThread, &mut Env, Vec<Value>) -> Value,
-  method_call: fn(MutVoid, &mut ExecutionThread, &mut Env, Value, Vec<Value>) -> Value,
   add: fn(ConstVoid, other: Value) -> Value,
   sub: fn(ConstVoid, other: Value) -> Value,
   mul: fn(ConstVoid, other: Value) -> Value,
@@ -423,18 +541,6 @@ impl VTable {
         <T as Object>::set(unsafe { &mut *Self::void_to_mut(this) }, name, value)
       },
       get: |this, name| <T as Object>::get(unsafe { &*Self::void_to(this) }, name),
-      call: |this, thread, env, args| {
-        <T as Object>::call(unsafe { &mut *Self::void_to_mut(this) }, thread, env, args)
-      },
-      method_call: |this, thread, env, caller, args| {
-        <T as Object>::method_call(
-          unsafe { &mut *Self::void_to_mut(this) },
-          thread,
-          env,
-          caller,
-          args,
-        )
-      },
       add: |this, other| <T as Object>::add(unsafe { &*Self::void_to(this) }, other),
       sub: |this, other| <T as Object>::sub(unsafe { &*Self::void_to(this) }, other),
       mul: |this, other| <T as Object>::mul(unsafe { &*Self::void_to(this) }, other),

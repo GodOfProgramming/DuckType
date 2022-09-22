@@ -1,9 +1,6 @@
 use super::*;
-use crate::{
-  code::ast::*,
-  types::{Class, Error, Function, Struct, Value},
-  New,
-};
+use crate::{dbg::RuntimeError, value::Function};
+use ast::*;
 use ptr::SmartPtr;
 use std::collections::BTreeMap;
 
@@ -44,7 +41,7 @@ pub struct BytecodeGenerator {
   breaks: Vec<usize>,
   cont_jump: usize,
 
-  errors: Vec<Error>,
+  errors: Vec<RuntimeError>,
 }
 
 impl BytecodeGenerator {
@@ -68,7 +65,7 @@ impl BytecodeGenerator {
     }
   }
 
-  pub fn generate(mut self, ast: Ast) -> Result<SmartPtr<Context>, Vec<Error>> {
+  pub fn generate(mut self, ast: Ast) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
     for stmt in ast.statements {
       self.emit_stmt(stmt);
     }
@@ -122,7 +119,7 @@ impl BytecodeGenerator {
         self.create_fn_from_expr(ContextName::Method, initializer)
       {
         if is_static {
-          class.set_initializer(Value::new(function));
+          class.set_initializer(Value::from(function));
         } else {
           self.error(
             stmt.loc,
@@ -143,9 +140,9 @@ impl BytecodeGenerator {
     for (method_name, method) in stmt.methods {
       if let Some((function, is_static)) = self.create_fn_from_expr(ContextName::Method, method) {
         if is_static {
-          class.set_static(method_name.name, Value::new(function));
+          class.set_static(method_name.name, Value::from(function));
         } else {
-          class.set_method(method_name.name, Value::new(function));
+          class.set_method(method_name.name, Value::from(function));
         }
       } else {
         self.error(
@@ -155,13 +152,13 @@ impl BytecodeGenerator {
       }
     }
 
-    self.emit_const(Value::new(class), stmt.loc);
+    self.emit_const(Value::from(class), stmt.loc);
 
     self.define_class(var, stmt.loc);
   }
 
   fn default_constructor_ret(&mut self, stmt: DefaultConstructorRet) {
-    self.emit(OpCode::DefaultConstructorRet, stmt.loc);
+    self.emit(OpCode::Ret, stmt.loc);
   }
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
@@ -482,7 +479,7 @@ impl BytecodeGenerator {
   }
 
   fn struct_expr(&mut self, expr: StructExpression) {
-    self.emit_const(Value::new(Struct::default()), expr.loc);
+    self.emit_const(Value::new_struct(), expr.loc);
     for (member, assign) in expr.members {
       let ident = self.add_const_ident(member);
       self.emit_expr(assign);
@@ -638,7 +635,7 @@ impl BytecodeGenerator {
 
   fn emit_fn(&mut self, name: ContextName, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
     let function = self.create_fn(name, args, body, loc, None);
-    self.emit_const(Value::new(function), loc);
+    self.emit_const(Value::from(function), loc);
   }
 
   fn emit_loop(&mut self, start: usize, loc: SourceLocation) {
@@ -674,7 +671,7 @@ impl BytecodeGenerator {
   }
 
   fn add_const_ident(&mut self, ident: Ident) -> usize {
-    self.current_ctx().add_const(Value::new(ident.name))
+    self.current_ctx().add_const(Value::from(ident.name))
   }
 
   fn current_ctx(&mut self) -> &mut Context {
@@ -728,7 +725,7 @@ impl BytecodeGenerator {
     if let Some(index) = self.identifiers.get(&ident.name).cloned() {
       index
     } else {
-      let index = self.global_ctx().add_const(Value::new(ident.name.clone()));
+      let index = self.global_ctx().add_const(Value::from(ident.name.clone()));
       self.identifiers.insert(ident.name, index);
       index
     }
@@ -945,7 +942,7 @@ impl BytecodeGenerator {
         "TODO GET FILE NAME", loc.line, loc.column, msg
       );
     }
-    self.errors.push(Error {
+    self.errors.push(RuntimeError {
       msg,
       file: String::default(),
       line: loc.line,
