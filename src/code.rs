@@ -55,8 +55,6 @@ pub enum OpCode {
   LookupMember(usize),
   /** Uses the constant pointed to by the modifying bits to peek at a value on the next item on the stack */
   PeekMember(usize),
-  /** Assigns an initializer function to the class which is the next item on the stack */
-  AssignInitializer,
   /** Pops two values off the stack, compares, then pushes the result back on */
   Equal,
   /** Pops two values off the stack, compares, then pushes the result back on */
@@ -257,6 +255,7 @@ pub struct OpCodeReflection {
   pub column: usize,
 }
 
+#[derive(Debug)]
 enum ContextName {
   Main,
   Lambda,
@@ -265,6 +264,7 @@ enum ContextName {
   Function(String),
 }
 
+#[derive(Debug)]
 pub struct Context {
   name: ContextName,
 
@@ -365,18 +365,17 @@ impl Context {
   }
 
   fn add_const(&mut self, c: Value) -> usize {
-    let string = if c.is_str() {
-      let string = c.as_str();
+    let string = if let Ok(string) = c.as_str() {
       if let Some(index) = self.strings.get(string.as_str()) {
         return *index;
       }
-      Some(string.clone())
+      Some(string.deref().clone())
     } else {
       None
     };
 
+    let index = self.consts.len();
     self.consts.push(c);
-    let index = self.consts.len() - 1;
 
     if let Some(string) = string {
       self.strings.insert(string, index);
@@ -412,36 +411,30 @@ impl Context {
 
   #[cfg(debug_assertions)]
   pub fn disassemble(&self) {
-    use crate::value::Type;
-
     self.display_opcodes();
 
     for value in self.consts() {
-      match value.type_of() {
-        Type::Function => value.as_fn().context().disassemble(),
-        Type::Class => {
-          let c = value.as_class();
-          if let Some(i) = &c.initializer {
-            match i {
-              Value::Function(f) => f.context().disassemble(),
-              _ => (),
-            }
-          }
-          for (_name, method) in &c.methods {
-            match method {
-              Value::Function(f) => f.context().disassemble(),
-              _ => (),
-            }
-          }
-
-          for (_name, static_method) in &c.static_members {
-            match static_method {
-              Value::Function(f) => f.context().disassemble(),
-              _ => (),
-            }
+      if let Ok(f) = value.as_fn() {
+        f.context().disassemble();
+      } else if let Ok(c) = value.as_class() {
+        if let Some(i) = &c.initializer {
+          if let Ok(f) = i.as_fn() {
+            f.context().disassemble();
+          } else if let Ok(m) = i.as_method() {
+            m.context().disassemble();
           }
         }
-        _ => (),
+        for (_name, method) in &c.methods {
+          if let Ok(f) = method.as_fn() {
+            f.context().disassemble();
+          }
+        }
+
+        for static_method in c.static_members.values() {
+          if let Ok(f) = static_method.as_fn() {
+            f.context().disassemble();
+          }
+        }
       }
     }
   }
@@ -604,14 +597,16 @@ impl Context {
   fn global_const_at_column(&self, index: usize) -> String {
     format!(
       "{: >4?}",
-      self.global_const_at(index).unwrap_or(&Value::new("????"))
+      self
+        .global_const_at(index)
+        .unwrap_or(&mut Value::from("????"))
     )
   }
 
   fn const_at_column(&self, index: usize) -> String {
     format!(
       "{: >4?}",
-      self.const_at(index).unwrap_or(&Value::new("????"))
+      self.const_at(index).unwrap_or(&Value::from("????"))
     )
   }
 
@@ -620,7 +615,7 @@ impl Context {
   }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct StackFrame {
   pub ip: usize,
   pub ctx: SmartPtr<Context>,
@@ -648,6 +643,7 @@ impl StackFrame {
   }
 }
 
+#[derive(Debug)]
 pub struct Yield {
   pub current_frame: StackFrame,
   pub stack_frames: Vec<StackFrame>,
@@ -688,20 +684,20 @@ impl Env {
   pub fn with_library_support(args: &[String], library: Library) -> Self {
     let mut env = Env::default();
 
-    env.vars = builtin::load_libs(args, &library);
+    env.vars = stdlib::load_libs(args, &library);
 
     let mut lib_paths = Vec::default();
 
     if let Ok(paths) = env::var("SIMPLE_LIBRARY_PATHS") {
-      lib_paths.extend(paths.split_terminator(';').map(Value::new));
+      lib_paths.extend(paths.split_terminator(';').map(Value::from));
     }
 
-    let mut module = Struct::default();
-    let lib_paths = Value::new(lib_paths);
+    let mut module = StructValue::default();
+    let lib_paths = Value::from(lib_paths);
 
     module.set("path", lib_paths);
 
-    env.assign("$LIBRARY", Value::new(module));
+    env.assign("$LIBRARY", Value::from(module));
 
     env.args.extend(args.iter().cloned());
     env.library = library;
@@ -728,16 +724,20 @@ impl Env {
 
   pub fn create_native<
     K: ToString,
-    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Result<Value, String> + 'static,
+    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
   >(
     &mut self,
     name: K,
     native: F,
   ) -> bool {
-    self.assign(name.to_string(), Value::new((name.to_string(), native)))
+    self.assign(
+      name.to_string(),
+      Value::new_native_closure(name.to_string(), native),
+    )
   }
 }
 
+#[derive(Debug)]
 pub struct Reflection {
   pub file: SmartPtr<String>,
   pub source: SmartPtr<String>,

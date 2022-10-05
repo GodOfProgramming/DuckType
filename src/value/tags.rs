@@ -10,16 +10,6 @@ pub const F64_TAG: u64 = 0;
 pub const I32_TAG: u64 = make_tag::<1>();
 pub const BOOL_TAG: u64 = make_tag::<2>();
 pub const CHAR_TAG: u64 = make_tag::<3>();
+pub const FN_TAG: u64 = make_tag::<5>();
 pub const POINTER_TAG: u64 = make_tag::<6>();
 pub const NIL_TAG: u64 = make_tag::<7>();
-
-#[repr(u64)]
-#[derive(Debug, PartialEq)]
-pub enum Tag {
-  F64 = F64_TAG,
-  I32 = I32_TAG,
-  Bool = BOOL_TAG,
-  Char = CHAR_TAG,
-  Pointer = POINTER_TAG, // struct, class, instance, function, error, etc..
-  Nil = NIL_TAG,
-}

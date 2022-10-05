@@ -1,5 +1,5 @@
 use super::*;
-use crate::{dbg::RuntimeError, value::Function};
+use crate::{dbg::RuntimeError, value::FunctionValue};
 use ast::*;
 use ptr::SmartPtr;
 use std::collections::BTreeMap;
@@ -112,14 +112,14 @@ impl BytecodeGenerator {
     }
 
     let var = self.declare_global(stmt.ident.clone());
-    let mut class = Class::new(stmt.ident.name.clone());
+    let mut class = ClassValue::new(stmt.ident.name.clone());
 
     if let Some(initializer) = stmt.initializer {
       if let Some((function, is_static)) =
         self.create_fn_from_expr(ContextName::Method, initializer)
       {
         if is_static {
-          class.set_initializer(Value::from(function));
+          class.set_constructor(Value::from(function));
         } else {
           self.error(
             stmt.loc,
@@ -634,7 +634,7 @@ impl BytecodeGenerator {
   }
 
   fn emit_fn(&mut self, name: ContextName, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
-    let function = self.create_fn(name, args, body, loc, None);
+    let function = self.create_fn(name, args, body, loc);
     self.emit_const(Value::from(function), loc);
   }
 
@@ -851,22 +851,10 @@ impl BytecodeGenerator {
     &mut self,
     name: ContextName,
     expr: Expression,
-  ) -> Option<(Function, bool)> {
+  ) -> Option<(FunctionValue, bool)> {
     match expr {
-      Expression::Method(m) => {
-        let airity = m.params.len();
-        Some((
-          self.create_fn(name, m.params, *m.body, m.loc, Some(airity - 1)),
-          false,
-        ))
-      }
-      Expression::Lambda(l) => {
-        let airity = l.params.len();
-        Some((
-          self.create_fn(name, l.params, *l.body, l.loc, Some(airity)),
-          true,
-        ))
-      }
+      Expression::Method(m) => Some((self.create_fn(name, m.params, *m.body, m.loc), false)),
+      Expression::Lambda(l) => Some((self.create_fn(name, l.params, *l.body, l.loc), true)),
       _ => None,
     }
   }
@@ -877,8 +865,7 @@ impl BytecodeGenerator {
     args: Vec<Ident>,
     body: Statement,
     loc: SourceLocation,
-    airity_override: Option<usize>,
-  ) -> Function {
+  ) -> FunctionValue {
     self.function_id += 1;
 
     let mut locals = Vec::default();
@@ -897,7 +884,7 @@ impl BytecodeGenerator {
     )));
 
     self.new_scope(|this| {
-      let airity = airity_override.unwrap_or(args.len());
+      let airity = args.len();
 
       for arg in args {
         if arg.global() {
@@ -931,7 +918,7 @@ impl BytecodeGenerator {
       this.current_fn = prev_fn;
       this.locals = locals;
 
-      Function::new(airity, local_count, ctx)
+      FunctionValue::new(airity, local_count, ctx)
     })
   }
 

@@ -1,0 +1,45 @@
+use crate::{Args, ComplexValue, StructValue, TimestampValue, Value};
+
+pub struct LibTime;
+
+impl LibTime {
+  pub fn load() -> Value {
+    use std::time::Instant;
+
+    let mut lib = StructValue::default();
+
+    // monotonic
+    {
+      let mut mono = StructValue::default();
+
+      mono.set(
+        "now",
+        Value::new_native_closure("Monotonic.now", |_thread, _env, _args: Args| {
+          Value::from(TimestampValue::new())
+        }),
+      );
+
+      mono.set(
+        "elapsed",
+        Value::new_native_closure("Monotonic.elapsed", |_thread, _env, args: Args| {
+          if let Some(before) = args.list.get(0) {
+            if before.is::<TimestampValue>() {
+              let now = Instant::now();
+              if let Ok(ts) = before.as_obj::<TimestampValue>() {
+                let since = now.duration_since(**ts.clone());
+                return Value::from(since.as_secs_f64());
+              }
+            }
+          }
+          Value::new_err(String::from(
+            "elapsed called with wrong number of arguments or invalid types",
+          ))
+        }),
+      );
+
+      lib.set("Monotonic", Value::from(mono));
+    }
+
+    lib.into()
+  }
+}

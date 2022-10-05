@@ -1,22 +1,22 @@
-use super::{Function, Value};
+use super::{ComplexValue, FunctionValue, Value};
 use crate::{Context, ExecutionThread};
 use ptr::SmartPtr;
 
 #[derive(Clone)]
-pub struct Closure {
+pub struct ClosureValue {
   captures: Vec<Value>,
-  function: Function,
+  function: FunctionValue,
 }
 
-impl Closure {
-  pub fn new(captures: &[Value], function: Function) -> Self {
+impl ClosureValue {
+  pub fn new(captures: &[Value], function: FunctionValue) -> Self {
     Self {
       captures: captures.into(),
       function,
     }
   }
 
-  pub fn call(&mut self, thread: &mut ExecutionThread, mut args: Vec<Value>) {
+  pub fn call(&self, thread: &mut ExecutionThread, mut args: Vec<Value>) {
     if args.len() > self.function.airity {
       args.drain(0..self.function.airity);
     } else {
@@ -42,3 +42,5 @@ impl Closure {
     &self.function.context()
   }
 }
+
+impl ComplexValue for ClosureValue {}

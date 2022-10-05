@@ -1,15 +1,15 @@
-use super::{Instance, Method, NativeMethod, Object, Struct, Value};
-use crate::{Env, ExecutionThread};
-use std::collections::BTreeMap;
+use super::{Args, ComplexValue, InstanceValue, Value};
+use crate::{Env, ExecutionThread, StructValue};
+use std::{collections::BTreeMap, fmt::Display};
 
-pub struct Class {
+pub struct ClassValue {
   pub name: String,
   pub initializer: Option<Value>,
   pub methods: BTreeMap<String, Value>,
   pub static_members: BTreeMap<String, Value>,
 }
 
-impl Class {
+impl ClassValue {
   pub fn new<N: ToString>(name: N) -> Self {
     Self {
       name: name.to_string(),
@@ -19,94 +19,97 @@ impl Class {
     }
   }
 
-  fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Vec<Value>) -> Value {
-    let mut instance = self.construct();
-
-    if let Some(initializer) = &mut self.initializer {
-      if initializer.is_fn() {
-        initializer.as_fn().call(thread, env, args);
-        instance.into()
-      } else if initializer.is_native_method() {
-        initializer
-          .as_native_method()
-          .call(thread, env, Value::from(instance), args)
+  pub fn call_constructor(
+    mut class_value: Value,
+    thread: &mut ExecutionThread,
+    env: &mut Env,
+    args: Args,
+  ) {
+    let class_clone = class_value.clone();
+    let result = if let Ok(class) = class_value.as_class_mut() {
+      let instance = Value::from(InstanceValue::new(StructValue::default(), class_clone));
+      if let Some(initializer) = &mut class.initializer {
+        if let Ok(initializer) = initializer.as_fn() {
+          initializer.call(thread, args);
+          instance
+        } else if let Ok(initializer) = initializer.as_native_fn() {
+          initializer(thread, env, args)
+        } else if let Ok(initializer) = initializer.as_native_closure_mut() {
+          initializer.call(thread, env, args)
+        } else {
+          Value::new_err(format!("invalid type for constructor {}", initializer))
+        }
       } else {
-        Value::new_err(format!("invalid type for constructor {}", initializer))
+        instance
       }
     } else {
-      Value::from(instance)
-    }
+      Value::new_err("unable to construct instance from non-class")
+    };
+
+    thread.stack_push(result);
   }
 
-  pub fn construct(&self) -> Value {
-    let mut instance = Value::from(Instance::default());
-
-    for (name, function) in self.methods.iter() {
-      if function.is_fn() {
-        let method = Method::new(instance.clone(), function.as_fn().clone());
-        instance
-          .as_instance()
-          .set_method(name.clone(), method.into());
-      } else if function.is_native_fn() {
-        let method = NativeMethod::new(instance.clone(), function);
-        instance
-          .as_instance()
-          .set_method(name.clone(), method.into());
-      }
-    }
-
-    instance.into()
-  }
-
-  pub fn set_initializer(&mut self, value: Value) {
+  pub fn set_constructor(&mut self, value: Value) {
     self.initializer = Some(value);
+  }
+
+  pub fn set_native_constructor<F>(&mut self, f: F)
+  where
+    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
+  {
+    self.initializer = Some(Value::new_native_closure(format!("{}()", self.name), f));
+  }
+
+  pub fn get_method<N: AsRef<str>>(&self, name: N) -> Value {
+    self.methods.get(name.as_ref()).cloned().unwrap_or_default()
   }
 
   pub fn set_method<N: ToString>(&mut self, name: N, value: Value) {
     self.methods.insert(name.to_string(), value);
   }
 
-  pub fn set_method_fn<
-    N: ToString,
-    F: FnMut(&mut ExecutionThread, &mut Env, Value, Vec<Value>) -> Value + 'static,
-  >(
-    &mut self,
-    name: N,
-    value: F,
-  ) {
+  pub fn set_native_method<N, F>(&mut self, name: N, method: F)
+  where
+    N: Display,
+    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
+  {
     self.methods.insert(
       name.to_string(),
-      Value::new_native_method(&name.to_string(), value),
+      Value::new_native_closure(format!("{}.{}", self.name, name), method),
     );
+  }
+
+  pub fn get_static<N: AsRef<str>>(&self, name: N) -> Value {
+    self
+      .static_members
+      .get(name.as_ref())
+      .cloned()
+      .unwrap_or_default()
   }
 
   pub fn set_static<N: ToString>(&mut self, name: N, value: Value) {
     self.static_members.insert(name.to_string(), value);
   }
 
-  pub fn set_static_fn<
-    N: AsRef<str>,
-    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Value + 'static,
-  >(
-    &mut self,
-    name: N,
-    value: F,
-  ) {
-    self.set_static(name.as_ref(), Value::new_native_fn(name.as_ref(), value));
-  }
-
-  pub fn get_static<N: ToString>(&self, name: &N) -> Value {
-    self
-      .static_members
-      .get(&name.to_string())
-      .cloned()
-      .unwrap_or(Value::nil)
+  pub fn set_native_static<N, F>(&mut self, name: N, method: F)
+  where
+    N: Display,
+    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
+  {
+    self.static_members.insert(
+      name.to_string(),
+      Value::new_native_closure(format!("{}.{}", self.name, name), method),
+    );
   }
 }
 
-impl Object for Class {
-  fn set(&mut self, name: &str, value: Value) -> Result<(), super::Error> {
+impl ComplexValue for ClassValue {
+  fn set(&mut self, name: &str, value: Value) -> Result<(), super::ErrorValue> {
     self.set_static(name, value);
     Ok(())
+  }
+
+  fn get(&self, name: &str) -> Value {
+    self.get_static(name)
   }
 }

@@ -1,37 +1,38 @@
-mod builtin;
 mod code;
 mod dbg;
-pub mod value;
+mod stdlib;
+mod value;
 
 #[cfg(test)]
 mod test;
 
-pub use builtin::Library;
 pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
 use dbg::RuntimeError;
 use ptr::SmartPtr;
-use value::Object;
+pub use stdlib::Library;
+pub use value::prelude::*;
 
 use std::ops::Deref;
 use std::{
   fs,
   path::{Path, PathBuf},
 };
-pub use value::{Class, Struct, Value};
 
 type ExecResult = Result<(), Vec<RuntimeError>>;
 type ExecBoolResult = Result<bool, Vec<RuntimeError>>;
 
 pub mod prelude {
-  pub use super::{Context, Env, ExecutionThread, Library, RunResult, Value, Vm};
+  pub use super::value::prelude::*;
+  pub use super::{Context, Env, ExecutionThread, Library, RunResult, Vm};
 }
 
 // yield must store ip and stack and return ctx
 // or better yet, have ctx have an Option<usize> and option<Vec<Value>>
 // and when running if present, then set the current thread's ip & stack to those values
 
+#[derive(Debug)]
 pub enum RunResult {
   Value(Value),
   Yield(Yield),
@@ -51,26 +52,26 @@ impl ExecutionThread {
     self.stack_frames = Default::default();
   }
 
-  fn unary_op<F: FnOnce(&mut Self, Value) -> ExecResult>(
-    &mut self,
-    opcode: &OpCode,
-    f: F,
-  ) -> ExecResult {
+  fn unary_op<F>(&mut self, opcode: &OpCode, f: F) -> ExecResult
+  where
+    F: FnOnce(&mut Self, Value),
+  {
     if let Some(v) = self.stack_pop() {
-      f(self, v)
+      f(self, v);
+      Ok(())
     } else {
       Err(self.error(opcode, String::from("cannot operate on empty stack")))
     }
   }
 
-  fn binary_op<F: FnOnce(&mut Self, Value, Value) -> ExecResult>(
-    &mut self,
-    opcode: &OpCode,
-    f: F,
-  ) -> ExecResult {
+  fn binary_op<F>(&mut self, opcode: &OpCode, f: F) -> ExecResult
+  where
+    F: FnOnce(&mut Self, Value, Value),
+  {
     if let Some(bv) = self.stack_pop() {
       if let Some(av) = self.stack_pop() {
-        f(self, av, bv)
+        f(self, av, bv);
+        Ok(())
       } else {
         Err(self.error(opcode, String::from("cannot operate on empty stack")))
       }
@@ -79,15 +80,13 @@ impl ExecutionThread {
     }
   }
 
-  fn global_op<F: FnOnce(&mut Self, String) -> ExecResult>(
-    &mut self,
-    opcode: &OpCode,
-    index: usize,
-    f: F,
-  ) -> ExecResult {
+  fn global_op<F>(&mut self, opcode: &OpCode, index: usize, f: F) -> ExecResult
+  where
+    F: FnOnce(&mut Self, String) -> ExecResult,
+  {
     let name = if let Some(name) = self.current_frame.ctx.global_const_at(index) {
-      if name.is_str() {
-        Ok(name.as_str().clone())
+      if let Ok(name) = name.as_str() {
+        Ok(name.deref().clone())
       } else {
         Err(self.error(
           opcode,
@@ -163,7 +162,6 @@ impl ExecutionThread {
           OpCode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
           OpCode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
           OpCode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
-          OpCode::AssignInitializer => self.exec_assign_initializer(&opcode)?,
           OpCode::Equal => self.exec_equal(&opcode)?,
           OpCode::NotEqual => self.exec_not_equal(&opcode)?,
           OpCode::Greater => self.exec_greater(&opcode)?,
@@ -423,34 +421,28 @@ impl ExecutionThread {
   #[inline]
   fn exec_initialize_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
-      if let Some(name) = self.current_frame.ctx.const_at(location) {
-        if name.is_str() {
-          let name = name.as_str();
-          if value.is_struct() {
-            value.as_struct().set(name, value);
-            Ok(())
-          } else if value.is_instance() {
-            value.as_instance().set(name, value);
-            Ok(())
-          } else if value.is_class() {
-            value.as_class().set_static(name, value);
-            Ok(())
+      if let Some(mut obj) = self.stack_peek() {
+        if let Some(name) = self.current_frame.ctx.const_at(location) {
+          if let Ok(name) = name.as_str() {
+            obj
+              .set(name, value)
+              .map_err(|e| self.error(opcode, format!("{}", e)))
           } else {
-            Err(self.error(
-              opcode,
-              format!("cannot assign member to invalid type {}", value),
-            ))
+            Err(self.error(opcode, String::from("invalid name for member")))
           }
         } else {
-          Err(self.error(opcode, String::from("invalid name for member")))
+          Err(self.error(opcode, String::from("no identifier found at index")))
         }
       } else {
-        Err(self.error(opcode, String::from("no identifier found at index")))
+        Err(self.error(
+          opcode,
+          String::from("no value on stack to assign to member"),
+        ))
       }
     } else {
       Err(self.error(
         opcode,
-        String::from("no value on stack to assign to member"),
+        String::from("no value on stack to assign a member to"),
       ))
     }
   }
@@ -458,17 +450,14 @@ impl ExecutionThread {
   #[inline]
   fn exec_assign_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
-      if let Some(obj) = self.stack_pop() {
+      if let Some(mut obj) = self.stack_pop() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
-          if name.is_str() {
-            let name = &name.as_str();
-            if obj.is_ptr() {
-              obj.set(name, value.clone());
-              self.stack_push(value);
-              Ok(())
-            } else {
-              Err(self.error(opcode, format!("cannot access member of primitive {}", obj)))
-            }
+          if let Ok(name) = name.as_str() {
+            obj
+              .set(name, value.clone())
+              .map_err(|e| self.error(opcode, format!("{}", e)))?;
+            self.stack_push(value);
+            Ok(())
           } else {
             Err(self.error(
               opcode,
@@ -493,8 +482,7 @@ impl ExecutionThread {
   fn exec_lookup_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
     if let Some(obj) = self.stack_pop() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
-        if name.is_str() {
-          let name = name.as_str();
+        if let Ok(name) = name.as_str() {
           if obj.is_ptr() {
             self.stack_push(obj.get(name));
             self.current_frame.last_lookup = obj;
@@ -517,52 +505,28 @@ impl ExecutionThread {
   fn exec_peek_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
     if let Some(obj) = self.stack_peek() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
-        if name.is_str() {
-          let name = &name.as_str();
+        if let Ok(name) = name.as_str() {
           if obj.is_ptr() {
             self.stack_push(obj.get(name));
             Ok(())
           } else {
-            Err(self.error(opcode, format!("invalid type for member access: {}", v)))
+            Err(self.error(opcode, format!("invalid type for member access: {}", obj)))
           }
         } else {
-          Err(self.error(opcode, format!("invalid type for member access: {}", v)))
+          Err(self.error(opcode, format!("invalid lookup for member access: {}", obj)))
         }
       } else {
-        Err(self.error(opcode, format!("invalid type for member access: {}", v)))
+        Err(self.error(opcode, format!("no name for member access: {}", obj)))
       }
     } else {
-      Err(self.error(opcode, format!("invalid type for member access: {}", v)))
-    }
-  }
-
-  fn exec_assign_initializer(&mut self, opcode: &OpCode) -> ExecResult {
-    match self.stack_pop() {
-      Some(initializer) => match self.stack_peek() {
-        Some(value) => match value {
-          Value::Class(mut class) => {
-            class.set_initializer(initializer);
-            Ok(())
-          }
-          _ => Err(self.error(
-            opcode,
-            String::from("tried to assign initializer to non class"),
-          )),
-        },
-        None => Err(self.error(opcode, String::from("no class on stack to assign to"))),
-      },
-      None => Err(self.error(
-        opcode,
-        String::from("no value on stack to assign to class initializer"),
-      )),
+      Err(self.error(opcode, "no object to lookup on"))
     }
   }
 
   #[inline]
   fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: &OpCode, f: F) -> ExecResult {
     self.binary_op(opcode, |this, a, b| {
-      this.stack_push(Value::new(f(a, b)));
-      Ok(())
+      this.stack_push(Value::from(f(a, b)));
     })
   }
 
@@ -601,7 +565,7 @@ impl ExecutionThread {
     match self.stack_pop() {
       Some(a) => match self.stack_peek() {
         Some(b) => {
-          self.stack_push(Value::new(a == b));
+          self.stack_push(Value::from(a == b));
           Ok(())
         }
         None => Err(self.error(opcode, "stack peek failed")),
@@ -611,17 +575,9 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_arith<F: FnOnce(Value, Value) -> ValueOpResult>(
-    &mut self,
-    opcode: &OpCode,
-    f: F,
-  ) -> ExecResult {
-    self.binary_op(opcode, |this, a, b| match f(a, b) {
-      Ok(v) => {
-        this.stack_push(v);
-        Ok(())
-      }
-      Err(e) => Err(this.error(opcode, e)),
+  fn exec_arith<F: FnOnce(Value, Value) -> Value>(&mut self, opcode: &OpCode, f: F) -> ExecResult {
+    self.binary_op(opcode, |this, a, b| {
+      this.stack_push(f(a, b));
     })
   }
 
@@ -686,18 +642,13 @@ impl ExecutionThread {
   fn exec_not(&mut self, opcode: &OpCode) -> ExecResult {
     self.unary_op(opcode, |this, v| {
       this.stack_push(!v);
-      Ok(())
     })
   }
 
   #[inline]
   fn exec_negate(&mut self, opcode: &OpCode) -> ExecResult {
-    self.unary_op(opcode, |this, v| match -v {
-      Ok(n) => {
-        this.stack_push(n);
-        Ok(())
-      }
-      Err(e) => Err(this.error(opcode, e)),
+    self.unary_op(opcode, |this, v| {
+      this.stack_push(-v);
     })
   }
 
@@ -705,7 +656,6 @@ impl ExecutionThread {
   fn exec_print(&mut self, opcode: &OpCode) -> ExecResult {
     self.unary_op(opcode, |_this, v| {
       println!("{}", v);
-      Ok(())
     })
   }
 
@@ -726,20 +676,38 @@ impl ExecutionThread {
 
   #[inline]
   fn exec_call(&mut self, env: &mut Env, opcode: &OpCode, airity: usize) -> ExecResult {
-    if let Some(callable) = self.stack_pop() {
+    if let Some(mut callable) = self.stack_pop() {
       let args = self.stack_drain_from(airity);
 
-      let res = match callable {
-        Value::Function(mut f) => f.call(self, args),
-        Value::Closure(mut c) => c.call(self, args),
-        Value::NativeFunction(mut f) => f.call(self, env, args).map_err(|e| vec![e]),
-        Value::Method(mut m) => {
-          let mut this = Value::Nil;
-          std::mem::swap(&mut this, &mut self.current_frame.last_lookup);
-          m.call(self, env, this, args)
-        }
-        Value::Class(c) => Class::construct(c.clone(), self, env, args),
-        _ => Err(vec![format!("unable to call non callable '{}'", callable)]),
+      let res = if let Ok(f) = callable.as_fn() {
+        f.call(self, args.into());
+        Ok(())
+      } else if let Ok(f) = callable.as_closure() {
+        f.call(self, args.into());
+        Ok(())
+      } else if let Ok(f) = callable.as_method() {
+        let mut this = Value::nil;
+        std::mem::swap(&mut this, &mut self.current_frame.last_lookup);
+        let args = Args::from((this, args));
+        f.call(self, args.into());
+        Ok(())
+      } else if let Ok(f) = callable.as_native_fn() {
+        f(self, env, args.into());
+        Ok(())
+      } else if let Ok(f) = callable.as_native_closure_mut() {
+        f.call(self, env, args.into());
+        Ok(())
+      } else if let Ok(f) = callable.as_native_method_mut() {
+        let mut this = Value::nil;
+        std::mem::swap(&mut this, &mut self.current_frame.last_lookup);
+        let args = Args::from((this, args));
+        f.call(self, env, args.into());
+        Ok(())
+      } else if callable.is_class() {
+        ClassValue::call_constructor(callable, self, env, args.into());
+        Ok(())
+      } else {
+        Err(vec![format!("unable to call non callable '{}'", callable)])
       }
       .map_err(|errors| {
         errors
@@ -809,24 +777,26 @@ impl ExecutionThread {
 
           // if still not found, try searching library paths
           if found_file.is_none() {
-            if let Some(Value::Struct(library_mod)) = env.lookup("$LIBRARY") {
-              if let Value::List(list) = library_mod.get(&"path") {
-                for item in list.iter() {
-                  let base = PathBuf::from(item.to_string());
-                  let path = base.join(&required_file);
-
-                  if Path::exists(&path) {
-                    found_file = Some(path);
-                    break;
-                  } else if let Some(required_file_with_ext) = &required_file_with_ext {
-                    attempts.push(path);
-                    let path = base.join(required_file_with_ext);
+            if let Some(library_mod) = env.lookup("$LIBRARY") {
+              if let Ok(library_mod) = library_mod.as_struct() {
+                if let Ok(list) = library_mod.get("path").as_array() {
+                  for item in list.iter() {
+                    let base = PathBuf::from(item.to_string());
+                    let path = base.join(&required_file);
 
                     if Path::exists(&path) {
                       found_file = Some(path);
                       break;
-                    } else {
+                    } else if let Some(required_file_with_ext) = &required_file_with_ext {
                       attempts.push(path);
+                      let path = base.join(required_file_with_ext);
+
+                      if Path::exists(&path) {
+                        found_file = Some(path);
+                        break;
+                      } else {
+                        attempts.push(path);
+                      }
                     }
                   }
                 }
@@ -872,9 +842,8 @@ impl ExecutionThread {
   fn exec_index(&mut self, opcode: &OpCode, env: &mut Env) -> ExecResult {
     if let Some(index) = self.stack_pop() {
       if let Some(mut indexable) = self.stack_pop() {
-        indexable
-          .index(self, env, index)
-          .map_err(|err| self.error(opcode, format!("unable to index value: {}", err)))
+        self.stack_push(indexable.index(index));
+        Ok(())
       } else {
         Err(self.error(opcode, "no item to index"))
       }
@@ -886,23 +855,25 @@ impl ExecutionThread {
   #[inline]
   fn exec_create_list(&mut self, num_items: usize) {
     let list = self.stack_drain_from(num_items);
-    self.stack_push(Value::new(list));
+    self.stack_push(Value::from(list));
   }
 
   #[inline]
   fn exec_create_closure(&mut self, opcode: &OpCode) -> ExecResult {
     match self.stack_pop() {
       Some(function) => match self.stack_pop() {
-        Some(captures) => match function {
-          Value::Function(function) => match captures {
-            Value::List(captures) => {
-              self.stack_push(Value::new(Closure::new(captures, function)));
+        Some(captures) => {
+          if let Ok(f) = function.as_fn() {
+            if let Ok(captures) = captures.as_array() {
+              self.stack_push(Value::from(ClosureValue::new(captures, f.clone())));
               Ok(())
+            } else {
+              Err(self.error(opcode, "capture list must be a struct"))
             }
-            _ => Err(self.error(opcode, "capture list must be a struct")),
-          },
-          _ => Err(self.error(opcode, "closure must be a function")),
-        },
+          } else {
+            Err(self.error(opcode, "closure must be a function"))
+          }
+        }
         None => Err(self.error(opcode, "no item on the stack to pop for closure captures")),
       },
       None => Err(self.error(opcode, "no item on the stack to pop for closure function")),
@@ -985,11 +956,11 @@ impl ExecutionThread {
   }
 
   #[cold]
-  fn error_at<F: FnOnce(OpCodeReflection) -> Error>(&self, f: F) -> Error {
+  fn error_at<F: FnOnce(OpCodeReflection) -> RuntimeError>(&self, f: F) -> RuntimeError {
     if let Some(opcode_ref) = self.current_frame.ctx.meta.get(self.current_frame.ip) {
       f(opcode_ref)
     } else {
-      Error {
+      RuntimeError {
         msg: format!(
           "could not fetch info for instruction {:04X}",
           self.current_frame.ip
@@ -1026,11 +997,15 @@ impl Vm {
     }
   }
 
-  pub fn load<T: ToString>(&self, file: T, code: &str) -> Result<SmartPtr<Context>, Vec<Error>> {
+  pub fn load<T: ToString>(
+    &self,
+    file: T,
+    code: &str,
+  ) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
     Compiler::compile(&file.to_string(), code)
   }
 
-  pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<RunResult, Vec<Error>> {
+  pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<RunResult, Vec<RuntimeError>> {
     self.main.resume(y, env)
   }
 
@@ -1039,7 +1014,7 @@ impl Vm {
     file: T,
     ctx: SmartPtr<Context>,
     env: &mut Env,
-  ) -> Result<RunResult, Vec<Error>> {
+  ) -> Result<RunResult, Vec<RuntimeError>> {
     #[cfg(debug_assertions)]
     #[cfg(feature = "disassemble")]
     {

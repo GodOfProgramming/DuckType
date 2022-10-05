@@ -1,4 +1,4 @@
-use super::{Assign, Error, Nil, Object, Struct, Tag, Value};
+use super::{Assign, ComplexValue, ErrorValue, Nil, StructValue, Type, Value};
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -33,12 +33,12 @@ impl Default for ImplementedObject {
   }
 }
 
-impl Object for ImplementedObject {
-  fn set(&mut self, name: &str, value: Value) -> Result<(), Error> {
+impl ComplexValue for ImplementedObject {
+  fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
     match name {
       "field" => {
-        if value.is_i32() {
-          self.field = value.as_i32();
+        if let Ok(i) = value.as_i32() {
+          self.field = i;
         }
       }
       _ => panic!("should not reach"),
@@ -54,11 +54,11 @@ impl Object for ImplementedObject {
   }
 
   fn add(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field + other.as_i32()).into(),
-      Tag::Pointer => {
-        if other.is_obj::<ImplementedObject>() {
-          (self.field + other.as_obj::<ImplementedObject>().field).into()
+    match other.type_of() {
+      Type::I32 => (self.field + other.as_i32().unwrap()).into(),
+      Type::Object => {
+        if let Ok(obj) = other.as_obj::<ImplementedObject>() {
+          (self.field + obj.field).into()
         } else {
           Value::new_err(format!("cannot add ImplementedObject and {}", other))
         }
@@ -68,11 +68,11 @@ impl Object for ImplementedObject {
   }
 
   fn sub(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field - other.as_i32()).into(),
-      Tag::Pointer => {
-        if other.is_obj::<ImplementedObject>() {
-          (self.field - other.as_obj::<ImplementedObject>().field).into()
+    match other.type_of() {
+      Type::I32 => (self.field - other.as_i32().unwrap()).into(),
+      Type::Object => {
+        if let Ok(obj) = other.as_obj::<ImplementedObject>() {
+          (self.field - obj.field).into()
         } else {
           Value::new_err(format!("cannot add ImplementedObject and {}", other))
         }
@@ -82,11 +82,11 @@ impl Object for ImplementedObject {
   }
 
   fn mul(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field * other.as_i32()).into(),
-      Tag::Pointer => {
-        if other.is_obj::<ImplementedObject>() {
-          (self.field * other.as_obj::<ImplementedObject>().field).into()
+    match other.type_of() {
+      Type::I32 => (self.field * other.as_i32().unwrap()).into(),
+      Type::Object => {
+        if let Ok(obj) = other.as_obj::<ImplementedObject>() {
+          (self.field * obj.field).into()
         } else {
           Value::new_err(format!("cannot add ImplementedObject and {}", other))
         }
@@ -96,11 +96,11 @@ impl Object for ImplementedObject {
   }
 
   fn div(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field / other.as_i32()).into(),
-      Tag::Pointer => {
-        if other.is_obj::<ImplementedObject>() {
-          (self.field / other.as_obj::<ImplementedObject>().field).into()
+    match other.type_of() {
+      Type::I32 => (self.field / other.as_i32().unwrap()).into(),
+      Type::Object => {
+        if let Ok(obj) = other.as_obj::<ImplementedObject>() {
+          (self.field / obj.field).into()
         } else {
           Value::new_err(format!("cannot add ImplementedObject and {}", other))
         }
@@ -110,11 +110,11 @@ impl Object for ImplementedObject {
   }
 
   fn rem(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field % other.as_i32()).into(),
-      Tag::Pointer => {
-        if other.is_obj::<ImplementedObject>() {
-          (self.field % other.as_obj::<ImplementedObject>().field).into()
+    match other.type_of() {
+      Type::I32 => (self.field % other.as_i32().unwrap()).into(),
+      Type::Object => {
+        if let Ok(obj) = other.as_obj::<ImplementedObject>() {
+          (self.field % obj.field).into()
         } else {
           Value::new_err(format!("cannot add ImplementedObject and {}", other))
         }
@@ -132,7 +132,7 @@ impl Object for ImplementedObject {
 
 struct UnimplementedObject;
 
-impl Object for UnimplementedObject {}
+impl ComplexValue for UnimplementedObject {}
 
 #[fixture(ValueTest)]
 mod unit_tests {
@@ -149,24 +149,24 @@ mod unit_tests {
   fn floats_supported(_: &mut ValueTest) {
     let v = Value::from(1.23);
     assert!(v.is_f64());
-    assert_eq!(v.as_f64(), 1.23);
+    assert_eq!(v.as_f64().unwrap(), 1.23);
   }
 
   #[test]
   fn integers_supported(_: &mut ValueTest) {
     let v = Value::from(123);
     assert!(v.is_i32());
-    assert_eq!(v.as_i32(), 123);
+    assert_eq!(v.as_i32().unwrap(), 123);
   }
 
   #[test]
   fn structs_supported(_: &mut ValueTest) {
     let mut v = Value::new_struct();
-    assert!(v.is_obj::<Struct>());
+    assert!(v.is::<StructValue>());
     v.set("foo", 123.into()).unwrap();
     assert_eq!(v.get("foo"), 123.into());
     assert!(v.set("field", ImplementedObject::default().into()).is_ok());
-    assert!(v.get("field").is_obj::<ImplementedObject>());
+    assert!(v.get("field").is::<ImplementedObject>());
   }
 
   #[test]
@@ -188,7 +188,7 @@ mod unit_tests {
 
     {
       let mut v = Value::from(ImplementedObject::new(&mut x));
-      assert!(v.is_obj::<ImplementedObject>());
+      assert!(v.is::<ImplementedObject>());
       assert!(!x);
 
       v.assign(123);
@@ -200,7 +200,7 @@ mod unit_tests {
       assert!(x);
 
       v.assign(ImplementedObject::new(&mut x));
-      assert!(v.is_obj::<ImplementedObject>());
+      assert!(v.is::<ImplementedObject>());
       assert!(x);
 
       v.assign(Nil);
@@ -237,7 +237,7 @@ mod unit_tests {
     assert_eq!(obj.div(other.clone()), 3.into());
     assert_eq!(obj.rem(other.clone()), 0.into());
 
-    assert_eq!(other.as_obj::<ImplementedObject>().field, 5);
+    assert_eq!(other.as_obj::<ImplementedObject>().unwrap().field, 5);
   }
 
   #[test]

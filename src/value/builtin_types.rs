@@ -1,18 +1,19 @@
-use super::{AllocatedObject, Value, META_OFFSET};
+use super::{AllocatedObject, VTable, Value, META_OFFSET};
 pub use array::Array;
-pub use class::Class;
-pub use closure::Closure;
-pub use error::Error;
-pub use function::Function;
-pub use instance::Instance;
-pub use method::Method;
-pub use native::{NativeFn, NativeMethod};
-pub use r#struct::Struct;
+pub use class::ClassValue;
+pub use closure::ClosureValue;
+pub use error::ErrorValue;
+pub use function::FunctionValue;
+pub use instance::InstanceValue;
+pub use method::MethodValue;
+pub use native::{NativeClosureValue, NativeFn, NativeMethodValue};
+pub use r#struct::StructValue;
 use std::{
   any::TypeId,
   fmt::{Display, Formatter, Result as FmtResult},
 };
-pub use string::Str;
+pub use string::StringValue;
+pub use timestamp::TimestampValue;
 
 mod array;
 mod class;
@@ -24,6 +25,7 @@ mod method;
 mod native;
 mod string;
 mod r#struct;
+mod timestamp;
 
 pub enum Type {
   Nil,
@@ -31,27 +33,22 @@ pub enum Type {
   I32,
   Bool,
   Char,
-  String,
-  Array,
-  Struct,
-  Class,
-  Instance,
-  Function,
-  Method,
-  NativeFn,
-  NativeMethod,
-  UserData,
-  Error,
+  Object,
+
+  /// Should never appear
+  Undefined,
 }
 
 pub struct Nil;
 
-pub trait Object
+pub trait ComplexValue
 where
   Self: Sized + 'static,
 {
+  const VTABLE: VTable = VTable::new::<Self>();
+
   #[allow(unused_variables)]
-  fn set(&mut self, name: &str, value: Value) -> Result<(), Error> {
+  fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
     Err(UnimplementedFunction::Set.to_string().into())
   }
 
@@ -85,9 +82,15 @@ where
     Value::new_err(UnimplementedFunction::Rem.to_string())
   }
 
+  #[allow(unused_variables)]
+  fn index(&self, index: Value) -> Value {
+    Value::new_err(UnimplementedFunction::Index.to_string())
+  }
+
   fn drop(&mut self) {}
 
   // override this only if necessary
+
   fn dealloc(this: *mut Self) {
     consume::<Self>(this);
   }
@@ -103,6 +106,49 @@ where
   }
 }
 
+pub trait Class {
+  fn call(method: &str) -> Value;
+}
+
+pub struct Args {
+  pub this: Option<Value>,
+  pub list: Vec<Value>,
+}
+
+impl Args {
+  pub fn count(&self) -> usize {
+    (if self.this.is_some() { 1 } else { 0 }) + self.list.len()
+  }
+}
+
+impl From<Vec<Value>> for Args {
+  fn from(list: Vec<Value>) -> Self {
+    Self { this: None, list }
+  }
+}
+
+impl From<(Value, Vec<Value>)> for Args {
+  fn from((this, list): (Value, Vec<Value>)) -> Self {
+    Self {
+      this: Some(this),
+      list,
+    }
+  }
+}
+
+impl<T: Into<Value> + Clone, const I: usize> From<(Value, [T; I])> for Args {
+  fn from((this, list): (Value, [T; I])) -> Self {
+    Self {
+      this: Some(this),
+      list: list
+        .into_iter()
+        .cloned()
+        .map(|v| -> Value { v.into() })
+        .collect(),
+    }
+  }
+}
+
 pub enum UnimplementedFunction {
   Set,
   Get,
@@ -112,6 +158,7 @@ pub enum UnimplementedFunction {
   Mul,
   Div,
   Rem,
+  Index,
   Custom(String),
 }
 
@@ -129,14 +176,13 @@ impl Display for UnimplementedFunction {
         UnimplementedFunction::Mul => "mul",
         UnimplementedFunction::Div => "div",
         UnimplementedFunction::Rem => "rem",
+        UnimplementedFunction::Index => "index",
         UnimplementedFunction::Custom(s) => s,
       }
     )
   }
 }
 
-fn consume<T: Object>(this: *mut T) {
-  unsafe {
-    Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>);
-  }
+fn consume<T: ComplexValue>(this: *mut T) -> Box<AllocatedObject<T>> {
+  unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) }
 }

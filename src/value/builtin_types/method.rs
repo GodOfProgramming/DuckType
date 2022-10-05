@@ -1,22 +1,34 @@
-use crate::{Env, ExecutionThread};
+use ptr::SmartPtr;
 
-use super::{Function, Object, Value};
+use crate::{Args, Context, ExecutionThread};
+
+use super::{ComplexValue, FunctionValue};
 
 #[derive(Clone)]
-pub struct Method {
-  pub this: Value,
-  pub function: Function,
+pub struct MethodValue {
+  pub function: FunctionValue,
 }
 
-impl Method {
-  pub fn new(this: Value, function: Function) -> Self {
-    Self { this, function }
+impl MethodValue {
+  pub fn new(function: FunctionValue) -> Self {
+    Self { function }
   }
 
-  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, mut args: Vec<Value>) {
-    args.push(self.this.clone());
-    self.function.call(thread, env, args);
+  pub fn call(&self, thread: &mut ExecutionThread, args: Args) {
+    self.function.call(thread, args);
+  }
+
+  pub fn context_ptr(&self) -> &SmartPtr<Context> {
+    self.function.context_ptr()
+  }
+
+  pub fn context(&self) -> &Context {
+    self.function.context()
+  }
+
+  pub fn context_mut(&mut self) -> &mut Context {
+    self.function.context_mut()
   }
 }
 
-impl Object for Method {}
+impl ComplexValue for MethodValue {}

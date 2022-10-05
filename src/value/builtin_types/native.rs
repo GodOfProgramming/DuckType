@@ -1,20 +1,23 @@
+use super::{Args, ComplexValue, Value};
+use crate::{Env, ExecutionThread};
 use std::fmt::{Display, Formatter, Result};
 
-use super::{Object, Value};
-use crate::{Env, ExecutionThread};
+// type NativeFnTrait = FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static;
 
-// type NativeFnTrait = FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Value + 'static;
-type NativeFnType = dyn FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Value;
+pub type NativeFn = fn(&mut ExecutionThread, &mut Env, Args) -> Value;
 
-pub struct NativeFn {
+type NativeClosureType = dyn FnMut(&mut ExecutionThread, &mut Env, Args) -> Value;
+
+pub struct NativeClosureValue {
   pub name: String,
-  pub callee: Box<NativeFnType>,
+  pub callee: Box<NativeClosureType>,
 }
 
-impl NativeFn {
-  pub fn new<F>(name: &str, callee: F) -> Self
+impl NativeClosureValue {
+  pub fn new<T, F>(name: T, callee: F) -> Self
   where
-    F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Value + 'static,
+    T: ToString,
+    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
   {
     Self {
       name: name.to_string(),
@@ -22,45 +25,46 @@ impl NativeFn {
     }
   }
 
-  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Vec<Value>) -> Value {
+  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Args) -> Value {
     (*self.callee)(thread, env, args)
   }
 }
 
-impl Object for NativeFn {}
+impl ComplexValue for NativeClosureValue {}
 
-impl Display for NativeFn {
+impl Display for NativeClosureValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-    write!(f, "<native {}>", self.name)
+    write!(f, "<native {} @{:p}>", self.name, self.callee.as_ref())
   }
 }
 
-// type NativeMethodTrait = FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Value + 'static;
-pub struct NativeMethod {
-  this: Value,
-  callee: Value,
+// type NativeMethodTrait = FnMut(&mut ExecutionThread, &mut Env, Value, Args) -> Value + 'static;
+type NativeMethodType = dyn FnMut(&mut ExecutionThread, &mut Env, Value, Args) -> Value;
+
+pub struct NativeMethodValue {
+  callee: NativeClosureValue,
 }
 
-impl NativeMethod {
-  pub fn new(this: Value, f: F) -> Self {
-    Self { this, callee: f }
+impl NativeMethodValue {
+  pub fn new(callee: NativeClosureValue) -> Self {
+    Self { callee }
   }
 
-  pub fn call(
-    &mut self,
-    thread: &mut ExecutionThread,
-    env: &mut Env,
-    mut args: Vec<Value>,
-  ) -> Value {
-    args.push(self.this.clone());
-    (*self.callee)(thread, env, args)
+  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, mut args: Args) -> Value {
+    self.callee.call(thread, env, args)
   }
 }
 
-impl Object for NativeMethod {}
+impl ComplexValue for NativeMethodValue {}
 
-impl Display for NativeMethod {
+impl Display for NativeMethodValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> Result {
     write!(f, "{}", self.callee)
+  }
+}
+
+impl From<NativeClosureValue> for NativeMethodValue {
+  fn from(f: NativeClosureValue) -> Self {
+    Self { callee: f }
   }
 }

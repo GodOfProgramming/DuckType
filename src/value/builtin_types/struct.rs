@@ -1,16 +1,16 @@
-use super::{Error, Object, Value};
+use super::{ComplexValue, ErrorValue, Value};
 use std::{
   collections::BTreeMap,
   fmt::{Display, Formatter, Result as FmtResult},
 };
 
 #[derive(Default)]
-pub struct Struct {
+pub struct StructValue {
   pub members: BTreeMap<String, Value>,
 }
 
-impl Object for Struct {
-  fn set(&mut self, name: &str, value: Value) -> Result<(), Error> {
+impl ComplexValue for StructValue {
+  fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
     self.members.insert(name.to_string(), value);
     Ok(())
   }
@@ -20,7 +20,7 @@ impl Object for Struct {
   }
 }
 
-impl Display for Struct {
+impl Display for StructValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     write!(
       f,

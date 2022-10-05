@@ -4,6 +4,7 @@ use std::{
   any::TypeId,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
   mem,
+  ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
 };
 pub use tags::*;
 
@@ -14,8 +15,8 @@ mod tags;
 #[cfg(test)]
 mod test;
 
-mod prelude {
-  pub use super::{builtin_types::*, Assign, Object, Value};
+pub mod prelude {
+  pub use super::{builtin_types::*, Assign, ComplexValue, Value};
 }
 
 type ConstVoid = *const ();
@@ -39,16 +40,6 @@ impl Value {
   #[allow(non_upper_case_globals)]
   pub const nil: Value = Value { bits: NIL_TAG };
 
-  pub fn tag(&self) -> Tag {
-    unsafe {
-      if self.bits < INF_VALUE {
-        Tag::F64
-      } else {
-        mem::transmute::<u64, Tag>((self.bits & TAG_BITMASK | INF_VALUE) as u64)
-      }
-    }
-  }
-
   pub fn type_of(&self) -> Type {
     if self.is_f64() {
       Type::F64
@@ -58,37 +49,19 @@ impl Value {
       Type::Bool
     } else if self.is_char() {
       Type::Char
-    } else if self.is_str() {
-      Type::String
-    } else if self.is_array() {
-      Type::Array
-    } else if self.is_struct() {
-      Type::Struct
-    } else if self.is_class() {
-      Type::Class
-    } else if self.is_instance() {
-      Type::Instance
-    } else if self.is_fn() {
-      Type::Function
-    } else if self.is_method() {
-      Type::Method
-    } else if self.is_native_fn() {
-      Type::NativeFn
-    } else if self.is_native_method() {
-      Type::NativeMethod
-    } else if self.is_err() {
-      Type::Error
+    } else if self.is_ptr() {
+      Type::Object
     } else {
-      Type::UserData
+      Type::Undefined
     }
   }
 
   pub fn truthy(&self) -> bool {
-    !self.is_nil() && (!self.is_bool() || self.as_bool())
+    !self.is_nil() && (!self.is_bool() || unsafe { self.bits > 0 })
   }
 
   pub fn falsy(&self) -> bool {
-    self.is_nil() || (self.is_bool() && !self.as_bool())
+    self.is_nil() || (self.is_bool() && unsafe { self.bits == 0 })
   }
 
   // float
@@ -97,9 +70,12 @@ impl Value {
     unsafe { self.bits < INF_VALUE }
   }
 
-  pub fn as_f64(&self) -> f64 {
-    debug_assert!(self.is_f64());
-    unsafe { self.f64 }
+  pub fn as_f64(&self) -> ConversionResult<f64> {
+    if self.is_f64() {
+      Ok(unsafe { self.f64 })
+    } else {
+      Err(ConversionError::WrongType)
+    }
   }
 
   // int
@@ -108,9 +84,12 @@ impl Value {
     self.is_type::<I32_TAG>()
   }
 
-  pub fn as_i32(&self) -> i32 {
-    debug_assert!(self.is_i32());
-    unsafe { mem::transmute::<u32, i32>((self.bits & !I32_TAG) as u32) }
+  pub fn as_i32(&self) -> ConversionResult<i32> {
+    if self.is_i32() {
+      Ok(unsafe { mem::transmute::<u32, i32>((self.bits & !I32_TAG) as u32) })
+    } else {
+      Err(ConversionError::WrongType)
+    }
   }
 
   // bool
@@ -119,9 +98,12 @@ impl Value {
     self.is_type::<BOOL_TAG>()
   }
 
-  pub fn as_bool(&self) -> bool {
-    debug_assert!(self.is_bool());
-    unsafe { self.bits & POINTER_BITMASK > 0 }
+  pub fn as_bool(&self) -> ConversionResult<bool> {
+    if self.is_bool() {
+      Ok(unsafe { self.bits & POINTER_BITMASK > 0 })
+    } else {
+      Err(ConversionError::WrongType)
+    }
   }
 
   // char
@@ -130,24 +112,30 @@ impl Value {
     self.is_type::<CHAR_TAG>()
   }
 
-  pub fn as_char(&self) -> char {
-    debug_assert!(self.is_char());
-    unsafe { mem::transmute::<u32, char>((self.bits & !CHAR_TAG) as u32) }
+  pub fn as_char(&self) -> ConversionResult<char> {
+    if self.is_char() {
+      Ok(unsafe { mem::transmute::<u32, char>((self.bits & !CHAR_TAG) as u32) })
+    } else {
+      Err(ConversionError::WrongType)
+    }
   }
 
   // string
 
   pub fn new_str() -> Self {
-    Self::from(Str::default())
+    Self::from(StringValue::default())
   }
 
   pub fn is_str(&self) -> bool {
-    self.is_obj::<Str>()
+    self.is::<StringValue>()
   }
 
-  pub fn as_str(&mut self) -> &mut Str {
-    debug_assert!(self.is_str());
-    self.convert()
+  pub fn as_str(&self) -> ConversionResult<&StringValue> {
+    self.as_obj::<StringValue>()
+  }
+
+  pub fn as_str_mut(&mut self) -> ConversionResult<&mut StringValue> {
+    self.as_obj_mut::<StringValue>()
   }
 
   // array
@@ -157,126 +145,182 @@ impl Value {
   }
 
   pub fn is_array(&self) -> bool {
-    self.is_obj::<Array>()
+    self.is::<Array>()
   }
 
-  pub fn as_array(&mut self) -> &mut Array {
-    debug_assert!(self.is_array());
-    self.convert()
+  pub fn as_array(&self) -> ConversionResult<&Array> {
+    self.as_obj::<Array>()
+  }
+
+  pub fn as_array_mut(&mut self) -> ConversionResult<&mut Array> {
+    self.as_obj_mut::<Array>()
   }
 
   // struct
 
   pub fn new_struct() -> Self {
-    Self::from(Struct::default())
+    Self::from(StructValue::default())
   }
 
   pub fn is_struct(&self) -> bool {
-    self.is_obj::<Struct>()
+    self.is::<StructValue>()
   }
 
-  pub fn as_struct(&mut self) -> &mut Struct {
-    debug_assert!(self.is_struct());
-    self.convert()
+  pub fn as_struct(&self) -> ConversionResult<&StructValue> {
+    self.as_obj::<StructValue>()
+  }
+
+  pub fn as_struct_mut(&mut self) -> ConversionResult<&mut StructValue> {
+    self.as_obj_mut::<StructValue>()
   }
 
   // error
 
   pub fn new_err<T: ToString>(msg: T) -> Self {
-    Self::from(Error::from(msg.to_string()))
+    Self::from(ErrorValue::from(msg.to_string()))
   }
 
   pub fn is_err(&self) -> bool {
-    self.is_obj::<Error>()
+    self.is::<ErrorValue>()
   }
 
-  pub fn as_err(&mut self) -> &mut Error {
-    debug_assert!(self.is_err());
-    self.convert()
+  pub fn as_err(&self) -> ConversionResult<&ErrorValue> {
+    self.as_obj::<ErrorValue>()
+  }
+
+  pub fn as_err_mut(&mut self) -> ConversionResult<&mut ErrorValue> {
+    self.as_obj_mut::<ErrorValue>()
   }
 
   // class
 
   pub fn new_class<T: ToString>(name: T) -> Self {
-    Self::from(Class::new(name.to_string()))
+    Self::from(ClassValue::new(name.to_string()))
   }
 
   pub fn is_class(&self) -> bool {
-    self.is_obj::<Class>()
+    self.is::<ClassValue>()
   }
 
-  pub fn as_class(&mut self) -> &mut Class {
-    debug_assert!(self.is_class());
-    self.convert()
+  pub fn as_class(&self) -> ConversionResult<&ClassValue> {
+    self.as_obj::<ClassValue>()
+  }
+
+  pub fn as_class_mut(&mut self) -> ConversionResult<&mut ClassValue> {
+    self.as_obj_mut::<ClassValue>()
   }
 
   // instance
 
   pub fn is_instance(&self) -> bool {
-    self.is_obj::<Instance>()
+    self.is::<InstanceValue>()
   }
 
-  pub fn as_instance(&mut self) -> &mut Instance {
-    debug_assert!(self.is_instance());
-    self.convert()
+  pub fn as_instance(&self) -> ConversionResult<&InstanceValue> {
+    self.as_obj::<InstanceValue>()
+  }
+
+  pub fn as_instance_mut(&mut self) -> ConversionResult<&mut InstanceValue> {
+    self.as_obj_mut::<InstanceValue>()
   }
 
   // function
 
   pub fn is_fn(&self) -> bool {
-    self.is_obj::<Function>()
+    self.is::<FunctionValue>()
   }
 
-  pub fn as_fn(&mut self) -> &mut Function {
-    debug_assert!(self.is_fn());
-    self.convert()
+  pub fn as_fn(&self) -> ConversionResult<&FunctionValue> {
+    self.as_obj::<FunctionValue>()
+  }
+
+  pub fn as_fn_mut(&mut self) -> ConversionResult<&mut FunctionValue> {
+    self.as_obj_mut::<FunctionValue>()
+  }
+
+  // closure
+
+  pub fn is_closure(&self) -> bool {
+    self.is::<ClosureValue>()
+  }
+
+  pub fn as_closure(&self) -> ConversionResult<&ClosureValue> {
+    self.as_obj::<ClosureValue>()
+  }
+
+  pub fn as_closure_mut(&self) -> ConversionResult<&mut ClosureValue> {
+    self.as_obj_mut::<ClosureValue>()
   }
 
   // method
 
   pub fn is_method(&self) -> bool {
-    self.is_obj::<Method>()
+    self.is::<MethodValue>()
   }
 
-  pub fn as_method(&mut self) -> &mut Method {
-    debug_assert!(self.is_method());
-    self.convert()
+  pub fn as_method(&self) -> ConversionResult<&MethodValue> {
+    self.as_obj::<MethodValue>()
+  }
+
+  pub fn as_method_mut(&mut self) -> ConversionResult<&mut MethodValue> {
+    self.as_obj_mut::<MethodValue>()
   }
 
   // native
 
-  pub fn new_native_fn<F: FnMut(&mut ExecutionThread, &mut Env, Vec<Value>) -> Value + 'static>(
-    name: &str,
-    f: F,
-  ) -> Self {
-    Self::from(NativeFn::new(name, f))
+  pub fn new_native_fn(f: NativeFn) -> Self {
+    Self::from(f)
   }
 
   pub fn is_native_fn(&self) -> bool {
-    self.is_obj::<NativeFn>()
+    self.is_type::<FN_TAG>()
   }
 
-  pub fn as_native_fn(&mut self) -> &mut NativeFn {
-    debug_assert!(self.is_native_fn());
-    self.convert()
+  pub fn as_native_fn(&self) -> Result<NativeFn, ConversionError> {
+    if self.is_native_fn() {
+      Ok(unsafe { mem::transmute::<u64, NativeFn>((self.bits & !FN_TAG) as u64) })
+    } else {
+      Err(ConversionError::WrongType)
+    }
   }
 
-  pub fn new_native_method<
-    F: FnMut(&mut ExecutionThread, &mut Env, Value, Vec<Value>) -> Value + 'static,
-  >(
-    name: &str,
-    f: F,
-  ) -> Self {
-    Self::from(NativeMethod::new(name, f))
+  pub fn new_native_closure<N, F>(name: N, f: F) -> Self
+  where
+    N: ToString,
+    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
+  {
+    Self::from(NativeClosureValue::new(name, f))
+  }
+
+  pub fn is_native_closure(&self) -> bool {
+    self.is::<NativeClosureValue>()
+  }
+
+  pub fn as_native_closure(&self) -> ConversionResult<&NativeClosureValue> {
+    self.as_obj::<NativeClosureValue>()
+  }
+
+  pub fn as_native_closure_mut(&mut self) -> ConversionResult<&mut NativeClosureValue> {
+    self.as_obj_mut::<NativeClosureValue>()
+  }
+
+  pub fn new_native_method<T: ToString, F>(name: T, f: F) -> Self
+  where
+    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
+  {
+    Self::from(NativeMethodValue::from(NativeClosureValue::new(name, f)))
   }
 
   pub fn is_native_method(&self) -> bool {
-    self.is_obj::<NativeMethod>()
+    self.is::<NativeMethodValue>()
   }
 
-  pub fn as_native_method(&mut self) -> &mut NativeMethod {
-    debug_assert!(self.is_native_method());
-    self.convert()
+  pub fn as_native_method(&self) -> ConversionResult<&NativeMethodValue> {
+    self.as_obj::<NativeMethodValue>()
+  }
+
+  pub fn as_native_method_mut(&mut self) -> ConversionResult<&mut NativeMethodValue> {
+    self.as_obj_mut::<NativeMethodValue>()
   }
 
   // obj pointer
@@ -285,12 +329,36 @@ impl Value {
     self.is_type::<POINTER_TAG>()
   }
 
-  pub fn is_obj<T: Object>(&self) -> bool {
+  pub fn is<T: ComplexValue>(&self) -> bool {
     self.is_ptr() && self.type_id() == T::type_id()
   }
 
-  pub fn as_obj<T: Object>(&self) -> &mut T {
+  #[cfg(not(no_type_checking))]
+  pub fn as_obj<T: ComplexValue>(&self) -> ConversionResult<&T> {
+    if self.is::<T>() {
+      self.convert()
+    } else {
+      Err(ConversionError::WrongType)
+    }
+  }
+
+  #[cfg(not(no_type_checking))]
+  pub fn as_obj_mut<T: ComplexValue>(&self) -> ConversionResult<&mut T> {
+    if self.is::<T>() {
+      self.convert_mut()
+    } else {
+      Err(ConversionError::WrongType)
+    }
+  }
+
+  #[cfg(no_type_checking)]
+  pub fn as_obj<T: ComplexValue>(&self) -> ConversionResult<T> {
     self.convert()
+  }
+
+  #[cfg(no_type_checking)]
+  pub fn as_obj_mut<T: ComplexValue>(&self) -> ConversionResult<T> {
+    self.convert_mut()
   }
 
   // nil
@@ -299,9 +367,9 @@ impl Value {
     self.is_type::<NIL_TAG>()
   }
 
-  // Object Methods
+  // ComplexValue Methods
 
-  pub fn set(&mut self, name: &str, value: Value) -> Result<(), Error> {
+  pub fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
     (self.vtable().set)(self.pointer(), name, value)
   }
 
@@ -327,6 +395,10 @@ impl Value {
 
   pub fn rem(&self, other: Value) -> Value {
     (self.vtable().rem)(self.pointer(), other)
+  }
+
+  pub fn index(&self, index: Value) -> Value {
+    (self.vtable().index)(self.pointer(), index)
   }
 
   pub fn basic_desc(&self) -> &'static str {
@@ -365,11 +437,15 @@ impl Value {
     (self.vtable().type_id)()
   }
 
-  fn convert<T>(&self) -> &mut T {
-    unsafe { &mut *(self.pointer() as *mut T) }
+  fn convert<T>(&self) -> ConversionResult<&T> {
+    Ok(unsafe { &*(self.pointer() as *const T) })
   }
 
-  fn allocate<T: Object>(item: T) -> Self {
+  fn convert_mut<T>(&self) -> ConversionResult<&mut T> {
+    Ok(unsafe { &mut *(self.pointer() as *mut T) })
+  }
+
+  fn allocate<T: ComplexValue>(item: T) -> Self {
     let allocated = unsafe { &mut *(Box::into_raw(Box::new(AllocatedObject::new(item)))) };
 
     let ptr = &mut allocated.obj as *mut T as MutVoid;
@@ -402,7 +478,7 @@ impl Default for Value {
 
 impl Drop for Value {
   fn drop(&mut self) {
-    if self.tag() == Tag::Pointer {
+    if self.is_ptr() {
       let meta = self.meta();
 
       meta.ref_count -= 1;
@@ -417,7 +493,7 @@ impl Drop for Value {
 
 impl Clone for Value {
   fn clone(&self) -> Self {
-    if self.tag() == Tag::Pointer {
+    if self.is_ptr() {
       self.meta().ref_count += 1;
     }
     unsafe { Self { bits: self.bits } }
@@ -456,19 +532,33 @@ impl From<char> for Value {
 
 impl From<&str> for Value {
   fn from(item: &str) -> Self {
-    Value::allocate::<Str>(item.into())
+    Value::allocate::<StringValue>(item.into())
   }
 }
 
 impl From<String> for Value {
   fn from(item: String) -> Self {
-    Value::allocate::<Str>(item.into())
+    Value::allocate::<StringValue>(item.into())
   }
 }
 
 impl From<&[Value]> for Value {
-  fn from(vec: &[Value]) -> Self {
+  fn from(array: &[Value]) -> Self {
+    Value::allocate::<Array>(array.into())
+  }
+}
+
+impl From<Vec<Value>> for Value {
+  fn from(vec: Vec<Value>) -> Self {
     Value::allocate::<Array>(vec.into())
+  }
+}
+
+impl From<NativeFn> for Value {
+  fn from(f: NativeFn) -> Self {
+    Self {
+      bits: unsafe { mem::transmute::<NativeFn, u64>(f) } | FN_TAG,
+    }
   }
 }
 
@@ -480,7 +570,7 @@ impl From<Nil> for Value {
 
 impl<T> From<T> for Value
 where
-  T: Object,
+  T: ComplexValue,
 {
   fn from(item: T) -> Self {
     Value::allocate::<T>(item)
@@ -491,19 +581,26 @@ impl Assign<i32> for Value {}
 
 impl Assign<f64> for Value {}
 
-impl<T: Object> Assign<T> for Value {}
+impl<T: ComplexValue> Assign<T> for Value {}
 
 impl Assign<Nil> for Value {}
 
 impl Display for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    match self.tag() {
-      Tag::F64 => write!(f, "{}", self.as_f64()),
-      Tag::I32 => write!(f, "{}", self.as_i32()),
-      Tag::Bool => write!(f, "{}", self.as_bool()),
-      Tag::Char => write!(f, "{}", self.as_char()),
-      Tag::Pointer => write!(f, "{}", self.basic_desc()),
-      Tag::Nil => write!(f, "nil"),
+    if let Ok(v) = self.as_f64() {
+      write!(f, "{}", v)
+    } else if let Ok(v) = self.as_i32() {
+      write!(f, "{}", v)
+    } else if let Ok(v) = self.as_bool() {
+      write!(f, "{}", v)
+    } else if let Ok(v) = self.as_char() {
+      write!(f, "{}", v)
+    } else if let Ok(v) = self.as_bool() {
+      write!(f, "{}", v)
+    } else if self.is_nil() {
+      write!(f, "nil")
+    } else {
+      write!(f, "{}", self.basic_desc())
     }
   }
 }
@@ -520,14 +617,77 @@ impl PartialEq for Value {
   }
 }
 
-struct VTable {
-  set: fn(MutVoid, name: &str, value: Value) -> Result<(), Error>,
+impl PartialOrd for Value {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    todo!()
+  }
+}
+
+impl Add for Value {
+  type Output = Self;
+
+  fn add(self, rhs: Self) -> Self::Output {
+    todo!()
+  }
+}
+
+impl Sub for Value {
+  type Output = Self;
+
+  fn sub(self, rhs: Self) -> Self::Output {
+    todo!()
+  }
+}
+
+impl Mul for Value {
+  type Output = Self;
+
+  fn mul(self, rhs: Self) -> Self::Output {
+    todo!()
+  }
+}
+
+impl Div for Value {
+  type Output = Self;
+
+  fn div(self, rhs: Self) -> Self::Output {
+    todo!()
+  }
+}
+
+impl Rem for Value {
+  type Output = Self;
+
+  fn rem(self, rhs: Self) -> Self::Output {
+    todo!()
+  }
+}
+
+impl Neg for Value {
+  type Output = Self;
+
+  fn neg(self) -> Self::Output {
+    todo!()
+  }
+}
+
+impl Not for Value {
+  type Output = Self;
+
+  fn not(self) -> Self::Output {
+    todo!()
+  }
+}
+
+pub struct VTable {
+  set: fn(MutVoid, name: &str, value: Value) -> Result<(), ErrorValue>,
   get: fn(ConstVoid, name: &str) -> Value,
   add: fn(ConstVoid, other: Value) -> Value,
   sub: fn(ConstVoid, other: Value) -> Value,
   mul: fn(ConstVoid, other: Value) -> Value,
   div: fn(ConstVoid, other: Value) -> Value,
   rem: fn(ConstVoid, other: Value) -> Value,
+  index: fn(ConstVoid, index: Value) -> Value,
   drop: fn(MutVoid),
   dealloc: fn(MutVoid),
   type_id: fn() -> TypeId,
@@ -535,21 +695,22 @@ struct VTable {
 }
 
 impl VTable {
-  fn new<T: Object>() -> Self {
+  const fn new<T: ComplexValue>() -> Self {
     Self {
       set: |this, name, value| {
-        <T as Object>::set(unsafe { &mut *Self::void_to_mut(this) }, name, value)
+        <T as ComplexValue>::set(unsafe { &mut *Self::void_to_mut(this) }, name, value)
       },
-      get: |this, name| <T as Object>::get(unsafe { &*Self::void_to(this) }, name),
-      add: |this, other| <T as Object>::add(unsafe { &*Self::void_to(this) }, other),
-      sub: |this, other| <T as Object>::sub(unsafe { &*Self::void_to(this) }, other),
-      mul: |this, other| <T as Object>::mul(unsafe { &*Self::void_to(this) }, other),
-      div: |this, other| <T as Object>::div(unsafe { &*Self::void_to(this) }, other),
-      rem: |this, other| <T as Object>::rem(unsafe { &*Self::void_to(this) }, other),
-      drop: |this| <T as Object>::drop(unsafe { &mut *Self::void_to_mut(this) }),
-      dealloc: |this| <T as Object>::dealloc(this as *mut T),
-      type_id: || <T as Object>::type_id(),
-      basic_desc: || <T as Object>::basic_desc(),
+      get: |this, name| <T as ComplexValue>::get(unsafe { &*Self::void_to(this) }, name),
+      add: |this, other| <T as ComplexValue>::add(unsafe { &*Self::void_to(this) }, other),
+      sub: |this, other| <T as ComplexValue>::sub(unsafe { &*Self::void_to(this) }, other),
+      mul: |this, other| <T as ComplexValue>::mul(unsafe { &*Self::void_to(this) }, other),
+      div: |this, other| <T as ComplexValue>::div(unsafe { &*Self::void_to(this) }, other),
+      rem: |this, other| <T as ComplexValue>::rem(unsafe { &*Self::void_to(this) }, other),
+      index: |this, index| <T as ComplexValue>::index(unsafe { &*Self::void_to(this) }, index),
+      drop: |this| <T as ComplexValue>::drop(unsafe { &mut *Self::void_to_mut(this) }),
+      dealloc: |this| <T as ComplexValue>::dealloc(this as *mut T),
+      type_id: || <T as ComplexValue>::type_id(),
+      basic_desc: || <T as ComplexValue>::basic_desc(),
     }
   }
 
@@ -564,20 +725,20 @@ impl VTable {
 
 struct ValueMeta {
   ref_count: usize,
-  vtable: VTable,
+  vtable: &'static VTable,
 }
 
 #[repr(C)]
-struct AllocatedObject<T: Object> {
+struct AllocatedObject<T: ComplexValue> {
   meta: ValueMeta,
   obj: T,
 }
 
-impl<T: Object> AllocatedObject<T> {
+impl<T: ComplexValue> AllocatedObject<T> {
   fn new(obj: T) -> Self {
     let meta = ValueMeta {
       ref_count: 1,
-      vtable: VTable::new::<T>(),
+      vtable: &T::VTABLE,
     };
     Self { obj, meta: meta }
   }
@@ -590,4 +751,11 @@ where
   fn assign(&mut self, t: T) {
     *self = Self::from(t);
   }
+}
+
+pub type ConversionResult<T: ComplexValue> = Result<T, ConversionError>;
+
+#[derive(Debug, PartialEq)]
+pub enum ConversionError {
+  WrongType,
 }

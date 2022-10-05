@@ -3,13 +3,13 @@ use crate::Context;
 use ptr::SmartPtr;
 
 #[derive(Clone)]
-pub struct Function {
+pub struct FunctionValue {
   pub airity: usize,
   locals: usize,
   ctx: SmartPtr<Context>,
 }
 
-impl Function {
+impl FunctionValue {
   pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
     Self {
       airity,
@@ -18,23 +18,18 @@ impl Function {
     }
   }
 
-  pub fn call(
-    &mut self,
-    thread: &mut crate::ExecutionThread,
-    env: &mut crate::Env,
-    args: Vec<crate::Value>,
-  ) {
-    if args.len() > self.airity {
-      args.drain(0..self.airity);
+  pub fn call(&self, thread: &mut crate::ExecutionThread, mut args: Args) {
+    if args.count() > self.airity {
+      args.list.drain(0..self.airity);
     } else {
-      while args.len() < self.airity {
-        args.push(Value::nil);
+      while args.count() < self.airity {
+        args.list.push(Value::nil);
       }
     }
 
-    args.reserve(self.locals);
+    args.list.reserve(self.locals);
     thread.new_frame(self.ctx.clone());
-    thread.set_stack(args);
+    thread.set_stack(args.list);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
@@ -44,6 +39,10 @@ impl Function {
   pub fn context(&self) -> &Context {
     &self.ctx
   }
+
+  pub fn context_mut(&mut self) -> &mut Context {
+    &mut self.ctx
+  }
 }
 
-impl Object for Function {}
+impl ComplexValue for FunctionValue {}

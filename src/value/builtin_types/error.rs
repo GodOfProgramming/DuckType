@@ -1,20 +1,20 @@
-use super::Object;
+use super::ComplexValue;
 use std::fmt::{Display, Formatter, Result};
 
 #[derive(Debug)]
-pub struct Error {
+pub struct ErrorValue {
   msg: String,
 }
 
-impl Object for Error {}
+impl ComplexValue for ErrorValue {}
 
-impl Display for Error {
+impl Display for ErrorValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> Result {
     write!(f, "{}", self.msg)
   }
 }
 
-impl From<String> for Error {
+impl From<String> for ErrorValue {
   fn from(msg: String) -> Self {
     Self { msg }
   }
