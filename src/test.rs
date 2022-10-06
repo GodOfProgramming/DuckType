@@ -54,6 +54,8 @@ impl TestFixture for IntegrationTest {
 
 #[fixture(IntegrationTest)]
 mod integration_tests {
+  use crate::dbg::here;
+
   use super::*;
 
   #[test]
@@ -64,7 +66,9 @@ mod integration_tests {
       env.assign(String::from("foo"), Value::from("foo"));
       match this.vm.run(TEST_FILE, ctx, env) {
         Ok(res) => match res {
-          RunResult::Value(v) => assert_eq!(Value::from("foo"), v),
+          RunResult::Value(v) => {
+            assert_eq!(Value::from("foo"), v);
+          }
           RunResult::Yield(_) => panic!("should not use yields"),
         },
         Err(err) => panic!("{:#?}", err),

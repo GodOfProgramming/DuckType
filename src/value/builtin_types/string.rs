@@ -1,4 +1,4 @@
-use crate::{Args, Env, ExecutionThread};
+use crate::{dbg::here, Args, Env, ExecutionThread};
 
 use super::{Class, ComplexValue, ErrorValue, StructValue, Value};
 use std::{
@@ -63,6 +63,7 @@ impl ComplexValue for StringValue {
   }
 
   fn get(&self, name: &str) -> Value {
+    println!("{}", name);
     self.obj.get(name).or_else(|| match name {
       "len" => {
         let result = self.len() as i32;
@@ -76,7 +77,6 @@ impl ComplexValue for StringValue {
         }
       }
       method => StringClass::call(method),
-      _ => Value::nil,
     })
   }
 }

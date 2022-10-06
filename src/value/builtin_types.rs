@@ -27,12 +27,14 @@ mod string;
 mod r#struct;
 mod timestamp;
 
+#[derive(Debug)]
 pub enum Type {
   Nil,
   F64,
   I32,
   Bool,
   Char,
+  NativeFn,
   Object,
 
   /// Should never appear

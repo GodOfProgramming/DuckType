@@ -8,7 +8,7 @@ use std::{
 };
 pub use tags::*;
 
-use crate::{Env, ExecutionThread};
+use crate::{dbg::here, Env, ExecutionThread};
 
 mod builtin_types;
 mod tags;
@@ -41,7 +41,9 @@ impl Value {
   pub const nil: Value = Value { bits: NIL_TAG };
 
   pub fn type_of(&self) -> Type {
-    if self.is_f64() {
+    if self.is_nil() {
+      Type::Nil
+    } else if self.is_f64() {
       Type::F64
     } else if self.is_i32() {
       Type::I32
@@ -49,6 +51,8 @@ impl Value {
       Type::Bool
     } else if self.is_char() {
       Type::Char
+    } else if self.is_native_fn() {
+      Type::NativeFn
     } else if self.is_ptr() {
       Type::Object
     } else {
@@ -429,7 +433,7 @@ impl Value {
   }
 
   fn is_type<const T: u64>(&self) -> bool {
-    unsafe { self.bits & T == T }
+    unsafe { self.bits & TAG_BITMASK == T }
   }
 
   // TypeId of the underlying type
@@ -607,7 +611,16 @@ impl Display for Value {
 
 impl Debug for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    unsafe { write!(f, "{:p}, {:X}, {}", self.ptr, self.bits, self.f64) }
+    unsafe {
+      write!(
+        f,
+        "{:p}, {:X}, {}, {:?}",
+        self.ptr,
+        self.bits,
+        self.f64,
+        self.type_of()
+      )
+    }
   }
 }
 

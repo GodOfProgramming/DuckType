@@ -9,6 +9,7 @@ mod test;
 pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
+use dbg::here;
 use dbg::RuntimeError;
 use ptr::SmartPtr;
 pub use stdlib::Library;
@@ -47,8 +48,8 @@ pub struct ExecutionThread {
 }
 
 impl ExecutionThread {
-  fn reset(&mut self) {
-    self.current_frame = Default::default();
+  fn reinitialize(&mut self, ctx: SmartPtr<Context>) {
+    self.current_frame = StackFrame::new(ctx);
     self.stack_frames = Default::default();
   }
 
@@ -113,8 +114,7 @@ impl ExecutionThread {
     env: &mut Env,
   ) -> Result<RunResult, Vec<RuntimeError>> {
     self.opened_files = vec![(0, file)];
-    self.reset();
-    self.current_frame.ctx = ctx;
+    self.reinitialize(ctx);
     self.execute(env)
   }
 
@@ -1025,7 +1025,6 @@ impl Vm {
         std::process::exit(0);
       }
     }
-
     self.main.run(PathBuf::from(file.to_string()), ctx, env)
   }
 }

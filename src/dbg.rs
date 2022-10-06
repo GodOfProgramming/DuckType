@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 macro_rules! here {
   () => {
-    crate::dbg::_here(line!());
+    crate::dbg::_here(file!(), line!());
   };
 }
 
@@ -10,9 +10,9 @@ pub(crate) use here;
 
 use crate::code::{OpCode, OpCodeReflection};
 
-pub fn _here(line: u32) {
+pub fn _here(file: &str, line: u32) {
   use std::io::{stdout, Write};
-  println!("HERE {}", line);
+  println!("{}:{}", file, line);
   stdout().flush().unwrap();
 }
 
