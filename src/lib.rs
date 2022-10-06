@@ -606,6 +606,7 @@ impl ExecutionThread {
     self.exec_arith(opcode, |a, b| a % b)
   }
 
+  /// when f evaluates to true, short circuit
   #[inline]
   fn exec_logical<F: FnOnce(Value) -> bool>(
     &mut self,
@@ -617,9 +618,11 @@ impl ExecutionThread {
     match self.stack_peek() {
       Some(v) => {
         if f(v) {
+          here!();
           self.jump(offset);
           Ok(true)
         } else {
+          here!();
           self.stack_pop();
           Ok(false)
         }
@@ -635,7 +638,7 @@ impl ExecutionThread {
 
   #[inline]
   fn exec_and(&mut self, opcode: &OpCode, offset: usize) -> ExecBoolResult {
-    self.exec_logical(opcode, offset, |v| !v.truthy())
+    self.exec_logical(opcode, offset, |v| v.falsy())
   }
 
   #[inline]

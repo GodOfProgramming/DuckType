@@ -34,15 +34,13 @@ impl IntegrationTest {
   }
 
   fn run<F: FnOnce(SmartPtr<Context>, &Env, Value)>(&mut self, f: F) {
-    self.load(
-      |this, ctx, env| match this.vm.run(TEST_FILE, ctx.clone(), env) {
-        Ok(v) => match v {
-          RunResult::Value(v) => f(ctx, env, v),
-          RunResult::Yield(_) => panic!("this test function should not be used for yields"),
-        },
-        Err(err) => panic!("{:#?}", err),
+    self.load(|this, ctx, env| match this.vm.run(TEST_FILE, ctx.clone(), env) {
+      Ok(v) => match v {
+        RunResult::Value(v) => f(ctx, env, v),
+        RunResult::Yield(_) => panic!("this test function should not be used for yields"),
       },
-    );
+      Err(err) => panic!("{:#?}", err),
+    });
   }
 }
 
@@ -215,17 +213,18 @@ mod integration_tests {
 
   #[test]
   fn if_4(test: &mut IntegrationTest) {
-    test.script =
-      "if true and false and false or true { ret true; } else { ret false; }".to_string();
+    test.script = "if true and false and false or true { ret true; } else { ret false; }".to_string();
 
     test.run(|_, _, v| assert!(v.truthy()));
   }
 
   #[test]
   fn if_5(test: &mut IntegrationTest) {
-    test.script =
-      "if true and false and (false or true) { ret true; } else { ret false; }".to_string();
+    test.script = "if true and false and (false or true) { ret true; } else { ret false; }".to_string();
 
-    test.run(|_, _, v| assert!(!v.truthy()));
+    test.run(|_, _, v| {
+      println!("{:?}", v);
+      assert!(v.falsy());
+    });
   }
 }

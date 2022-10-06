@@ -61,11 +61,11 @@ impl Value {
   }
 
   pub fn truthy(&self) -> bool {
-    !self.is_nil() && (!self.is_bool() || unsafe { self.bits > 0 })
+    !self.falsy()
   }
 
   pub fn falsy(&self) -> bool {
-    self.is_nil() || (self.is_bool() && unsafe { self.bits == 0 })
+    self.is_nil() || self.is_bool() && unsafe { self.bits & POINTER_BITMASK == 0 }
   }
 
   // float
@@ -453,10 +453,7 @@ impl Value {
     let allocated = unsafe { &mut *(Box::into_raw(Box::new(AllocatedObject::new(item)))) };
 
     let ptr = &mut allocated.obj as *mut T as MutVoid;
-    debug_assert_eq!(
-      allocated as *const _ as *const (),
-      &allocated.meta as *const _ as *const ()
-    );
+    debug_assert_eq!(allocated as *const _ as *const (), &allocated.meta as *const _ as *const ());
 
     // ensure the pointer to the allocated object is offset by the right distance
     debug_assert_eq!(
@@ -591,7 +588,9 @@ impl Assign<Nil> for Value {}
 
 impl Display for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    if let Ok(v) = self.as_f64() {
+    if self.is_nil() {
+      write!(f, "nil")
+    } else if let Ok(v) = self.as_f64() {
       write!(f, "{}", v)
     } else if let Ok(v) = self.as_i32() {
       write!(f, "{}", v)
@@ -601,8 +600,6 @@ impl Display for Value {
       write!(f, "{}", v)
     } else if let Ok(v) = self.as_bool() {
       write!(f, "{}", v)
-    } else if self.is_nil() {
-      write!(f, "nil")
     } else {
       write!(f, "{}", self.basic_desc())
     }
@@ -614,11 +611,12 @@ impl Debug for Value {
     unsafe {
       write!(
         f,
-        "{:p}, {:X}, {}, {:?}",
+        "{:?} {} ({:p}, {:X}, {})",
+        self.type_of(),
+        self,
         self.ptr,
         self.bits,
         self.f64,
-        self.type_of()
       )
     }
   }
@@ -710,9 +708,7 @@ pub struct VTable {
 impl VTable {
   const fn new<T: ComplexValue>() -> Self {
     Self {
-      set: |this, name, value| {
-        <T as ComplexValue>::set(unsafe { &mut *Self::void_to_mut(this) }, name, value)
-      },
+      set: |this, name, value| <T as ComplexValue>::set(unsafe { &mut *Self::void_to_mut(this) }, name, value),
       get: |this, name| <T as ComplexValue>::get(unsafe { &*Self::void_to(this) }, name),
       add: |this, other| <T as ComplexValue>::add(unsafe { &*Self::void_to(this) }, other),
       sub: |this, other| <T as ComplexValue>::sub(unsafe { &*Self::void_to(this) }, other),
