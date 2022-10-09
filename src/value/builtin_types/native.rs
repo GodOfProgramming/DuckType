@@ -39,7 +39,7 @@ impl Display for NativeClosureValue {
 }
 
 // type NativeMethodTrait = FnMut(&mut ExecutionThread, &mut Env, Value, Args) -> Value + 'static;
-type NativeMethodType = dyn FnMut(&mut ExecutionThread, &mut Env, Value, Args) -> Value;
+// type NativeMethodType = dyn FnMut(&mut ExecutionThread, &mut Env, Value, Args) -> Value;
 
 pub struct NativeMethodValue {
   callee: NativeClosureValue,
@@ -50,7 +50,7 @@ impl NativeMethodValue {
     Self { callee }
   }
 
-  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, mut args: Args) -> Value {
+  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Args) -> Value {
     self.callee.call(thread, env, args)
   }
 }

@@ -1,3 +1,7 @@
+.PHONY: setup
+setup:
+	npm install -g js-yaml vsce
+
 .PHONY: build
 build:
 	npx js-yaml syntaxes/simplescript.tmLanguage.yaml > syntaxes/simplescript_unsubbed.tmLanguage.json

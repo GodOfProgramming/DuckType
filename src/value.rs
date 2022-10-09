@@ -648,7 +648,7 @@ impl PartialOrd for Value {
       Tag::I32 => {
         let v = self.as_i32_unchecked();
         match other.tag() {
-          Tag::F64 => v.partial_cmp(&(other.as_f64_unchecked() as i32)),
+          Tag::F64 => (v as f64).partial_cmp(&(other.as_f64_unchecked())),
           Tag::I32 => v.partial_cmp(&other.as_i32_unchecked()),
           _ => None,
         }

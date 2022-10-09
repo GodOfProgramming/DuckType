@@ -1,11 +1,5 @@
-pub mod ast;
-pub mod gen;
-pub mod lex;
-pub mod opt;
-
-use crate::dbg::RuntimeError;
-
 use super::*;
+use crate::dbg::RuntimeError;
 use ast::Ast;
 use gen::BytecodeGenerator;
 use lex::Scanner;
@@ -13,11 +7,18 @@ use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
+  convert::TryFrom,
   env,
+  error::Error,
   fmt::{self, Debug, Display, Formatter},
   path::PathBuf,
   str,
 };
+
+pub mod ast;
+pub mod gen;
+pub mod lex;
+pub mod opt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OpCode {
@@ -113,85 +114,6 @@ pub enum OpCode {
   Yield,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Token {
-  // Single-character tokens.
-  LeftParen,
-  RightParen,
-  LeftBrace,
-  RightBrace,
-  LeftBracket,
-  RightBracket,
-  Comma,
-  Dot,
-  Colon,
-  Semicolon,
-  At,
-  Pipe,
-
-  // One or two character tokens.
-  Bang,
-  BangEqual,
-  Equal,
-  EqualEqual,
-  Greater,
-  GreaterEqual,
-  Less,
-  LessEqual,
-  Arrow,
-  BackArrow,
-  Plus,
-  PlusEqual,
-  Minus,
-  MinusEqual,
-  Asterisk,
-  AsteriskEqual,
-  Slash,
-  SlashEqual,
-  Percent,
-  PercentEqual,
-
-  // Literals.
-  Identifier(String),
-  String(String),
-  Number(f64),
-
-  // Keywords.
-  And,
-  Break,
-  Class,
-  Cont,
-  Else,
-  False,
-  For,
-  Fn,
-  If,
-  Let,
-  Loop,
-  Match,
-  New,
-  Nil,
-  Or,
-  Print,
-  Req,
-  Ret,
-  True,
-  Use,
-  While,
-  Yield,
-}
-
-impl Display for Token {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    match self {
-      Token::Identifier(i) => write!(f, "Identifier ({})", i),
-      Token::String(s) => write!(f, "String ({})", s),
-      Token::Number(n) => write!(f, "Number ({})", n),
-      _ => write!(f, "{:?}", self),
-    }
-  }
-}
-
 #[derive(Default)]
 pub struct Compiler;
 
@@ -199,9 +121,7 @@ impl Compiler {
   pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
     let mut scanner = Scanner::new(file, source);
 
-    let (tokens, meta) = scanner
-      .scan()
-      .map_err(|errs| Self::reformat_errors(source, errs))?;
+    let (tokens, meta) = scanner.scan().map_err(|errs| Self::reformat_errors(source, errs))?;
 
     let ast = Ast::from(tokens, meta).map_err(|errs| Self::reformat_errors(source, errs))?;
 
@@ -217,9 +137,7 @@ impl Compiler {
 
     let generator = BytecodeGenerator::new(ctx);
 
-    generator
-      .generate(ast)
-      .map_err(|errs| Self::reformat_errors(source, errs))
+    generator.generate(ast).map_err(|errs| Self::reformat_errors(source, errs))
   }
 
   fn reformat_errors(source: &str, errs: Vec<RuntimeError>) -> Vec<RuntimeError> {
@@ -294,17 +212,8 @@ impl Context {
     }
   }
 
-  fn new_child(
-    ctx: SmartPtr<Context>,
-    reflection: Reflection,
-    id: usize,
-    name: ContextName,
-  ) -> Self {
-    let global = if ctx.global.valid() {
-      ctx.global.clone()
-    } else {
-      ctx.clone()
-    };
+  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize, name: ContextName) -> Self {
+    let global = if ctx.global.valid() { ctx.global.clone() } else { ctx.clone() };
 
     Self {
       name,
@@ -486,11 +395,7 @@ impl Context {
           self.const_at_column(*index)
         );
       }
-      OpCode::PopN(count) => println!(
-        "{} {}",
-        Self::opcode_column("PopN"),
-        Self::value_column(*count)
-      ),
+      OpCode::PopN(count) => println!("{} {}", Self::opcode_column("PopN"), Self::value_column(*count)),
       OpCode::LookupGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("LookupGlobal"),
@@ -516,18 +421,10 @@ impl Context {
         self.global_const_at_column(*name),
       ),
       OpCode::LookupLocal(index) => {
-        println!(
-          "{} {}",
-          Self::opcode_column("LookupLocal"),
-          Self::value_column(*index)
-        )
+        println!("{} {}", Self::opcode_column("LookupLocal"), Self::value_column(*index))
       }
       OpCode::AssignLocal(index) => {
-        println!(
-          "{} {}",
-          Self::opcode_column("AssignLocal"),
-          Self::value_column(*index)
-        )
+        println!("{} {}", Self::opcode_column("AssignLocal"), Self::value_column(*index))
       }
       OpCode::AssignMember(index) => {
         println!(
@@ -545,11 +442,7 @@ impl Context {
           self.const_at_column(*index)
         );
       }
-      OpCode::Jump(count) => println!(
-        "{} {: >14}",
-        Self::opcode_column("Jump"),
-        Self::address_of(offset + count)
-      ),
+      OpCode::Jump(count) => println!("{} {: >14}", Self::opcode_column("Jump"), Self::address_of(offset + count)),
       OpCode::JumpIfFalse(count) => {
         println!(
           "{} {: >14}",
@@ -557,31 +450,11 @@ impl Context {
           Self::address_of(offset + count)
         )
       }
-      OpCode::Loop(count) => println!(
-        "{} {: >14}",
-        Self::opcode_column("Loop"),
-        Self::address_of(offset - count)
-      ),
-      OpCode::Or(count) => println!(
-        "{} {: >14}",
-        Self::opcode_column("Or"),
-        Self::address_of(offset + count)
-      ),
-      OpCode::And(count) => println!(
-        "{} {: >14}",
-        Self::opcode_column("And"),
-        Self::address_of(offset + count)
-      ),
-      OpCode::Call(count) => println!(
-        "{} {}",
-        Self::opcode_column("Call"),
-        Self::value_column(*count)
-      ),
-      OpCode::CreateList(count) => println!(
-        "{} {}",
-        Self::opcode_column("CreateList"),
-        Self::value_column(*count)
-      ),
+      OpCode::Loop(count) => println!("{} {: >14}", Self::opcode_column("Loop"), Self::address_of(offset - count)),
+      OpCode::Or(count) => println!("{} {: >14}", Self::opcode_column("Or"), Self::address_of(offset + count)),
+      OpCode::And(count) => println!("{} {: >14}", Self::opcode_column("And"), Self::address_of(offset + count)),
+      OpCode::Call(count) => println!("{} {}", Self::opcode_column("Call"), Self::value_column(*count)),
+      OpCode::CreateList(count) => println!("{} {}", Self::opcode_column("CreateList"), Self::value_column(*count)),
       x => println!("{}", Self::opcode_column(format!("{:?}", x))),
     }
   }
@@ -595,19 +468,11 @@ impl Context {
   }
 
   fn global_const_at_column(&self, index: usize) -> String {
-    format!(
-      "{: >4?}",
-      self
-        .global_const_at(index)
-        .unwrap_or(&mut Value::from("????"))
-    )
+    format!("{: >4?}", self.global_const_at(index).unwrap_or(&mut Value::from("????")))
   }
 
   fn const_at_column(&self, index: usize) -> String {
-    format!(
-      "{: >4?}",
-      self.const_at(index).unwrap_or(&Value::from("????"))
-    )
+    format!("{: >4?}", self.const_at(index).unwrap_or(&Value::from("????")))
   }
 
   pub fn address_of(offset: usize) -> String {
@@ -651,11 +516,7 @@ pub struct Yield {
 }
 
 impl Yield {
-  pub fn new(
-    current_frame: StackFrame,
-    stack_frames: Vec<StackFrame>,
-    opened_files: Vec<(usize, PathBuf)>,
-  ) -> Self {
+  pub fn new(current_frame: StackFrame, stack_frames: Vec<StackFrame>, opened_files: Vec<(usize, PathBuf)>) -> Self {
     Self {
       current_frame,
       stack_frames,
@@ -722,18 +583,12 @@ impl Env {
     self.vars.get(&name.to_string()).cloned()
   }
 
-  pub fn create_native<
-    K: ToString,
-    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
-  >(
+  pub fn create_native<K: ToString, F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static>(
     &mut self,
     name: K,
     native: F,
   ) -> bool {
-    self.assign(
-      name.to_string(),
-      Value::new_native_closure(name.to_string(), native),
-    )
+    self.assign(name.to_string(), Value::new_native_closure(name.to_string(), native))
   }
 }
 
@@ -759,16 +614,12 @@ impl Reflection {
 
   pub fn get(&self, offset: usize) -> Option<OpCodeReflection> {
     if let Some(info) = self.opcode_info.get(offset).cloned() {
-      self
-        .source
-        .lines()
-        .nth(info.line - 1)
-        .map(|src| OpCodeReflection {
-          file: self.file.access().clone(),
-          source_line: String::from(src),
-          line: info.line,
-          column: info.column,
-        })
+      self.source.lines().nth(info.line - 1).map(|src| OpCodeReflection {
+        file: self.file.access().clone(),
+        source_line: String::from(src),
+        line: info.line,
+        column: info.column,
+      })
     } else {
       None
     }

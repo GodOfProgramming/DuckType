@@ -638,16 +638,19 @@ impl ExecutionThread {
         f.call(self, args.into());
         Ok(())
       } else if let Ok(f) = callable.as_native_fn() {
-        f(self, env, args.into());
+        let v = f(self, env, args.into());
+        self.stack_push(v);
         Ok(())
       } else if let Ok(f) = callable.as_native_closure_mut() {
-        f.call(self, env, args.into());
+        let v = f.call(self, env, args.into());
+        self.stack_push(v);
         Ok(())
       } else if let Ok(f) = callable.as_native_method_mut() {
         let mut this = Value::nil;
         std::mem::swap(&mut this, &mut self.current_frame.last_lookup);
         let args = Args::from((this, args));
-        f.call(self, env, args.into());
+        let v = f.call(self, env, args.into());
+        self.stack_push(v);
         Ok(())
       } else if callable.is_class() {
         ClassValue::call_constructor(callable, self, env, args.into());
