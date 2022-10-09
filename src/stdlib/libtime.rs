@@ -25,15 +25,13 @@ impl LibTime {
           if let Some(before) = args.list.get(0) {
             if before.is::<TimestampValue>() {
               let now = Instant::now();
-              if let Ok(ts) = before.as_obj::<TimestampValue>() {
+              if let Ok(ts) = before.cast_to::<TimestampValue>() {
                 let since = now.duration_since(**ts.clone());
                 return Value::from(since.as_secs_f64());
               }
             }
           }
-          Value::new_err(String::from(
-            "elapsed called with wrong number of arguments or invalid types",
-          ))
+          Value::new_err(String::from("elapsed called with wrong number of arguments or invalid types"))
         }),
       );
 

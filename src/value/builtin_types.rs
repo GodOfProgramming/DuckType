@@ -10,6 +10,7 @@ pub use native::{NativeClosureValue, NativeFn, NativeMethodValue};
 pub use r#struct::StructValue;
 use std::{
   any::TypeId,
+  cmp::Ordering,
   fmt::{Display, Formatter, Result as FmtResult},
 };
 pub use string::StringValue;
@@ -27,20 +28,6 @@ mod string;
 mod r#struct;
 mod timestamp;
 
-#[derive(Debug)]
-pub enum Type {
-  Nil,
-  F64,
-  I32,
-  Bool,
-  Char,
-  NativeFn,
-  Object,
-
-  /// Should never appear
-  Undefined,
-}
-
 pub struct Nil;
 
 pub trait ComplexValue
@@ -57,6 +44,11 @@ where
   #[allow(unused_variables)]
   fn get(&self, name: &str) -> Value {
     Value::new_err(UnimplementedFunction::Get.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn index(&self, index: Value) -> Value {
+    Value::new_err(UnimplementedFunction::Index.to_string())
   }
 
   #[allow(unused_variables)]
@@ -85,8 +77,27 @@ where
   }
 
   #[allow(unused_variables)]
-  fn index(&self, index: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Index.to_string())
+  fn neg(&self) -> Value {
+    Value::new_err(UnimplementedFunction::Neg.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn not(&self) -> Value {
+    Value::new_err(UnimplementedFunction::Not.to_string())
+  }
+
+  #[allow(unused_variables)]
+  fn eq(&self, other: &Value) -> bool {
+    false
+  }
+
+  #[allow(unused_variables)]
+  fn cmp(&self, other: &Value) -> Option<Ordering> {
+    None
+  }
+
+  fn stringify(&self) -> String {
+    std::any::type_name::<Self>().to_string()
   }
 
   fn drop(&mut self) {}
@@ -101,10 +112,6 @@ where
 
   fn type_id() -> TypeId {
     TypeId::of::<Self>()
-  }
-
-  fn basic_desc() -> &'static str {
-    std::any::type_name::<Self>()
   }
 }
 
@@ -131,10 +138,7 @@ impl From<Vec<Value>> for Args {
 
 impl From<(Value, Vec<Value>)> for Args {
   fn from((this, list): (Value, Vec<Value>)) -> Self {
-    Self {
-      this: Some(this),
-      list,
-    }
+    Self { this: Some(this), list }
   }
 }
 
@@ -142,11 +146,7 @@ impl<T: Into<Value> + Clone, const I: usize> From<(Value, [T; I])> for Args {
   fn from((this, list): (Value, [T; I])) -> Self {
     Self {
       this: Some(this),
-      list: list
-        .into_iter()
-        .cloned()
-        .map(|v| -> Value { v.into() })
-        .collect(),
+      list: list.into_iter().cloned().map(|v| -> Value { v.into() }).collect(),
     }
   }
 }
@@ -154,13 +154,15 @@ impl<T: Into<Value> + Clone, const I: usize> From<(Value, [T; I])> for Args {
 pub enum UnimplementedFunction {
   Set,
   Get,
-  Call,
+  Index,
   Add,
   Sub,
   Mul,
   Div,
   Rem,
-  Index,
+  Neg,
+  Not,
+  Cmp,
   Custom(String),
 }
 
@@ -172,13 +174,15 @@ impl Display for UnimplementedFunction {
       match self {
         UnimplementedFunction::Set => "set",
         UnimplementedFunction::Get => "get",
-        UnimplementedFunction::Call => "call",
+        UnimplementedFunction::Index => "index",
         UnimplementedFunction::Add => "add",
         UnimplementedFunction::Sub => "sub",
         UnimplementedFunction::Mul => "mul",
         UnimplementedFunction::Div => "div",
         UnimplementedFunction::Rem => "rem",
-        UnimplementedFunction::Index => "index",
+        UnimplementedFunction::Neg => "neg",
+        UnimplementedFunction::Not => "not",
+        UnimplementedFunction::Cmp => "cmp",
         UnimplementedFunction::Custom(s) => s,
       }
     )

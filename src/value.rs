@@ -2,9 +2,11 @@ pub use builtin_types::*;
 use static_assertions::assert_eq_size;
 use std::{
   any::TypeId,
+  cmp::Ordering,
+  convert::TryInto,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
   mem,
-  ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
+  ops::{Add, Div, Index, Mul, Neg, Not, Rem, Sub},
 };
 pub use tags::*;
 
@@ -40,23 +42,11 @@ impl Value {
   #[allow(non_upper_case_globals)]
   pub const nil: Value = Value { bits: NIL_TAG };
 
-  pub fn type_of(&self) -> Type {
-    if self.is_nil() {
-      Type::Nil
-    } else if self.is_f64() {
-      Type::F64
-    } else if self.is_i32() {
-      Type::I32
-    } else if self.is_bool() {
-      Type::Bool
-    } else if self.is_char() {
-      Type::Char
-    } else if self.is_native_fn() {
-      Type::NativeFn
-    } else if self.is_ptr() {
-      Type::Object
+  pub fn tag(&self) -> Tag {
+    if self.is_f64() {
+      Tag::F64
     } else {
-      Type::Undefined
+      unsafe { mem::transmute::<u64, Tag>(self.bits & TAG_BITMASK) }
     }
   }
 
@@ -65,7 +55,7 @@ impl Value {
   }
 
   pub fn falsy(&self) -> bool {
-    self.is_nil() || self.is_bool() && unsafe { self.bits & POINTER_BITMASK == 0 }
+    self.is_nil() || self.is_bool() && unsafe { self.bits & VALUE_BITMASK == 0 }
   }
 
   // float
@@ -76,10 +66,15 @@ impl Value {
 
   pub fn as_f64(&self) -> ConversionResult<f64> {
     if self.is_f64() {
-      Ok(unsafe { self.f64 })
+      Ok(self.as_f64_unchecked())
     } else {
       Err(ConversionError::WrongType)
     }
+  }
+
+  pub fn as_f64_unchecked(&self) -> f64 {
+    debug_assert!(self.is_f64());
+    unsafe { self.f64 }
   }
 
   // int
@@ -90,10 +85,15 @@ impl Value {
 
   pub fn as_i32(&self) -> ConversionResult<i32> {
     if self.is_i32() {
-      Ok(unsafe { mem::transmute::<u32, i32>((self.bits & !I32_TAG) as u32) })
+      Ok(self.as_i32_unchecked())
     } else {
       Err(ConversionError::WrongType)
     }
+  }
+
+  pub fn as_i32_unchecked(&self) -> i32 {
+    debug_assert!(self.is_i32());
+    unsafe { mem::transmute::<u32, i32>((self.bits & VALUE_BITMASK) as u32) }
   }
 
   // bool
@@ -104,10 +104,15 @@ impl Value {
 
   pub fn as_bool(&self) -> ConversionResult<bool> {
     if self.is_bool() {
-      Ok(unsafe { self.bits & POINTER_BITMASK > 0 })
+      Ok(self.as_bool_unchecked())
     } else {
       Err(ConversionError::WrongType)
     }
+  }
+
+  pub fn as_bool_unchecked(&self) -> bool {
+    debug_assert!(self.is_bool());
+    unsafe { self.bits & VALUE_BITMASK > 0 }
   }
 
   // char
@@ -118,10 +123,15 @@ impl Value {
 
   pub fn as_char(&self) -> ConversionResult<char> {
     if self.is_char() {
-      Ok(unsafe { mem::transmute::<u32, char>((self.bits & !CHAR_TAG) as u32) })
+      Ok(self.as_char_unchecked())
     } else {
       Err(ConversionError::WrongType)
     }
+  }
+
+  pub fn as_char_unchecked(&self) -> char {
+    debug_assert!(self.is_char());
+    unsafe { mem::transmute::<u32, char>((self.bits & VALUE_BITMASK) as u32) }
   }
 
   // string
@@ -135,11 +145,11 @@ impl Value {
   }
 
   pub fn as_str(&self) -> ConversionResult<&StringValue> {
-    self.as_obj::<StringValue>()
+    self.cast_to::<StringValue>()
   }
 
   pub fn as_str_mut(&mut self) -> ConversionResult<&mut StringValue> {
-    self.as_obj_mut::<StringValue>()
+    self.cast_to_mut::<StringValue>()
   }
 
   // array
@@ -153,11 +163,11 @@ impl Value {
   }
 
   pub fn as_array(&self) -> ConversionResult<&Array> {
-    self.as_obj::<Array>()
+    self.cast_to::<Array>()
   }
 
   pub fn as_array_mut(&mut self) -> ConversionResult<&mut Array> {
-    self.as_obj_mut::<Array>()
+    self.cast_to_mut::<Array>()
   }
 
   // struct
@@ -171,11 +181,11 @@ impl Value {
   }
 
   pub fn as_struct(&self) -> ConversionResult<&StructValue> {
-    self.as_obj::<StructValue>()
+    self.cast_to::<StructValue>()
   }
 
   pub fn as_struct_mut(&mut self) -> ConversionResult<&mut StructValue> {
-    self.as_obj_mut::<StructValue>()
+    self.cast_to_mut::<StructValue>()
   }
 
   // error
@@ -189,11 +199,11 @@ impl Value {
   }
 
   pub fn as_err(&self) -> ConversionResult<&ErrorValue> {
-    self.as_obj::<ErrorValue>()
+    self.cast_to::<ErrorValue>()
   }
 
   pub fn as_err_mut(&mut self) -> ConversionResult<&mut ErrorValue> {
-    self.as_obj_mut::<ErrorValue>()
+    self.cast_to_mut::<ErrorValue>()
   }
 
   // class
@@ -207,11 +217,11 @@ impl Value {
   }
 
   pub fn as_class(&self) -> ConversionResult<&ClassValue> {
-    self.as_obj::<ClassValue>()
+    self.cast_to::<ClassValue>()
   }
 
   pub fn as_class_mut(&mut self) -> ConversionResult<&mut ClassValue> {
-    self.as_obj_mut::<ClassValue>()
+    self.cast_to_mut::<ClassValue>()
   }
 
   // instance
@@ -221,11 +231,11 @@ impl Value {
   }
 
   pub fn as_instance(&self) -> ConversionResult<&InstanceValue> {
-    self.as_obj::<InstanceValue>()
+    self.cast_to::<InstanceValue>()
   }
 
   pub fn as_instance_mut(&mut self) -> ConversionResult<&mut InstanceValue> {
-    self.as_obj_mut::<InstanceValue>()
+    self.cast_to_mut::<InstanceValue>()
   }
 
   // function
@@ -235,11 +245,11 @@ impl Value {
   }
 
   pub fn as_fn(&self) -> ConversionResult<&FunctionValue> {
-    self.as_obj::<FunctionValue>()
+    self.cast_to::<FunctionValue>()
   }
 
   pub fn as_fn_mut(&mut self) -> ConversionResult<&mut FunctionValue> {
-    self.as_obj_mut::<FunctionValue>()
+    self.cast_to_mut::<FunctionValue>()
   }
 
   // closure
@@ -249,11 +259,11 @@ impl Value {
   }
 
   pub fn as_closure(&self) -> ConversionResult<&ClosureValue> {
-    self.as_obj::<ClosureValue>()
+    self.cast_to::<ClosureValue>()
   }
 
   pub fn as_closure_mut(&self) -> ConversionResult<&mut ClosureValue> {
-    self.as_obj_mut::<ClosureValue>()
+    self.cast_to_mut::<ClosureValue>()
   }
 
   // method
@@ -263,11 +273,11 @@ impl Value {
   }
 
   pub fn as_method(&self) -> ConversionResult<&MethodValue> {
-    self.as_obj::<MethodValue>()
+    self.cast_to::<MethodValue>()
   }
 
   pub fn as_method_mut(&mut self) -> ConversionResult<&mut MethodValue> {
-    self.as_obj_mut::<MethodValue>()
+    self.cast_to_mut::<MethodValue>()
   }
 
   // native
@@ -288,6 +298,10 @@ impl Value {
     }
   }
 
+  pub fn as_native_fn_unchecked(&self) -> NativeFn {
+    unsafe { mem::transmute::<u64, NativeFn>((self.bits & !FN_TAG) as u64) }
+  }
+
   pub fn new_native_closure<N, F>(name: N, f: F) -> Self
   where
     N: ToString,
@@ -301,11 +315,11 @@ impl Value {
   }
 
   pub fn as_native_closure(&self) -> ConversionResult<&NativeClosureValue> {
-    self.as_obj::<NativeClosureValue>()
+    self.cast_to::<NativeClosureValue>()
   }
 
   pub fn as_native_closure_mut(&mut self) -> ConversionResult<&mut NativeClosureValue> {
-    self.as_obj_mut::<NativeClosureValue>()
+    self.cast_to_mut::<NativeClosureValue>()
   }
 
   pub fn new_native_method<T: ToString, F>(name: T, f: F) -> Self
@@ -320,11 +334,11 @@ impl Value {
   }
 
   pub fn as_native_method(&self) -> ConversionResult<&NativeMethodValue> {
-    self.as_obj::<NativeMethodValue>()
+    self.cast_to::<NativeMethodValue>()
   }
 
   pub fn as_native_method_mut(&mut self) -> ConversionResult<&mut NativeMethodValue> {
-    self.as_obj_mut::<NativeMethodValue>()
+    self.cast_to_mut::<NativeMethodValue>()
   }
 
   // obj pointer
@@ -337,8 +351,7 @@ impl Value {
     self.is_ptr() && self.type_id() == T::type_id()
   }
 
-  #[cfg(not(no_type_checking))]
-  pub fn as_obj<T: ComplexValue>(&self) -> ConversionResult<&T> {
+  pub fn cast_to<T: ComplexValue>(&self) -> ConversionResult<&T> {
     if self.is::<T>() {
       self.convert()
     } else {
@@ -346,23 +359,12 @@ impl Value {
     }
   }
 
-  #[cfg(not(no_type_checking))]
-  pub fn as_obj_mut<T: ComplexValue>(&self) -> ConversionResult<&mut T> {
+  pub fn cast_to_mut<T: ComplexValue>(&self) -> ConversionResult<&mut T> {
     if self.is::<T>() {
       self.convert_mut()
     } else {
       Err(ConversionError::WrongType)
     }
-  }
-
-  #[cfg(no_type_checking)]
-  pub fn as_obj<T: ComplexValue>(&self) -> ConversionResult<T> {
-    self.convert()
-  }
-
-  #[cfg(no_type_checking)]
-  pub fn as_obj_mut<T: ComplexValue>(&self) -> ConversionResult<T> {
-    self.convert_mut()
   }
 
   // nil
@@ -381,32 +383,48 @@ impl Value {
     (self.vtable().get)(self.pointer(), name)
   }
 
-  pub fn add(&self, other: Value) -> Value {
-    (self.vtable().add)(self.pointer(), other)
-  }
-
-  pub fn sub(&self, other: Value) -> Value {
-    (self.vtable().sub)(self.pointer(), other)
-  }
-
-  pub fn mul(&self, other: Value) -> Value {
-    (self.vtable().mul)(self.pointer(), other)
-  }
-
-  pub fn div(&self, other: Value) -> Value {
-    (self.vtable().div)(self.pointer(), other)
-  }
-
-  pub fn rem(&self, other: Value) -> Value {
-    (self.vtable().rem)(self.pointer(), other)
-  }
-
   pub fn index(&self, index: Value) -> Value {
     (self.vtable().index)(self.pointer(), index)
   }
 
-  pub fn basic_desc(&self) -> &'static str {
-    (self.vtable().basic_desc)()
+  fn add_impl(&self, other: Value) -> Value {
+    (self.vtable().add)(self.pointer(), other)
+  }
+
+  fn sub_impl(&self, other: Value) -> Value {
+    (self.vtable().sub)(self.pointer(), other)
+  }
+
+  fn mul_impl(&self, other: Value) -> Value {
+    (self.vtable().mul)(self.pointer(), other)
+  }
+
+  fn div_impl(&self, other: Value) -> Value {
+    (self.vtable().div)(self.pointer(), other)
+  }
+
+  fn rem_impl(&self, other: Value) -> Value {
+    (self.vtable().rem)(self.pointer(), other)
+  }
+
+  fn neg_impl(&self) -> Value {
+    (self.vtable().neg)(self.pointer())
+  }
+
+  fn not_impl(&self) -> Value {
+    (self.vtable().not)(self.pointer())
+  }
+
+  fn eq_impl(&self, other: &Value) -> bool {
+    (self.vtable().eq)(self.pointer(), other)
+  }
+
+  fn cmp_impl(&self, other: &Value) -> Option<Ordering> {
+    (self.vtable().cmp)(self.pointer(), other)
+  }
+
+  pub fn stringify(&self) -> String {
+    (self.vtable().stringify)(self.pointer())
   }
 
   // utility
@@ -421,7 +439,7 @@ impl Value {
   }
 
   fn pointer(&self) -> MutVoid {
-    unsafe { (self.bits & POINTER_BITMASK) as MutVoid }
+    unsafe { (self.bits & VALUE_BITMASK) as MutVoid }
   }
 
   fn meta(&self) -> &mut ValueMeta {
@@ -588,49 +606,56 @@ impl Assign<Nil> for Value {}
 
 impl Display for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    if self.is_nil() {
-      write!(f, "nil")
-    } else if let Ok(v) = self.as_f64() {
-      write!(f, "{}", v)
-    } else if let Ok(v) = self.as_i32() {
-      write!(f, "{}", v)
-    } else if let Ok(v) = self.as_bool() {
-      write!(f, "{}", v)
-    } else if let Ok(v) = self.as_char() {
-      write!(f, "{}", v)
-    } else if let Ok(v) = self.as_bool() {
-      write!(f, "{}", v)
-    } else {
-      write!(f, "{}", self.basic_desc())
+    match self.tag() {
+      Tag::F64 => write!(f, "{}", self.as_f64_unchecked()),
+      Tag::I32 => write!(f, "{}", self.as_i32_unchecked()),
+      Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
+      Tag::Char => write!(f, "{}", self.as_char_unchecked()),
+      Tag::Fn => write!(f, "{:p}", &self.as_native_fn_unchecked()),
+      Tag::Pointer => write!(f, "{}", self.stringify()),
+      Tag::Nil => write!(f, "nil"),
     }
   }
 }
 
 impl Debug for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    unsafe {
-      write!(
-        f,
-        "{:?} {} ({:p}, {:X}, {})",
-        self.type_of(),
-        self,
-        self.ptr,
-        self.bits,
-        self.f64,
-      )
-    }
+    unsafe { write!(f, "{:?} {} (0x{:x})", self.tag(), self, self.bits) }
   }
 }
 
 impl PartialEq for Value {
   fn eq(&self, other: &Self) -> bool {
-    unsafe { self.bits == other.bits }
+    if self.is_ptr() {
+      self.eq_impl(other)
+    } else {
+      unsafe { self.bits == other.bits }
+    }
   }
 }
 
 impl PartialOrd for Value {
-  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-    todo!()
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    match self.tag() {
+      Tag::F64 => {
+        let v = self.as_f64_unchecked();
+        match other.tag() {
+          Tag::F64 => v.partial_cmp(&other.as_f64_unchecked()),
+          Tag::I32 => v.partial_cmp(&(other.as_i32_unchecked() as f64)),
+          _ => None,
+        }
+      }
+      Tag::I32 => {
+        let v = self.as_i32_unchecked();
+        match other.tag() {
+          Tag::F64 => v.partial_cmp(&(other.as_f64_unchecked() as i32)),
+          Tag::I32 => v.partial_cmp(&other.as_i32_unchecked()),
+          _ => None,
+        }
+      }
+      Tag::Pointer => self.cmp_impl(other),
+      _ => None,
+    }
   }
 }
 
@@ -638,7 +663,41 @@ impl Add for Value {
   type Output = Self;
 
   fn add(self, rhs: Self) -> Self::Output {
-    todo!()
+    match self.tag() {
+      Tag::F64 => {
+        let v = self.as_f64_unchecked();
+        match rhs.tag() {
+          Tag::F64 => Self::from(v + rhs.as_f64_unchecked()),
+          Tag::I32 => Self::from(v + rhs.as_i32_unchecked() as f64),
+          _ => Self::new_err(format!("cannot coalesce {} to f64", rhs)),
+        }
+      }
+      Tag::I32 => {
+        let v = self.as_i32_unchecked();
+        match rhs.tag() {
+          Tag::F64 => Self::from(v as f64 + rhs.as_f64_unchecked()),
+          Tag::I32 => Self::from(v + rhs.as_i32_unchecked()),
+          _ => Self::new_err(format!("cannot coalesce {} to i32", rhs)),
+        }
+      }
+      Tag::Bool => todo!(),
+      Tag::Char => {
+        let v = self.as_char_unchecked();
+        match rhs.tag() {
+          Tag::I32 => match char::from_u32((v as u32 as i32 + rhs.as_i32_unchecked()) as u32) {
+            Some(c) => Self::from(c),
+            None => Self::new_err("could not add i32 with char"),
+          },
+          Tag::Char => match char::from_u32(v as u32 + rhs.as_char_unchecked() as u32) {
+            Some(c) => Self::from(c),
+            None => Self::new_err(format!("could not add {} with {}", v, rhs)),
+          },
+          _ => Self::new_err(format!("could not coalesce {} to char", rhs)),
+        }
+      }
+      Tag::Pointer => self.add_impl(rhs),
+      _ => Self::new_err(format!("add not implemented for {}", self)),
+    }
   }
 }
 
@@ -646,7 +705,41 @@ impl Sub for Value {
   type Output = Self;
 
   fn sub(self, rhs: Self) -> Self::Output {
-    todo!()
+    match self.tag() {
+      Tag::F64 => {
+        let v = self.as_f64_unchecked();
+        match rhs.tag() {
+          Tag::F64 => Self::from(v - rhs.as_f64_unchecked()),
+          Tag::I32 => Self::from(v - rhs.as_i32_unchecked() as f64),
+          _ => Self::new_err(format!("cannot coalesce {} to f64", rhs)),
+        }
+      }
+      Tag::I32 => {
+        let v = self.as_i32_unchecked();
+        match rhs.tag() {
+          Tag::F64 => Self::from(v as f64 - rhs.as_f64_unchecked()),
+          Tag::I32 => Self::from(v - rhs.as_i32_unchecked()),
+          _ => Self::new_err(format!("cannot coalesce {} to i32", rhs)),
+        }
+      }
+      Tag::Bool => todo!(),
+      Tag::Char => {
+        let v = self.as_char_unchecked();
+        match rhs.tag() {
+          Tag::I32 => match char::from_u32((v as u32 as i32 - rhs.as_i32_unchecked()) as u32) {
+            Some(c) => Self::from(c),
+            None => Self::new_err("could not sub i32 with char"),
+          },
+          Tag::Char => match char::from_u32(v as u32 - rhs.as_char_unchecked() as u32) {
+            Some(c) => Self::from(c),
+            None => Self::new_err(format!("could not sub {} with {}", v, rhs)),
+          },
+          _ => Self::new_err(format!("could not coalesce {} to char", rhs)),
+        }
+      }
+      Tag::Pointer => self.sub_impl(rhs),
+      _ => Self::new_err(format!("sub not implemented for {}", self)),
+    }
   }
 }
 
@@ -654,7 +747,41 @@ impl Mul for Value {
   type Output = Self;
 
   fn mul(self, rhs: Self) -> Self::Output {
-    todo!()
+    match self.tag() {
+      Tag::F64 => {
+        let v = self.as_f64_unchecked();
+        match rhs.tag() {
+          Tag::F64 => Self::from(v * rhs.as_f64_unchecked()),
+          Tag::I32 => Self::from(v * rhs.as_i32_unchecked() as f64),
+          _ => Self::new_err(format!("cannot coalesce {} to f64", rhs)),
+        }
+      }
+      Tag::I32 => {
+        let v = self.as_i32_unchecked();
+        match rhs.tag() {
+          Tag::F64 => Self::from(v as f64 * rhs.as_f64_unchecked()),
+          Tag::I32 => Self::from(v * rhs.as_i32_unchecked()),
+          _ => Self::new_err(format!("cannot coalesce {} to i32", rhs)),
+        }
+      }
+      Tag::Bool => todo!(),
+      Tag::Char => {
+        let v = self.as_char_unchecked();
+        match rhs.tag() {
+          Tag::I32 => match char::from_u32((v as u32 as i32 * rhs.as_i32_unchecked()) as u32) {
+            Some(c) => Self::from(c),
+            None => Self::new_err("could not mul i32 with char"),
+          },
+          Tag::Char => match char::from_u32(v as u32 * rhs.as_char_unchecked() as u32) {
+            Some(c) => Self::from(c),
+            None => Self::new_err(format!("could not mul {} with {}", v, rhs)),
+          },
+          _ => Self::new_err(format!("could not coalesce {} to char", rhs)),
+        }
+      }
+      Tag::Pointer => self.mul_impl(rhs),
+      _ => Self::new_err(format!("mul not implemented for {}", self)),
+    }
   }
 }
 
@@ -662,7 +789,41 @@ impl Div for Value {
   type Output = Self;
 
   fn div(self, rhs: Self) -> Self::Output {
-    todo!()
+    match self.tag() {
+      Tag::F64 => {
+        let v = self.as_f64_unchecked();
+        match rhs.tag() {
+          Tag::F64 => Self::from(v / rhs.as_f64_unchecked()),
+          Tag::I32 => Self::from(v / rhs.as_i32_unchecked() as f64),
+          _ => Self::new_err(format!("cannot coalesce {} to f64", rhs)),
+        }
+      }
+      Tag::I32 => {
+        let v = self.as_i32_unchecked();
+        match rhs.tag() {
+          Tag::F64 => Self::from(v as f64 / rhs.as_f64_unchecked()),
+          Tag::I32 => Self::from(v / rhs.as_i32_unchecked()),
+          _ => Self::new_err(format!("cannot coalesce {} to i32", rhs)),
+        }
+      }
+      Tag::Bool => todo!(),
+      Tag::Char => {
+        let v = self.as_char_unchecked();
+        match rhs.tag() {
+          Tag::I32 => match char::from_u32((v as u32 as i32 / rhs.as_i32_unchecked()) as u32) {
+            Some(c) => Self::from(c),
+            None => Self::new_err("could not div i32 with char"),
+          },
+          Tag::Char => match char::from_u32(v as u32 / rhs.as_char_unchecked() as u32) {
+            Some(c) => Self::from(c),
+            None => Self::new_err(format!("could not div {} with {}", v, rhs)),
+          },
+          _ => Self::new_err(format!("could not coalesce {} to char", rhs)),
+        }
+      }
+      Tag::Pointer => self.div_impl(rhs),
+      _ => Self::new_err(format!("div not implemented for {}", self)),
+    }
   }
 }
 
@@ -670,7 +831,41 @@ impl Rem for Value {
   type Output = Self;
 
   fn rem(self, rhs: Self) -> Self::Output {
-    todo!()
+    match self.tag() {
+      Tag::F64 => {
+        let v = self.as_f64_unchecked();
+        match rhs.tag() {
+          Tag::F64 => Self::from(v % rhs.as_f64_unchecked()),
+          Tag::I32 => Self::from(v % rhs.as_i32_unchecked() as f64),
+          _ => Self::new_err(format!("cannot coalesce {} to f64", rhs)),
+        }
+      }
+      Tag::I32 => {
+        let v = self.as_i32_unchecked();
+        match rhs.tag() {
+          Tag::F64 => Self::from(v as f64 % rhs.as_f64_unchecked()),
+          Tag::I32 => Self::from(v % rhs.as_i32_unchecked()),
+          _ => Self::new_err(format!("cannot coalesce {} to i32", rhs)),
+        }
+      }
+      Tag::Bool => todo!(),
+      Tag::Char => {
+        let v = self.as_char_unchecked();
+        match rhs.tag() {
+          Tag::I32 => match char::from_u32((v as u32 as i32 % rhs.as_i32_unchecked()) as u32) {
+            Some(c) => Self::from(c),
+            None => Self::new_err("could not mod i32 with char"),
+          },
+          Tag::Char => match char::from_u32(v as u32 % rhs.as_char_unchecked() as u32) {
+            Some(c) => Self::from(c),
+            None => Self::new_err(format!("could not div {} with {}", v, rhs)),
+          },
+          _ => Self::new_err(format!("could not coalesce {} to char", rhs)),
+        }
+      }
+      Tag::Pointer => self.rem_impl(rhs),
+      _ => Self::new_err(format!("rem not implemented for {}", self)),
+    }
   }
 }
 
@@ -678,7 +873,12 @@ impl Neg for Value {
   type Output = Self;
 
   fn neg(self) -> Self::Output {
-    todo!()
+    match self.tag() {
+      Tag::F64 => Value::from(-self.as_f64_unchecked()),
+      Tag::I32 => Value::from(-self.as_i32_unchecked()),
+      Tag::Pointer => self.neg_impl(),
+      _ => Self::new_err(format!("- not implemented for {}", self)),
+    }
   }
 }
 
@@ -686,23 +886,31 @@ impl Not for Value {
   type Output = Self;
 
   fn not(self) -> Self::Output {
-    todo!()
+    if self.is_ptr() {
+      self.not_impl()
+    } else {
+      Value::from(!self.truthy())
+    }
   }
 }
 
 pub struct VTable {
   set: fn(MutVoid, name: &str, value: Value) -> Result<(), ErrorValue>,
   get: fn(ConstVoid, name: &str) -> Value,
+  index: fn(ConstVoid, index: Value) -> Value,
   add: fn(ConstVoid, other: Value) -> Value,
   sub: fn(ConstVoid, other: Value) -> Value,
   mul: fn(ConstVoid, other: Value) -> Value,
   div: fn(ConstVoid, other: Value) -> Value,
   rem: fn(ConstVoid, other: Value) -> Value,
-  index: fn(ConstVoid, index: Value) -> Value,
+  neg: fn(ConstVoid) -> Value,
+  not: fn(ConstVoid) -> Value,
+  eq: fn(ConstVoid, other: &Value) -> bool,
+  cmp: fn(ConstVoid, other: &Value) -> Option<Ordering>,
+  stringify: fn(ConstVoid) -> String,
   drop: fn(MutVoid),
   dealloc: fn(MutVoid),
   type_id: fn() -> TypeId,
-  basic_desc: fn() -> &'static str,
 }
 
 impl VTable {
@@ -710,16 +918,20 @@ impl VTable {
     Self {
       set: |this, name, value| <T as ComplexValue>::set(unsafe { &mut *Self::void_to_mut(this) }, name, value),
       get: |this, name| <T as ComplexValue>::get(unsafe { &*Self::void_to(this) }, name),
+      index: |this, index| <T as ComplexValue>::index(unsafe { &*Self::void_to(this) }, index),
       add: |this, other| <T as ComplexValue>::add(unsafe { &*Self::void_to(this) }, other),
       sub: |this, other| <T as ComplexValue>::sub(unsafe { &*Self::void_to(this) }, other),
       mul: |this, other| <T as ComplexValue>::mul(unsafe { &*Self::void_to(this) }, other),
       div: |this, other| <T as ComplexValue>::div(unsafe { &*Self::void_to(this) }, other),
       rem: |this, other| <T as ComplexValue>::rem(unsafe { &*Self::void_to(this) }, other),
-      index: |this, index| <T as ComplexValue>::index(unsafe { &*Self::void_to(this) }, index),
+      neg: |this| <T as ComplexValue>::neg(unsafe { &*Self::void_to(this) }),
+      not: |this| <T as ComplexValue>::not(unsafe { &*Self::void_to(this) }),
+      eq: |this, other| <T as ComplexValue>::eq(unsafe { &*Self::void_to(this) }, other),
+      cmp: |this, other| <T as ComplexValue>::cmp(unsafe { &*Self::void_to(this) }, other),
+      stringify: |this| <T as ComplexValue>::stringify(unsafe { &*Self::void_to(this) }),
       drop: |this| <T as ComplexValue>::drop(unsafe { &mut *Self::void_to_mut(this) }),
       dealloc: |this| <T as ComplexValue>::dealloc(this as *mut T),
       type_id: || <T as ComplexValue>::type_id(),
-      basic_desc: || <T as ComplexValue>::basic_desc(),
     }
   }
 

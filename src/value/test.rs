@@ -1,4 +1,5 @@
-use super::{Assign, ComplexValue, ErrorValue, Nil, StructValue, Type, Value};
+use super::{Assign, ComplexValue, ErrorValue, Nil, StructValue, Tag, Value};
+use std::ops::*;
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -54,10 +55,10 @@ impl ComplexValue for ImplementedObject {
   }
 
   fn add(&self, other: Value) -> Value {
-    match other.type_of() {
-      Type::I32 => (self.field + other.as_i32().unwrap()).into(),
-      Type::Object => {
-        if let Ok(obj) = other.as_obj::<ImplementedObject>() {
+    match other.tag() {
+      Tag::I32 => (self.field + other.as_i32().unwrap()).into(),
+      Tag::Pointer => {
+        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
           (self.field + obj.field).into()
         } else {
           Value::new_err(format!("cannot add ImplementedObject and {}", other))
@@ -68,10 +69,10 @@ impl ComplexValue for ImplementedObject {
   }
 
   fn sub(&self, other: Value) -> Value {
-    match other.type_of() {
-      Type::I32 => (self.field - other.as_i32().unwrap()).into(),
-      Type::Object => {
-        if let Ok(obj) = other.as_obj::<ImplementedObject>() {
+    match other.tag() {
+      Tag::I32 => (self.field - other.as_i32().unwrap()).into(),
+      Tag::Pointer => {
+        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
           (self.field - obj.field).into()
         } else {
           Value::new_err(format!("cannot add ImplementedObject and {}", other))
@@ -82,10 +83,10 @@ impl ComplexValue for ImplementedObject {
   }
 
   fn mul(&self, other: Value) -> Value {
-    match other.type_of() {
-      Type::I32 => (self.field * other.as_i32().unwrap()).into(),
-      Type::Object => {
-        if let Ok(obj) = other.as_obj::<ImplementedObject>() {
+    match other.tag() {
+      Tag::I32 => (self.field * other.as_i32().unwrap()).into(),
+      Tag::Pointer => {
+        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
           (self.field * obj.field).into()
         } else {
           Value::new_err(format!("cannot add ImplementedObject and {}", other))
@@ -96,10 +97,10 @@ impl ComplexValue for ImplementedObject {
   }
 
   fn div(&self, other: Value) -> Value {
-    match other.type_of() {
-      Type::I32 => (self.field / other.as_i32().unwrap()).into(),
-      Type::Object => {
-        if let Ok(obj) = other.as_obj::<ImplementedObject>() {
+    match other.tag() {
+      Tag::I32 => (self.field / other.as_i32().unwrap()).into(),
+      Tag::Pointer => {
+        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
           (self.field / obj.field).into()
         } else {
           Value::new_err(format!("cannot add ImplementedObject and {}", other))
@@ -110,10 +111,10 @@ impl ComplexValue for ImplementedObject {
   }
 
   fn rem(&self, other: Value) -> Value {
-    match other.type_of() {
-      Type::I32 => (self.field % other.as_i32().unwrap()).into(),
-      Type::Object => {
-        if let Ok(obj) = other.as_obj::<ImplementedObject>() {
+    match other.tag() {
+      Tag::I32 => (self.field % other.as_i32().unwrap()).into(),
+      Tag::Pointer => {
+        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
           (self.field % obj.field).into()
         } else {
           Value::new_err(format!("cannot add ImplementedObject and {}", other))
@@ -225,31 +226,31 @@ mod unit_tests {
     assert!(obj.set("field", 15.into()).is_ok());
     assert_eq!(obj.get("field"), 15.into());
 
-    assert_eq!(obj.add(1.into()), 16.into());
-    assert_eq!(obj.sub(1.into()), 14.into());
-    assert_eq!(obj.mul(2.into()), 30.into());
-    assert_eq!(obj.div(3.into()), 5.into());
-    assert_eq!(obj.rem(7.into()), 1.into());
+    assert_eq!(obj.clone() + 1.into(), 16.into());
+    assert_eq!(obj.clone() - 1.into(), 14.into());
+    assert_eq!(obj.clone() * 2.into(), 30.into());
+    assert_eq!(obj.clone() / 3.into(), 5.into());
+    assert_eq!(obj.clone() % 7.into(), 1.into());
 
-    assert_eq!(obj.add(other.clone()), 20.into());
-    assert_eq!(obj.sub(other.clone()), 10.into());
-    assert_eq!(obj.mul(other.clone()), 75.into());
-    assert_eq!(obj.div(other.clone()), 3.into());
-    assert_eq!(obj.rem(other.clone()), 0.into());
+    assert_eq!(obj.clone() + other.clone(), 20.into());
+    assert_eq!(obj.clone() - other.clone(), 10.into());
+    assert_eq!(obj.clone() * other.clone(), 75.into());
+    assert_eq!(obj.clone() / other.clone(), 3.into());
+    assert_eq!(obj.clone() % other.clone(), 0.into());
 
-    assert_eq!(other.as_obj::<ImplementedObject>().unwrap().field, 5);
+    assert_eq!(other.cast_to::<ImplementedObject>().unwrap().field, 5);
   }
 
   #[test]
   fn object_trait_returns_error_when_unimplemented(_: &mut ValueTest) {
-    let mut obj = UnimplementedObject;
+    let mut obj = Value::from(UnimplementedObject);
 
     assert!(obj.set("", Value::nil).is_err());
     assert!(obj.get("").is_err());
-    assert!(obj.add(Value::nil).is_err());
-    assert!(obj.sub(Value::nil).is_err());
-    assert!(obj.mul(Value::nil).is_err());
-    assert!(obj.div(Value::nil).is_err());
-    assert!(obj.rem(Value::nil).is_err());
+    assert!((obj.clone() + Value::nil).is_err());
+    assert!((obj.clone() - Value::nil).is_err());
+    assert!((obj.clone() * Value::nil).is_err());
+    assert!((obj.clone() / Value::nil).is_err());
+    assert!((obj % Value::nil).is_err());
   }
 }

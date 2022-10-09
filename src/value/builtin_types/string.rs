@@ -1,4 +1,4 @@
-use crate::{dbg::here, Args, Env, ExecutionThread};
+use crate::{dbg::here, value::Tag, Args, Env, ExecutionThread};
 
 use super::{Class, ComplexValue, ErrorValue, StructValue, Value};
 use std::{
@@ -14,11 +14,7 @@ impl StringClass {
       if let Ok(this) = this.as_str() {
         if let Some(index) = args.list.first() {
           if let Ok(indx) = index.as_i32() {
-            this
-              .chars()
-              .nth(indx as usize)
-              .map(|c| c.into())
-              .unwrap_or_default()
+            this.chars().nth(indx as usize).map(|c| c.into()).unwrap_or_default()
           } else {
             Value::nil
           }
@@ -68,16 +64,37 @@ impl ComplexValue for StringValue {
       "len" => {
         let result = self.len() as i32;
         if result as usize != self.len() {
-          Value::new_err(format!(
-            "string too big to calculate length, limit is {}",
-            i32::MAX
-          ))
+          Value::new_err(format!("string too big to calculate length, limit is {}", i32::MAX))
         } else {
           result.into()
         }
       }
       method => StringClass::call(method),
     })
+  }
+
+  fn add(&self, other: Value) -> Value {
+    Value::from(format!("{}{}", self.deref(), other))
+  }
+
+  fn eq(&self, other: &Value) -> bool {
+    if let Ok(other) = other.cast_to::<Self>() {
+      self.deref().eq(other.deref())
+    } else {
+      false
+    }
+  }
+
+  fn cmp(&self, other: &Value) -> Option<std::cmp::Ordering> {
+    if let Ok(other) = other.cast_to::<Self>() {
+      self.deref().partial_cmp(other.deref())
+    } else {
+      None
+    }
+  }
+
+  fn stringify(&self) -> String {
+    self.deref().clone()
   }
 }
 

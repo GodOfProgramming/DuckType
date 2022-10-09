@@ -16,6 +16,7 @@ pub use stdlib::Library;
 pub use value::prelude::*;
 
 use std::ops::Deref;
+use std::ops::Index;
 use std::{
   fs,
   path::{Path, PathBuf},
@@ -89,10 +90,7 @@ impl ExecutionThread {
       if let Ok(name) = name.as_str() {
         Ok(name.deref().clone())
       } else {
-        Err(self.error(
-          opcode,
-          format!("global variable name is not an identifier: {}", name),
-        ))
+        Err(self.error(opcode, format!("global variable name is not an identifier: {}", name)))
       }
     } else {
       Err(self.error(opcode, String::from("global variable name does not exist")))
@@ -107,12 +105,7 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn run(
-    &mut self,
-    file: PathBuf,
-    ctx: SmartPtr<Context>,
-    env: &mut Env,
-  ) -> Result<RunResult, Vec<RuntimeError>> {
+  fn run(&mut self, file: PathBuf, ctx: SmartPtr<Context>, env: &mut Env) -> Result<RunResult, Vec<RuntimeError>> {
     self.opened_files = vec![(0, file)];
     self.reinitialize(ctx);
     self.execute(env)
@@ -138,10 +131,7 @@ impl ExecutionThread {
         #[cfg(feature = "runtime-disassembly")]
         {
           self.stack_display();
-          self
-            .current_frame
-            .ctx
-            .display_instruction(&opcode, self.current_frame.ip);
+          self.current_frame.ctx.display_instruction(&opcode, self.current_frame.ip);
         }
 
         match opcode {
@@ -231,11 +221,7 @@ impl ExecutionThread {
             let mut opened_files = Vec::default();
             std::mem::swap(&mut opened_files, &mut self.opened_files);
 
-            return Ok(RunResult::Yield(Yield::new(
-              current_frame,
-              stack_frames,
-              opened_files,
-            )));
+            return Ok(RunResult::Yield(Yield::new(current_frame, stack_frames, opened_files)));
           }
         }
 
@@ -280,10 +266,7 @@ impl ExecutionThread {
 
   #[inline]
   fn exec_noop(&self) -> ExecResult {
-    Err(self.error(
-      &OpCode::NoOp,
-      String::from("executed noop opcode, should not happen"),
-    ))
+    Err(self.error(&OpCode::NoOp, String::from("executed noop opcode, should not happen")))
   }
 
   #[inline]
@@ -339,10 +322,7 @@ impl ExecutionThread {
       self.stack_assign(location, value.clone());
       Ok(())
     } else {
-      Err(self.error(
-        opcode,
-        format!("could not replace stack value at pos {}", location),
-      ))
+      Err(self.error(opcode, format!("could not replace stack value at pos {}", location)))
     }
   }
 
@@ -359,22 +339,14 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_force_assign_global(
-    &mut self,
-    env: &mut Env,
-    opcode: &OpCode,
-    location: usize,
-  ) -> ExecResult {
+  fn exec_force_assign_global(&mut self, env: &mut Env, opcode: &OpCode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       // used with functions & classes only, so pop
       if let Some(v) = this.stack_pop() {
         env.assign(name, v.clone());
         Ok(())
       } else {
-        Err(this.error(
-          opcode,
-          String::from("can not define global using empty stack"),
-        ))
+        Err(this.error(opcode, String::from("can not define global using empty stack")))
       }
     })
   }
@@ -389,10 +361,7 @@ impl ExecutionThread {
           Err(this.error(opcode, String::from("tried redefining global variable")))
         }
       } else {
-        Err(this.error(
-          opcode,
-          String::from("can not define global using empty stack"),
-        ))
+        Err(this.error(opcode, String::from("can not define global using empty stack")))
       }
     })
   }
@@ -404,16 +373,10 @@ impl ExecutionThread {
         if env.assign(name, v) {
           Ok(())
         } else {
-          Err(this.error(
-            opcode,
-            String::from("tried to assign to nonexistent global"),
-          ))
+          Err(this.error(opcode, String::from("tried to assign to nonexistent global")))
         }
       } else {
-        Err(this.error(
-          opcode,
-          String::from("can not assign to global using empty stack"),
-        ))
+        Err(this.error(opcode, String::from("can not assign to global using empty stack")))
       }
     })
   }
@@ -424,9 +387,7 @@ impl ExecutionThread {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let Ok(name) = name.as_str() {
-            obj
-              .set(name, value)
-              .map_err(|e| self.error(opcode, format!("{}", e)))
+            obj.set(name, value).map_err(|e| self.error(opcode, format!("{}", e)))
           } else {
             Err(self.error(opcode, String::from("invalid name for member")))
           }
@@ -434,16 +395,10 @@ impl ExecutionThread {
           Err(self.error(opcode, String::from("no identifier found at index")))
         }
       } else {
-        Err(self.error(
-          opcode,
-          String::from("no value on stack to assign to member"),
-        ))
+        Err(self.error(opcode, String::from("no value on stack to assign to member")))
       }
     } else {
-      Err(self.error(
-        opcode,
-        String::from("no value on stack to assign a member to"),
-      ))
+      Err(self.error(opcode, String::from("no value on stack to assign a member to")))
     }
   }
 
@@ -459,10 +414,7 @@ impl ExecutionThread {
             self.stack_push(value);
             Ok(())
           } else {
-            Err(self.error(
-              opcode,
-              String::from("constant at index is not an identifier"),
-            ))
+            Err(self.error(opcode, String::from("constant at index is not an identifier")))
           }
         } else {
           Err(self.error(opcode, String::from("no ident found at index")))
@@ -471,10 +423,7 @@ impl ExecutionThread {
         Err(self.error(opcode, String::from("no object to assign to")))
       }
     } else {
-      Err(self.error(
-        opcode,
-        String::from("no value on stack to assign to member"),
-      ))
+      Err(self.error(opcode, String::from("no value on stack to assign to member")))
     }
   }
 
@@ -608,13 +557,7 @@ impl ExecutionThread {
 
   /// when f evaluates to true, short circuit
   #[inline]
-  fn exec_logical<F: FnOnce(Value) -> bool>(
-    &mut self,
-
-    opcode: &OpCode,
-    offset: usize,
-    f: F,
-  ) -> ExecBoolResult {
+  fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, opcode: &OpCode, offset: usize, f: F) -> ExecBoolResult {
     match self.stack_peek() {
       Some(v) => {
         if f(v) {
@@ -822,19 +765,14 @@ impl ExecutionThread {
 
             self.new_frame(new_ctx);
 
-            self
-              .opened_files
-              .push((self.stack_frames.len(), found_file));
+            self.opened_files.push((self.stack_frames.len(), found_file));
 
             Ok(())
           }
           Err(e) => Err(self.error(opcode, format!("unable to read file '{}': {}", file, e,))),
         }
       } else {
-        Err(self.error(
-          opcode,
-          format!("unable to find file, tried: {:#?}", attempts),
-        ))
+        Err(self.error(opcode, format!("unable to find file, tried: {:#?}", attempts)))
       }
     } else {
       Err(self.error(opcode, "no item on stack to require (logic error)"))
@@ -911,11 +849,7 @@ impl ExecutionThread {
   }
 
   pub fn stack_drain_from(&mut self, index: usize) -> Vec<Value> {
-    self
-      .current_frame
-      .stack
-      .drain(self.stack_size() - index..)
-      .collect()
+    self.current_frame.stack.drain(self.stack_size() - index..).collect()
   }
 
   pub fn stack_index(&self, index: usize) -> Option<Value> {
@@ -964,10 +898,7 @@ impl ExecutionThread {
       f(opcode_ref)
     } else {
       RuntimeError {
-        msg: format!(
-          "could not fetch info for instruction {:04X}",
-          self.current_frame.ip
-        ),
+        msg: format!("could not fetch info for instruction {:04X}", self.current_frame.ip),
         file: self.current_frame.ctx.meta.file.access().clone(),
         line: 0,
         column: 0,
@@ -1000,11 +931,7 @@ impl Vm {
     }
   }
 
-  pub fn load<T: ToString>(
-    &self,
-    file: T,
-    code: &str,
-  ) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+  pub fn load<T: ToString>(&self, file: T, code: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
     Compiler::compile(&file.to_string(), code)
   }
 
@@ -1012,12 +939,7 @@ impl Vm {
     self.main.resume(y, env)
   }
 
-  pub fn run<T: ToString>(
-    &mut self,
-    file: T,
-    ctx: SmartPtr<Context>,
-    env: &mut Env,
-  ) -> Result<RunResult, Vec<RuntimeError>> {
+  pub fn run<T: ToString>(&mut self, file: T, ctx: SmartPtr<Context>, env: &mut Env) -> Result<RunResult, Vec<RuntimeError>> {
     #[cfg(debug_assertions)]
     #[cfg(feature = "disassemble")]
     {
