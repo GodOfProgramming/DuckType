@@ -10,7 +10,7 @@ use std::{
 };
 pub use tags::*;
 
-use crate::{dbg::here, Env, ExecutionThread};
+use crate::{Env, ExecutionThread};
 
 mod builtin_types;
 mod tags;

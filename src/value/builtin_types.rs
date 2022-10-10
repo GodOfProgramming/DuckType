@@ -11,7 +11,7 @@ pub use r#struct::StructValue;
 use std::{
   any::TypeId,
   cmp::Ordering,
-  fmt::{Display, Formatter, Result as FmtResult},
+  fmt::{Display},
 };
 pub use string::StringValue;
 pub use timestamp::TimestampValue;

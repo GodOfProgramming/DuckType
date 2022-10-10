@@ -1,5 +1,5 @@
 use super::{Assign, ComplexValue, ErrorValue, Nil, StructValue, Tag, Value};
-use std::ops::*;
+
 use tfix::prelude::*;
 
 #[derive(Default)]

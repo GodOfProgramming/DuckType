@@ -9,7 +9,7 @@ mod test;
 pub use code::Context;
 pub use code::Env;
 use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
-use dbg::here;
+
 use dbg::RuntimeError;
 use ptr::SmartPtr;
 pub use stdlib::Library;
