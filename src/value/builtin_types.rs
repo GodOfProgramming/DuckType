@@ -8,11 +8,7 @@ pub use instance::InstanceValue;
 pub use method::MethodValue;
 pub use native::{NativeClosureValue, NativeFn, NativeMethodValue};
 pub use r#struct::StructValue;
-use std::{
-  any::TypeId,
-  cmp::Ordering,
-  fmt::{Display},
-};
+use std::{any::TypeId, cmp::Ordering, fmt::Display};
 pub use string::StringValue;
 pub use timestamp::TimestampValue;
 

@@ -44,20 +44,12 @@ impl RuntimeError {
 
 impl Debug for RuntimeError {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    writeln!(
-      f,
-      "{} ({}, {}): {}",
-      self.file, self.line, self.column, self.msg
-    )
+    writeln!(f, "{} ({}, {}): {}", self.file, self.line, self.column, self.msg)
   }
 }
 
 impl Display for RuntimeError {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    writeln!(
-      f,
-      "{} ({}, {}): {}",
-      self.file, self.line, self.column, self.msg
-    )
+    writeln!(f, "{} ({}, {}): {}", self.file, self.line, self.column, self.msg)
   }
 }

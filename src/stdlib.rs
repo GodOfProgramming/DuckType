@@ -1,5 +1,3 @@
-
-
 use super::{ClassValue, ComplexValue, StructValue, Value};
 use enum_iterator::{all, Sequence};
 use libconsole::LibConsole;

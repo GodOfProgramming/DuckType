@@ -1,5 +1,3 @@
-
-
 use super::{ComplexValue, Value};
 use std::{
   fmt::{Display, Formatter, Result},

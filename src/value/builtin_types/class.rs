@@ -1,6 +1,6 @@
 use super::{Args, ComplexValue, InstanceValue, Value};
 use crate::{Env, ExecutionThread, StructValue};
-use std::{collections::BTreeMap};
+use std::collections::BTreeMap;
 
 pub struct ClassValue {
   pub name: String,
