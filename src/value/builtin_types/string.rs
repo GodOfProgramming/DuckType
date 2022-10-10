@@ -96,6 +96,10 @@ impl ComplexValue for StringValue {
   fn stringify(&self) -> String {
     self.deref().clone()
   }
+
+  fn debug_string(&self) -> String {
+    format!("\"{}\"", self.stringify())
+  }
 }
 
 impl Display for StringValue {

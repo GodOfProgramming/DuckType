@@ -25,14 +25,16 @@ impl ClassValue {
       let instance = Value::from(InstanceValue::new(StructValue::default(), class_clone));
       if let Some(initializer) = &mut class.initializer {
         if let Ok(initializer) = initializer.as_fn() {
-          args.this = Some(instance);
-          initializer.call(thread, args);
+          args.list.push(instance);
+          initializer.call(thread, args.list);
         } else if let Ok(initializer) = initializer.as_native_fn() {
-          args.list.push(instance);
-          initializer(thread, env, args);
+          args.this = Some(instance);
+          let instance = initializer(thread, env, args);
+          thread.stack_push(instance);
         } else if let Ok(initializer) = initializer.as_native_closure_mut() {
-          args.list.push(instance);
-          initializer.call(thread, env, args);
+          args.this = Some(instance);
+          let instance = initializer.call(thread, env, args);
+          thread.stack_push(instance);
         } else {
           thread.stack_push(Value::new_err(format!("invalid type for constructor {}", initializer)));
         }
@@ -67,34 +69,12 @@ impl ClassValue {
     self.methods.insert(name.to_string(), value);
   }
 
-  pub fn set_native_method<N, F>(&mut self, name: N, method: F)
-  where
-    N: Display,
-    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
-  {
-    self.methods.insert(
-      name.to_string(),
-      Value::new_native_closure(format!("{}.{}", self.name, name), method),
-    );
-  }
-
   pub fn get_static<N: AsRef<str>>(&self, name: N) -> Value {
     self.static_members.get(name.as_ref()).cloned().unwrap_or_default()
   }
 
   pub fn set_static<N: ToString>(&mut self, name: N, value: Value) {
     self.static_members.insert(name.to_string(), value);
-  }
-
-  pub fn set_native_static<N, F>(&mut self, name: N, method: F)
-  where
-    N: Display,
-    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
-  {
-    self.static_members.insert(
-      name.to_string(),
-      Value::new_native_closure(format!("{}.{}", self.name, name), method),
-    );
   }
 }
 
@@ -106,5 +86,13 @@ impl ComplexValue for ClassValue {
 
   fn get(&self, name: &str) -> Value {
     self.get_static(name)
+  }
+
+  fn stringify(&self) -> String {
+    self.name.clone()
+  }
+
+  fn debug_string(&self) -> String {
+    format!("class {}", self.stringify())
   }
 }

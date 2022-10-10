@@ -206,7 +206,7 @@ impl ExecutionThread {
             self.exec_req(env, &opcode)?;
             continue;
           }
-          OpCode::Index => self.exec_index(&opcode, env)?,
+          OpCode::Index => self.exec_index(env, &opcode)?,
           OpCode::CreateList(num_items) => self.exec_create_list(num_items),
           OpCode::CreateClosure => self.exec_create_closure(&opcode)?,
           OpCode::Yield => {
@@ -560,11 +560,9 @@ impl ExecutionThread {
     match self.stack_peek() {
       Some(v) => {
         if f(v) {
-          here!();
           self.jump(offset);
           Ok(true)
         } else {
-          here!();
           self.stack_pop();
           Ok(false)
         }
@@ -778,11 +776,25 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_index(&mut self, opcode: &OpCode, env: &mut Env) -> ExecResult {
+  fn exec_index(&mut self, env: &mut Env, opcode: &OpCode) -> ExecResult {
     if let Some(index) = self.stack_pop() {
-      if let Some(mut indexable) = self.stack_pop() {
-        self.stack_push(indexable.index(index));
-        Ok(())
+      if let Some(indexable) = self.stack_pop() {
+        if indexable.is_ptr() {
+          if let Ok(instance) = indexable.as_instance() {
+            if let Ok(mut callable) = instance.get("__index__").as_callable() {
+              let args = Args::from((indexable, index));
+              callable.call(self, env, args);
+              Ok(())
+            } else {
+              Err(self.error(opcode, "__index__ unimplemented"))
+            }
+          } else {
+            self.stack_push(indexable.index(index));
+            Ok(())
+          }
+        } else {
+          Err(self.error(opcode, format!("cannot index {}", indexable)))
+        }
       } else {
         Err(self.error(opcode, "no item to index"))
       }
@@ -911,7 +923,7 @@ impl ExecutionThread {
       println!("               | [ ]");
     } else {
       for (index, item) in self.current_frame.stack.iter().enumerate() {
-        println!("{:#15}| [ {} ]", index, item);
+        println!("{:#15}| [ {:?} ]", index, item);
       }
     }
   }

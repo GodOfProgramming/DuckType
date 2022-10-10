@@ -43,4 +43,12 @@ impl ClosureValue {
   }
 }
 
-impl ComplexValue for ClosureValue {}
+impl ComplexValue for ClosureValue {
+  fn stringify(&self) -> String {
+    format!("closure {}", self.function.stringify())
+  }
+
+  fn debug_string(&self) -> String {
+    format!("<{}>", self.stringify())
+  }
+}

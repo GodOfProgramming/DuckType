@@ -1,4 +1,4 @@
-use crate::Array;
+use crate::{dbg::here, ArrayValue};
 
 use super::{ClassValue, ComplexValue, StructValue, Value};
 use enum_iterator::{all, Sequence};
@@ -71,6 +71,13 @@ fn load_lib(args: &[String], lib: &Lib) -> (&'static str, Value) {
 fn load_std() -> Value {
   let mut lib = StructValue::default();
 
+  lib
+    .set(
+      "debug",
+      Value::new_native_fn(|_thread, _env, args| Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil)))),
+    )
+    .ok();
+
   // Arrays
   {
     let mut array = ClassValue::new("Array");
@@ -112,59 +119,62 @@ fn load_std() -> Value {
       }
     });
 
-    vec.set_native_method("push", |_thread, _env, args| {
-      let mut args = args.list.into_iter();
-      if let Some(mut this) = args.next() {
-        if let Ok(this) = this.as_instance_mut() {
-          let mut buff = this.get("_buffer");
-          if let Ok(buff) = buff.as_array_mut() {
-            buff.extend(args);
-          } else if buff.is_nil() {
-            this.set("_buffer", Array::from(Vec::from_iter(args)).into()).ok();
+    vec.set_method(
+      "push",
+      Value::new_native_fn_method(|_thread, _env, args| {
+        if let Some(mut this) = args.this {
+          if let Ok(this) = this.as_instance_mut() {
+            let mut buff = this.get("_buffer");
+            if let Ok(buff) = buff.as_array_mut() {
+              buff.extend(args.list);
+              Value::nil
+            } else {
+              Value::new_err("_buffer missing for self")
+            }
+          } else {
+            Value::new_err("self is not a class instance")
           }
+        } else {
+          Value::new_err("push called without self")
         }
-      }
+      }),
+    );
 
-      Value::nil
-    });
-
-    vec.set_native_method("__index__", |_thread, _env, args| {
-      let mut args = args.list.into_iter();
-      if let Some(this) = args.next() {
-        if let Some(value) = args.next() {
-          if let Ok(mut value) = value.as_i32() {
+    vec.set_method(
+      "__index__",
+      Value::new_native_fn_method(|_thread, _env, args| {
+        if let Some(this) = args.this {
+          if let Some(value) = args.list.first().cloned() {
             let buff = this.get("_buffer");
             if let Ok(arr) = buff.as_array() {
-              if value < 0 {
-                value = arr.len() as i32 - value;
-              }
-              arr[value as usize].clone()
+              arr.index(value)
             } else {
               Value::new_err("Vec.__index__ called on object that is not a Vec")
             }
           } else {
-            Value::nil
+            Value::new_err("index called without index")
           }
         } else {
-          Value::new_err("index called without index")
+          Value::new_err("index called without self")
         }
-      } else {
-        Value::new_err("index called without self")
-      }
-    });
+      }),
+    );
 
-    vec.set_native_method("len", |_thread, _env, args| {
-      if let Some(this) = args.this {
-        let buff = this.get("_buffer");
-        if let Ok(arr) = buff.as_array() {
-          Value::from(arr.len() as i32)
+    vec.set_method(
+      "len",
+      Value::new_native_fn_method(|_thread, _env, args| {
+        if let Some(this) = args.this {
+          let buff = this.get("_buffer");
+          if let Ok(arr) = buff.as_array() {
+            Value::from(arr.len() as i32)
+          } else {
+            Value::new_err("buffer is not array")
+          }
         } else {
-          Value::new_err("buffer is not array")
+          Value::new_err("len called without self")
         }
-      } else {
-        Value::new_err("len called without self")
-      }
-    });
+      }),
+    );
 
     lib.set("Vec", Value::from(vec)).ok();
   }
@@ -173,22 +183,25 @@ fn load_std() -> Value {
   {
     let mut object = ClassValue::new("Object");
 
-    object.set_native_static("fields", |_thread, _env, args| {
-      let mut args = args.list.into_iter();
-      let mut fields = Vec::default();
+    object.set_static(
+      "fields",
+      Value::new_native_fn(|_thread, _env, args| {
+        let mut args = args.list.into_iter();
+        let mut fields = Vec::default();
 
-      if let Some(obj) = args.next() {
-        let get_fields = |s: &StructValue| s.members.keys().cloned().map(|k| Value::from(k)).collect::<Vec<Value>>();
+        if let Some(obj) = args.next() {
+          let get_fields = |s: &StructValue| s.members.keys().cloned().map(|k| Value::from(k)).collect::<Vec<Value>>();
 
-        if let Ok(i) = obj.as_instance() {
-          fields.extend(get_fields(&i.data))
-        } else if let Ok(s) = obj.as_struct() {
-          fields.extend(get_fields(&s))
+          if let Ok(i) = obj.as_instance() {
+            fields.extend(get_fields(&i.data))
+          } else if let Ok(s) = obj.as_struct() {
+            fields.extend(get_fields(&s))
+          }
         }
-      }
 
-      Value::from(fields)
-    });
+        Value::from(fields)
+      }),
+    );
 
     lib.set("Object", Value::from(object)).ok();
   }

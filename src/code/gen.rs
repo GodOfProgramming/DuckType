@@ -112,9 +112,9 @@ impl BytecodeGenerator {
     let mut class = ClassValue::new(stmt.ident.name.clone());
 
     if let Some(initializer) = stmt.initializer {
-      if let Some((function, is_static)) = self.create_fn_from_expr(ContextName::Method, initializer) {
+      if let Some((function, is_static)) = self.create_class_fn(ContextName::Method, initializer) {
         if is_static {
-          class.set_constructor(Value::from(function));
+          class.set_constructor(function);
         } else {
           self.error(stmt.loc, String::from("method was used as initializer somehow (logic error)"));
         }
@@ -127,11 +127,11 @@ impl BytecodeGenerator {
     }
 
     for (method_name, method) in stmt.methods {
-      if let Some((function, is_static)) = self.create_fn_from_expr(ContextName::Method, method) {
+      if let Some((function, is_static)) = self.create_class_fn(ContextName::Method, method) {
         if is_static {
-          class.set_static(method_name.name, Value::from(function));
+          class.set_static(method_name.name, function);
         } else {
-          class.set_method(method_name.name, Value::from(function));
+          class.set_method(method_name.name, function);
         }
       } else {
         self.error(stmt.loc, format!("unable to create method {}", method_name.name));
@@ -144,7 +144,7 @@ impl BytecodeGenerator {
   }
 
   fn default_constructor_ret(&mut self, stmt: DefaultConstructorRet) {
-    self.emit(OpCode::Ret, stmt.loc);
+    self.emit(OpCode::RetValue, stmt.loc);
   }
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
@@ -819,10 +819,13 @@ impl BytecodeGenerator {
     count
   }
 
-  fn create_fn_from_expr(&mut self, name: ContextName, expr: Expression) -> Option<(FunctionValue, bool)> {
+  fn create_class_fn(&mut self, name: ContextName, expr: Expression) -> Option<(Value, bool)> {
     match expr {
-      Expression::Method(m) => Some((self.create_fn(name, m.params, *m.body, m.loc), false)),
-      Expression::Lambda(l) => Some((self.create_fn(name, l.params, *l.body, l.loc), true)),
+      Expression::Method(m) => Some((
+        Value::from(MethodValue::new(self.create_fn(name, m.params, *m.body, m.loc))),
+        false,
+      )),
+      Expression::Lambda(l) => Some((Value::from(self.create_fn(name, l.params, *l.body, l.loc)), true)),
       _ => None,
     }
   }

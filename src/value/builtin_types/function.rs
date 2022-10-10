@@ -14,18 +14,18 @@ impl FunctionValue {
     Self { airity, locals, ctx }
   }
 
-  pub fn call(&self, thread: &mut crate::ExecutionThread, mut args: Args) {
-    if args.count() > self.airity {
-      args.list.drain(0..self.airity);
+  pub fn call(&self, thread: &mut crate::ExecutionThread, mut args: Vec<Value>) {
+    if args.len() > self.airity {
+      args.drain(0..self.airity);
     } else {
-      while args.count() < self.airity {
-        args.list.push(Value::nil);
+      while args.len() < self.airity {
+        args.push(Value::nil);
       }
     }
 
-    args.list.reserve(self.locals);
+    args.reserve(self.locals);
     thread.new_frame(self.ctx.clone());
-    thread.set_stack(args.list);
+    thread.set_stack(args);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
@@ -44,5 +44,9 @@ impl FunctionValue {
 impl ComplexValue for FunctionValue {
   fn stringify(&self) -> String {
     format!("fn {}", self.ctx.name())
+  }
+
+  fn debug_string(&self) -> String {
+    format!("<{}>", self.stringify())
   }
 }

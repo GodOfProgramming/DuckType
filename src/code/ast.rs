@@ -206,7 +206,7 @@ impl AstGenerator {
         }
 
         let mut initializer = None;
-        let mut methods = Vec::default();
+        let mut class_members = Vec::default();
         let mut declared_functions = BTreeSet::default();
 
         while let Some(token) = self.current() {
@@ -216,12 +216,16 @@ impl AstGenerator {
               if initializer.is_none() {
                 if self.consume(Token::LeftParen, "expected '(' after 'new'") {
                   initializer = self.lambda_expr(true, Token::RightParen, |this, params, mut body| {
-                    if params.is_empty() || params[0].name != "self" {
+                    if !params.found_self {
                       this.error::<0>(String::from("missing self arg in initializer"));
                       None
                     } else {
                       body.statements.push(Statement::from(DefaultConstructorRet::new(loc)));
-                      Some(Expression::from(LambdaExpression::new(params, Statement::from(body), loc)))
+                      Some(Expression::from(LambdaExpression::new(
+                        params.list,
+                        Statement::from(body),
+                        loc,
+                      )))
                     }
                   });
                 }
@@ -236,15 +240,22 @@ impl AstGenerator {
                   self.advance();
                   if self.consume(Token::LeftParen, "expected '(' after identifier") {
                     if let Some(function) = self.lambda_expr(true, Token::RightParen, |_this, params, body| {
-                      if params.is_empty() || params[0].name != "self" {
-                        Some(Expression::from(LambdaExpression::new(params, Statement::from(body), loc)))
+                      declared_functions.insert(ident.clone());
+                      if params.found_self {
+                        Some(Expression::from(MethodExpression::new(
+                          params.list,
+                          Statement::from(body),
+                          loc,
+                        )))
                       } else {
-                        declared_functions.insert(ident.clone());
-                        Some(Expression::from(MethodExpression::new(params, Statement::from(body), loc)))
+                        Some(Expression::from(LambdaExpression::new(
+                          params.list,
+                          Statement::from(body),
+                          loc,
+                        )))
                       }
                     }) {
-                      let ident = Ident::new(ident.clone());
-                      methods.push((ident, function));
+                      class_members.push((Ident::new(ident), function));
                     }
                   }
                 } else {
@@ -263,7 +274,7 @@ impl AstGenerator {
         self.statements.push(Statement::from(ClassStatement::new(
           Ident::new(class_name),
           initializer,
-          methods,
+          class_members,
           loc,
         )))
       } else {
@@ -954,7 +965,11 @@ impl AstGenerator {
     let loc = self.meta_at::<0>()?;
 
     self.lambda_expr(false, Token::Pipe, |_, params, body| {
-      Some(Expression::from(LambdaExpression::new(params, Statement::from(body), loc)))
+      Some(Expression::from(LambdaExpression::new(
+        params.list,
+        Statement::from(body),
+        loc,
+      )))
     })
   }
 
@@ -964,20 +979,25 @@ impl AstGenerator {
     self.lambda_expr(false, param_term, |_, params, body| {
       Some(Expression::from(ClosureExpression::new(
         captures,
-        params,
+        params.list,
         Statement::from(body),
         loc,
       )))
     })
   }
 
-  fn lambda_expr<F: FnOnce(&mut Self, Vec<Ident>, BlockStatement) -> Option<Expression>>(
-    &mut self,
-    allow_self: bool,
-    param_term: Token,
-    f: F,
-  ) -> Option<Expression> {
-    let params = self.parse_parameters(allow_self, param_term.clone())?;
+  fn lambda_expr<F>(&mut self, allow_self: bool, param_term: Token, f: F) -> Option<Expression>
+  where
+    F: FnOnce(&mut Self, Params, BlockStatement) -> Option<Expression>,
+  {
+    let mut params = self.parse_parameters(param_term.clone())?;
+
+    if !allow_self && params.found_self {
+      self.error::<0>(String::from("found 'self' in invalid context"));
+      return None;
+    } else if params.found_self {
+      params.list.push(Ident::new("self"));
+    }
 
     if !self.consume(param_term, "expected terminator after parameters") {
       return None;
@@ -1066,7 +1086,12 @@ impl AstGenerator {
           return None;
         }
 
-        if let Some(params) = self.parse_parameters(false, Token::RightParen) {
+        if let Some(params) = self.parse_parameters(Token::RightParen) {
+          if params.found_self {
+            self.error::<0>(String::from("found 'self' in invalid context"));
+            return None;
+          }
+
           if !self.consume(Token::RightParen, "expected ')' after arguments") {
             return None;
           }
@@ -1078,7 +1103,7 @@ impl AstGenerator {
           if let Some(block_loc) = self.meta_at::<1>() {
             self
               .block(block_loc)
-              .map(|body| Statement::from(FnStatement::new(ident, params, Statement::from(body), loc)))
+              .map(|body| Statement::from(FnStatement::new(ident, params.list, Statement::from(body), loc)))
           } else {
             // sanity check
             self.error::<0>(String::from("could not find original token"));
@@ -1245,9 +1270,10 @@ impl AstGenerator {
     None
   }
 
-  fn parse_parameters(&mut self, allow_self: bool, terminator: Token) -> Option<Vec<Ident>> {
-    let mut params = Vec::default();
+  fn parse_parameters(&mut self, terminator: Token) -> Option<Params> {
     let mut found_self = false;
+    let mut params = Vec::default();
+
     if let Some(mut token) = self.current() {
       if token != terminator {
         loop {
@@ -1258,20 +1284,15 @@ impl AstGenerator {
             }
 
             if ident == "self" {
-              if allow_self {
-                if found_self {
-                  self.error::<0>(String::from("self found twice in parameter list"));
-                  return None;
-                } else {
-                  found_self = true;
-                }
-              } else {
-                self.error::<0>(String::from("self parameter not allowed in this context"));
+              if found_self {
+                self.error::<0>(String::from("self found twice in parameter list"));
                 return None;
+              } else {
+                found_self = true;
               }
+            } else {
+              params.push(ident);
             }
-
-            params.push(ident);
           } else {
             self.error::<0>(String::from("invalid token in parameter list"));
             return None;
@@ -1292,7 +1313,10 @@ impl AstGenerator {
       }
     }
 
-    Some(params.into_iter().map(|p| Ident::new(p)).collect())
+    Some(Params::from((
+      found_self,
+      params.into_iter().map(|p| Ident::new(p)).collect(),
+    )))
   }
 
   fn declaration(&mut self) -> Option<LetStatement> {
@@ -2471,5 +2495,22 @@ impl ParseRule {
       infix,
       precedence,
     }
+  }
+}
+
+struct Params {
+  found_self: bool,
+  list: Vec<Ident>,
+}
+
+impl From<(bool, Vec<Ident>)> for Params {
+  fn from((found_self, list): (bool, Vec<Ident>)) -> Self {
+    Self { found_self, list }
+  }
+}
+
+impl From<Vec<Ident>> for Params {
+  fn from(list: Vec<Ident>) -> Self {
+    Self { found_self: false, list }
   }
 }

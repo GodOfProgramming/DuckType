@@ -3,13 +3,14 @@ use static_assertions::assert_eq_size;
 use std::{
   any::TypeId,
   cmp::Ordering,
+  error::Error,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
   mem,
   ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
 };
 pub use tags::*;
 
-use crate::{Env, ExecutionThread};
+use crate::{dbg::here, Env, ExecutionThread};
 
 mod builtin_types;
 mod tags;
@@ -53,6 +54,10 @@ impl Value {
     new
   }
 
+  pub fn raw_value(&self) -> u64 {
+    self.bits & VALUE_BITMASK
+  }
+
   pub fn truthy(&self) -> bool {
     !self.falsy()
   }
@@ -64,7 +69,7 @@ impl Value {
   // float
 
   pub fn is_f64(&self) -> bool {
-    self.bits < INF_VALUE
+    self.bits < F64_MAX
   }
 
   pub fn as_f64(&self) -> ConversionResult<f64> {
@@ -158,19 +163,19 @@ impl Value {
   // array
 
   pub fn new_array() -> Self {
-    Self::from(Array::default())
+    Self::from(ArrayValue::default())
   }
 
   pub fn is_array(&self) -> bool {
-    self.is::<Array>()
+    self.is::<ArrayValue>()
   }
 
-  pub fn as_array(&self) -> ConversionResult<&Array> {
-    self.cast_to::<Array>()
+  pub fn as_array(&self) -> ConversionResult<&ArrayValue> {
+    self.cast_to::<ArrayValue>()
   }
 
-  pub fn as_array_mut(&mut self) -> ConversionResult<&mut Array> {
-    self.cast_to_mut::<Array>()
+  pub fn as_array_mut(&mut self) -> ConversionResult<&mut ArrayValue> {
+    self.cast_to_mut::<ArrayValue>()
   }
 
   // struct
@@ -255,6 +260,14 @@ impl Value {
     self.cast_to_mut::<FunctionValue>()
   }
 
+  pub fn as_fn_unchecked(&self) -> &FunctionValue {
+    self.convert()
+  }
+
+  pub fn as_fn_unchecked_mut(&mut self) -> &FunctionValue {
+    self.convert_mut()
+  }
+
   // closure
 
   pub fn is_closure(&self) -> bool {
@@ -267,6 +280,14 @@ impl Value {
 
   pub fn as_closure_mut(&self) -> ConversionResult<&mut ClosureValue> {
     self.cast_to_mut::<ClosureValue>()
+  }
+
+  pub fn as_closure_unchecked(&self) -> &ClosureValue {
+    self.convert()
+  }
+
+  pub fn as_closure_unchecked_mut(&self) -> &mut ClosureValue {
+    self.convert_mut()
   }
 
   // method
@@ -283,7 +304,17 @@ impl Value {
     self.cast_to_mut::<MethodValue>()
   }
 
+  pub fn as_method_unchecked(&self) -> &MethodValue {
+    self.convert()
+  }
+
+  pub fn as_method_unchecked_mut(&mut self) -> &mut MethodValue {
+    self.convert_mut()
+  }
+
   // native
+
+  // -- native fn
 
   pub fn new_native_fn(f: NativeFn) -> Self {
     Self::from(f)
@@ -305,6 +336,8 @@ impl Value {
     unsafe { mem::transmute((self.bits & VALUE_BITMASK) as u64) }
   }
 
+  // -- native closure
+
   pub fn new_native_closure<N, F>(name: N, f: F) -> Self
   where
     N: ToString,
@@ -325,7 +358,21 @@ impl Value {
     self.cast_to_mut::<NativeClosureValue>()
   }
 
-  pub fn new_native_method<T: ToString, F>(name: T, f: F) -> Self
+  pub fn as_native_closure_unchecked(&self) -> &NativeClosureValue {
+    self.convert()
+  }
+
+  pub fn as_native_closure_unchecked_mut(&mut self) -> &mut NativeClosureValue {
+    self.convert_mut()
+  }
+
+  // -- native closure method
+
+  pub fn new_native_fn_method(f: NativeFn) -> Self {
+    Self::from(NativeMethodValue::from(f))
+  }
+
+  pub fn new_native_closure_method<T: ToString, F>(name: T, f: F) -> Self
   where
     F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
   {
@@ -344,7 +391,15 @@ impl Value {
     self.cast_to_mut::<NativeMethodValue>()
   }
 
-  // obj pointer
+  pub fn as_native_method_unchecked(&self) -> &NativeMethodValue {
+    self.convert()
+  }
+
+  pub fn as_native_method_unchecked_mut(&mut self) -> &mut NativeMethodValue {
+    self.convert_mut()
+  }
+
+  // cmplx value pointer
 
   pub fn is_ptr(&self) -> bool {
     self.is_type::<POINTER_TAG>()
@@ -356,7 +411,7 @@ impl Value {
 
   pub fn cast_to<T: ComplexValue>(&self) -> ConversionResult<&T> {
     if self.is::<T>() {
-      self.convert()
+      Ok(self.convert())
     } else {
       Err(ConversionError::WrongType)
     }
@@ -364,7 +419,7 @@ impl Value {
 
   pub fn cast_to_mut<T: ComplexValue>(&self) -> ConversionResult<&mut T> {
     if self.is::<T>() {
-      self.convert_mut()
+      Ok(self.convert_mut())
     } else {
       Err(ConversionError::WrongType)
     }
@@ -374,6 +429,12 @@ impl Value {
 
   pub fn is_nil(&self) -> bool {
     self.is_type::<NIL_TAG>()
+  }
+
+  // Into Callable
+
+  pub fn as_callable(&self) -> ConversionResult<Callable> {
+    Callable::from_value(self.clone()).map_err(|_e| ConversionError::WrongType)
   }
 
   // ComplexValue Methods
@@ -430,6 +491,10 @@ impl Value {
     (self.vtable().stringify)(self.pointer())
   }
 
+  pub fn debug_string(&self) -> String {
+    (self.vtable().debug_string)(self.pointer())
+  }
+
   // utility
 
   /// Executes f only if self is nil, otherwise returns self
@@ -462,12 +527,16 @@ impl Value {
     (self.vtable().type_id)()
   }
 
-  fn convert<T>(&self) -> ConversionResult<&T> {
-    Ok(unsafe { &*(self.pointer() as *const T) })
+  fn type_name(&self) -> String {
+    (self.vtable().type_name)()
   }
 
-  fn convert_mut<T>(&self) -> ConversionResult<&mut T> {
-    Ok(unsafe { &mut *(self.pointer() as *mut T) })
+  fn convert<T>(&self) -> &T {
+    unsafe { &*(self.pointer() as *const T) }
+  }
+
+  fn convert_mut<T>(&self) -> &mut T {
+    unsafe { &mut *(self.pointer() as *mut T) }
   }
 
   fn allocate<T: ComplexValue>(item: T) -> Self {
@@ -568,13 +637,13 @@ impl From<String> for Value {
 
 impl From<&[Value]> for Value {
   fn from(array: &[Value]) -> Self {
-    Value::allocate::<Array>(array.into())
+    Value::allocate::<ArrayValue>(array.into())
   }
 }
 
 impl From<Vec<Value>> for Value {
   fn from(vec: Vec<Value>) -> Self {
-    Value::allocate::<Array>(vec.into())
+    Value::allocate::<ArrayValue>(vec.into())
   }
 }
 
@@ -616,7 +685,7 @@ impl Display for Value {
       Tag::I32 => write!(f, "{}", self.as_i32_unchecked()),
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
-      Tag::Fn => write!(f, "{:p}", &self.as_native_fn_unchecked()),
+      Tag::NativeFn => write!(f, "{:p}", &self.as_native_fn_unchecked()),
       Tag::Pointer => write!(f, "{}", self.stringify()),
       Tag::Nil => write!(f, "nil"),
     }
@@ -625,7 +694,28 @@ impl Display for Value {
 
 impl Debug for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    write!(f, "{:?} {} (0x{:x})", self.tag(), self, self.bits)
+    match self.tag() {
+      Tag::F64 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_f64_unchecked(), self.raw_value()),
+      Tag::I32 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_i32_unchecked(), self.raw_value()),
+      Tag::Bool => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_bool_unchecked(), self.raw_value()),
+      Tag::Char => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_char_unchecked(), self.raw_value()),
+      Tag::NativeFn => write!(
+        f,
+        "{:?} {:p} (0x{:x})",
+        self.tag(),
+        &self.as_native_fn_unchecked(),
+        self.raw_value()
+      ),
+      Tag::Pointer => write!(
+        f,
+        "{:?} {} (0x{:x}) {}",
+        self.tag(),
+        self.debug_string(),
+        self.raw_value(),
+        self.type_name()
+      ),
+      Tag::Nil => write!(f, "nil"),
+    }
   }
 }
 
@@ -633,8 +723,26 @@ impl PartialEq for Value {
   fn eq(&self, other: &Self) -> bool {
     if self.is_ptr() {
       self.eq_impl(other)
+    } else if self.tag() == other.tag() {
+      self.bits == other.bits
     } else {
-      unsafe { self.bits == other.bits }
+      match self.tag() {
+        Tag::I32 => {
+          let v = self.as_i32_unchecked();
+          match other.tag() {
+            Tag::F64 => v as f64 == other.as_f64_unchecked(),
+            _ => false,
+          }
+        }
+        Tag::F64 => {
+          let v = self.as_f64_unchecked();
+          match other.tag() {
+            Tag::I32 => v == other.as_i32_unchecked() as f64,
+            _ => false,
+          }
+        }
+        _ => false,
+      }
     }
   }
 }
@@ -900,22 +1008,24 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  set: fn(MutVoid, name: &str, value: Value) -> Result<(), ErrorValue>,
-  get: fn(ConstVoid, name: &str) -> Value,
-  index: fn(ConstVoid, index: Value) -> Value,
-  add: fn(ConstVoid, other: Value) -> Value,
-  sub: fn(ConstVoid, other: Value) -> Value,
-  mul: fn(ConstVoid, other: Value) -> Value,
-  div: fn(ConstVoid, other: Value) -> Value,
-  rem: fn(ConstVoid, other: Value) -> Value,
+  set: fn(MutVoid, &str, Value) -> Result<(), ErrorValue>,
+  get: fn(ConstVoid, &str) -> Value,
+  index: fn(ConstVoid, Value) -> Value,
+  add: fn(ConstVoid, Value) -> Value,
+  sub: fn(ConstVoid, Value) -> Value,
+  mul: fn(ConstVoid, Value) -> Value,
+  div: fn(ConstVoid, Value) -> Value,
+  rem: fn(ConstVoid, Value) -> Value,
   neg: fn(ConstVoid) -> Value,
   not: fn(ConstVoid) -> Value,
-  eq: fn(ConstVoid, other: &Value) -> bool,
-  cmp: fn(ConstVoid, other: &Value) -> Option<Ordering>,
+  eq: fn(ConstVoid, &Value) -> bool,
+  cmp: fn(ConstVoid, &Value) -> Option<Ordering>,
   stringify: fn(ConstVoid) -> String,
+  debug_string: fn(ConstVoid) -> String,
   drop: fn(MutVoid),
   dealloc: fn(MutVoid),
   type_id: fn() -> TypeId,
+  type_name: fn() -> String,
 }
 
 impl VTable {
@@ -934,9 +1044,11 @@ impl VTable {
       eq: |this, other| <T as ComplexValue>::eq(unsafe { &*Self::void_to(this) }, other),
       cmp: |this, other| <T as ComplexValue>::cmp(unsafe { &*Self::void_to(this) }, other),
       stringify: |this| <T as ComplexValue>::stringify(unsafe { &*Self::void_to(this) }),
+      debug_string: |this| <T as ComplexValue>::debug_string(unsafe { &*Self::void_to(this) }),
       drop: |this| <T as ComplexValue>::drop(unsafe { &mut *Self::void_to_mut(this) }),
       dealloc: |this| <T as ComplexValue>::dealloc(this as *mut T),
       type_id: || <T as ComplexValue>::type_id(),
+      type_name: || <T as ComplexValue>::type_name(),
     }
   }
 
@@ -984,4 +1096,71 @@ pub type ConversionResult<T> = Result<T, ConversionError>;
 #[derive(Debug, PartialEq)]
 pub enum ConversionError {
   WrongType,
+  NotCallable,
+}
+
+pub enum Callable {
+  Fn(Value),
+  Closure(Value),
+  Method(Value),
+  NativeFn(NativeFn),
+  NativeClosure(Value),
+  NativeMethod(Value),
+}
+
+impl Debug for Callable {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    match self {
+      Self::Fn(arg0) => f.debug_tuple("Fn").field(arg0).finish(),
+      Self::Closure(arg0) => f.debug_tuple("Closure").field(arg0).finish(),
+      Self::Method(arg0) => f.debug_tuple("Method").field(arg0).finish(),
+      Self::NativeFn(arg0) => write!(f, "{:p}", &arg0),
+      Self::NativeClosure(arg0) => f.debug_tuple("NativeClosure").field(arg0).finish(),
+      Self::NativeMethod(arg0) => f.debug_tuple("NativeMethod").field(arg0).finish(),
+    }
+  }
+}
+
+impl Callable {
+  fn from_value(value: Value) -> ConversionResult<Self> {
+    match value.tag() {
+      Tag::NativeFn => Ok(Callable::NativeFn(value.as_native_fn_unchecked())),
+      Tag::Pointer => {
+        if value.is_fn() {
+          Ok(Callable::Fn(value))
+        } else if value.is_closure() {
+          Ok(Callable::Closure(value))
+        } else if value.is_method() {
+          Ok(Callable::Method(value))
+        } else if value.is_native_closure() {
+          Ok(Callable::NativeClosure(value))
+        } else if value.is_native_method() {
+          Ok(Callable::NativeMethod(value))
+        } else {
+          Err(ConversionError::NotCallable)?
+        }
+      }
+      _ => Err(ConversionError::NotCallable)?,
+    }
+  }
+
+  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Args) {
+    match self {
+      Callable::Fn(f) => f.as_fn_unchecked().call(thread, args.list),
+      Callable::Closure(c) => c.as_closure_unchecked().call(thread, args.list),
+      Callable::Method(m) => m.as_method_unchecked().call(thread, args),
+      Callable::NativeFn(f) => {
+        let value = f(thread, env, args);
+        thread.stack_push(value);
+      }
+      Callable::NativeClosure(c) => {
+        let value = c.as_native_closure_unchecked_mut().call(thread, env, args);
+        thread.stack_push(value);
+      }
+      Callable::NativeMethod(m) => {
+        let value = m.as_native_method_unchecked_mut().call(thread, env, args);
+        thread.stack_push(value);
+      }
+    }
+  }
 }

@@ -45,13 +45,44 @@ impl Display for NativeClosureValue {
 // type NativeMethodTrait = FnMut(&mut ExecutionThread, &mut Env, Value, Args) -> Value + 'static;
 // type NativeMethodType = dyn FnMut(&mut ExecutionThread, &mut Env, Value, Args) -> Value;
 
+pub enum NativeCallable {
+  NativeFn(NativeFn),
+  NativeClosure(NativeClosureValue),
+}
+
+impl NativeCallable {
+  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Args) -> Value {
+    match self {
+      NativeCallable::NativeFn(f) => f(thread, env, args),
+      NativeCallable::NativeClosure(c) => c.call(thread, env, args),
+    }
+  }
+}
+
+impl Display for NativeCallable {
+  fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+    match self {
+      NativeCallable::NativeFn(nf) => write!(f, "{:p}", &nf),
+      NativeCallable::NativeClosure(c) => write!(f, "{}", c),
+    }
+  }
+}
+
 pub struct NativeMethodValue {
-  callee: NativeClosureValue,
+  callee: NativeCallable,
 }
 
 impl NativeMethodValue {
-  pub fn new(callee: NativeClosureValue) -> Self {
-    Self { callee }
+  pub fn new_native_fn(callee: NativeFn) -> Self {
+    Self {
+      callee: NativeCallable::NativeFn(callee),
+    }
+  }
+
+  pub fn new_native_closure(callee: NativeClosureValue) -> Self {
+    Self {
+      callee: NativeCallable::NativeClosure(callee),
+    }
   }
 
   pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Args) -> Value {
@@ -71,8 +102,18 @@ impl Display for NativeMethodValue {
   }
 }
 
+impl From<NativeFn> for NativeMethodValue {
+  fn from(f: NativeFn) -> Self {
+    Self {
+      callee: NativeCallable::NativeFn(f),
+    }
+  }
+}
+
 impl From<NativeClosureValue> for NativeMethodValue {
   fn from(f: NativeClosureValue) -> Self {
-    Self { callee: f }
+    Self {
+      callee: NativeCallable::NativeClosure(f),
+    }
   }
 }

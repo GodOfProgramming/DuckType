@@ -1,52 +1,46 @@
-use crate::Args;
+use crate::dbg::here;
 
 use super::{ComplexValue, Value};
 use std::{
   fmt::{Display, Formatter, Result},
-  ops::{Deref, DerefMut, Index},
+  ops::{Deref, DerefMut},
 };
 
-pub struct ArrayValue;
-
-impl ArrayValue {
-  fn len(_thread: i32, _env: i32, args: Args) -> Value {
-    let mut args = args.list.into_iter();
-    if let Some(arr) = args.next() {
-      if let Ok(arr) = arr.as_array() {
-        Value::from(arr.len() as i32)
-      } else {
-        Value::new_err("cannot compute length of non array")
-      }
-    } else {
-      Value::new_err("cannot compute length of nothing")
-    }
-  }
-}
-
 #[derive(Default)]
-pub struct Array(Vec<Value>);
+pub struct ArrayValue(Vec<Value>);
 
-impl From<&[Value]> for Array {
+impl From<&[Value]> for ArrayValue {
   fn from(vec: &[Value]) -> Self {
     Self(vec.into())
   }
 }
 
-impl From<Vec<Value>> for Array {
+impl From<Vec<Value>> for ArrayValue {
   fn from(vec: Vec<Value>) -> Self {
     Self(vec)
   }
 }
 
-impl ComplexValue for Array {}
+impl ComplexValue for ArrayValue {
+  fn index(&self, index: Value) -> Value {
+    if let Ok(mut value) = index.as_i32() {
+      if value < 0 {
+        value = self.len() as i32 - value;
+      }
+      self.0.get(value as usize).cloned().unwrap_or(Value::nil)
+    } else {
+      Value::nil
+    }
+  }
+}
 
-impl Display for Array {
+impl Display for ArrayValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> Result {
     write!(f, "{:?}", self.0)
   }
 }
 
-impl Deref for Array {
+impl Deref for ArrayValue {
   type Target = Vec<Value>;
 
   fn deref(&self) -> &Self::Target {
@@ -54,16 +48,8 @@ impl Deref for Array {
   }
 }
 
-impl DerefMut for Array {
+impl DerefMut for ArrayValue {
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.0
-  }
-}
-
-impl Index<usize> for Array {
-  type Output = Value;
-
-  fn index(&self, index: usize) -> &Self::Output {
-    &self.0[index]
   }
 }

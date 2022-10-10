@@ -1,5 +1,5 @@
 use super::{AllocatedObject, VTable, Value, META_OFFSET};
-pub use array::Array;
+pub use array::ArrayValue;
 pub use class::ClassValue;
 pub use closure::ClosureValue;
 pub use error::ErrorValue;
@@ -38,52 +38,52 @@ where
 
   #[allow(unused_variables)]
   fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
-    Err(UnimplementedFunction::Set.to_string().into())
+    Err(UnimplementedFunction::Set.fmt(self).into())
   }
 
   #[allow(unused_variables)]
   fn get(&self, name: &str) -> Value {
-    Value::new_err(UnimplementedFunction::Get.to_string())
+    Value::new_err(UnimplementedFunction::Get.fmt(self))
   }
 
   #[allow(unused_variables)]
   fn index(&self, index: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Index.to_string())
+    Value::new_err(UnimplementedFunction::Index.fmt(self))
   }
 
   #[allow(unused_variables)]
   fn add(&self, other: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Add.to_string())
+    Value::new_err(UnimplementedFunction::Add.fmt(self))
   }
 
   #[allow(unused_variables)]
   fn sub(&self, other: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Sub.to_string())
+    Value::new_err(UnimplementedFunction::Sub.fmt(self))
   }
 
   #[allow(unused_variables)]
   fn mul(&self, other: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Mul.to_string())
+    Value::new_err(UnimplementedFunction::Mul.fmt(self))
   }
 
   #[allow(unused_variables)]
   fn div(&self, other: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Div.to_string())
+    Value::new_err(UnimplementedFunction::Div.fmt(self))
   }
 
   #[allow(unused_variables)]
   fn rem(&self, other: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Rem.to_string())
+    Value::new_err(UnimplementedFunction::Rem.fmt(self))
   }
 
   #[allow(unused_variables)]
   fn neg(&self) -> Value {
-    Value::new_err(UnimplementedFunction::Neg.to_string())
+    Value::new_err(UnimplementedFunction::Neg.fmt(self))
   }
 
   #[allow(unused_variables)]
   fn not(&self) -> Value {
-    Value::new_err(UnimplementedFunction::Not.to_string())
+    Value::new_err(UnimplementedFunction::Not.fmt(self))
   }
 
   #[allow(unused_variables)]
@@ -97,7 +97,11 @@ where
   }
 
   fn stringify(&self) -> String {
-    std::any::type_name::<Self>().to_string()
+    Self::type_name()
+  }
+
+  fn debug_string(&self) -> String {
+    self.stringify()
   }
 
   fn drop(&mut self) {}
@@ -113,6 +117,10 @@ where
   fn type_id() -> TypeId {
     TypeId::of::<Self>()
   }
+
+  fn type_name() -> String {
+    std::any::type_name::<Self>().to_string()
+  }
 }
 
 pub trait Class {
@@ -127,6 +135,24 @@ pub struct Args {
 impl Args {
   pub fn count(&self) -> usize {
     (if self.this.is_some() { 1 } else { 0 }) + self.list.len()
+  }
+}
+
+impl From<Value> for Args {
+  fn from(arg: Value) -> Self {
+    Self {
+      this: None,
+      list: vec![arg],
+    }
+  }
+}
+
+impl From<(Value, Value)> for Args {
+  fn from((this, arg): (Value, Value)) -> Self {
+    Self {
+      this: Some(this),
+      list: vec![arg],
+    }
   }
 }
 
@@ -166,11 +192,10 @@ pub enum UnimplementedFunction {
   Custom(String),
 }
 
-impl Display for UnimplementedFunction {
-  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    write!(
-      f,
-      "{} is unimplemented",
+impl UnimplementedFunction {
+  fn fmt<T: ComplexValue>(&self, v: &T) -> String {
+    format!(
+      "{} is unimplemented for {}",
       match self {
         UnimplementedFunction::Set => "set",
         UnimplementedFunction::Get => "get",
@@ -184,7 +209,8 @@ impl Display for UnimplementedFunction {
         UnimplementedFunction::Not => "not",
         UnimplementedFunction::Cmp => "cmp",
         UnimplementedFunction::Custom(s) => s,
-      }
+      },
+      v.stringify()
     )
   }
 }

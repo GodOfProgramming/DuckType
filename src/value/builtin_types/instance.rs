@@ -18,7 +18,7 @@ impl InstanceValue {
 
 impl ComplexValue for InstanceValue {
   fn set(&mut self, name: &str, value: Value) -> Result<(), crate::ErrorValue> {
-    self.data.set(name, value);
+    self.data.set(name, value).ok();
     Ok(())
   }
 
@@ -30,5 +30,9 @@ impl ComplexValue for InstanceValue {
         Value::nil
       }
     })
+  }
+
+  fn stringify(&self) -> String {
+    format!("<instance of {}>", self.class.stringify())
   }
 }

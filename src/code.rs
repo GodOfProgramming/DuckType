@@ -591,15 +591,6 @@ impl Env {
   pub fn lookup<T: ToString>(&self, name: T) -> Option<Value> {
     self.vars.get(&name.to_string()).cloned()
   }
-
-  #[cfg(test)]
-  pub fn create_native<K: ToString, F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static>(
-    &mut self,
-    name: K,
-    native: F,
-  ) -> bool {
-    self.assign(name.to_string(), Value::new_native_closure(name.to_string(), native))
-  }
 }
 
 #[derive(Debug)]
