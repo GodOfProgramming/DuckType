@@ -22,7 +22,8 @@ REPS = 1_000_000
 
 x = 0
 
-benchmark('DISABLED simple math', REPS) do |i|
+benchmark('simple math', REPS) do |i|
+  i += 1
   x += i + i * i / i % i
 end
 
