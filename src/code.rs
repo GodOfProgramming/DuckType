@@ -123,7 +123,16 @@ impl Compiler {
 
     let (tokens, meta) = scanner.scan().map_err(|errs| Self::reformat_errors(source, errs))?;
 
-    let ast = Ast::from(tokens, meta).map_err(|errs| Self::reformat_errors(source, errs))?;
+    let (ast, errors) = Ast::from(tokens, meta);
+
+    if !errors.is_empty() {
+      #[cfg(feature = "visit-ast")]
+      {
+        ast.dump(file);
+      }
+
+      return Err(Self::reformat_errors(source, errors));
+    }
 
     let optimizer = Optimizer::<1>::new(ast);
 

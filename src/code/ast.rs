@@ -1,4 +1,5 @@
 use super::*;
+use horrorshow::{helper::doctype, html, prelude::*};
 use lex::{NumberToken, Token};
 use std::{
   collections::BTreeSet,
@@ -11,8 +12,32 @@ pub struct Ast {
 }
 
 impl Ast {
-  pub fn from(tokens: Vec<Token>, meta: Vec<SourceLocation>) -> Result<Ast, Vec<RuntimeError>> {
+  pub fn from(tokens: Vec<Token>, meta: Vec<SourceLocation>) -> (Ast, Vec<RuntimeError>) {
     AstGenerator::new(tokens, meta).generate()
+  }
+
+  #[cfg(feature = "visit-ast")]
+  pub fn dump(&self, file: &str) {
+    let out = html! {
+      : doctype::HTML;
+      head {
+        title: "AST";
+        link(rel="stylesheet", href="ast.css");
+        script(src="ast.js");
+      }
+      body(class="vertically-centered") {
+        |tmpl| {
+          for statement in &self.statements {
+            statement.dump(tmpl);
+          }
+        }
+      }
+    };
+    std::fs::write(
+      format!("assets/{}.html", Path::new(file).file_name().unwrap().to_string_lossy()),
+      format!("{}", out),
+    )
+    .unwrap();
   }
 }
 
@@ -40,18 +65,16 @@ impl AstGenerator {
     }
   }
 
-  fn generate(mut self) -> Result<Ast, Vec<RuntimeError>> {
+  fn generate(mut self) -> (Ast, Vec<RuntimeError>) {
     while let Some(current) = self.current() {
       self.statement(current);
     }
 
-    if self.errors.is_empty() {
-      Ok(Ast {
-        statements: self.statements,
-      })
-    } else {
-      Err(self.errors)
-    }
+    let ast = Ast {
+      statements: self.statements,
+    };
+
+    (ast, self.errors)
   }
 
   fn statement(&mut self, token: Token) {
@@ -1421,8 +1444,14 @@ impl Ident {
     Self { name: name.to_string() }
   }
 
-  pub fn global(&self) -> bool {
+  pub fn is_global(&self) -> bool {
     matches!(self.name.chars().next(), Some('$'))
+  }
+}
+
+impl Display for Ident {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    write!(f, "{}", self.name)
   }
 }
 
@@ -1445,6 +1474,94 @@ pub enum Statement {
   While(WhileStatement),
   Yield(YieldStatement),
   Expression(ExpressionStatement),
+}
+
+impl Statement {
+  fn dump(&self, tmpl: &mut TemplateBuffer) {
+    html! {
+      div(class="node vertically-centered") {
+        span(class="bubble", onclick="click_node(this)") : self.to_string();
+        div(id="child", class="hidden") {
+          |tmpl| self.dump_children(tmpl);
+        }
+      }
+    }
+    .render(tmpl);
+  }
+
+  fn dump_children(&self, tmpl: &mut TemplateBuffer) {
+    match self {
+      Statement::Block(blk) => {
+        for statement in &blk.statements {
+          statement.dump(tmpl)
+        }
+      }
+      Statement::Break(_) => (),
+      Statement::Cont(_) => (),
+      Statement::Class(c) => {
+        if let Some(init) = &c.initializer {
+          html! {
+            div(class="children") {
+              |tmpl| init.dump(tmpl);
+              @ for (ident, method) in c.methods.iter() {
+                div(class="vertically-centered") {
+                  div(class="bubble") : format_args!("fn {}", ident.to_string());
+                  |tmpl| method.dump(tmpl);
+                }
+              }
+            }
+          }
+          .render(tmpl);
+        } else {
+          html! {
+            div(class="children") {
+              @ for (ident, method) in c.methods.iter() {
+                div(class="vertically-centered") {
+                  div(class="bubble") : format_args!("fn {}", ident.to_string());
+                  |tmpl| method.dump(tmpl);
+                }
+              }
+            }
+          }
+          .render(tmpl);
+        }
+      }
+      Statement::DefaultConstructorRet(_) => (),
+      Statement::Fn(_) => (),
+      Statement::For(_) => (),
+      Statement::If(_) => (),
+      Statement::Let(l) => {
+        if let Some(expr) = &l.value {
+          html! {
+            div(class="children") {
+              div(class="bubble child-node") : l.ident.to_string();
+              div(class="bubble child-node") { |tmpl| expr.dump(tmpl); }
+            }
+          }
+          .render(tmpl);
+        } else {
+          html! {
+            div(class="bubble unary") : l.ident.to_string();
+          }
+          .render(tmpl);
+        }
+      }
+      Statement::Loop(_) => (),
+      Statement::Match(_) => (),
+      Statement::Print(_) => (),
+      Statement::Req(_) => (),
+      Statement::Ret(_) => (),
+      Statement::Use(u) => {
+        html! {
+          span(class="bubble") : itertools::join(u.path.iter(), ".");
+        }
+        .render(tmpl);
+      }
+      Statement::While(_) => (),
+      Statement::Yield(_) => (),
+      Statement::Expression(e) => e.expr.dump(tmpl),
+    }
+  }
 }
 
 impl Display for Statement {
@@ -1841,6 +1958,35 @@ pub enum Expression {
   Lambda(LambdaExpression),
   Closure(ClosureExpression),
   Method(MethodExpression),
+}
+
+impl Expression {
+  fn dump(&self, tmpl: &mut TemplateBuffer) {
+    match self {
+      Expression::Literal(l) => {
+        html! {
+          : l.value.to_string();
+        }
+        .render(tmpl);
+      }
+      Expression::Unary(_) => (),
+      Expression::Binary(_) => (),
+      Expression::And(_) => (),
+      Expression::Or(_) => (),
+      Expression::Group(_) => (),
+      Expression::Ident(_) => (),
+      Expression::Assign(_) => (),
+      Expression::Call(_) => (),
+      Expression::List(_) => (),
+      Expression::Index(_) => (),
+      Expression::Struct(_) => (),
+      Expression::MemberAccess(_) => (),
+      Expression::MemberAssign(_) => (),
+      Expression::Lambda(l) => l.body.dump(tmpl),
+      Expression::Closure(c) => c.body.dump(tmpl),
+      Expression::Method(m) => m.body.dump(tmpl),
+    }
+  }
 }
 
 impl Display for Expression {

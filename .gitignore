@@ -18,3 +18,5 @@
 # VSCode extensions
 *.tmLanguage.json
 *.vsix
+
+*.html

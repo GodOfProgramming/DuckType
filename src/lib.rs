@@ -16,7 +16,6 @@ pub use stdlib::Library;
 pub use value::prelude::*;
 
 use std::ops::Deref;
-use std::ops::Index;
 use std::{
   fs,
   path::{Path, PathBuf},

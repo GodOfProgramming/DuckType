@@ -2,7 +2,7 @@
 name = "simple_script"
 version = "0.20.0"
 authors = ["Jonathan Dickert <jon.p.dickert@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,9 +12,11 @@ tfix = { path = "lib/tfix" }
 enum-iterator = "1.2.0"
 static_assertions = "1.1.0"
 sysinfo = "0.26.2"
+horrorshow = "0.8.4"
+itertools = "0.10.5"
 
 [features]
-visit_ast = []
+visit-ast = []
 disassemble = []
 runtime-disassembly = []
 quit-after-disassemble = []

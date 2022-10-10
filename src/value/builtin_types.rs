@@ -146,7 +146,7 @@ impl<T: Into<Value> + Clone, const I: usize> From<(Value, [T; I])> for Args {
   fn from((this, list): (Value, [T; I])) -> Self {
     Self {
       this: Some(this),
-      list: list.into_iter().cloned().map(|v| -> Value { v.into() }).collect(),
+      list: list.into_iter().map(|v| -> Value { v.into() }).collect(),
     }
   }
 }

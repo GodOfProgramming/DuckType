@@ -974,7 +974,7 @@ where
   }
 }
 
-pub type ConversionResult<T: ComplexValue> = Result<T, ConversionError>;
+pub type ConversionResult<T> = Result<T, ConversionError>;
 
 #[derive(Debug, PartialEq)]
 pub enum ConversionError {

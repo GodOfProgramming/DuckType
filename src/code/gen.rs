@@ -104,10 +104,7 @@ impl BytecodeGenerator {
 
   fn class_stmt(&mut self, stmt: ClassStatement) {
     if self.scope_depth > 0 {
-      self.error(
-        stmt.loc,
-        String::from("classes must be declared at the surface scope"),
-      );
+      self.error(stmt.loc, String::from("classes must be declared at the surface scope"));
       return;
     }
 
@@ -115,24 +112,16 @@ impl BytecodeGenerator {
     let mut class = ClassValue::new(stmt.ident.name.clone());
 
     if let Some(initializer) = stmt.initializer {
-      if let Some((function, is_static)) =
-        self.create_fn_from_expr(ContextName::Method, initializer)
-      {
+      if let Some((function, is_static)) = self.create_fn_from_expr(ContextName::Method, initializer) {
         if is_static {
           class.set_constructor(Value::from(function));
         } else {
-          self.error(
-            stmt.loc,
-            String::from("method was used as initializer somehow (logic error)"),
-          );
+          self.error(stmt.loc, String::from("method was used as initializer somehow (logic error)"));
         }
       } else {
         self.error(
           stmt.loc,
-          format!(
-            "unable to create initializer function for class {}",
-            stmt.ident.name,
-          ),
+          format!("unable to create initializer function for class {}", stmt.ident.name,),
         );
       }
     }
@@ -145,10 +134,7 @@ impl BytecodeGenerator {
           class.set_method(method_name.name, Value::from(function));
         }
       } else {
-        self.error(
-          stmt.loc,
-          format!("unable to create method {}", method_name.name),
-        );
+        self.error(stmt.loc, format!("unable to create method {}", method_name.name));
       }
     }
 
@@ -163,10 +149,7 @@ impl BytecodeGenerator {
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
     if self.scope_depth > 0 {
-      self.error(
-        stmt.loc,
-        String::from("functions must be declared at the surface scope"),
-      );
+      self.error(stmt.loc, String::from("functions must be declared at the surface scope"));
       return;
     }
 
@@ -223,7 +206,7 @@ impl BytecodeGenerator {
   }
 
   fn let_stmt(&mut self, stmt: LetStatement) {
-    let is_global = stmt.ident.global();
+    let is_global = stmt.ident.is_global();
     if let Some(var) = self.declare_variable(stmt.ident.clone(), stmt.loc) {
       if let Some(value) = stmt.value {
         self.emit_expr(value);
@@ -279,7 +262,7 @@ impl BytecodeGenerator {
     self.emit(OpCode::Req, stmt.loc);
 
     if let Some(var) = stmt.ident {
-      let is_global = var.global();
+      let is_global = var.is_global();
       if let Some(var) = self.declare_variable(var, stmt.loc) {
         self.define_variable(is_global, var, stmt.loc);
       }
@@ -410,16 +393,10 @@ impl BytecodeGenerator {
     let mut op_assign = |expr: AssignExpression, op| {
       if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
         let (set, get) = match lookup.kind {
-          LookupKind::Local => (
-            OpCode::AssignLocal(lookup.index),
-            OpCode::LookupLocal(lookup.index),
-          ),
+          LookupKind::Local => (OpCode::AssignLocal(lookup.index), OpCode::LookupLocal(lookup.index)),
           LookupKind::Global => {
             let global_index = self.declare_global(expr.ident);
-            (
-              OpCode::AssignGlobal(global_index),
-              OpCode::LookupGlobal(global_index),
-            )
+            (OpCode::AssignGlobal(global_index), OpCode::LookupGlobal(global_index))
           }
         };
 
@@ -555,7 +532,7 @@ impl BytecodeGenerator {
   }
 
   fn emit_stmt(&mut self, stmt: Statement) {
-    #[cfg(feature = "visit_ast")]
+    #[cfg(feature = "visit-ast")]
     {
       println!("stmt {}", stmt);
     }
@@ -582,7 +559,7 @@ impl BytecodeGenerator {
   }
 
   fn emit_expr(&mut self, expr: Expression) {
-    #[cfg(feature = "visit_ast")]
+    #[cfg(feature = "visit-ast")]
     {
       println!("expr {}", expr);
     }
@@ -709,7 +686,7 @@ impl BytecodeGenerator {
    * Declare a variable to exist, but do not emit any instruction for assignment
    */
   fn declare_variable(&mut self, ident: Ident, loc: SourceLocation) -> Option<usize> {
-    if ident.global() {
+    if ident.is_global() {
       Some(self.declare_global(ident))
     } else if self.declare_local(ident.clone(), loc) {
       Some(0)
@@ -739,10 +716,7 @@ impl BytecodeGenerator {
       }
 
       if ident.name == local.name {
-        self.error(
-          loc,
-          String::from("variable with the same name already declared"),
-        );
+        self.error(loc, String::from("variable with the same name already declared"));
         return false;
       }
     }
@@ -826,9 +800,7 @@ impl BytecodeGenerator {
   fn reduce_locals_to_depth(&mut self, depth: usize, loc: SourceLocation) {
     let count = self.num_locals_in_depth(depth);
 
-    self
-      .locals
-      .truncate(self.locals.len().saturating_sub(count));
+    self.locals.truncate(self.locals.len().saturating_sub(count));
 
     if count > 0 {
       self.emit(OpCode::PopN(count), loc);
@@ -847,11 +819,7 @@ impl BytecodeGenerator {
     count
   }
 
-  fn create_fn_from_expr(
-    &mut self,
-    name: ContextName,
-    expr: Expression,
-  ) -> Option<(FunctionValue, bool)> {
+  fn create_fn_from_expr(&mut self, name: ContextName, expr: Expression) -> Option<(FunctionValue, bool)> {
     match expr {
       Expression::Method(m) => Some((self.create_fn(name, m.params, *m.body, m.loc), false)),
       Expression::Lambda(l) => Some((self.create_fn(name, l.params, *l.body, l.loc), true)),
@@ -859,13 +827,7 @@ impl BytecodeGenerator {
     }
   }
 
-  fn create_fn(
-    &mut self,
-    name: ContextName,
-    args: Vec<Ident>,
-    body: Statement,
-    loc: SourceLocation,
-  ) -> FunctionValue {
+  fn create_fn(&mut self, name: ContextName, args: Vec<Ident>, body: Statement, loc: SourceLocation) -> FunctionValue {
     self.function_id += 1;
 
     let mut locals = Vec::default();
@@ -887,7 +849,7 @@ impl BytecodeGenerator {
       let airity = args.len();
 
       for arg in args {
-        if arg.global() {
+        if arg.is_global() {
           this.error(loc, String::from("parameter cannot be a global variable"));
           continue;
         }
@@ -924,10 +886,7 @@ impl BytecodeGenerator {
 
   fn error(&mut self, loc: SourceLocation, msg: String) {
     if cfg!(debug_assertions) {
-      println!(
-        "{} ({}, {}): {}",
-        "TODO GET FILE NAME", loc.line, loc.column, msg
-      );
+      println!("{} ({}, {}): {}", "TODO GET FILE NAME", loc.line, loc.column, msg);
     }
     self.errors.push(RuntimeError {
       msg,
