@@ -30,7 +30,11 @@ impl NativeClosureValue {
   }
 }
 
-impl ComplexValue for NativeClosureValue {}
+impl ComplexValue for NativeClosureValue {
+  fn stringify(&self) -> String {
+    format!("{}", self)
+  }
+}
 
 impl Display for NativeClosureValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> Result {
@@ -55,7 +59,11 @@ impl NativeMethodValue {
   }
 }
 
-impl ComplexValue for NativeMethodValue {}
+impl ComplexValue for NativeMethodValue {
+  fn stringify(&self) -> String {
+    format!("{}", self)
+  }
+}
 
 impl Display for NativeMethodValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> Result {

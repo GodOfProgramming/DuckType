@@ -1247,7 +1247,7 @@ impl AstGenerator {
 
   fn parse_parameters(&mut self, allow_self: bool, terminator: Token) -> Option<Vec<Ident>> {
     let mut params = Vec::default();
-    let mut found_self = None;
+    let mut found_self = false;
     if let Some(mut token) = self.current() {
       if token != terminator {
         loop {
@@ -1259,19 +1259,19 @@ impl AstGenerator {
 
             if ident == "self" {
               if allow_self {
-                if found_self.is_none() {
-                  found_self = Some(ident);
-                } else {
+                if found_self {
                   self.error::<0>(String::from("self found twice in parameter list"));
                   return None;
+                } else {
+                  found_self = true;
                 }
               } else {
                 self.error::<0>(String::from("self parameter not allowed in this context"));
                 return None;
               }
-            } else {
-              params.push(ident);
             }
+
+            params.push(ident);
           } else {
             self.error::<0>(String::from("invalid token in parameter list"));
             return None;
@@ -1288,10 +1288,6 @@ impl AstGenerator {
           } else {
             break;
           }
-        }
-
-        if let Some(ident) = found_self {
-          params.push(ident)
         }
       }
     }
@@ -1502,7 +1498,10 @@ impl Statement {
         if let Some(init) = &c.initializer {
           html! {
             div(class="children") {
-              |tmpl| init.dump(tmpl);
+              div(class="vertically-centered") {
+                div(class="bubble") : "new";
+                |tmpl| init.dump(tmpl);
+              }
               @ for (ident, method) in c.methods.iter() {
                 div(class="vertically-centered") {
                   div(class="bubble") : format_args!("fn {}", ident.to_string());

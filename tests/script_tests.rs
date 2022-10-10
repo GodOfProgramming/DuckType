@@ -9,11 +9,9 @@ struct ScriptTest {
 
 impl ScriptTest {
   pub fn run(&mut self, script: &Path) {
+    println!("running {:?}", script);
     let src = fs::read_to_string(script).unwrap();
-    let ctx = self
-      .vm
-      .load(script.to_string_lossy().to_string(), &src)
-      .unwrap();
+    let ctx = self.vm.load(script.to_string_lossy().to_string(), &src).unwrap();
     self
       .vm
       .run(
@@ -37,11 +35,8 @@ mod tests {
 
   #[test]
   fn run_test_scripts(test: &mut ScriptTest) {
-    fs::read_dir("tests/scripts").into_iter().for_each(|dir| {
-      dir
-        .flatten()
-        .into_iter()
-        .for_each(|entry| test.run(&entry.path()))
-    });
+    fs::read_dir("tests/scripts")
+      .into_iter()
+      .for_each(|dir| dir.flatten().into_iter().for_each(|entry| test.run(&entry.path())));
   }
 }

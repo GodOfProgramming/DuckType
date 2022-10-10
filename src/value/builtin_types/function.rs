@@ -11,11 +11,7 @@ pub struct FunctionValue {
 
 impl FunctionValue {
   pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
-    Self {
-      airity,
-      locals,
-      ctx,
-    }
+    Self { airity, locals, ctx }
   }
 
   pub fn call(&self, thread: &mut crate::ExecutionThread, mut args: Args) {
@@ -45,4 +41,8 @@ impl FunctionValue {
   }
 }
 
-impl ComplexValue for FunctionValue {}
+impl ComplexValue for FunctionValue {
+  fn stringify(&self) -> String {
+    format!("fn {}", self.ctx.name())
+  }
+}

@@ -6,9 +6,9 @@ impl LibString {
   pub fn load() -> Value {
     let mut lib = StructValue::default();
 
-    let parse_number = Value::new_native_closure("parse_number", |_thread, _env, args: Args| {
+    let parse_number = Value::new_native_fn(|_thread, _env, args: Args| {
       let mut args = args.list.into_iter();
-      if let Some(mut string_value) = args.next() {
+      if let Some(string_value) = args.next() {
         if let Ok(string) = string_value.as_str() {
           match string
             .parse::<f64>()
@@ -26,9 +26,9 @@ impl LibString {
       }
     });
 
-    lib.set("parse_number", parse_number);
+    lib.set("parse_number", parse_number).ok();
 
-    let contains = Value::new_native_closure("contains", |_thread, _env, args| {
+    let contains = Value::new_native_fn(|_thread, _env, args| {
       let mut args = args.list.into_iter();
       if let Some(string_value) = args.next() {
         if let Ok(string) = string_value.as_str() {
@@ -42,9 +42,9 @@ impl LibString {
       Value::from(false)
     });
 
-    lib.set("contains", contains);
+    lib.set("contains", contains).ok();
 
-    let is_prefix = Value::new_native_closure("is_prefix", |_thread, _env, args| {
+    let is_prefix = Value::new_native_fn(|_thread, _env, args| {
       let mut args = args.list.into_iter();
       if let Some(string_value) = args.next() {
         if let Ok(string) = string_value.as_str() {
@@ -58,7 +58,7 @@ impl LibString {
       Value::from(false)
     });
 
-    lib.set("is_prefix", is_prefix);
+    lib.set("is_prefix", is_prefix).ok();
 
     Value::from(lib)
   }

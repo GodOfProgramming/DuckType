@@ -565,7 +565,7 @@ impl Env {
     let mut module = StructValue::default();
     let lib_paths = Value::from(lib_paths);
 
-    module.set("path", lib_paths);
+    module.set("path", lib_paths).unwrap();
 
     env.assign("$LIBRARY", Value::from(module));
 
@@ -592,6 +592,7 @@ impl Env {
     self.vars.get(&name.to_string()).cloned()
   }
 
+  #[cfg(test)]
   pub fn create_native<K: ToString, F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static>(
     &mut self,
     name: K,

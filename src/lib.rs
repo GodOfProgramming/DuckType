@@ -631,9 +631,7 @@ impl ExecutionThread {
         f.call(self, args.into());
         Ok(())
       } else if let Ok(f) = callable.as_method() {
-        let mut this = Value::nil;
-        std::mem::swap(&mut this, &mut self.current_frame.last_lookup);
-        let args = Args::from((this, args));
+        let args = Args::from((self.current_frame.last_lookup.take(), args));
         f.call(self, args.into());
         Ok(())
       } else if let Ok(f) = callable.as_native_fn() {
@@ -645,9 +643,7 @@ impl ExecutionThread {
         self.stack_push(v);
         Ok(())
       } else if let Ok(f) = callable.as_native_method_mut() {
-        let mut this = Value::nil;
-        std::mem::swap(&mut this, &mut self.current_frame.last_lookup);
-        let args = Args::from((this, args));
+        let args = Args::from((self.current_frame.last_lookup.take(), args));
         let v = f.call(self, env, args.into());
         self.stack_push(v);
         Ok(())

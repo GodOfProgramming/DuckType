@@ -3,14 +3,13 @@ use static_assertions::assert_eq_size;
 use std::{
   any::TypeId,
   cmp::Ordering,
-  convert::TryInto,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
   mem,
-  ops::{Add, Div, Index, Mul, Neg, Not, Rem, Sub},
+  ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
 };
 pub use tags::*;
 
-use crate::{dbg::here, Env, ExecutionThread};
+use crate::{Env, ExecutionThread};
 
 mod builtin_types;
 mod tags;
@@ -32,10 +31,8 @@ assert_eq_size!(usize, u64);
 
 const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
-pub union Value {
-  ptr: MutVoid,
+pub struct Value {
   bits: u64,
-  f64: f64,
 }
 
 impl Value {
@@ -46,8 +43,14 @@ impl Value {
     if self.is_f64() {
       Tag::F64
     } else {
-      unsafe { mem::transmute::<u64, Tag>(self.bits & TAG_BITMASK) }
+      unsafe { mem::transmute(self.bits & TAG_BITMASK) }
     }
+  }
+
+  pub fn take(&mut self) -> Value {
+    let mut new = Value::nil;
+    mem::swap(self, &mut new);
+    new
   }
 
   pub fn truthy(&self) -> bool {
@@ -55,13 +58,13 @@ impl Value {
   }
 
   pub fn falsy(&self) -> bool {
-    self.is_nil() || self.is_bool() && unsafe { self.bits & VALUE_BITMASK == 0 }
+    self.is_nil() || self.is_bool() && self.bits & VALUE_BITMASK == 0
   }
 
   // float
 
   pub fn is_f64(&self) -> bool {
-    unsafe { self.bits < INF_VALUE }
+    self.bits < INF_VALUE
   }
 
   pub fn as_f64(&self) -> ConversionResult<f64> {
@@ -74,7 +77,7 @@ impl Value {
 
   pub fn as_f64_unchecked(&self) -> f64 {
     debug_assert!(self.is_f64());
-    unsafe { self.f64 }
+    unsafe { mem::transmute(self.bits) }
   }
 
   // int
@@ -93,7 +96,7 @@ impl Value {
 
   pub fn as_i32_unchecked(&self) -> i32 {
     debug_assert!(self.is_i32());
-    unsafe { mem::transmute::<u32, i32>((self.bits & VALUE_BITMASK) as u32) }
+    unsafe { mem::transmute((self.bits & VALUE_BITMASK) as u32) }
   }
 
   // bool
@@ -112,7 +115,7 @@ impl Value {
 
   pub fn as_bool_unchecked(&self) -> bool {
     debug_assert!(self.is_bool());
-    unsafe { self.bits & VALUE_BITMASK > 0 }
+    self.bits & VALUE_BITMASK > 0
   }
 
   // char
@@ -131,7 +134,7 @@ impl Value {
 
   pub fn as_char_unchecked(&self) -> char {
     debug_assert!(self.is_char());
-    unsafe { mem::transmute::<u32, char>((self.bits & VALUE_BITMASK) as u32) }
+    unsafe { mem::transmute((self.bits & VALUE_BITMASK) as u32) }
   }
 
   // string
@@ -292,14 +295,14 @@ impl Value {
 
   pub fn as_native_fn(&self) -> Result<NativeFn, ConversionError> {
     if self.is_native_fn() {
-      Ok(unsafe { mem::transmute::<u64, NativeFn>((self.bits & !FN_TAG) as u64) })
+      Ok(self.as_native_fn_unchecked())
     } else {
       Err(ConversionError::WrongType)
     }
   }
 
   pub fn as_native_fn_unchecked(&self) -> NativeFn {
-    unsafe { mem::transmute::<u64, NativeFn>((self.bits & !FN_TAG) as u64) }
+    unsafe { mem::transmute((self.bits & VALUE_BITMASK) as u64) }
   }
 
   pub fn new_native_closure<N, F>(name: N, f: F) -> Self
@@ -439,7 +442,7 @@ impl Value {
   }
 
   fn pointer(&self) -> MutVoid {
-    unsafe { (self.bits & VALUE_BITMASK) as MutVoid }
+    (self.bits & VALUE_BITMASK) as MutVoid
   }
 
   fn meta(&self) -> &mut ValueMeta {
@@ -451,7 +454,7 @@ impl Value {
   }
 
   fn is_type<const T: u64>(&self) -> bool {
-    unsafe { self.bits & TAG_BITMASK == T }
+    self.bits & TAG_BITMASK == T
   }
 
   // TypeId of the underlying type
@@ -515,20 +518,22 @@ impl Clone for Value {
     if self.is_ptr() {
       self.meta().ref_count += 1;
     }
-    unsafe { Self { bits: self.bits } }
+    Self { bits: self.bits }
   }
 }
 
 impl From<f64> for Value {
   fn from(item: f64) -> Self {
-    Self { f64: item }
+    Self {
+      bits: unsafe { mem::transmute(item) },
+    }
   }
 }
 
 impl From<i32> for Value {
   fn from(item: i32) -> Self {
     Self {
-      bits: unsafe { mem::transmute::<i32, u32>(item) as u64 } | I32_TAG,
+      bits: unsafe { mem::transmute::<i64, u64>(item as i64) } | I32_TAG,
     }
   }
 }
@@ -620,7 +625,7 @@ impl Display for Value {
 
 impl Debug for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    unsafe { write!(f, "{:?} {} (0x{:x})", self.tag(), self, self.bits) }
+    write!(f, "{:?} {} (0x{:x})", self.tag(), self, self.bits)
   }
 }
 

@@ -19,41 +19,40 @@ impl ClassValue {
     }
   }
 
-  pub fn call_constructor(
-    mut class_value: Value,
-    thread: &mut ExecutionThread,
-    env: &mut Env,
-    args: Args,
-  ) {
+  pub fn call_constructor(mut class_value: Value, thread: &mut ExecutionThread, env: &mut Env, mut args: Args) {
     let class_clone = class_value.clone();
-    let result = if let Ok(class) = class_value.as_class_mut() {
+    if let Ok(class) = class_value.as_class_mut() {
       let instance = Value::from(InstanceValue::new(StructValue::default(), class_clone));
       if let Some(initializer) = &mut class.initializer {
         if let Ok(initializer) = initializer.as_fn() {
+          args.this = Some(instance);
           initializer.call(thread, args);
-          instance
         } else if let Ok(initializer) = initializer.as_native_fn() {
-          initializer(thread, env, args)
+          args.list.push(instance);
+          initializer(thread, env, args);
         } else if let Ok(initializer) = initializer.as_native_closure_mut() {
-          initializer.call(thread, env, args)
+          args.list.push(instance);
+          initializer.call(thread, env, args);
         } else {
-          Value::new_err(format!("invalid type for constructor {}", initializer))
+          thread.stack_push(Value::new_err(format!("invalid type for constructor {}", initializer)));
         }
       } else {
-        instance
+        thread.stack_push(instance);
       }
     } else {
-      Value::new_err("unable to construct instance from non-class")
+      thread.stack_push(Value::new_err("unable to construct instance from non-class"));
     };
-
-    thread.stack_push(result);
   }
 
   pub fn set_constructor(&mut self, value: Value) {
     self.initializer = Some(value);
   }
 
-  pub fn set_native_constructor<F>(&mut self, f: F)
+  pub fn set_native_constructor_fn(&mut self, f: fn(&mut ExecutionThread, &mut Env, Args) -> Value) {
+    self.initializer = Some(Value::new_native_fn(f));
+  }
+
+  pub fn set_native_constructor_closure<F>(&mut self, f: F)
   where
     F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
   {
@@ -80,11 +79,7 @@ impl ClassValue {
   }
 
   pub fn get_static<N: AsRef<str>>(&self, name: N) -> Value {
-    self
-      .static_members
-      .get(name.as_ref())
-      .cloned()
-      .unwrap_or_default()
+    self.static_members.get(name.as_ref()).cloned().unwrap_or_default()
   }
 
   pub fn set_static<N: ToString>(&mut self, name: N, value: Value) {

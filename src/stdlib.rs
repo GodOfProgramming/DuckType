@@ -59,7 +59,7 @@ pub fn load_libs(args: &[String], library: &Library) -> BTreeMap<String, Value> 
 
 fn load_lib(args: &[String], lib: &Lib) -> (&'static str, Value) {
   match lib {
-    Lib::Std => ("basic", load_std()),
+    Lib::Std => ("std", load_std()),
     Lib::Env => ("env", LibEnv::load(args)),
     Lib::Time => ("time", LibTime::load()),
     Lib::String => ("str", LibString::load()),
@@ -77,9 +77,9 @@ fn load_std() -> Value {
 
     array.set_static(
       "len",
-      Value::new_native_closure("Array.len", |_thread, _env, args| {
+      Value::new_native_fn(|_thread, _env, args| {
         let mut args = args.list.into_iter();
-        if let Some(mut arr) = args.next() {
+        if let Some(arr) = args.next() {
           if let Ok(arr) = arr.as_array() {
             Value::from(arr.len() as i32)
           } else {
@@ -91,18 +91,18 @@ fn load_std() -> Value {
       }),
     );
 
-    lib.set("Array", Value::from(array));
+    lib.set("Array", Value::from(array)).ok();
   }
 
   // Vectors
   {
     let mut vec = ClassValue::new("Vec");
 
-    vec.set_native_constructor(|_thread, _env, args| {
+    vec.set_native_constructor_closure(|_thread, _env, args| {
       if let Some(mut this) = args.this {
         if let Ok(instance) = this.as_instance_mut() {
           let values = Value::from(args.list);
-          instance.set("_buffer", values);
+          instance.set("_buffer", values).ok();
           this
         } else {
           Value::new_err(format!("self not instance type {} (logic error)", this))
@@ -120,7 +120,7 @@ fn load_std() -> Value {
           if let Ok(buff) = buff.as_array_mut() {
             buff.extend(args);
           } else if buff.is_nil() {
-            this.set("_buffer", Array::from(Vec::from_iter(args)).into());
+            this.set("_buffer", Array::from(Vec::from_iter(args)).into()).ok();
           }
         }
       }
@@ -133,7 +133,7 @@ fn load_std() -> Value {
       if let Some(this) = args.next() {
         if let Some(value) = args.next() {
           if let Ok(mut value) = value.as_i32() {
-            let mut buff = this.get("_buffer");
+            let buff = this.get("_buffer");
             if let Ok(arr) = buff.as_array() {
               if value < 0 {
                 value = arr.len() as i32 - value;
@@ -155,7 +155,7 @@ fn load_std() -> Value {
 
     vec.set_native_method("len", |_thread, _env, args| {
       if let Some(this) = args.this {
-        let mut buff = this.get("_buffer");
+        let buff = this.get("_buffer");
         if let Ok(arr) = buff.as_array() {
           Value::from(arr.len() as i32)
         } else {
@@ -166,7 +166,7 @@ fn load_std() -> Value {
       }
     });
 
-    lib.set("Vec", Value::from(vec));
+    lib.set("Vec", Value::from(vec)).ok();
   }
 
   // Structs
@@ -177,14 +177,8 @@ fn load_std() -> Value {
       let mut args = args.list.into_iter();
       let mut fields = Vec::default();
 
-      if let Some(mut obj) = args.next() {
-        let get_fields = |s: &StructValue| {
-          s.members
-            .keys()
-            .cloned()
-            .map(|k| Value::from(k))
-            .collect::<Vec<Value>>()
-        };
+      if let Some(obj) = args.next() {
+        let get_fields = |s: &StructValue| s.members.keys().cloned().map(|k| Value::from(k)).collect::<Vec<Value>>();
 
         if let Ok(i) = obj.as_instance() {
           fields.extend(get_fields(&i.data))
@@ -196,7 +190,7 @@ fn load_std() -> Value {
       Value::from(fields)
     });
 
-    lib.set("Object", Value::from(object));
+    lib.set("Object", Value::from(object)).ok();
   }
 
   Value::from(lib)
