@@ -214,3 +214,8 @@ impl UnimplementedFunction {
 fn consume<T: ComplexValue>(this: *mut T) -> Box<AllocatedObject<T>> {
   unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) }
 }
+
+/// Intentionally empty
+pub struct Primitive;
+
+impl ComplexValue for Primitive {}

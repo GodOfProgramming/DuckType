@@ -515,7 +515,11 @@ impl Value {
   }
 
   fn vtable(&self) -> &VTable {
-    &self.meta().vtable
+    if self.is_ptr() {
+      &self.meta().vtable
+    } else {
+      &Primitive::VTABLE
+    }
   }
 
   fn is_type<const T: u64>(&self) -> bool {
