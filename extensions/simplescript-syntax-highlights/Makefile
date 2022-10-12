@@ -1,3 +1,7 @@
+.PHONY: setup
+setup:
+	npm install -g js-yaml vsce
+
 .PHONY: build
 build:
 	npx js-yaml syntaxes/simplescript.tmLanguage.yaml > syntaxes/simplescript_unsubbed.tmLanguage.json
@@ -11,5 +15,5 @@ package: substitute
 	vsce package
 
 .PHONY: install
-install: substitute
+install: package
 	code --install-extension simplescript-syntax-highlights-0.0.1.vsix

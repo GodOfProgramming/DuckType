@@ -29,7 +29,7 @@ impl ScannerTest {
     }
   }
 
-  fn test_failure<F: FnOnce(Vec<Error>)>(&self, f: F) {
+  fn test_failure<F: FnOnce(Vec<RuntimeError>)>(&self, f: F) {
     let mut scanner = Scanner::new("test", &self.tokens);
     match scanner.scan() {
       Ok((_actual, _meta)) => panic!("should not have succeeded"),
@@ -79,7 +79,7 @@ mod tests {
       Token::BackArrow,
       Token::Identifier(String::from("foobar")),
       Token::String(String::from("some string")),
-      Token::Number(PI),
+      Token::Number(NumberToken::F64(PI)),
       Token::And,
       Token::Break,
       Token::Class,
@@ -145,23 +145,23 @@ mod tests {
       Token::LessEqual,
       Token::Identifier(String::from("arrow")),
       Token::Arrow,
-      Token::Number(1.0),
+      Token::from(1),
       Token::Bang,
-      Token::Number(1.0),
+      Token::from(1.0),
       Token::BangEqual,
-      Token::Number(12.0),
+      Token::from(12),
       Token::Equal,
-      Token::Number(123.0),
+      Token::from(123),
       Token::EqualEqual,
-      Token::Number(1234.0),
+      Token::from(1234),
       Token::Greater,
-      Token::Number(12345.0),
+      Token::from(12345),
       Token::GreaterEqual,
-      Token::Number(123456.0),
+      Token::from(123456),
       Token::Less,
-      Token::Number(1234567.0),
+      Token::from(1234567),
       Token::LessEqual,
-      Token::Number(12345678.0),
+      Token::from(12345678),
       Token::Arrow,
       Token::String(String::from("bang")),
       Token::Bang,
@@ -220,19 +220,19 @@ mod tests {
   #[test]
   fn returns_errors_at_right_location_when_detected(t: &mut ScannerTest) {
     let expected = vec![
-      Error {
+      RuntimeError {
         msg: String::from("invalid character: '^'"),
         file: String::from("test"),
         line: 6,
         column: 8,
       },
-      Error {
+      RuntimeError {
         msg: String::from("invalid character: '?'"),
         file: String::from("test"),
         line: 7,
         column: 9,
       },
-      Error {
+      RuntimeError {
         msg: String::from("invalid character: '`'"),
         file: String::from("test"),
         line: 7,
@@ -266,7 +266,7 @@ mod tests {
       Token::RightParen,
       Token::LeftBrace,
       Token::Print,
-      Token::Number(1.0),
+      Token::from(1),
       Token::Semicolon,
       Token::RightBrace,
       Token::Identifier(String::from("foo")),

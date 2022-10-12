@@ -2,7 +2,8 @@ req "lib/sspec/bench";
 
 let REPS = 1000000;
 
-benchmark("DISABLED simple math", REPS, {x: 0} |i| {
+benchmark("simple math", REPS, {x: 0} |i| {
+  i += 1;
   x += i + i * i / i % i;
 });
 

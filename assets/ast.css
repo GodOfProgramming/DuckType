@@ -1,0 +1,59 @@
+body {
+  color: white;
+  background-color: black;
+}
+
+.hidden {
+  display: none;
+}
+
+.vertically-centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.node {
+  padding: 30px;
+
+  border: 2px solid green;
+}
+
+.bubble {
+  color: white;
+  background-color: green;
+
+  text-align: center;
+
+  border-radius: 30%;
+  width: fit-content;
+
+  padding: 10px;
+  margin: 30px;
+}
+
+.connector-parent {
+  display: flex;
+  flex-direction: row;
+
+  margin: 30px;
+}
+
+.half {
+  width: 50%;
+}
+
+.right-side-connector {
+  border-right: 2px solid green;
+}
+
+.children {
+  display: flex;
+  flex-direction: row;
+}
+
+.children .child-node {
+  align-items: center;
+  justify-content: center;
+}

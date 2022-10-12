@@ -4,7 +4,7 @@ use tfix::{fixture, TestFixture};
 const TEST_FILE: &str = "test";
 
 struct IntegrationTest {
-  script: String,
+  script: &'static str,
   vm: Vm,
 }
 
@@ -34,15 +34,13 @@ impl IntegrationTest {
   }
 
   fn run<F: FnOnce(SmartPtr<Context>, &Env, Value)>(&mut self, f: F) {
-    self.load(
-      |this, ctx, env| match this.vm.run(TEST_FILE, ctx.clone(), env) {
-        Ok(v) => match v {
-          RunResult::Value(v) => f(ctx, env, v),
-          RunResult::Yield(_) => panic!("this test function should not be used for yields"),
-        },
-        Err(err) => panic!("{:#?}", err),
+    self.load(|this, ctx, env| match this.vm.run(TEST_FILE, ctx.clone(), env) {
+      Ok(v) => match v {
+        RunResult::Value(v) => f(ctx, env, v),
+        RunResult::Yield(_) => panic!("this test function should not be used for yields"),
       },
-    );
+      Err(err) => panic!("{:#?}", err),
+    });
   }
 }
 
@@ -58,13 +56,15 @@ mod integration_tests {
 
   #[test]
   fn adding_a_global(test: &mut IntegrationTest) {
-    test.script = "ret foo;".to_string();
+    test.script = "ret foo;";
 
     test.load(|this, ctx, env| {
-      env.assign(String::from("foo"), Value::new("foo"));
+      env.assign(String::from("foo"), Value::from("foo"));
       match this.vm.run(TEST_FILE, ctx, env) {
         Ok(res) => match res {
-          RunResult::Value(v) => assert_eq!(Value::new("foo"), v),
+          RunResult::Value(v) => {
+            assert_eq!(Value::from("foo"), v);
+          }
           RunResult::Yield(_) => panic!("should not use yields"),
         },
         Err(err) => panic!("{:#?}", err),
@@ -74,20 +74,22 @@ mod integration_tests {
 
   #[test]
   fn calling_a_native_function(test: &mut IntegrationTest) {
-    test.script = "let x = 1;\n
-    ret test_func(x, 2);"
-      .to_string();
+    test.script = "let x = 1; ret test_func(x, 2);";
 
     test.load(|this, ctx, env| {
-      env.create_native("test_func", |_thread, _env, args: Vec<Value>| {
-        assert_eq!(args.len(), 2);
-        assert_eq!(args[0], Value::new(1f64));
-        assert_eq!(args[1], Value::new(2f64));
-        Ok(Value::new(3f64))
-      });
+      env.define(
+        "test_func",
+        Value::new_native_fn(|_thread, _env, args| {
+          let args = args.list;
+          assert_eq!(args.len(), 2);
+          assert_eq!(args[0], Value::from(1));
+          assert_eq!(args[1], Value::from(2));
+          Value::from(3f64)
+        }),
+      );
       match this.vm.run("test", ctx, env) {
         Ok(res) => match res {
-          RunResult::Value(v) => assert_eq!(Value::new(3f64), v),
+          RunResult::Value(v) => assert_eq!(Value::from(3f64), v),
           RunResult::Yield(_) => panic!("should not yield"),
         },
         Err(err) => panic!("{:#?}", err),
@@ -100,11 +102,11 @@ mod integration_tests {
    */
   #[test]
   fn let_0(test: &mut IntegrationTest) {
-    test.script = "let $foo;".to_string();
+    test.script = "let $foo;";
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::Nil);
+      assert_eq!(val, Value::nil);
     });
   }
 
@@ -113,68 +115,62 @@ mod integration_tests {
    */
   #[test]
   fn let_1(test: &mut IntegrationTest) {
-    test.script = "let $foo = true;".to_string();
+    test.script = "let $foo = true;";
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(true));
+      assert_eq!(val, Value::from(true));
     });
   }
 
-  /**
-   * add sub mul div mod
-   */
   #[test]
   fn let_2(test: &mut IntegrationTest) {
-    test.script = "let $foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;".to_string();
+    test.script = "let $foo = 1 + 2 * 3 - 4.0 / 5 + 6 % 5;";
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(7.2));
+      assert_eq!(val, Value::from(7.2));
     });
   }
 
-  /**
-   * add sub mul div mod
-   */
   #[test]
   fn let_3(test: &mut IntegrationTest) {
-    test.script = "let $foo; $foo = 1 + 2 * 3 - 4 / 5 + 6 % 5;".to_string();
+    test.script = "let $foo; $foo = 1 + 2 * 3 - 4.0 / 5 + 6 % 5;";
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(7.2));
+      assert_eq!(val, Value::from(7.2));
     });
   }
 
   #[test]
   fn block_0(test: &mut IntegrationTest) {
-    test.script = "let $foo; { $foo = 1; }".to_string();
+    test.script = "let $foo; { $foo = 1; }";
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(1));
+      assert_eq!(val, Value::from(1));
     });
   }
 
   #[test]
   fn block_1(test: &mut IntegrationTest) {
-    test.script = "let $foo; { $foo = 1; let bar; bar = 0; }".to_string();
+    test.script = "let $foo; { $foo = 1; let bar; bar = 0; }";
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(1));
+      assert_eq!(val, Value::from(1));
       assert!(env.lookup("bar").is_none());
     });
   }
 
   #[test]
   fn if_0(test: &mut IntegrationTest) {
-    test.script = "let $foo = true; if $foo { $foo = 1; }".to_string();
+    test.script = "let $foo = true; if $foo { $foo = 1; }";
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(1));
+      assert_eq!(val, Value::from(1));
     });
   }
 
@@ -183,44 +179,45 @@ mod integration_tests {
    */
   #[test]
   fn if_1(test: &mut IntegrationTest) {
-    test.script = "let $foo = true; if $foo { $foo = 1; } else { $foo = 2; }".to_string();
+    test.script = "let $foo = true; if $foo { $foo = 1; } else { $foo = 2; }";
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(1));
+      assert_eq!(val, Value::from(1));
     });
   }
 
   #[test]
   fn if_2(test: &mut IntegrationTest) {
-    test.script = "let $foo = false; if $foo { $foo = 1; } else { $foo = 2; }".to_string();
+    test.script = "let $foo = false; if $foo { $foo = 1; } else { $foo = 2; }";
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::new(2));
+      assert_eq!(val, Value::from(2));
     });
   }
 
   #[test]
   fn if_3(test: &mut IntegrationTest) {
-    test.script = "if true and false or true { ret true; } else { ret false; }".to_string();
+    test.script = "if true and false or true { ret true; } else { ret false; }";
 
     test.run(|_, _, v| assert!(v.truthy()));
   }
 
   #[test]
   fn if_4(test: &mut IntegrationTest) {
-    test.script =
-      "if true and false and false or true { ret true; } else { ret false; }".to_string();
+    test.script = "if true and false and false or true { ret true; } else { ret false; }";
 
     test.run(|_, _, v| assert!(v.truthy()));
   }
 
   #[test]
   fn if_5(test: &mut IntegrationTest) {
-    test.script =
-      "if true and false and (false or true) { ret true; } else { ret false; }".to_string();
+    test.script = "if true and false and (false or true) { ret true; } else { ret false; }";
 
-    test.run(|_, _, v| assert!(!v.truthy()));
+    test.run(|_, _, v| {
+      println!("{:?}", v);
+      assert!(v.falsy());
+    });
   }
 }

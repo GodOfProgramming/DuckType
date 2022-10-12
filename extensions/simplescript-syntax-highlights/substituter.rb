@@ -44,3 +44,4 @@ unless env.nil?
 end
 
 File.write(output, syntax.to_json)
+
