@@ -8,7 +8,7 @@ pub use instance::InstanceValue;
 pub use method::MethodValue;
 pub use native::{NativeClosureValue, NativeFn, NativeMethodValue};
 pub use r#struct::StructValue;
-use std::{any::TypeId, cmp::Ordering, fmt::Display};
+use std::{cmp::Ordering, error::Error, fmt::Display};
 pub use string::StringValue;
 pub use timestamp::TimestampValue;
 
@@ -26,6 +26,8 @@ mod timestamp;
 
 pub struct Nil;
 
+pub type SetResult = Result<(), Box<dyn Error>>;
+
 pub trait ComplexValue
 where
   Self: Sized,
@@ -34,8 +36,8 @@ where
   const VTABLE: VTable = VTable::new::<Self>();
 
   #[allow(unused_variables)]
-  fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
-    Err(UnimplementedFunction::Set.fmt(self).into())
+  fn set(&mut self, name: &str, value: Value) -> SetResult {
+    Err(UnimplementedFunction::Set.fmt(self))?
   }
 
   #[allow(unused_variables)]

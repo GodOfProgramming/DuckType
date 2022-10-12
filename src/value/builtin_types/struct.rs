@@ -1,3 +1,5 @@
+use crate::SetResult;
+
 use super::{ComplexValue, ComplexValueId, ErrorValue, Value};
 use std::{
   collections::BTreeMap,
@@ -12,7 +14,7 @@ pub struct StructValue {
 impl ComplexValue for StructValue {
   const ID: ComplexValueId = "Struct";
 
-  fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
+  fn set(&mut self, name: &str, value: Value) -> SetResult {
     self.members.insert(name.to_string(), value);
     Ok(())
   }

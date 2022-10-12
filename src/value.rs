@@ -440,7 +440,7 @@ impl Value {
 
   // ComplexValue Methods
 
-  pub fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
+  pub fn set(&mut self, name: &str, value: Value) -> SetResult {
     (self.vtable().set)(self.pointer(), name, value)
   }
 
@@ -1013,7 +1013,7 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  set: fn(MutVoid, &str, Value) -> Result<(), ErrorValue>,
+  set: fn(MutVoid, &str, Value) -> SetResult,
   get: fn(ConstVoid, &str) -> Value,
   index: fn(ConstVoid, Value) -> Value,
   add: fn(ConstVoid, Value) -> Value,

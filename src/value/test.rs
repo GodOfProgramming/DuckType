@@ -1,3 +1,5 @@
+use crate::SetResult;
+
 use super::{Assign, ComplexValue, ComplexValueId, ErrorValue, Nil, StructValue, Tag, Value};
 
 use tfix::prelude::*;
@@ -37,7 +39,7 @@ impl Default for ImplementedObject {
 impl ComplexValue for ImplementedObject {
   const ID: ComplexValueId = "ImplementedObject";
 
-  fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
+  fn set(&mut self, name: &str, value: Value) -> SetResult {
     match name {
       "field" => {
         if let Ok(i) = value.as_i32() {

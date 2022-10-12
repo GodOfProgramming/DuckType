@@ -1,4 +1,4 @@
-use simple_script::{Env, Library, Vm};
+use simple_script::{ComplexValue, ComplexValueId, Env, Library, SetResult, StructValue, Value, Vm};
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
 
@@ -29,9 +29,32 @@ impl TestFixture for ScriptTest {
   }
 }
 
+struct Leaker<'b> {
+  b: &'b mut bool,
+  data: StructValue,
+}
+
+impl<'b> Drop for Leaker<'b> {
+  fn drop(&mut self) {
+    *self.b = true;
+  }
+}
+
+impl<'b> ComplexValue for Leaker<'b> {
+  const ID: ComplexValueId = "Leaker";
+
+  fn set(&mut self, name: &str, value: Value) -> SetResult {
+    self.data.set(name, value)
+  }
+
+  fn get(&self, name: &str) -> Value {
+    self.data.get(name)
+  }
+}
+
 #[fixture(ScriptTest)]
 mod tests {
-  use simple_script::{ComplexValue, ComplexValueId, Value};
+  use simple_script::Value;
 
   use super::*;
 
@@ -45,31 +68,23 @@ mod tests {
   /// This tests for the memory leaking capability of reference counting. This should fail once garbage collection is implemented
   #[test]
   fn memory_leak_test(t: &mut ScriptTest) {
-    struct Leaker<'b>(&'b mut bool);
-
-    impl<'b> Drop for Leaker<'b> {
-      fn drop(&mut self) {
-        *self.0 = true;
-      }
-    }
-
-    impl<'b> ComplexValue for Leaker<'b> {
-      const ID: ComplexValueId = "Leaker";
-    }
-
-    const SCRIPT: &str = "
-      let x = Leaker();
-
-    ";
-
-    let ctx = t.vm.load("test", SCRIPT).unwrap();
-    let mut env = Env::with_library_support(&[], Library::None);
-
     let mut b = false;
-    let l = Leaker(&mut b);
-    let v = Value::from(l);
 
-    let res = t.vm.run("test", ctx, &mut env);
+    {
+      const SCRIPT: &str = "leaker.this = leaker;";
+
+      let ctx = t.vm.load("test", SCRIPT).unwrap();
+      let mut env = Env::with_library_support(&[], Library::None);
+
+      let l = Leaker {
+        b: &mut b,
+        data: Default::default(),
+      };
+
+      env.define("leaker", Value::from(l));
+
+      t.vm.run("test", ctx, &mut env).unwrap();
+    }
 
     assert!(!b);
   }

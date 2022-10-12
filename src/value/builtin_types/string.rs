@@ -1,4 +1,4 @@
-use crate::{Args, Env, ExecutionThread};
+use crate::{Args, Env, ExecutionThread, SetResult};
 
 use super::{Class, ComplexValue, ComplexValueId, ErrorValue, StructValue, Value};
 use std::{
@@ -56,7 +56,7 @@ impl Default for StringValue {
 impl ComplexValue for StringValue {
   const ID: ComplexValueId = "String";
 
-  fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
+  fn set(&mut self, name: &str, value: Value) -> SetResult {
     self.obj.set(name, value)
   }
 

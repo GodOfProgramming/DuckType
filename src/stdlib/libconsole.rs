@@ -6,9 +6,9 @@ impl LibConsole {
   pub fn load() -> Value {
     let mut lib = StructValue::default();
 
-    lib.set("write", Value::new_native_fn(Self::print)).ok();
-    lib.set("writeln", Value::new_native_fn(Self::println)).ok();
-    lib.set("flushln", Value::new_native_fn(Self::flushln)).ok();
+    lib.set("write", Value::new_native_fn(Self::print));
+    lib.set("writeln", Value::new_native_fn(Self::println));
+    lib.set("flushln", Value::new_native_fn(Self::flushln));
 
     Value::from(lib)
   }
