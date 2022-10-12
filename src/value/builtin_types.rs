@@ -7,7 +7,7 @@ pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
 pub use method_value::MethodValue;
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use std::{cmp::Ordering, error::Error, fmt::Display};
+use std::{cmp::Ordering, fmt::Display};
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 pub use timestamp_value::TimestampValue;

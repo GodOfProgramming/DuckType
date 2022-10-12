@@ -1,7 +1,6 @@
 pub use builtin_types::*;
 use static_assertions::assert_eq_size;
 use std::{
-  any::TypeId,
   cmp::Ordering,
   error::Error,
   fmt::{Debug, Display, Formatter, Result as FmtResult},

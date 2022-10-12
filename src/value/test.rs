@@ -1,4 +1,4 @@
-use super::{Assign, ComplexValue, ComplexValueId, ErrorValue, Nil, StructValue, Tag, Value};
+use super::{Assign, ComplexValue, ComplexValueId, Nil, StructValue, Tag, Value};
 use tfix::prelude::*;
 
 #[derive(Default)]

@@ -1,6 +1,6 @@
 use crate::{Args, Env, ExecutionThread};
 
-use super::{Class, ComplexValue, ComplexValueId, ErrorValue, StructValue, Value};
+use super::{Class, ComplexValue, ComplexValueId, StructValue, Value};
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},

@@ -1,4 +1,4 @@
-use super::{ComplexValue, ComplexValueId, ErrorValue, Value};
+use super::{ComplexValue, ComplexValueId, Value};
 use std::{
   collections::BTreeMap,
   fmt::{Display, Formatter, Result as FmtResult},

@@ -1,11 +1,13 @@
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
+#[allow(unused)]
 macro_rules! here {
   () => {
     crate::dbg::_here(file!(), line!());
   };
 }
 
+#[allow(unused)]
 pub(crate) use here;
 
 use crate::code::{OpCode, OpCodeReflection};
