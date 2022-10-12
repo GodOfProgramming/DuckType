@@ -1,4 +1,4 @@
-use super::{ComplexValue, Value};
+use super::{ComplexValue, ComplexValueId, Value};
 use std::{
   fmt::{Display, Formatter, Result},
   ops::{Deref, DerefMut},
@@ -20,6 +20,8 @@ impl From<Vec<Value>> for ArrayValue {
 }
 
 impl ComplexValue for ArrayValue {
+  const ID: ComplexValueId = "Array";
+
   fn index(&self, index: Value) -> Value {
     if let Ok(mut value) = index.as_i32() {
       if value < 0 {

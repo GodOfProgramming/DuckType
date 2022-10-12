@@ -25,6 +25,7 @@ pub enum Lib {
 
 pub enum Library {
   All,
+  None,
   List(Vec<Lib>),
 }
 
@@ -50,6 +51,7 @@ pub fn load_libs(args: &[String], library: &Library) -> BTreeMap<String, Value> 
         loaded_libs.insert(key.to_string(), value);
       }
     }
+    Library::None => (),
   }
 
   loaded_libs

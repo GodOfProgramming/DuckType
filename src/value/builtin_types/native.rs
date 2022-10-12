@@ -1,4 +1,4 @@
-use super::{Args, ComplexValue, Value};
+use super::{Args, ComplexValue, ComplexValueId, Value};
 use crate::{Env, ExecutionThread};
 use std::fmt::{Display, Formatter, Result};
 
@@ -31,6 +31,8 @@ impl NativeClosureValue {
 }
 
 impl ComplexValue for NativeClosureValue {
+  const ID: ComplexValueId = "NativeClosure";
+
   fn stringify(&self) -> String {
     format!("{}", self)
   }
@@ -91,6 +93,8 @@ impl NativeMethodValue {
 }
 
 impl ComplexValue for NativeMethodValue {
+  const ID: ComplexValueId = "NativeMethod";
+
   fn stringify(&self) -> String {
     format!("{}", self)
   }

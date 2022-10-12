@@ -1,4 +1,4 @@
-use super::{AllocatedObject, VTable, Value, META_OFFSET};
+use super::{AllocatedObject, ComplexValueId, VTable, Value, META_OFFSET};
 pub use array::ArrayValue;
 pub use class::ClassValue;
 pub use closure::ClosureValue;
@@ -28,8 +28,9 @@ pub struct Nil;
 
 pub trait ComplexValue
 where
-  Self: Sized + 'static,
+  Self: Sized,
 {
+  const ID: ComplexValueId;
   const VTABLE: VTable = VTable::new::<Self>();
 
   #[allow(unused_variables)]
@@ -110,8 +111,8 @@ where
 
   // below this line should not to be reimplemented by the user
 
-  fn type_id() -> TypeId {
-    TypeId::of::<Self>()
+  fn type_id() -> ComplexValueId {
+    Self::ID
   }
 
   fn type_name() -> String {
@@ -218,4 +219,6 @@ fn consume<T: ComplexValue>(this: *mut T) -> Box<AllocatedObject<T>> {
 /// Intentionally empty
 pub struct Primitive;
 
-impl ComplexValue for Primitive {}
+impl ComplexValue for Primitive {
+  const ID: ComplexValueId = "";
+}

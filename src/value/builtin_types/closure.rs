@@ -1,4 +1,4 @@
-use super::{ComplexValue, FunctionValue, Value};
+use super::{ComplexValue, ComplexValueId, FunctionValue, Value};
 use crate::{Context, ExecutionThread};
 use ptr::SmartPtr;
 
@@ -44,6 +44,8 @@ impl ClosureValue {
 }
 
 impl ComplexValue for ClosureValue {
+  const ID: ComplexValueId = "Closure";
+
   fn stringify(&self) -> String {
     format!("closure {}", self.function.stringify())
   }

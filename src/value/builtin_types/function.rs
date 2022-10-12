@@ -42,6 +42,8 @@ impl FunctionValue {
 }
 
 impl ComplexValue for FunctionValue {
+  const ID: ComplexValueId = "Function";
+
   fn stringify(&self) -> String {
     format!("fn {}", self.ctx.name())
   }

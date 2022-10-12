@@ -1,4 +1,4 @@
-use super::{Args, ComplexValue, InstanceValue, Value};
+use super::{Args, ComplexValue, ComplexValueId, InstanceValue, Value};
 use crate::{Env, ExecutionThread, StructValue};
 use std::collections::BTreeMap;
 
@@ -79,6 +79,8 @@ impl ClassValue {
 }
 
 impl ComplexValue for ClassValue {
+  const ID: ComplexValueId = "Class";
+
   fn set(&mut self, name: &str, value: Value) -> Result<(), super::ErrorValue> {
     self.set_static(name, value);
     Ok(())

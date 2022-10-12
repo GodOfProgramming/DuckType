@@ -1,5 +1,5 @@
 use super::*;
-use horrorshow::{html, prelude::*};
+use horrorshow::{helper::doctype, html, prelude::*};
 use lex::{NumberToken, Token};
 use std::{
   collections::BTreeSet,

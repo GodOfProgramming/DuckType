@@ -18,11 +18,12 @@ mod tags;
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, Assign, ComplexValue, Value};
+  pub use super::{builtin_types::*, Assign, ComplexValue, ComplexValueId, Value};
 }
 
 type ConstVoid = *const ();
 type MutVoid = *mut ();
+pub type ComplexValueId = &'static str;
 
 // ensuring 64 bit platforms, redundancy is just sanity checks
 assert_eq_size!(usize, ConstVoid);
@@ -406,7 +407,7 @@ impl Value {
   }
 
   pub fn is<T: ComplexValue>(&self) -> bool {
-    self.is_ptr() && self.type_id() == T::type_id()
+    self.is_ptr() && self.type_id() == T::ID
   }
 
   pub fn cast_to<T: ComplexValue>(&self) -> ConversionResult<&T> {
@@ -527,7 +528,7 @@ impl Value {
   }
 
   // TypeId of the underlying type
-  fn type_id(&self) -> TypeId {
+  fn type_id(&self) -> &'static str {
     (self.vtable().type_id)()
   }
 
@@ -1028,7 +1029,7 @@ pub struct VTable {
   debug_string: fn(ConstVoid) -> String,
   drop: fn(MutVoid),
   dealloc: fn(MutVoid),
-  type_id: fn() -> TypeId,
+  type_id: fn() -> &'static str,
   type_name: fn() -> String,
 }
 

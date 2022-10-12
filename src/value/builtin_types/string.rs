@@ -1,6 +1,6 @@
 use crate::{Args, Env, ExecutionThread};
 
-use super::{Class, ComplexValue, ErrorValue, StructValue, Value};
+use super::{Class, ComplexValue, ComplexValueId, ErrorValue, StructValue, Value};
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
@@ -54,6 +54,8 @@ impl Default for StringValue {
 }
 
 impl ComplexValue for StringValue {
+  const ID: ComplexValueId = "String";
+
   fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
     self.obj.set(name, value)
   }

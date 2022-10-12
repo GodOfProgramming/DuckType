@@ -7,6 +7,8 @@ pub struct ErrorValue {
 }
 
 impl ComplexValue for ErrorValue {
+  const ID: crate::value::ComplexValueId = "Error";
+
   fn stringify(&self) -> String {
     self.msg.clone()
   }

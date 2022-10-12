@@ -1,4 +1,4 @@
-use super::{ComplexValue, StructValue, Value};
+use super::{ComplexValue, ComplexValueId, StructValue, Value};
 
 #[derive(Default)]
 pub struct InstanceValue {
@@ -17,6 +17,8 @@ impl InstanceValue {
 }
 
 impl ComplexValue for InstanceValue {
+  const ID: ComplexValueId = "Instance";
+
   fn set(&mut self, name: &str, value: Value) -> Result<(), crate::ErrorValue> {
     self.data.set(name, value).ok();
     Ok(())

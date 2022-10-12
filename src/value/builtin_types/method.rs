@@ -1,8 +1,6 @@
-use ptr::SmartPtr;
-
+use super::{ComplexValue, ComplexValueId, FunctionValue};
 use crate::{Args, Context, ExecutionThread};
-
-use super::{ComplexValue, FunctionValue};
+use ptr::SmartPtr;
 
 #[derive(Clone)]
 pub struct MethodValue {
@@ -33,6 +31,8 @@ impl MethodValue {
 }
 
 impl ComplexValue for MethodValue {
+  const ID: ComplexValueId = "Method";
+
   fn stringify(&self) -> String {
     format!("method {}", self.function.stringify())
   }

@@ -1,4 +1,4 @@
-use super::{ComplexValue, ErrorValue, Value};
+use super::{ComplexValue, ComplexValueId, ErrorValue, Value};
 use std::{
   collections::BTreeMap,
   fmt::{Display, Formatter, Result as FmtResult},
@@ -10,6 +10,8 @@ pub struct StructValue {
 }
 
 impl ComplexValue for StructValue {
+  const ID: ComplexValueId = "Struct";
+
   fn set(&mut self, name: &str, value: Value) -> Result<(), ErrorValue> {
     self.members.insert(name.to_string(), value);
     Ok(())
