@@ -39,18 +39,10 @@ impl Class for StringClass {
   }
 }
 
+#[derive(Default)]
 pub struct StringValue {
   str: String,
   obj: StructValue,
-}
-
-impl Default for StringValue {
-  fn default() -> Self {
-    Self {
-      str: Default::default(),
-      obj: Default::default(),
-    }
-  }
 }
 
 impl ComplexValue for StringValue {

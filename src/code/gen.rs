@@ -13,8 +13,6 @@ struct Local {
   initialized: bool,
 }
 
-type OpCodeConstructor = fn(usize) -> OpCode;
-
 #[derive(PartialEq)]
 enum LookupKind {
   Local,
@@ -691,7 +689,7 @@ impl BytecodeGenerator {
   fn declare_variable(&mut self, ident: Ident, loc: SourceLocation) -> Option<usize> {
     if ident.is_global() {
       Some(self.declare_global(ident))
-    } else if self.declare_local(ident.clone(), loc) {
+    } else if self.declare_local(ident, loc) {
       Some(0)
     } else {
       None
@@ -893,7 +891,7 @@ impl BytecodeGenerator {
 
   fn error(&mut self, loc: SourceLocation, msg: String) {
     if cfg!(debug_assertions) {
-      println!("{} ({}, {}): {}", "TODO GET FILE NAME", loc.line, loc.column, msg);
+      println!("{} ({}, {}): {}", loc.file, loc.line, loc.column, msg);
     }
     self.errors.push(RuntimeError {
       msg,

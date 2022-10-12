@@ -5,7 +5,7 @@ use libenv::LibEnv;
 use libps::LibPs;
 use libstring::LibString;
 use libtime::LibTime;
-use std::{collections::BTreeMap, ops::Index};
+use std::collections::BTreeMap;
 
 mod libconsole;
 mod libenv;
@@ -188,12 +188,12 @@ fn load_std() -> Value {
         let mut fields = Vec::default();
 
         if let Some(obj) = args.next() {
-          let get_fields = |s: &StructValue| s.members.keys().cloned().map(|k| Value::from(k)).collect::<Vec<Value>>();
+          let get_fields = |s: &StructValue| s.members.keys().cloned().map(Value::from).collect::<Vec<Value>>();
 
           if let Ok(i) = obj.as_instance() {
             fields.extend(get_fields(&i.data))
           } else if let Ok(s) = obj.as_struct() {
-            fields.extend(get_fields(&s))
+            fields.extend(get_fields(s))
           }
         }
 

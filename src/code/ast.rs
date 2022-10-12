@@ -1,11 +1,13 @@
 use super::*;
-use horrorshow::{helper::doctype, html, prelude::*};
 use lex::{NumberToken, Token};
 use std::{
   collections::BTreeSet,
   fmt::{Display, Formatter, Result as FmtResult},
   mem,
 };
+
+#[cfg(feature = "visit-ast")]
+use horrorshow::{helper::doctype, html, prelude::*};
 
 pub struct Ast {
   pub statements: Vec<Statement>,
@@ -533,10 +535,8 @@ impl AstGenerator {
       let path = self.resolve();
       if path.is_empty() {
         self.error::<1>(String::from("use must have a type following it"));
-      } else {
-        if self.consume(Token::Semicolon, "expecte ';' after use") {
-          self.statements.push(Statement::from(UseStatement::new(path, loc)));
-        }
+      } else if self.consume(Token::Semicolon, "expecte ';' after use") {
+        self.statements.push(Statement::from(UseStatement::new(path, loc)));
       }
     }
   }
@@ -1317,10 +1317,7 @@ impl AstGenerator {
       }
     }
 
-    Some(Params::from((
-      found_self,
-      params.into_iter().map(|p| Ident::new(p)).collect(),
-    )))
+    Some(Params::from((found_self, params.into_iter().map(Ident::new).collect())))
   }
 
   fn declaration(&mut self) -> Option<LetStatement> {
@@ -1501,6 +1498,7 @@ pub enum Statement {
 }
 
 impl Statement {
+  #[cfg(feature = "visit-ast")]
   fn dump(&self, tmpl: &mut TemplateBuffer) {
     html! {
       div(class="node vertically-centered") {
@@ -1513,6 +1511,7 @@ impl Statement {
     .render(tmpl);
   }
 
+  #[cfg(feature = "visit-ast")]
   fn dump_children(&self, tmpl: &mut TemplateBuffer) {
     match self {
       Statement::Block(blk) => {
@@ -1988,6 +1987,7 @@ pub enum Expression {
 }
 
 impl Expression {
+  #[cfg(feature = "visit-ast")]
   fn dump(&self, tmpl: &mut TemplateBuffer) {
     match self {
       Expression::Literal(l) => {

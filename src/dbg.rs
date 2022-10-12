@@ -18,7 +18,7 @@ pub fn _here(file: &str, line: u32) {
   stdout().flush().unwrap();
 }
 
-#[derive(Default, PartialEq)]
+#[derive(Default, PartialEq, Eq)]
 pub struct RuntimeError {
   pub msg: String,
   pub file: String,

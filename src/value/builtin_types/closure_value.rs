@@ -35,11 +35,11 @@ impl ClosureValue {
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
-    &self.function.context_ptr()
+    self.function.context_ptr()
   }
 
   pub fn context(&self) -> &Context {
-    &self.function.context()
+    self.function.context()
   }
 }
 

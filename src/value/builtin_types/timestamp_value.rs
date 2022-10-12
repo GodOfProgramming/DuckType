@@ -9,6 +9,12 @@ impl TimestampValue {
   }
 }
 
+impl Default for TimestampValue {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl ComplexValue for TimestampValue {
   const ID: ComplexValueId = "Timestamp";
 }

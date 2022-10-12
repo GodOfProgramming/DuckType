@@ -485,10 +485,6 @@ impl<'src> Scanner<'src> {
     self.src.get(self.pos.saturating_add(n)).map(|c| *c as char)
   }
 
-  fn index_n(&self, n: usize) -> Option<char> {
-    self.src.get(n).map(|c| *c as char)
-  }
-
   fn advance(&mut self) {
     self.pos += 1;
     self.column += 1;

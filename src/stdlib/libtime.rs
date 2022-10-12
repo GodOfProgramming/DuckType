@@ -24,7 +24,7 @@ impl LibTime {
             if before.is::<TimestampValue>() {
               let now = Instant::now();
               if let Ok(ts) = before.cast_to::<TimestampValue>() {
-                let since = now.duration_since(**ts.clone());
+                let since = now.duration_since(**ts);
                 return Value::from(since.as_secs_f64());
               }
             }

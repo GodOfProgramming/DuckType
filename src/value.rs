@@ -2,7 +2,6 @@ pub use builtin_types::*;
 use static_assertions::assert_eq_size;
 use std::{
   cmp::Ordering,
-  error::Error,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
   mem,
   ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
@@ -82,7 +81,7 @@ impl Value {
 
   pub fn as_f64_unchecked(&self) -> f64 {
     debug_assert!(self.is_f64());
-    unsafe { mem::transmute(self.bits) }
+    f64::from_bits(self.bits)
   }
 
   // int
@@ -139,7 +138,7 @@ impl Value {
 
   pub fn as_char_unchecked(&self) -> char {
     debug_assert!(self.is_char());
-    unsafe { mem::transmute((self.bits & VALUE_BITMASK) as u32) }
+    char::from_u32((self.bits & VALUE_BITMASK) as u32).unwrap_or_default()
   }
 
   // string
@@ -283,7 +282,7 @@ impl Value {
     self.cast_to::<ClosureValue>()
   }
 
-  pub fn as_closure_mut(&self) -> ConversionResult<&mut ClosureValue> {
+  pub fn as_closure_mut(&mut self) -> ConversionResult<&mut ClosureValue> {
     self.cast_to_mut::<ClosureValue>()
   }
 
@@ -291,7 +290,7 @@ impl Value {
     self.convert()
   }
 
-  pub fn as_closure_unchecked_mut(&self) -> &mut ClosureValue {
+  pub fn as_closure_unchecked_mut(&mut self) -> &mut ClosureValue {
     self.convert_mut()
   }
 
@@ -422,7 +421,7 @@ impl Value {
     }
   }
 
-  pub fn cast_to_mut<T: ComplexValue>(&self) -> ConversionResult<&mut T> {
+  pub fn cast_to_mut<T: ComplexValue>(&mut self) -> ConversionResult<&mut T> {
     if self.is::<T>() {
       Ok(self.convert_mut())
     } else {
@@ -445,7 +444,7 @@ impl Value {
   // ComplexValue Methods
 
   pub fn set(&mut self, name: &str, value: Value) -> Value {
-    (self.vtable().set)(self.pointer(), name, value)
+    (self.vtable().set)(self.pointer_mut(), name, value)
   }
 
   pub fn get(&self, name: &str) -> Value {
@@ -511,17 +510,31 @@ impl Value {
     }
   }
 
-  fn pointer(&self) -> MutVoid {
+  fn pointer(&self) -> ConstVoid {
+    (self.bits & VALUE_BITMASK) as ConstVoid
+  }
+
+  fn pointer_mut(&mut self) -> MutVoid {
     (self.bits & VALUE_BITMASK) as MutVoid
   }
 
-  fn meta(&self) -> &mut ValueMeta {
+  fn meta(&self) -> &ValueMeta {
+    unsafe { &*((self.pointer() as *const u8).offset(META_OFFSET) as *const ValueMeta) }
+  }
+
+  fn meta_mut(&mut self) -> &mut ValueMeta {
+    unsafe { &mut *((self.pointer_mut() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
+  }
+
+  /// Bypass mutable self and access mut ValueMeta
+  #[allow(clippy::mut_from_ref)]
+  fn meta_mut_bypass(&self) -> &mut ValueMeta {
     unsafe { &mut *((self.pointer() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
   }
 
   fn vtable(&self) -> &VTable {
     if self.is_ptr() {
-      &self.meta().vtable
+      self.meta().vtable
     } else {
       &Primitive::VTABLE
     }
@@ -544,8 +557,8 @@ impl Value {
     unsafe { &*(self.pointer() as *const T) }
   }
 
-  fn convert_mut<T>(&self) -> &mut T {
-    unsafe { &mut *(self.pointer() as *mut T) }
+  fn convert_mut<T>(&mut self) -> &mut T {
+    unsafe { &mut *(self.pointer_mut() as *mut T) }
   }
 
   fn allocate<T: ComplexValue>(item: T) -> Self {
@@ -579,13 +592,14 @@ impl Default for Value {
 impl Drop for Value {
   fn drop(&mut self) {
     if self.is_ptr() {
-      let meta = self.meta();
+      let pointer = self.pointer_mut();
+      let meta = self.meta_mut();
 
       meta.ref_count -= 1;
 
       if meta.ref_count == 0 {
-        (meta.vtable.drop)(self.pointer());
-        (meta.vtable.dealloc)(self.pointer());
+        (meta.vtable.drop)(pointer);
+        (meta.vtable.dealloc)(pointer);
       }
     }
   }
@@ -594,7 +608,7 @@ impl Drop for Value {
 impl Clone for Value {
   fn clone(&self) -> Self {
     if self.is_ptr() {
-      self.meta().ref_count += 1;
+      self.meta_mut_bypass().ref_count += 1;
     }
     Self { bits: self.bits }
   }
@@ -602,9 +616,7 @@ impl Clone for Value {
 
 impl From<f64> for Value {
   fn from(item: f64) -> Self {
-    Self {
-      bits: unsafe { mem::transmute(item) },
-    }
+    Self { bits: item.to_bits() }
   }
 }
 
@@ -659,7 +671,7 @@ impl From<Vec<Value>> for Value {
 impl From<NativeFn> for Value {
   fn from(f: NativeFn) -> Self {
     Self {
-      bits: unsafe { mem::transmute::<NativeFn, u64>(f) } | FN_TAG,
+      bits: f as usize as u64 | FN_TAG,
     }
   }
 }
@@ -1087,7 +1099,7 @@ impl<T: ComplexValue> AllocatedObject<T> {
       ref_count: 1,
       vtable: &T::VTABLE,
     };
-    Self { obj, meta: meta }
+    Self { obj, meta }
   }
 }
 
@@ -1102,7 +1114,7 @@ where
 
 pub type ConversionResult<T> = Result<T, ConversionError>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ConversionError {
   WrongType,
   NotCallable,

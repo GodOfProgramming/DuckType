@@ -20,7 +20,7 @@ pub mod gen;
 pub mod lex;
 pub mod opt;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpCode {
   /** No operation instruction */
   NoOp,
@@ -141,7 +141,7 @@ impl Compiler {
     let file = SmartPtr::new(String::from(file));
     let source_ptr = SmartPtr::new(String::from(source));
 
-    let reflection = Reflection::new(file, source_ptr.clone());
+    let reflection = Reflection::new(file, source_ptr);
     let ctx = SmartPtr::new(Context::new(reflection));
 
     let generator = BytecodeGenerator::new(ctx);
@@ -169,13 +169,13 @@ pub struct SourceLocation {
   pub column: usize,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpCodeInfo {
   pub line: usize,
   pub column: usize,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpCodeReflection {
   pub file: String,
   pub source_line: String,
@@ -223,7 +223,12 @@ impl Context {
   }
 
   fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize, name: ContextName) -> Self {
-    let global = if ctx.global.valid() { ctx.global.clone() } else { ctx.clone() };
+    let global = if ctx.global.valid() {
+      ctx.global.clone()
+    } else {
+      // is global ctx
+      ctx
+    };
 
     Self {
       name,
@@ -343,7 +348,7 @@ impl Context {
             m.context().disassemble();
           }
         }
-        for (_name, method) in &c.methods {
+        for method in c.methods.values() {
           if let Ok(f) = method.as_fn() {
             f.context().disassemble();
           }
@@ -478,7 +483,7 @@ impl Context {
   }
 
   fn global_const_at_column(&self, index: usize) -> String {
-    format!("{: >4?}", self.global_const_at(index).unwrap_or(&mut Value::from("????")))
+    format!("{: >4?}", self.global_const_at(index).unwrap_or(&Value::from("????")))
   }
 
   fn const_at_column(&self, index: usize) -> String {
@@ -553,7 +558,7 @@ pub struct Env {
 
 impl Env {
   pub fn with_library_support(args: &[String], library: Library) -> Self {
-    let mut env = Env::default();
+    let mut env = Env { ..Default::default() };
 
     env.vars = stdlib::load_libs(args, &library);
 

@@ -318,7 +318,7 @@ impl ExecutionThread {
   #[inline]
   fn exec_assign_local(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_peek() {
-      self.stack_assign(location, value.clone());
+      self.stack_assign(location, value);
       Ok(())
     } else {
       Err(self.error(opcode, format!("could not replace stack value at pos {}", location)))
@@ -342,7 +342,7 @@ impl ExecutionThread {
     self.global_op(opcode, location, |this, name| {
       // used with functions & classes only, so pop
       if let Some(v) = this.stack_pop() {
-        env.assign(name, v.clone());
+        env.assign(name, v);
         Ok(())
       } else {
         Err(this.error(opcode, String::from("can not define global using empty stack")))
@@ -354,7 +354,7 @@ impl ExecutionThread {
   fn exec_define_global(&mut self, env: &mut Env, opcode: &OpCode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(v) = this.stack_peek() {
-        if env.define(name, v.clone()) {
+        if env.define(name, v) {
           Ok(())
         } else {
           Err(this.error(opcode, String::from("tried redefining global variable")))
@@ -437,13 +437,13 @@ impl ExecutionThread {
             Err(self.error(opcode, format!("cannot access member of primitive {}", obj)))
           }
         } else {
-          Err(self.error(opcode, format!("member identifier is not a string")))
+          Err(self.error(opcode, "member identifier is not a string"))
         }
       } else {
-        Err(self.error(opcode, format!("no identifier at index")))
+        Err(self.error(opcode, "no identifier at index"))
       }
     } else {
-      Err(self.error(opcode, format!("no value on stack to perform lookup on")))
+      Err(self.error(opcode, "no value on stack to perform lookup on"))
     }
   }
 
@@ -621,14 +621,14 @@ impl ExecutionThread {
       let args = self.stack_drain_from(airity);
 
       let res = if let Ok(f) = callable.as_fn() {
-        f.call(self, args.into());
+        f.call(self, args);
         Ok(())
       } else if let Ok(f) = callable.as_closure() {
-        f.call(self, args.into());
+        f.call(self, args);
         Ok(())
       } else if let Ok(f) = callable.as_method() {
         let args = Args::from((self.current_frame.last_lookup.take(), args));
-        f.call(self, args.into());
+        f.call(self, args);
         Ok(())
       } else if let Ok(f) = callable.as_native_fn() {
         let v = f(self, env, args.into());
@@ -640,7 +640,7 @@ impl ExecutionThread {
         Ok(())
       } else if let Ok(f) = callable.as_native_method_mut() {
         let args = Args::from((self.current_frame.last_lookup.take(), args));
-        let v = f.call(self, env, args.into());
+        let v = f.call(self, env, args);
         self.stack_push(v);
         Ok(())
       } else if callable.is_class() {
@@ -708,7 +708,7 @@ impl ExecutionThread {
           attempts.push(required_file.clone());
           // then try with the .ss extension
           if let Some(required_file_with_ext) = &required_file_with_ext {
-            if Path::exists(&required_file_with_ext) {
+            if Path::exists(required_file_with_ext) {
               found_file = Some(required_file_with_ext.clone());
             } else {
               attempts.push(required_file_with_ext.to_path_buf());
