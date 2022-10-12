@@ -37,8 +37,8 @@ impl ScannerTest {
     }
   }
 
-  fn mk_meta(&self, line: usize, column: usize) -> SourceLocation {
-    SourceLocation { line, column }
+  fn mk_meta(&self, file: SmartPtr<String>, line: usize, column: usize) -> SourceLocation {
+    SourceLocation { file, line, column }
   }
 }
 
@@ -259,6 +259,8 @@ mod tests {
 
   #[test]
   fn produces_the_correct_meta_information(t: &mut ScannerTest) {
+    let file = SmartPtr::new(String::from("test"));
+
     let expected_tokens = vec![
       Token::Fn,
       Token::Identifier(String::from("foo")),
@@ -274,20 +276,21 @@ mod tests {
       Token::RightParen,
       Token::Semicolon,
     ];
+
     let expected_meta = vec![
-      t.mk_meta(1, 1),
-      t.mk_meta(1, 4),
-      t.mk_meta(1, 7),
-      t.mk_meta(1, 8),
-      t.mk_meta(1, 10),
-      t.mk_meta(2, 3),
-      t.mk_meta(2, 9),
-      t.mk_meta(2, 10),
-      t.mk_meta(3, 1),
-      t.mk_meta(5, 1),
-      t.mk_meta(5, 4),
-      t.mk_meta(5, 5),
-      t.mk_meta(5, 6),
+      t.mk_meta(file.clone(), 1, 1),
+      t.mk_meta(file.clone(), 1, 4),
+      t.mk_meta(file.clone(), 1, 7),
+      t.mk_meta(file.clone(), 1, 8),
+      t.mk_meta(file.clone(), 1, 10),
+      t.mk_meta(file.clone(), 2, 3),
+      t.mk_meta(file.clone(), 2, 9),
+      t.mk_meta(file.clone(), 2, 10),
+      t.mk_meta(file.clone(), 3, 1),
+      t.mk_meta(file.clone(), 5, 1),
+      t.mk_meta(file.clone(), 5, 4),
+      t.mk_meta(file.clone(), 5, 5),
+      t.mk_meta(file, 5, 6),
     ];
 
     t.tokens = TOKEN_META_TEST.to_string();

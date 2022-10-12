@@ -28,15 +28,15 @@ pub struct RuntimeError {
 
 impl RuntimeError {
   pub fn from_ref<M: ToString>(msg: M, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
-    let mut e = Self {
+    let mut err = Self {
       msg: msg.to_string(),
       file: opcode_ref.file.clone(),
       line: opcode_ref.line,
       column: opcode_ref.column,
     };
-    e.format_with_src_line(opcode_ref.source_line);
-    e.msg = format!("{}\nOffending OpCode: {:?}", e.msg, opcode);
-    e
+    err.format_with_src_line(opcode_ref.source_line);
+    err.msg = format!("{}\nOffending OpCode: {:?}", err.msg, opcode);
+    err
   }
 
   pub fn format_with_src_line(&mut self, src: String) {

@@ -197,7 +197,7 @@ impl AstGenerator {
   }
 
   fn class_stmt(&mut self) {
-    if let Some(loc) = self.meta_at::<0>() {
+    if let Some(class_loc) = self.meta_at::<0>() {
       if let Some(Token::Identifier(class_name)) = self.current() {
         self.advance();
 
@@ -210,6 +210,7 @@ impl AstGenerator {
         let mut declared_functions = BTreeSet::default();
 
         while let Some(token) = self.current() {
+          let class_loc = class_loc.clone();
           match token {
             Token::New => {
               self.advance();
@@ -220,11 +221,13 @@ impl AstGenerator {
                       this.error::<0>(String::from("missing self arg in initializer"));
                       None
                     } else {
-                      body.statements.push(Statement::from(DefaultConstructorRet::new(loc)));
+                      body
+                        .statements
+                        .push(Statement::from(DefaultConstructorRet::new(class_loc.clone())));
                       Some(Expression::from(LambdaExpression::new(
                         params.list,
                         Statement::from(body),
-                        loc,
+                        class_loc,
                       )))
                     }
                   });
@@ -245,13 +248,13 @@ impl AstGenerator {
                         Some(Expression::from(MethodExpression::new(
                           params.list,
                           Statement::from(body),
-                          loc,
+                          class_loc,
                         )))
                       } else {
                         Some(Expression::from(LambdaExpression::new(
                           params.list,
                           Statement::from(body),
-                          loc,
+                          class_loc,
                         )))
                       }
                     }) {
@@ -275,7 +278,7 @@ impl AstGenerator {
           Ident::new(class_name),
           initializer,
           class_members,
-          loc,
+          class_loc,
         )))
       } else {
         self.error::<0>(String::from("expected an identifier"));
@@ -406,7 +409,7 @@ impl AstGenerator {
     self.in_loop = true;
 
     if let Some(loc) = self.meta_at::<1>() {
-      if let Some(block) = self.block(loc) {
+      if let Some(block) = self.block(loc.clone()) {
         self
           .statements
           .push(Statement::from(LoopStatement::new(Statement::from(block), loc)));
@@ -548,7 +551,7 @@ impl AstGenerator {
       self.in_loop = true;
 
       if let Some(loc) = self.meta_at::<1>() {
-        if let Some(block) = self.block(loc) {
+        if let Some(block) = self.block(loc.clone()) {
           self
             .statements
             .push(Statement::from(WhileStatement::new(expr, Statement::from(block), loc)));
@@ -925,6 +928,7 @@ impl AstGenerator {
     let mut members = Vec::default();
 
     while let Some(token) = self.current() {
+      let struct_meta = struct_meta.clone();
       if token == Token::RightBrace {
         break;
       }
@@ -1148,18 +1152,18 @@ impl AstGenerator {
   fn error<const I: usize>(&mut self, msg: String) {
     if let Some(meta) = self.meta_at::<I>() {
       if cfg!(debug_assertions) {
-        println!("{} ({}, {}): {}", "TODO IMPLEMENT FILE", meta.line, meta.column, msg);
+        println!("{} ({}, {}): {}", meta.file, meta.line, meta.column, msg);
       }
       self.errors.push(RuntimeError {
         msg,
-        file: String::default(), // TODO get file when loading is supported
+        file: meta.file.deref().deref().clone(),
         line: meta.line,
         column: meta.column,
       });
     } else {
       self.errors.push(RuntimeError {
         msg: format!("could not find location of token for msg '{}'", msg),
-        file: String::default(), // TODO get file when loading is supported
+        file: String::default(),
         line: 0,
         column: 0,
       });
@@ -1228,7 +1232,7 @@ impl AstGenerator {
       }
 
       if let Some(block_loc) = self.meta_at::<1>() {
-        if let Some(block) = self.block(block_loc) {
+        if let Some(block) = self.block(block_loc.clone()) {
           let else_block = if self.advance_if_matches(Token::Else) {
             if let Some(else_meta) = self.meta_at::<1>() {
               if let Some(token) = self.current() {

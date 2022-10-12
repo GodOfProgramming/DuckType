@@ -92,13 +92,13 @@ impl BytecodeGenerator {
   }
 
   fn break_stmt(&mut self, stmt: BreakStatement) {
-    self.reduce_locals_to_depth(self.loop_depth, stmt.loc);
+    self.reduce_locals_to_depth(self.loop_depth, stmt.loc.clone());
     let jmp = self.emit_noop(stmt.loc);
     self.breaks.push(jmp);
   }
 
   fn cont_stmt(&mut self, stmt: ContStatement) {
-    self.reduce_locals_to_depth(self.loop_depth, stmt.loc);
+    self.reduce_locals_to_depth(self.loop_depth, stmt.loc.clone());
     self.emit_loop(self.cont_jump, stmt.loc);
   }
 
@@ -116,11 +116,14 @@ impl BytecodeGenerator {
         if is_static {
           class.set_constructor(function);
         } else {
-          self.error(stmt.loc, String::from("method was used as initializer somehow (logic error)"));
+          self.error(
+            stmt.loc.clone(),
+            String::from("method was used as initializer somehow (logic error)"),
+          );
         }
       } else {
         self.error(
-          stmt.loc,
+          stmt.loc.clone(),
           format!("unable to create initializer function for class {}", stmt.ident.name,),
         );
       }
@@ -134,11 +137,11 @@ impl BytecodeGenerator {
           class.set_method(method_name.name, function);
         }
       } else {
-        self.error(stmt.loc, format!("unable to create method {}", method_name.name));
+        self.error(stmt.loc.clone(), format!("unable to create method {}", method_name.name));
       }
     }
 
-    self.emit_const(Value::from(class), stmt.loc);
+    self.emit_const(Value::from(class), stmt.loc.clone());
 
     self.define_class(var, stmt.loc);
   }
@@ -159,25 +162,24 @@ impl BytecodeGenerator {
       ContextName::Function(stmt.ident.name.clone()),
       stmt.params,
       *stmt.body,
-      stmt.loc,
+      stmt.loc.clone(),
     );
 
     self.define_function(var, stmt.loc);
   }
 
   fn for_stmt(&mut self, stmt: ForStatement) {
-    let loc = stmt.loc;
-
+    let loc = stmt.loc.clone();
     self.new_scope(|this| {
       this.emit_stmt(*stmt.initializer);
 
       let before_compare = this.current_instruction_count();
       this.emit_expr(stmt.comparison);
-      let exit = this.emit_noop(stmt.loc);
+      let exit = this.emit_noop(stmt.loc.clone());
 
       let block = *stmt.block;
       let increment = stmt.increment;
-      let loc = stmt.loc;
+      let loc = stmt.loc.clone();
       this.emit_loop_block(before_compare, stmt.loc, |this| {
         this.emit_stmt(block);
         this.emit_expr(increment);
@@ -192,7 +194,7 @@ impl BytecodeGenerator {
 
   fn if_stmt(&mut self, stmt: IfStatement) {
     self.emit_expr(stmt.comparison);
-    let end = self.emit_noop(stmt.loc);
+    let end = self.emit_noop(stmt.loc.clone());
     self.emit_stmt(*stmt.block);
 
     if let Some(else_stmt) = stmt.else_block {
@@ -207,14 +209,14 @@ impl BytecodeGenerator {
 
   fn let_stmt(&mut self, stmt: LetStatement) {
     let is_global = stmt.ident.is_global();
-    if let Some(var) = self.declare_variable(stmt.ident.clone(), stmt.loc) {
+    if let Some(var) = self.declare_variable(stmt.ident.clone(), stmt.loc.clone()) {
       if let Some(value) = stmt.value {
         self.emit_expr(value);
       } else {
-        self.emit(OpCode::Nil, stmt.loc);
+        self.emit(OpCode::Nil, stmt.loc.clone());
       };
 
-      if self.define_variable(is_global, var, stmt.loc) && is_global {
+      if self.define_variable(is_global, var, stmt.loc.clone()) && is_global {
         self.emit(OpCode::Pop, stmt.loc);
       }
     }
@@ -233,11 +235,12 @@ impl BytecodeGenerator {
     let mut jumps = Vec::default();
 
     for (branch_expr, branch_stmt) in stmt.branches {
+      let loc = stmt.loc.clone();
       self.emit_expr(branch_expr);
-      self.emit(OpCode::Check, stmt.loc);
-      let next_jump = self.emit_noop(stmt.loc);
+      self.emit(OpCode::Check, loc.clone());
+      let next_jump = self.emit_noop(loc.clone());
       self.emit_stmt(branch_stmt);
-      jumps.push(self.emit_noop(stmt.loc));
+      jumps.push(self.emit_noop(loc));
       if !self.patch_inst(next_jump, OpCode::JumpIfFalse) {
         break;
       }
@@ -259,12 +262,12 @@ impl BytecodeGenerator {
 
   fn req_stmt(&mut self, stmt: ReqStatement) {
     self.emit_expr(stmt.file);
-    self.emit(OpCode::Req, stmt.loc);
+    self.emit(OpCode::Req, stmt.loc.clone());
 
     if let Some(var) = stmt.ident {
       let is_global = var.is_global();
-      if let Some(var) = self.declare_variable(var, stmt.loc) {
-        self.define_variable(is_global, var, stmt.loc);
+      if let Some(var) = self.declare_variable(var, stmt.loc.clone()) {
+        self.define_variable(is_global, var, stmt.loc.clone());
       }
       if is_global {
         self.emit(OpCode::Pop, stmt.loc);
@@ -288,20 +291,20 @@ impl BytecodeGenerator {
     let var = stmt.path.last().cloned().unwrap(); // validated in ast
     let var_idx = self.declare_global(var);
 
-    if let Some(lookup) = self.resolve_ident(&initial, stmt.loc) {
+    if let Some(lookup) = self.resolve_ident(&initial, stmt.loc.clone()) {
       let get = match lookup.kind {
         LookupKind::Local => OpCode::LookupLocal(lookup.index),
         LookupKind::Global => OpCode::LookupGlobal(self.declare_global(initial)),
       };
 
-      self.emit(get, stmt.loc);
+      self.emit(get, stmt.loc.clone());
 
       for name in stmt.path.into_iter().skip(1) {
         let ident = self.add_const_ident(name);
-        self.emit(OpCode::LookupMember(ident), stmt.loc);
+        self.emit(OpCode::LookupMember(ident), stmt.loc.clone());
       }
 
-      self.define_global(var_idx, stmt.loc);
+      self.define_global(var_idx, stmt.loc.clone());
       self.emit(OpCode::Pop, stmt.loc);
     }
   }
@@ -309,7 +312,7 @@ impl BytecodeGenerator {
   fn while_stmt(&mut self, stmt: WhileStatement) {
     let before_compare = self.current_instruction_count();
     self.emit_expr(stmt.comparison);
-    let end_jump = self.emit_noop(stmt.loc);
+    let end_jump = self.emit_noop(stmt.loc.clone());
 
     let block = *stmt.block;
     self.emit_loop_block(before_compare, stmt.loc, |this| {
@@ -379,7 +382,7 @@ impl BytecodeGenerator {
   }
 
   fn ident_expr(&mut self, expr: IdentExpression) {
-    if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
+    if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc.clone()) {
       let get = match lookup.kind {
         LookupKind::Local => OpCode::LookupLocal(lookup.index),
         LookupKind::Global => OpCode::LookupGlobal(self.declare_global(expr.ident)),
@@ -391,7 +394,7 @@ impl BytecodeGenerator {
 
   fn assign_expr(&mut self, expr: AssignExpression) {
     let mut op_assign = |expr: AssignExpression, op| {
-      if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
+      if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc.clone()) {
         let (set, get) = match lookup.kind {
           LookupKind::Local => (OpCode::AssignLocal(lookup.index), OpCode::LookupLocal(lookup.index)),
           LookupKind::Global => {
@@ -400,18 +403,18 @@ impl BytecodeGenerator {
           }
         };
 
-        self.emit(get, expr.loc);
+        self.emit(get, expr.loc.clone());
 
         self.emit_expr(*expr.value);
 
-        self.emit(op, expr.loc);
+        self.emit(op, expr.loc.clone());
 
         self.emit(set, expr.loc);
       }
     };
     match expr.op {
       AssignOperator::Assign => {
-        if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
+        if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc.clone()) {
           let set = match lookup.kind {
             LookupKind::Local => OpCode::AssignLocal(lookup.index),
             LookupKind::Global => OpCode::AssignGlobal(self.declare_global(expr.ident)),
@@ -456,11 +459,11 @@ impl BytecodeGenerator {
   }
 
   fn struct_expr(&mut self, expr: StructExpression) {
-    self.emit_const(Value::new_struct(), expr.loc);
+    self.emit_const(Value::new_struct(), expr.loc.clone());
     for (member, assign) in expr.members {
       let ident = self.add_const_ident(member);
       self.emit_expr(assign);
-      self.emit(OpCode::InitializeMember(ident), expr.loc);
+      self.emit(OpCode::InitializeMember(ident), expr.loc.clone());
     }
   }
 
@@ -480,11 +483,11 @@ impl BytecodeGenerator {
         self.emit_expr(assign);
       }
 
-      self.emit(OpCode::CreateList(params.len()), expr.loc);
+      self.emit(OpCode::CreateList(params.len()), expr.loc.clone());
 
       params.extend(expr.params);
 
-      self.emit_fn(ContextName::Closure, params, *expr.body, expr.loc);
+      self.emit_fn(ContextName::Closure, params, *expr.body, expr.loc.clone());
 
       self.emit(OpCode::CreateClosure, expr.loc);
     }
@@ -504,9 +507,9 @@ impl BytecodeGenerator {
     let mut op_assign = |expr: MemberAssignExpression, op| {
       let ident = self.add_const_ident(expr.ident);
       self.emit_expr(*expr.obj);
-      self.emit(OpCode::PeekMember(ident), expr.loc);
+      self.emit(OpCode::PeekMember(ident), expr.loc.clone());
       self.emit_expr(*expr.value);
-      self.emit(op, expr.loc);
+      self.emit(op, expr.loc.clone());
       self.emit(OpCode::AssignMember(ident), expr.loc);
     };
 
@@ -598,7 +601,7 @@ impl BytecodeGenerator {
       f(this);
     });
 
-    self.emit_loop(start, loc);
+    self.emit_loop(start, loc.clone());
 
     std::mem::swap(&mut breaks, &mut self.breaks);
     self.patch_jumps(breaks);
@@ -611,7 +614,7 @@ impl BytecodeGenerator {
   }
 
   fn emit_fn(&mut self, name: ContextName, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
-    let function = self.create_fn(name, args, body, loc);
+    let function = self.create_fn(name, args, body, loc.clone());
     self.emit_const(Value::from(function), loc);
   }
 
@@ -852,12 +855,13 @@ impl BytecodeGenerator {
       let airity = args.len();
 
       for arg in args {
+        let loc = loc.clone();
         if arg.is_global() {
-          this.error(loc, String::from("parameter cannot be a global variable"));
+          this.error(loc.clone(), String::from("parameter cannot be a global variable"));
           continue;
         }
 
-        if !this.declare_local(arg, loc) {
+        if !this.declare_local(arg, loc.clone()) {
           continue;
         }
 

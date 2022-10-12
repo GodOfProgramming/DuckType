@@ -301,6 +301,7 @@ impl<'src> Scanner<'src> {
 
         tokens.push(token);
         meta.push(SourceLocation {
+          file: self.file.clone(),
           line: line + 1,
           column: column + 1,
         });

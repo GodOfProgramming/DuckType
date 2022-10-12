@@ -162,8 +162,9 @@ impl Compiler {
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourceLocation {
+  pub file: SmartPtr<String>,
   pub line: usize,
   pub column: usize,
 }
