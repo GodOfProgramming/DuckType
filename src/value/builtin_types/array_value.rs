@@ -1,4 +1,6 @@
-use super::{ComplexValue, ComplexValueId, Value};
+use crate::{Env, NativeClass};
+
+use super::{Usertype, UsertypeId, Value};
 use std::{
   fmt::{Display, Formatter, Result},
   ops::{Deref, DerefMut},
@@ -19,18 +21,34 @@ impl From<Vec<Value>> for ArrayValue {
   }
 }
 
-impl ComplexValue for ArrayValue {
-  const ID: ComplexValueId = "Array";
+impl Usertype for ArrayValue {
+  const ID: UsertypeId = "Array";
 
-  fn index(&self, index: Value) -> Value {
-    if let Ok(mut value) = index.as_i32() {
-      if value < 0 {
-        value = self.len() as i32 - value;
+  fn register(class: &mut NativeClass) {
+    class.constructor(|_thread, _env, args| Value::from(ArrayValue::from(args.list)));
+
+    class.method("__index__", |_thread, _env, args| {
+      if let Some(this) = args.this {
+        if let Ok(this) = this.as_array() {
+          if let Some(index) = args.list.first() {
+            if let Ok(mut index) = index.as_i32() {
+              if index < 0 {
+                index = this.len() as i32 - index;
+              }
+              this.0.get(index as usize).cloned().unwrap_or(Value::nil)
+            } else {
+              Value::nil
+            }
+          } else {
+            Value::nil
+          }
+        } else {
+          Value::nil
+        }
+      } else {
+        Value::nil
       }
-      self.0.get(value as usize).cloned().unwrap_or(Value::nil)
-    } else {
-      Value::nil
-    }
+    })
   }
 }
 

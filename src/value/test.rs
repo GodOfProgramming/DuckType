@@ -1,4 +1,4 @@
-use super::{Assign, ComplexValue, ComplexValueId, Nil, StructValue, Tag, Value};
+use super::{Assign, Nil, StructValue, Tag, Usertype, UsertypeId, Value};
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -33,8 +33,8 @@ impl Default for ImplementedObject {
   }
 }
 
-impl ComplexValue for ImplementedObject {
-  const ID: ComplexValueId = "ImplementedObject";
+impl Usertype for ImplementedObject {
+  const ID: UsertypeId = "ImplementedObject";
 
   fn set(&mut self, name: &str, value: Value) -> Value {
     match name {
@@ -134,8 +134,8 @@ impl ComplexValue for ImplementedObject {
 
 struct UnimplementedObject;
 
-impl ComplexValue for UnimplementedObject {
-  const ID: ComplexValueId = "UnimplementedObject";
+impl Usertype for UnimplementedObject {
+  const ID: UsertypeId = "UnimplementedObject";
 }
 
 #[fixture(ValueTest)]

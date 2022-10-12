@@ -1,4 +1,4 @@
-use super::{ComplexValue, ComplexValueId, FunctionValue};
+use super::{FunctionValue, Usertype, UsertypeId};
 use crate::{Args, Context, ExecutionThread};
 use ptr::SmartPtr;
 
@@ -30,8 +30,8 @@ impl MethodValue {
   }
 }
 
-impl ComplexValue for MethodValue {
-  const ID: ComplexValueId = "Method";
+impl Usertype for MethodValue {
+  const ID: UsertypeId = "Method";
 
   fn stringify(&self) -> String {
     format!("method {}", self.function.stringify())

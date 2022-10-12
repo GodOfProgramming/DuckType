@@ -1,5 +1,5 @@
-use super::{ComplexValue, ComplexValueId, FunctionValue, Value};
-use crate::{Context, ExecutionThread};
+use super::{FunctionValue, Usertype, UsertypeId, Value};
+use crate::{Context, ExecutionThread, NativeClass};
 use ptr::SmartPtr;
 
 #[derive(Clone)]
@@ -43,8 +43,8 @@ impl ClosureValue {
   }
 }
 
-impl ComplexValue for ClosureValue {
-  const ID: ComplexValueId = "Closure";
+impl Usertype for ClosureValue {
+  const ID: UsertypeId = "Closure";
 
   fn stringify(&self) -> String {
     format!("closure {}", self.function.stringify())

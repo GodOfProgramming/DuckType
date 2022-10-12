@@ -1,6 +1,6 @@
 use crate::{Args, Env, ExecutionThread};
 
-use super::{Class, ComplexValue, ComplexValueId, StructValue, Value};
+use super::{StructValue, Usertype, UsertypeId, Value};
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
@@ -30,23 +30,14 @@ impl StringClass {
   }
 }
 
-impl Class for StringClass {
-  fn call(method: &str) -> Value {
-    match method {
-      "char_at" => Value::new_native_fn(Self::char_at),
-      _ => Value::nil,
-    }
-  }
-}
-
 #[derive(Default)]
 pub struct StringValue {
   str: String,
   obj: StructValue,
 }
 
-impl ComplexValue for StringValue {
-  const ID: ComplexValueId = "String";
+impl Usertype for StringValue {
+  const ID: UsertypeId = "String";
 
   fn set(&mut self, name: &str, value: Value) -> Value {
     self.obj.set(name, value)

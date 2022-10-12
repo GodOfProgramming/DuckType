@@ -1,4 +1,4 @@
-use super::ComplexValue;
+use super::Usertype;
 use std::fmt::{Display, Formatter, Result};
 
 #[derive(Debug)]
@@ -6,8 +6,8 @@ pub struct ErrorValue {
   msg: String,
 }
 
-impl ComplexValue for ErrorValue {
-  const ID: crate::value::ComplexValueId = "Error";
+impl Usertype for ErrorValue {
+  const ID: crate::value::UsertypeId = "Error";
 
   fn stringify(&self) -> String {
     self.msg.clone()

@@ -1,4 +1,5 @@
-use super::{AllocatedObject, ComplexValueId, VTable, Value, META_OFFSET};
+use super::{AllocatedObject, UsertypeId, VTable, Value, META_OFFSET};
+use crate::Env;
 pub use array_value::ArrayValue;
 pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
@@ -7,7 +8,6 @@ pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
 pub use method_value::MethodValue;
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use std::cmp::Ordering;
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 pub use timestamp_value::TimestampValue;
@@ -26,71 +26,17 @@ mod timestamp_value;
 
 pub struct Nil;
 
-pub trait ComplexValue
+pub trait Usertype
 where
   Self: Sized,
 {
-  const ID: ComplexValueId;
+  const ID: UsertypeId;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  #[allow(unused_variables)]
-  fn set(&mut self, name: &str, value: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Set.fmt(self))
-  }
+  fn register(class: &mut NativeClass) {}
 
-  #[allow(unused_variables)]
-  fn get(&self, name: &str) -> Value {
-    Value::new_err(UnimplementedFunction::Get.fmt(self))
-  }
-
-  #[allow(unused_variables)]
-  fn index(&self, index: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Index.fmt(self))
-  }
-
-  #[allow(unused_variables)]
-  fn add(&self, other: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Add.fmt(self))
-  }
-
-  #[allow(unused_variables)]
-  fn sub(&self, other: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Sub.fmt(self))
-  }
-
-  #[allow(unused_variables)]
-  fn mul(&self, other: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Mul.fmt(self))
-  }
-
-  #[allow(unused_variables)]
-  fn div(&self, other: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Div.fmt(self))
-  }
-
-  #[allow(unused_variables)]
-  fn rem(&self, other: Value) -> Value {
-    Value::new_err(UnimplementedFunction::Rem.fmt(self))
-  }
-
-  #[allow(unused_variables)]
-  fn neg(&self) -> Value {
-    Value::new_err(UnimplementedFunction::Neg.fmt(self))
-  }
-
-  #[allow(unused_variables)]
-  fn not(&self) -> Value {
-    Value::new_err(UnimplementedFunction::Not.fmt(self))
-  }
-
-  #[allow(unused_variables)]
-  fn eq(&self, other: &Value) -> bool {
-    false
-  }
-
-  #[allow(unused_variables)]
-  fn cmp(&self, other: &Value) -> Option<Ordering> {
-    None
+  fn class(env: &Env) -> Value {
+    env.lookup(Self::ID).unwrap_or_default()
   }
 
   fn stringify(&self) -> String {
@@ -111,7 +57,7 @@ where
 
   // below this line should not to be reimplemented by the user
 
-  fn type_id() -> ComplexValueId {
+  fn type_id() -> UsertypeId {
     Self::ID
   }
 
@@ -120,8 +66,60 @@ where
   }
 }
 
-pub trait Class {
-  fn call(method: &str) -> Value;
+use std::collections::BTreeMap;
+type ClassGetter = fn(Value, &str) -> Value;
+type ClassSetter = fn(Value, &str, Value);
+
+pub struct NativeClass {
+  name: &'static str,
+  constructor: Option<NativeFn>,
+  methods: BTreeMap<String, NativeFn>,
+  any_getter: Option<ClassGetter>,
+  any_setter: Option<ClassSetter>,
+  property_getters: BTreeMap<String, ClassGetter>,
+  property_setters: BTreeMap<String, ClassSetter>,
+}
+
+impl NativeClass {
+  pub fn new<T: Usertype>() -> Self {
+    Self {
+      name: T::ID,
+      constructor: None,
+      methods: BTreeMap::new(),
+      any_getter: None,
+      any_setter: None,
+      property_getters: BTreeMap::new(),
+      property_setters: BTreeMap::new(),
+    }
+  }
+
+  pub fn name(&self) -> &'static str {
+    self.name
+  }
+
+  pub fn constructor(&mut self, f: NativeFn) {
+    self.constructor = Some(f);
+  }
+
+  pub fn method(&mut self, name: impl ToString, f: NativeFn) {
+    self.methods.insert(name.to_string(), f);
+  }
+
+  pub fn define_any_getter(&mut self, f: ClassGetter) {
+    self.any_getter = Some(f);
+  }
+
+  pub fn define_any_setter(&mut self, f: ClassSetter) {
+    self.any_setter = Some(f);
+  }
+
+  pub fn define_property_getter(&mut self, name: impl ToString, getter: ClassGetter) {
+    self.property_getters.insert(name.to_string(), getter);
+  }
+
+  pub fn define_property_setter(&mut self, name: impl ToString, setter: ClassSetter) {
+    self.property_setters.insert(name.to_string(), setter);
+  }
 }
 
 pub struct Args {
@@ -190,7 +188,7 @@ pub enum UnimplementedFunction {
 }
 
 impl UnimplementedFunction {
-  fn fmt<T: ComplexValue>(&self, v: &T) -> String {
+  fn fmt<T: Usertype>(&self, v: &T) -> String {
     format!(
       "{} is unimplemented for {}",
       match self {
@@ -212,13 +210,15 @@ impl UnimplementedFunction {
   }
 }
 
-fn consume<T: ComplexValue>(this: *mut T) -> Box<AllocatedObject<T>> {
+fn consume<T: Usertype>(this: *mut T) -> Box<AllocatedObject<T>> {
   unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) }
 }
 
 /// Intentionally empty
 pub struct Primitive;
 
-impl ComplexValue for Primitive {
-  const ID: ComplexValueId = "";
+impl Usertype for Primitive {
+  const ID: UsertypeId = "";
+
+  fn register(class: &mut NativeClass) {}
 }

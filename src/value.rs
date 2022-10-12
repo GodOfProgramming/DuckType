@@ -16,12 +16,12 @@ mod tags;
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, Assign, ComplexValue, ComplexValueId, Value};
+  pub use super::{builtin_types::*, Assign, Usertype, UsertypeId, Value};
 }
 
 type ConstVoid = *const ();
 type MutVoid = *mut ();
-pub type ComplexValueId = &'static str;
+pub type UsertypeId = &'static str;
 
 // ensuring 64 bit platforms, redundancy is just sanity checks
 assert_eq_size!(usize, ConstVoid);
@@ -403,17 +403,41 @@ impl Value {
     self.convert_mut()
   }
 
+  pub fn as_native_class(&self) -> ConversionResult<&NativeClass> {
+    if self.tag() == Tag::NativeClass {
+      Ok(self.as_native_class_unchecked())
+    } else {
+      Err(ConversionError::WrongType)
+    }
+  }
+
+  pub fn as_native_class_mut(&self) -> ConversionResult<&mut NativeClass> {
+    if self.tag() == Tag::NativeClass {
+      Ok(self.as_native_class_mut_unchecked())
+    } else {
+      Err(ConversionError::WrongType)
+    }
+  }
+
+  pub fn as_native_class_unchecked(&self) -> &NativeClass {
+    self.convert()
+  }
+
+  pub fn as_native_class_mut_unchecked(&mut self) -> &mut NativeClass {
+    self.convert_mut()
+  }
+
   // cmplx value pointer
 
   pub fn is_ptr(&self) -> bool {
     self.is_type::<POINTER_TAG>()
   }
 
-  pub fn is<T: ComplexValue>(&self) -> bool {
+  pub fn is<T: Usertype>(&self) -> bool {
     self.is_ptr() && self.type_id() == T::ID
   }
 
-  pub fn cast_to<T: ComplexValue>(&self) -> ConversionResult<&T> {
+  pub fn cast_to<T: Usertype>(&self) -> ConversionResult<&T> {
     if self.is::<T>() {
       Ok(self.convert())
     } else {
@@ -421,7 +445,7 @@ impl Value {
     }
   }
 
-  pub fn cast_to_mut<T: ComplexValue>(&mut self) -> ConversionResult<&mut T> {
+  pub fn cast_to_mut<T: Usertype>(&mut self) -> ConversionResult<&mut T> {
     if self.is::<T>() {
       Ok(self.convert_mut())
     } else {
@@ -561,8 +585,12 @@ impl Value {
     unsafe { &mut *(self.pointer_mut() as *mut T) }
   }
 
-  fn allocate<T: ComplexValue>(item: T) -> Self {
-    let allocated = unsafe { &mut *(Box::into_raw(Box::new(AllocatedObject::new(item)))) };
+  fn allocate<T>(item: T) -> &'static mut T {
+    unsafe { &mut *(Box::into_raw(Box::new(item))) }
+  }
+
+  fn allocate_usertype<T: Usertype>(item: T) -> Self {
+    let allocated = Self::allocate(AllocatedObject::new(item));
 
     let ptr = &mut allocated.obj as *mut T as MutVoid;
     debug_assert_eq!(allocated as *const _ as *const (), &allocated.meta as *const _ as *const ());
@@ -646,25 +674,25 @@ impl From<char> for Value {
 
 impl From<&str> for Value {
   fn from(item: &str) -> Self {
-    Value::allocate::<StringValue>(item.into())
+    Value::allocate_usertype::<StringValue>(item.into())
   }
 }
 
 impl From<String> for Value {
   fn from(item: String) -> Self {
-    Value::allocate::<StringValue>(item.into())
+    Value::allocate_usertype::<StringValue>(item.into())
   }
 }
 
 impl From<&[Value]> for Value {
   fn from(array: &[Value]) -> Self {
-    Value::allocate::<ArrayValue>(array.into())
+    Value::allocate_usertype::<ArrayValue>(array.into())
   }
 }
 
 impl From<Vec<Value>> for Value {
   fn from(vec: Vec<Value>) -> Self {
-    Value::allocate::<ArrayValue>(vec.into())
+    Value::allocate_usertype::<ArrayValue>(vec.into())
   }
 }
 
@@ -672,6 +700,15 @@ impl From<NativeFn> for Value {
   fn from(f: NativeFn) -> Self {
     Self {
       bits: f as usize as u64 | FN_TAG,
+    }
+  }
+}
+
+impl From<NativeClass> for Value {
+  fn from(class: NativeClass) -> Self {
+    let allocated = Self::allocate(class);
+    Self {
+      bits: allocated as *const _ as u64 | NATIVE_CLASS_TAG,
     }
   }
 }
@@ -684,10 +721,10 @@ impl From<Nil> for Value {
 
 impl<T> From<T> for Value
 where
-  T: ComplexValue,
+  T: Usertype,
 {
   fn from(item: T) -> Self {
-    Value::allocate::<T>(item)
+    Value::allocate_usertype::<T>(item)
   }
 }
 
@@ -695,7 +732,7 @@ impl Assign<i32> for Value {}
 
 impl Assign<f64> for Value {}
 
-impl<T: ComplexValue> Assign<T> for Value {}
+impl<T: Usertype> Assign<T> for Value {}
 
 impl Assign<Nil> for Value {}
 
@@ -707,6 +744,7 @@ impl Display for Value {
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
       Tag::NativeFn => write!(f, "{:p}", &self.as_native_fn_unchecked()),
+      Tag::NativeClass => write!(f, "{:p}", self.as_native_class_unchecked().name()),
       Tag::Pointer => write!(f, "{}", self.stringify()),
       Tag::Nil => write!(f, "nil"),
     }
@@ -727,6 +765,7 @@ impl Debug for Value {
         &self.as_native_fn_unchecked(),
         self.raw_value()
       ),
+      Tag::NativeClass => write!(f, "{:?} (0x{:x})", self.tag(), self.raw_value()),
       Tag::Pointer => write!(
         f,
         "{:?} {} (0x{:x}) {}",
@@ -1029,18 +1068,7 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  set: fn(MutVoid, &str, Value) -> Value,
-  get: fn(ConstVoid, &str) -> Value,
-  index: fn(ConstVoid, Value) -> Value,
-  add: fn(ConstVoid, Value) -> Value,
-  sub: fn(ConstVoid, Value) -> Value,
-  mul: fn(ConstVoid, Value) -> Value,
-  div: fn(ConstVoid, Value) -> Value,
-  rem: fn(ConstVoid, Value) -> Value,
-  neg: fn(ConstVoid) -> Value,
-  not: fn(ConstVoid) -> Value,
-  eq: fn(ConstVoid, &Value) -> bool,
-  cmp: fn(ConstVoid, &Value) -> Option<Ordering>,
+  class: fn(&Env) -> Value,
   stringify: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
   drop: fn(MutVoid),
@@ -1050,26 +1078,15 @@ pub struct VTable {
 }
 
 impl VTable {
-  const fn new<T: ComplexValue>() -> Self {
+  const fn new<T: Usertype>() -> Self {
     Self {
-      set: |this, name, value| <T as ComplexValue>::set(unsafe { &mut *Self::void_to_mut(this) }, name, value),
-      get: |this, name| <T as ComplexValue>::get(unsafe { &*Self::void_to(this) }, name),
-      index: |this, index| <T as ComplexValue>::index(unsafe { &*Self::void_to(this) }, index),
-      add: |this, other| <T as ComplexValue>::add(unsafe { &*Self::void_to(this) }, other),
-      sub: |this, other| <T as ComplexValue>::sub(unsafe { &*Self::void_to(this) }, other),
-      mul: |this, other| <T as ComplexValue>::mul(unsafe { &*Self::void_to(this) }, other),
-      div: |this, other| <T as ComplexValue>::div(unsafe { &*Self::void_to(this) }, other),
-      rem: |this, other| <T as ComplexValue>::rem(unsafe { &*Self::void_to(this) }, other),
-      neg: |this| <T as ComplexValue>::neg(unsafe { &*Self::void_to(this) }),
-      not: |this| <T as ComplexValue>::not(unsafe { &*Self::void_to(this) }),
-      eq: |this, other| <T as ComplexValue>::eq(unsafe { &*Self::void_to(this) }, other),
-      cmp: |this, other| <T as ComplexValue>::cmp(unsafe { &*Self::void_to(this) }, other),
-      stringify: |this| <T as ComplexValue>::stringify(unsafe { &*Self::void_to(this) }),
-      debug_string: |this| <T as ComplexValue>::debug_string(unsafe { &*Self::void_to(this) }),
-      drop: |this| <T as ComplexValue>::drop(unsafe { &mut *Self::void_to_mut(this) }),
-      dealloc: |this| <T as ComplexValue>::dealloc(this as *mut T),
-      type_id: || <T as ComplexValue>::type_id(),
-      type_name: || <T as ComplexValue>::type_name(),
+      class: |env| <T as Usertype>::class(env),
+      stringify: |this| <T as Usertype>::stringify(unsafe { &*Self::void_to(this) }),
+      debug_string: |this| <T as Usertype>::debug_string(unsafe { &*Self::void_to(this) }),
+      drop: |this| <T as Usertype>::drop(unsafe { &mut *Self::void_to_mut(this) }),
+      dealloc: |this| <T as Usertype>::dealloc(this as *mut T),
+      type_id: || <T as Usertype>::type_id(),
+      type_name: || <T as Usertype>::type_name(),
     }
   }
 
@@ -1088,12 +1105,12 @@ struct ValueMeta {
 }
 
 #[repr(C)]
-struct AllocatedObject<T: ComplexValue> {
+struct AllocatedObject<T: Usertype> {
   meta: ValueMeta,
   obj: T,
 }
 
-impl<T: ComplexValue> AllocatedObject<T> {
+impl<T: Usertype> AllocatedObject<T> {
   fn new(obj: T) -> Self {
     let meta = ValueMeta {
       ref_count: 1,

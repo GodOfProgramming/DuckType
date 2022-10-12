@@ -582,8 +582,24 @@ impl Env {
     env
   }
 
+  pub fn register_usertype<T: Usertype>(&mut self) -> Result<(), Box<dyn Error>> {
+    if self.is_available(T::ID) {
+      let mut class = NativeClass::<T>::new();
+      T::register(&mut class);
+      self.vars.insert(T::ID.to_string(), Value::from(class));
+      Ok(())
+    } else {
+      Err(format!("class '{}' is already defined", T::ID))?
+    }
+  }
+
+  /// Defines a new variable. Returns true if the variable is new, false otherwise
   pub fn define<T: ToString>(&mut self, name: T, value: Value) -> bool {
     self.vars.insert(name.to_string(), value).is_none()
+  }
+
+  pub fn is_available(&self, name: &str) -> bool {
+    !self.is_defined(name)
   }
 
   pub fn is_defined(&self, name: &str) -> bool {

@@ -1,4 +1,4 @@
-use crate::{ComplexValue, StructValue, Value};
+use crate::{StructValue, Usertype, Value};
 
 pub struct LibPs;
 

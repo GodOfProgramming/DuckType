@@ -1,4 +1,4 @@
-use super::{ComplexValue, ComplexValueId, Value};
+use super::{Usertype, UsertypeId, Value};
 use std::{
   collections::BTreeMap,
   fmt::{Display, Formatter, Result as FmtResult},
@@ -9,17 +9,18 @@ pub struct StructValue {
   pub members: BTreeMap<String, Value>,
 }
 
-impl ComplexValue for StructValue {
-  const ID: ComplexValueId = "Struct";
-
-  fn set(&mut self, name: &str, value: Value) -> Value {
+impl StructValue {
+  pub fn set(&mut self, name: &str, value: Value) {
     self.members.insert(name.to_string(), value.clone());
-    value
   }
 
-  fn get(&self, name: &str) -> Value {
+  pub fn get(&self, name: &str) -> Value {
     self.members.get(name).cloned().unwrap_or_default()
   }
+}
+
+impl Usertype for StructValue {
+  const ID: UsertypeId = "Struct";
 }
 
 impl Display for StructValue {

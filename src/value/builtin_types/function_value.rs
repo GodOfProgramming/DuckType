@@ -41,8 +41,8 @@ impl FunctionValue {
   }
 }
 
-impl ComplexValue for FunctionValue {
-  const ID: ComplexValueId = "Function";
+impl Usertype for FunctionValue {
+  const ID: UsertypeId = "Function";
 
   fn stringify(&self) -> String {
     format!("fn {}", self.ctx.name())

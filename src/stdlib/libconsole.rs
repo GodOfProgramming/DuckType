@@ -1,4 +1,4 @@
-use crate::{Args, ComplexValue, Env, ExecutionThread, StructValue, Value};
+use crate::{Args, Env, ExecutionThread, StructValue, Usertype, Value};
 
 pub struct LibConsole;
 

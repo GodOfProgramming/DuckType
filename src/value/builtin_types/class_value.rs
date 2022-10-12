@@ -1,5 +1,5 @@
-use super::{Args, ComplexValue, ComplexValueId, InstanceValue, Value};
-use crate::{Env, ExecutionThread, StructValue};
+use super::{Args, InstanceValue, Usertype, UsertypeId, Value};
+use crate::{Env, ExecutionThread, NativeClass, StructValue};
 use std::collections::BTreeMap;
 
 pub struct ClassValue {
@@ -27,14 +27,6 @@ impl ClassValue {
         if let Ok(initializer) = initializer.as_fn() {
           args.list.push(instance);
           initializer.call(thread, args.list);
-        } else if let Ok(initializer) = initializer.as_native_fn() {
-          args.this = Some(instance);
-          let instance = initializer(thread, env, args);
-          thread.stack_push(instance);
-        } else if let Ok(initializer) = initializer.as_native_closure_mut() {
-          args.this = Some(instance);
-          let instance = initializer.call(thread, env, args);
-          thread.stack_push(instance);
         } else {
           thread.stack_push(Value::new_err(format!("invalid type for constructor {}", initializer)));
         }
@@ -78,16 +70,23 @@ impl ClassValue {
   }
 }
 
-impl ComplexValue for ClassValue {
-  const ID: ComplexValueId = "Class";
+impl Usertype for ClassValue {
+  const ID: UsertypeId = "Class";
 
-  fn set(&mut self, name: &str, value: Value) -> Value {
-    self.set_static(name, value.clone());
-    value
-  }
+  fn register(class: &mut NativeClass) {
+    class.define_any_setter(|this, name, value| {
+      if let Ok(this) = this.as_class() {
+        this.set_static(name, value.clone());
+      }
+    });
 
-  fn get(&self, name: &str) -> Value {
-    self.get_static(name)
+    class.define_any_getter(|this, name| {
+      if let Ok(this) = this.as_class() {
+        this.get_static(name)
+      } else {
+        Value::nil
+      }
+    });
   }
 
   fn stringify(&self) -> String {

@@ -1,4 +1,4 @@
-use crate::{Args, ComplexValue, StructValue, Value};
+use crate::{Args, StructValue, Usertype, Value};
 
 pub struct LibString;
 

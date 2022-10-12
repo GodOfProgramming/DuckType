@@ -1,4 +1,4 @@
-use super::{ClassValue, ComplexValue, StructValue, Value};
+use super::{ClassValue, StructValue, Usertype, Value};
 use enum_iterator::{all, Sequence};
 use libconsole::LibConsole;
 use libenv::LibEnv;

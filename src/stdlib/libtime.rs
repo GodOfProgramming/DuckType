@@ -1,4 +1,4 @@
-use crate::{Args, ComplexValue, StructValue, TimestampValue, Value};
+use crate::{Args, StructValue, TimestampValue, Usertype, Value};
 
 pub struct LibTime;
 
