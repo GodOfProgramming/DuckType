@@ -26,8 +26,6 @@ mod timestamp;
 
 pub struct Nil;
 
-pub type SetResult = Result<(), Box<dyn Error>>;
-
 pub trait ComplexValue
 where
   Self: Sized,
@@ -36,8 +34,8 @@ where
   const VTABLE: VTable = VTable::new::<Self>();
 
   #[allow(unused_variables)]
-  fn set(&mut self, name: &str, value: Value) -> SetResult {
-    Err(UnimplementedFunction::Set.fmt(self))?
+  fn set(&mut self, name: &str, value: Value) -> Value {
+    Value::new_err(UnimplementedFunction::Set.fmt(self))
   }
 
   #[allow(unused_variables)]

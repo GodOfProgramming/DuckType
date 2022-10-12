@@ -1,5 +1,3 @@
-use crate::SetResult;
-
 use super::{ComplexValue, ComplexValueId, StructValue, Value};
 
 #[derive(Default)]
@@ -21,9 +19,8 @@ impl InstanceValue {
 impl ComplexValue for InstanceValue {
   const ID: ComplexValueId = "Instance";
 
-  fn set(&mut self, name: &str, value: Value) -> SetResult {
-    self.data.set(name, value).ok();
-    Ok(())
+  fn set(&mut self, name: &str, value: Value) -> Value {
+    self.data.set(name, value)
   }
 
   fn get(&self, name: &str) -> Value {

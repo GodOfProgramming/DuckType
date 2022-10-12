@@ -12,7 +12,7 @@ impl LibPs {
       std::process::exit(exit_code);
     });
 
-    lib.set("exit", exit).ok();
+    lib.set("exit", exit);
 
     Value::from(lib)
   }

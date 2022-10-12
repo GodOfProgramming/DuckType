@@ -1,4 +1,4 @@
-use simple_script::{ComplexValue, ComplexValueId, Env, Library, SetResult, StructValue, Value, Vm};
+use simple_script::{ComplexValue, ComplexValueId, Env, Library, StructValue, Value, Vm};
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
 
@@ -43,7 +43,7 @@ impl<'b> Drop for Leaker<'b> {
 impl<'b> ComplexValue for Leaker<'b> {
   const ID: ComplexValueId = "Leaker";
 
-  fn set(&mut self, name: &str, value: Value) -> SetResult {
+  fn set(&mut self, name: &str, value: Value) -> Value {
     self.data.set(name, value)
   }
 

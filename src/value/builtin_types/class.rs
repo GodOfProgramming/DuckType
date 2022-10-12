@@ -1,5 +1,5 @@
 use super::{Args, ComplexValue, ComplexValueId, InstanceValue, Value};
-use crate::{Env, ExecutionThread, SetResult, StructValue};
+use crate::{Env, ExecutionThread, StructValue};
 use std::collections::BTreeMap;
 
 pub struct ClassValue {
@@ -81,9 +81,9 @@ impl ClassValue {
 impl ComplexValue for ClassValue {
   const ID: ComplexValueId = "Class";
 
-  fn set(&mut self, name: &str, value: Value) -> SetResult {
-    self.set_static(name, value);
-    Ok(())
+  fn set(&mut self, name: &str, value: Value) -> Value {
+    self.set_static(name, value.clone());
+    value
   }
 
   fn get(&self, name: &str) -> Value {

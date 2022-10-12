@@ -1,4 +1,4 @@
-use crate::{Args, Env, ExecutionThread, SetResult};
+use crate::{Args, Env, ExecutionThread};
 
 use super::{Class, ComplexValue, ComplexValueId, ErrorValue, StructValue, Value};
 use std::{
@@ -56,7 +56,7 @@ impl Default for StringValue {
 impl ComplexValue for StringValue {
   const ID: ComplexValueId = "String";
 
-  fn set(&mut self, name: &str, value: Value) -> SetResult {
+  fn set(&mut self, name: &str, value: Value) -> Value {
     self.obj.set(name, value)
   }
 
@@ -162,7 +162,7 @@ mod test {
   #[test]
   fn str_supports_overriding_fields() {
     let mut s = StringValue::from("0123456789");
-    s.set("len", Value::from(0)).unwrap();
+    s.set("len", Value::from(0));
     assert_eq!(s.get("len"), 0.into());
   }
 

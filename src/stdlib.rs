@@ -71,12 +71,10 @@ fn load_lib(args: &[String], lib: &Lib) -> (&'static str, Value) {
 fn load_std() -> Value {
   let mut lib = StructValue::default();
 
-  lib
-    .set(
-      "debug",
-      Value::new_native_fn(|_thread, _env, args| Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil)))),
-    )
-    .ok();
+  lib.set(
+    "debug",
+    Value::new_native_fn(|_thread, _env, args| Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil)))),
+  );
 
   // Arrays
   {
@@ -98,7 +96,7 @@ fn load_std() -> Value {
       }),
     );
 
-    lib.set("Array", Value::from(array)).ok();
+    lib.set("Array", Value::from(array));
   }
 
   // Vectors
@@ -109,7 +107,7 @@ fn load_std() -> Value {
       if let Some(mut this) = args.this {
         if let Ok(instance) = this.as_instance_mut() {
           let values = Value::from(args.list);
-          instance.set("_buffer", values).ok();
+          instance.set("_buffer", values);
           this
         } else {
           Value::new_err(format!("self not instance type {} (logic error)", this))
@@ -176,7 +174,7 @@ fn load_std() -> Value {
       }),
     );
 
-    lib.set("Vec", Value::from(vec)).ok();
+    lib.set("Vec", Value::from(vec));
   }
 
   // Structs
@@ -203,7 +201,7 @@ fn load_std() -> Value {
       }),
     );
 
-    lib.set("Object", Value::from(object)).ok();
+    lib.set("Object", Value::from(object));
   }
 
   Value::from(lib)

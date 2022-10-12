@@ -386,7 +386,8 @@ impl ExecutionThread {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let Ok(name) = name.as_str() {
-            obj.set(name, value).map_err(|e| self.error(opcode, format!("{}", e)))
+            obj.set(name, value);
+            Ok(())
           } else {
             Err(self.error(opcode, String::from("invalid name for member")))
           }
@@ -407,10 +408,7 @@ impl ExecutionThread {
       if let Some(mut obj) = self.stack_pop() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let Ok(name) = name.as_str() {
-            obj
-              .set(name, value.clone())
-              .map_err(|e| self.error(opcode, format!("{}", e)))?;
-            self.stack_push(value);
+            self.stack_push(obj.set(name, value));
             Ok(())
           } else {
             Err(self.error(opcode, String::from("constant at index is not an identifier")))

@@ -26,7 +26,7 @@ impl LibString {
       }
     });
 
-    lib.set("parse_number", parse_number).ok();
+    lib.set("parse_number", parse_number);
 
     let contains = Value::new_native_fn(|_thread, _env, args| {
       let mut args = args.list.into_iter();
@@ -42,7 +42,7 @@ impl LibString {
       Value::from(false)
     });
 
-    lib.set("contains", contains).ok();
+    lib.set("contains", contains);
 
     let is_prefix = Value::new_native_fn(|_thread, _env, args| {
       let mut args = args.list.into_iter();
@@ -58,7 +58,7 @@ impl LibString {
       Value::from(false)
     });
 
-    lib.set("is_prefix", is_prefix).ok();
+    lib.set("is_prefix", is_prefix);
 
     Value::from(lib)
   }

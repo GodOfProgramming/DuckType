@@ -203,6 +203,11 @@ impl Value {
     Self::from(ErrorValue::from(msg.to_string()))
   }
 
+  /// Convenience function to check if the value is not an error
+  pub fn is_ok(&self) -> bool {
+    !self.is::<ErrorValue>()
+  }
+
   pub fn is_err(&self) -> bool {
     self.is::<ErrorValue>()
   }
@@ -440,7 +445,7 @@ impl Value {
 
   // ComplexValue Methods
 
-  pub fn set(&mut self, name: &str, value: Value) -> SetResult {
+  pub fn set(&mut self, name: &str, value: Value) -> Value {
     (self.vtable().set)(self.pointer(), name, value)
   }
 
@@ -1013,7 +1018,7 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  set: fn(MutVoid, &str, Value) -> SetResult,
+  set: fn(MutVoid, &str, Value) -> Value,
   get: fn(ConstVoid, &str) -> Value,
   index: fn(ConstVoid, Value) -> Value,
   add: fn(ConstVoid, Value) -> Value,

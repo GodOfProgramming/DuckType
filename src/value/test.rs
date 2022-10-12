@@ -1,7 +1,4 @@
-use crate::SetResult;
-
 use super::{Assign, ComplexValue, ComplexValueId, ErrorValue, Nil, StructValue, Tag, Value};
-
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -39,7 +36,7 @@ impl Default for ImplementedObject {
 impl ComplexValue for ImplementedObject {
   const ID: ComplexValueId = "ImplementedObject";
 
-  fn set(&mut self, name: &str, value: Value) -> SetResult {
+  fn set(&mut self, name: &str, value: Value) -> Value {
     match name {
       "field" => {
         if let Ok(i) = value.as_i32() {
@@ -48,7 +45,7 @@ impl ComplexValue for ImplementedObject {
       }
       _ => panic!("should not reach"),
     }
-    Ok(())
+    value
   }
 
   fn get(&self, name: &str) -> Value {
@@ -170,9 +167,9 @@ mod unit_tests {
   fn structs_supported(_: &mut ValueTest) {
     let mut v = Value::new_struct();
     assert!(v.is::<StructValue>());
-    v.set("foo", 123.into()).unwrap();
+    v.set("foo", 123.into());
     assert_eq!(v.get("foo"), 123.into());
-    assert!(v.set("field", ImplementedObject::default().into()).is_ok());
+    assert!(!v.set("field", ImplementedObject::default().into()).is_err());
     assert!(v.get("field").is::<ImplementedObject>());
   }
 
@@ -182,7 +179,7 @@ mod unit_tests {
 
     {
       let mut v = Value::from(ImplementedObject::new(&mut x));
-      v.set("field", 123.into()).unwrap();
+      v.set("field", 123.into());
       assert_eq!(v.get("field"), 123.into());
     }
 
@@ -229,7 +226,7 @@ mod unit_tests {
     other.field = 5;
     let other = Value::from(other);
 
-    assert!(obj.set("field", 15.into()).is_ok());
+    assert!(!obj.set("field", 15.into()).is_err());
     assert_eq!(obj.get("field"), 15.into());
 
     assert_eq!(obj.clone() + 1.into(), 16.into());
