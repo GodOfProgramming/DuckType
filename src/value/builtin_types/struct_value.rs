@@ -25,13 +25,17 @@ impl StructValue {
 
 impl Usertype for StructValue {
   const ID: UsertypeId = "Struct";
+
+  fn stringify(&self) -> String {
+    self.to_string()
+  }
 }
 
 impl Display for StructValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     write!(
       f,
-      "{}",
+      "{{ {} }}",
       self
         .members
         .iter()

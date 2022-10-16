@@ -459,7 +459,7 @@ impl BytecodeGenerator {
   }
 
   fn struct_expr(&mut self, expr: StructExpression) {
-    self.emit_const(Value::new_struct(), expr.loc.clone());
+    self.emit(Opcode::CreateStruct, expr.loc.clone());
     for (member, assign) in expr.members {
       let ident = self.add_const_ident(member);
       self.emit_expr(assign);

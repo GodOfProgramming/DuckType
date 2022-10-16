@@ -235,6 +235,7 @@ impl ExecutionThread {
           }
           Opcode::CreateList(num_items) => self.exec_create_list(num_items),
           Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
+          Opcode::CreateStruct => self.exec_create_struct(&opcode),
           Opcode::Yield => {
             self.current_frame.ip += 1;
 
@@ -830,6 +831,10 @@ impl ExecutionThread {
       },
       None => Err(self.error(opcode, "no item on the stack to pop for closure function")),
     }
+  }
+  #[inline]
+  fn exec_create_struct(&mut self, opcode: &Opcode) {
+    self.stack_push(Value::new_struct());
   }
 
   /* Utility Functions */

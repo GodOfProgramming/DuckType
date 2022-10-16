@@ -108,6 +108,8 @@ pub enum Opcode {
   CreateList(usize),
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
   CreateClosure,
+  /** Create a new struct */
+  CreateStruct,
   /** Yield at the current location */
   Yield,
 }
