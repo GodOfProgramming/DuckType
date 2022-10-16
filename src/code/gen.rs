@@ -145,7 +145,7 @@ impl BytecodeGenerator {
   }
 
   fn default_constructor_ret(&mut self, stmt: DefaultConstructorRet) {
-    self.emit(OpCode::RetValue, stmt.loc);
+    self.emit(Opcode::RetValue, stmt.loc);
   }
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
@@ -181,10 +181,10 @@ impl BytecodeGenerator {
       this.emit_loop_block(before_compare, stmt.loc, |this| {
         this.emit_stmt(block);
         this.emit_expr(increment);
-        this.emit(OpCode::Pop, loc);
+        this.emit(Opcode::Pop, loc);
       });
 
-      this.patch_inst(exit, OpCode::JumpIfFalse);
+      this.patch_inst(exit, Opcode::JumpIfFalse);
     });
 
     self.reduce_locals_to_depth(self.scope_depth, loc);
@@ -197,11 +197,11 @@ impl BytecodeGenerator {
 
     if let Some(else_stmt) = stmt.else_block {
       let else_end = self.emit_noop(stmt.loc);
-      self.patch_inst(end, OpCode::JumpIfFalse);
+      self.patch_inst(end, Opcode::JumpIfFalse);
       self.emit_stmt(*else_stmt);
-      self.patch_inst(else_end, OpCode::Jump);
+      self.patch_inst(else_end, Opcode::Jump);
     } else {
-      self.patch_inst(end, OpCode::JumpIfFalse);
+      self.patch_inst(end, Opcode::JumpIfFalse);
     }
   }
 
@@ -211,11 +211,11 @@ impl BytecodeGenerator {
       if let Some(value) = stmt.value {
         self.emit_expr(value);
       } else {
-        self.emit(OpCode::Nil, stmt.loc.clone());
+        self.emit(Opcode::Nil, stmt.loc.clone());
       };
 
       if self.define_variable(is_global, var, stmt.loc.clone()) && is_global {
-        self.emit(OpCode::Pop, stmt.loc);
+        self.emit(Opcode::Pop, stmt.loc);
       }
     }
   }
@@ -235,11 +235,11 @@ impl BytecodeGenerator {
     for (branch_expr, branch_stmt) in stmt.branches {
       let loc = stmt.loc.clone();
       self.emit_expr(branch_expr);
-      self.emit(OpCode::Check, loc.clone());
+      self.emit(Opcode::Check, loc.clone());
       let next_jump = self.emit_noop(loc.clone());
       self.emit_stmt(branch_stmt);
       jumps.push(self.emit_noop(loc));
-      if !self.patch_inst(next_jump, OpCode::JumpIfFalse) {
+      if !self.patch_inst(next_jump, Opcode::JumpIfFalse) {
         break;
       }
     }
@@ -250,17 +250,17 @@ impl BytecodeGenerator {
 
     self.patch_jumps(jumps);
 
-    self.emit(OpCode::Pop, stmt.loc);
+    self.emit(Opcode::Pop, stmt.loc);
   }
 
   fn print_stmt(&mut self, stmt: PrintStatement) {
     self.emit_expr(stmt.expr);
-    self.emit(OpCode::Print, stmt.loc);
+    self.emit(Opcode::Print, stmt.loc);
   }
 
   fn req_stmt(&mut self, stmt: ReqStatement) {
     self.emit_expr(stmt.file);
-    self.emit(OpCode::Req, stmt.loc.clone());
+    self.emit(Opcode::Req, stmt.loc.clone());
 
     if let Some(var) = stmt.ident {
       let is_global = var.is_global();
@@ -268,19 +268,19 @@ impl BytecodeGenerator {
         self.define_variable(is_global, var, stmt.loc.clone());
       }
       if is_global {
-        self.emit(OpCode::Pop, stmt.loc);
+        self.emit(Opcode::Pop, stmt.loc);
       }
     } else {
-      self.emit(OpCode::Pop, stmt.loc);
+      self.emit(Opcode::Pop, stmt.loc);
     }
   }
 
   fn ret_stmt(&mut self, stmt: RetStatement) {
     if let Some(expr) = stmt.expr {
       self.emit_expr(expr);
-      self.emit(OpCode::RetValue, stmt.loc);
+      self.emit(Opcode::RetValue, stmt.loc);
     } else {
-      self.emit(OpCode::Ret, stmt.loc);
+      self.emit(Opcode::Ret, stmt.loc);
     }
   }
 
@@ -291,19 +291,19 @@ impl BytecodeGenerator {
 
     if let Some(lookup) = self.resolve_ident(&initial, stmt.loc.clone()) {
       let get = match lookup.kind {
-        LookupKind::Local => OpCode::LookupLocal(lookup.index),
-        LookupKind::Global => OpCode::LookupGlobal(self.declare_global(initial)),
+        LookupKind::Local => Opcode::LookupLocal(lookup.index),
+        LookupKind::Global => Opcode::LookupGlobal(self.declare_global(initial)),
       };
 
       self.emit(get, stmt.loc.clone());
 
       for name in stmt.path.into_iter().skip(1) {
         let ident = self.add_const_ident(name);
-        self.emit(OpCode::LookupMember(ident), stmt.loc.clone());
+        self.emit(Opcode::LookupMember(ident), stmt.loc.clone());
       }
 
       self.define_global(var_idx, stmt.loc.clone());
-      self.emit(OpCode::Pop, stmt.loc);
+      self.emit(Opcode::Pop, stmt.loc);
     }
   }
 
@@ -317,16 +317,16 @@ impl BytecodeGenerator {
       this.emit_stmt(block);
     });
 
-    self.patch_inst(end_jump, OpCode::JumpIfFalse);
+    self.patch_inst(end_jump, Opcode::JumpIfFalse);
   }
 
   fn yield_stmt(&mut self, stmt: YieldStatement) {
-    self.emit(OpCode::Yield, stmt.loc);
+    self.emit(Opcode::Yield, stmt.loc);
   }
 
   fn expr_stmt(&mut self, stmt: ExpressionStatement) {
     self.emit_expr(stmt.expr);
-    self.emit(OpCode::Pop, stmt.loc);
+    self.emit(Opcode::Pop, stmt.loc);
   }
 
   /* Expressions */
@@ -338,8 +338,8 @@ impl BytecodeGenerator {
   fn unary_expr(&mut self, expr: UnaryExpression) {
     self.emit_expr(*expr.expr);
     match expr.op {
-      UnaryOperator::Not => self.emit(OpCode::Not, expr.loc),
-      UnaryOperator::Negate => self.emit(OpCode::Negate, expr.loc),
+      UnaryOperator::Not => self.emit(Opcode::Not, expr.loc),
+      UnaryOperator::Negate => self.emit(Opcode::Negate, expr.loc),
     }
   }
 
@@ -347,17 +347,17 @@ impl BytecodeGenerator {
     self.emit_expr(*expr.left);
     self.emit_expr(*expr.right);
     match expr.op {
-      BinaryOperator::Equal => self.emit(OpCode::Equal, expr.loc),
-      BinaryOperator::NotEq => self.emit(OpCode::NotEqual, expr.loc),
-      BinaryOperator::Less => self.emit(OpCode::Less, expr.loc),
-      BinaryOperator::LessEq => self.emit(OpCode::LessEqual, expr.loc),
-      BinaryOperator::Greater => self.emit(OpCode::Greater, expr.loc),
-      BinaryOperator::GreaterEq => self.emit(OpCode::GreaterEqual, expr.loc),
-      BinaryOperator::Add => self.emit(OpCode::Add, expr.loc),
-      BinaryOperator::Sub => self.emit(OpCode::Sub, expr.loc),
-      BinaryOperator::Mul => self.emit(OpCode::Mul, expr.loc),
-      BinaryOperator::Div => self.emit(OpCode::Div, expr.loc),
-      BinaryOperator::Mod => self.emit(OpCode::Mod, expr.loc),
+      BinaryOperator::Equal => self.emit(Opcode::Equal, expr.loc),
+      BinaryOperator::NotEq => self.emit(Opcode::NotEqual, expr.loc),
+      BinaryOperator::Less => self.emit(Opcode::Less, expr.loc),
+      BinaryOperator::LessEq => self.emit(Opcode::LessEqual, expr.loc),
+      BinaryOperator::Greater => self.emit(Opcode::Greater, expr.loc),
+      BinaryOperator::GreaterEq => self.emit(Opcode::GreaterEqual, expr.loc),
+      BinaryOperator::Add => self.emit(Opcode::Add, expr.loc),
+      BinaryOperator::Sub => self.emit(Opcode::Sub, expr.loc),
+      BinaryOperator::Mul => self.emit(Opcode::Mul, expr.loc),
+      BinaryOperator::Div => self.emit(Opcode::Div, expr.loc),
+      BinaryOperator::Mod => self.emit(Opcode::Rem, expr.loc),
     }
   }
 
@@ -365,14 +365,14 @@ impl BytecodeGenerator {
     self.emit_expr(*expr.left);
     let short_circuit = self.emit_noop(expr.loc);
     self.emit_expr(*expr.right);
-    self.patch_inst(short_circuit, OpCode::And);
+    self.patch_inst(short_circuit, Opcode::And);
   }
 
   fn or_expr(&mut self, expr: OrExpression) {
     self.emit_expr(*expr.left);
     let short_circuit = self.emit_noop(expr.loc);
     self.emit_expr(*expr.right);
-    self.patch_inst(short_circuit, OpCode::Or);
+    self.patch_inst(short_circuit, Opcode::Or);
   }
 
   fn group_expr(&mut self, expr: GroupExpression) {
@@ -382,8 +382,8 @@ impl BytecodeGenerator {
   fn ident_expr(&mut self, expr: IdentExpression) {
     if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc.clone()) {
       let get = match lookup.kind {
-        LookupKind::Local => OpCode::LookupLocal(lookup.index),
-        LookupKind::Global => OpCode::LookupGlobal(self.declare_global(expr.ident)),
+        LookupKind::Local => Opcode::LookupLocal(lookup.index),
+        LookupKind::Global => Opcode::LookupGlobal(self.declare_global(expr.ident)),
       };
 
       self.emit(get, expr.loc);
@@ -394,10 +394,10 @@ impl BytecodeGenerator {
     let mut op_assign = |expr: AssignExpression, op| {
       if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc.clone()) {
         let (set, get) = match lookup.kind {
-          LookupKind::Local => (OpCode::AssignLocal(lookup.index), OpCode::LookupLocal(lookup.index)),
+          LookupKind::Local => (Opcode::AssignLocal(lookup.index), Opcode::LookupLocal(lookup.index)),
           LookupKind::Global => {
             let global_index = self.declare_global(expr.ident);
-            (OpCode::AssignGlobal(global_index), OpCode::LookupGlobal(global_index))
+            (Opcode::AssignGlobal(global_index), Opcode::LookupGlobal(global_index))
           }
         };
 
@@ -414,8 +414,8 @@ impl BytecodeGenerator {
       AssignOperator::Assign => {
         if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc.clone()) {
           let set = match lookup.kind {
-            LookupKind::Local => OpCode::AssignLocal(lookup.index),
-            LookupKind::Global => OpCode::AssignGlobal(self.declare_global(expr.ident)),
+            LookupKind::Local => Opcode::AssignLocal(lookup.index),
+            LookupKind::Global => Opcode::AssignGlobal(self.declare_global(expr.ident)),
           };
 
           self.emit_expr(*expr.value);
@@ -423,11 +423,11 @@ impl BytecodeGenerator {
           self.emit(set, expr.loc);
         }
       }
-      AssignOperator::Add => op_assign(expr, OpCode::Add),
-      AssignOperator::Sub => op_assign(expr, OpCode::Sub),
-      AssignOperator::Mul => op_assign(expr, OpCode::Mul),
-      AssignOperator::Div => op_assign(expr, OpCode::Div),
-      AssignOperator::Mod => op_assign(expr, OpCode::Mod),
+      AssignOperator::Add => op_assign(expr, Opcode::Add),
+      AssignOperator::Sub => op_assign(expr, Opcode::Sub),
+      AssignOperator::Mul => op_assign(expr, Opcode::Mul),
+      AssignOperator::Div => op_assign(expr, Opcode::Div),
+      AssignOperator::Mod => op_assign(expr, Opcode::Rem),
     }
   }
 
@@ -439,7 +439,7 @@ impl BytecodeGenerator {
     }
 
     self.emit_expr(*expr.callable);
-    self.emit(OpCode::Call(arg_count), expr.loc);
+    self.emit(Opcode::Call(arg_count), expr.loc);
   }
 
   fn list_expr(&mut self, expr: ListExpression) {
@@ -447,13 +447,15 @@ impl BytecodeGenerator {
     for item in expr.items {
       self.emit_expr(item);
     }
-    self.emit(OpCode::CreateList(num_items), expr.loc);
+    self.emit(Opcode::CreateList(num_items), expr.loc);
   }
 
   fn index_expr(&mut self, expr: IndexExpression) {
-    self.emit_expr(*expr.indexable);
+    let ident = self.add_const_ident(Ident::new(ops::INDEX));
     self.emit_expr(*expr.index);
-    self.emit(OpCode::Index, expr.loc);
+    self.emit_expr(*expr.indexable);
+    self.emit(Opcode::LookupMember(ident), expr.loc.clone());
+    self.emit(Opcode::Call(1), expr.loc);
   }
 
   fn struct_expr(&mut self, expr: StructExpression) {
@@ -461,7 +463,7 @@ impl BytecodeGenerator {
     for (member, assign) in expr.members {
       let ident = self.add_const_ident(member);
       self.emit_expr(assign);
-      self.emit(OpCode::InitializeMember(ident), expr.loc.clone());
+      self.emit(Opcode::InitializeMember(ident), expr.loc.clone());
     }
   }
 
@@ -481,13 +483,13 @@ impl BytecodeGenerator {
         self.emit_expr(assign);
       }
 
-      self.emit(OpCode::CreateList(params.len()), expr.loc.clone());
+      self.emit(Opcode::CreateList(params.len()), expr.loc.clone());
 
       params.extend(expr.params);
 
       self.emit_fn(ContextName::Closure, params, *expr.body, expr.loc.clone());
 
-      self.emit(OpCode::CreateClosure, expr.loc);
+      self.emit(Opcode::CreateClosure, expr.loc);
     }
   }
 
@@ -498,17 +500,17 @@ impl BytecodeGenerator {
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
     let ident = self.add_const_ident(expr.ident);
     self.emit_expr(*expr.obj);
-    self.emit(OpCode::LookupMember(ident), expr.loc);
+    self.emit(Opcode::LookupMember(ident), expr.loc);
   }
 
   fn member_assign_expr(&mut self, expr: MemberAssignExpression) {
     let mut op_assign = |expr: MemberAssignExpression, op| {
       let ident = self.add_const_ident(expr.ident);
       self.emit_expr(*expr.obj);
-      self.emit(OpCode::PeekMember(ident), expr.loc.clone());
+      self.emit(Opcode::PeekMember(ident), expr.loc.clone());
       self.emit_expr(*expr.value);
       self.emit(op, expr.loc.clone());
-      self.emit(OpCode::AssignMember(ident), expr.loc);
+      self.emit(Opcode::AssignMember(ident), expr.loc);
     };
 
     match expr.op {
@@ -516,19 +518,19 @@ impl BytecodeGenerator {
         let ident = self.add_const_ident(expr.ident);
         self.emit_expr(*expr.obj);
         self.emit_expr(*expr.value);
-        self.emit(OpCode::AssignMember(ident), expr.loc);
+        self.emit(Opcode::AssignMember(ident), expr.loc);
       }
-      AssignOperator::Add => op_assign(expr, OpCode::Add),
-      AssignOperator::Sub => op_assign(expr, OpCode::Sub),
-      AssignOperator::Mul => op_assign(expr, OpCode::Mul),
-      AssignOperator::Div => op_assign(expr, OpCode::Div),
-      AssignOperator::Mod => op_assign(expr, OpCode::Mod),
+      AssignOperator::Add => op_assign(expr, Opcode::Add),
+      AssignOperator::Sub => op_assign(expr, Opcode::Sub),
+      AssignOperator::Mul => op_assign(expr, Opcode::Mul),
+      AssignOperator::Div => op_assign(expr, Opcode::Div),
+      AssignOperator::Mod => op_assign(expr, Opcode::Rem),
     }
   }
 
   /* Utility Functions */
 
-  fn emit(&mut self, op: OpCode, loc: SourceLocation) {
+  fn emit(&mut self, op: Opcode, loc: SourceLocation) {
     self.current_ctx().write(op, loc.line, loc.column);
   }
 
@@ -618,7 +620,7 @@ impl BytecodeGenerator {
 
   fn emit_loop(&mut self, start: usize, loc: SourceLocation) {
     let loop_back = self.current_instruction_count() - start;
-    self.emit(OpCode::Loop(loop_back), loc);
+    self.emit(Opcode::Loop(loop_back), loc);
   }
 
   fn emit_const(&mut self, c: Value, loc: SourceLocation) {
@@ -630,11 +632,11 @@ impl BytecodeGenerator {
    */
   fn emit_noop(&mut self, loc: SourceLocation) -> usize {
     let offset = self.current_ctx().num_instructions();
-    self.emit(OpCode::NoOp, loc);
+    self.emit(Opcode::NoOp, loc);
     offset
   }
 
-  fn patch_inst<F: FnOnce(usize) -> OpCode>(&mut self, index: usize, f: F) -> bool {
+  fn patch_inst<F: FnOnce(usize) -> Opcode>(&mut self, index: usize, f: F) -> bool {
     let offset = self.current_ctx().num_instructions() - index;
     let opcode = f(offset);
     self.current_ctx().replace_instruction(index, opcode)
@@ -642,7 +644,7 @@ impl BytecodeGenerator {
 
   fn patch_jumps(&mut self, breaks: Vec<usize>) {
     for br in breaks {
-      if !self.patch_inst(br, OpCode::Jump) {
+      if !self.patch_inst(br, Opcode::Jump) {
         break;
       }
     }
@@ -732,7 +734,7 @@ impl BytecodeGenerator {
   }
 
   fn define_global(&mut self, var: usize, loc: SourceLocation) {
-    self.emit(OpCode::DefineGlobal(var), loc);
+    self.emit(Opcode::DefineGlobal(var), loc);
   }
 
   fn define_local(&mut self) -> bool {
@@ -745,11 +747,11 @@ impl BytecodeGenerator {
   }
 
   fn define_function(&mut self, var: usize, loc: SourceLocation) {
-    self.emit(OpCode::ForceAssignGlobal(var), loc);
+    self.emit(Opcode::ForceAssignGlobal(var), loc);
   }
 
   fn define_class(&mut self, var: usize, loc: SourceLocation) {
-    self.emit(OpCode::ForceAssignGlobal(var), loc);
+    self.emit(Opcode::ForceAssignGlobal(var), loc);
   }
 
   /**
@@ -804,7 +806,7 @@ impl BytecodeGenerator {
     self.locals.truncate(self.locals.len().saturating_sub(count));
 
     if count > 0 {
-      self.emit(OpCode::PopN(count), loc);
+      self.emit(Opcode::PopN(count), loc);
     }
   }
 
@@ -877,7 +879,7 @@ impl BytecodeGenerator {
 
       let num_locals = this.num_locals_in_depth(this.scope_depth);
       if num_locals != 0 {
-        this.emit(OpCode::PopN(num_locals), loc);
+        this.emit(Opcode::PopN(num_locals), loc);
       }
 
       let local_count = this.locals.len();

@@ -1,5 +1,7 @@
+use itertools::Itertools;
+
 use super::{Args, InstanceValue, Usertype, UsertypeId, Value};
-use crate::{Env, ExecutionThread, NativeClass, StructValue};
+use crate::{ArrayValue, Env, ExecutionThread, NativeClassBuilder, StructValue};
 use std::collections::BTreeMap;
 
 pub struct ClassValue {
@@ -19,7 +21,7 @@ impl ClassValue {
     }
   }
 
-  pub fn call_constructor(mut class_value: Value, thread: &mut ExecutionThread, env: &mut Env, mut args: Args) {
+  pub fn construct(mut class_value: Value, thread: &mut ExecutionThread, env: &mut Env, mut args: Args) {
     let class_clone = class_value.clone();
     if let Ok(class) = class_value.as_class_mut() {
       let instance = Value::from(InstanceValue::new(StructValue::default(), class_clone));
@@ -53,16 +55,16 @@ impl ClassValue {
     self.initializer = Some(Value::new_native_closure(format!("{}()", self.name), f));
   }
 
-  pub fn get_method<N: AsRef<str>>(&self, name: N) -> Value {
-    self.methods.get(name.as_ref()).cloned().unwrap_or_default()
+  pub fn get_method(&self, name: &str) -> Value {
+    self.methods.get(name).cloned().unwrap_or_default()
   }
 
   pub fn set_method<N: ToString>(&mut self, name: N, value: Value) {
     self.methods.insert(name.to_string(), value);
   }
 
-  pub fn get_static<N: AsRef<str>>(&self, name: N) -> Value {
-    self.static_members.get(name.as_ref()).cloned().unwrap_or_default()
+  pub fn get_static(&self, name: &str) -> Value {
+    self.static_members.get(name).cloned().unwrap_or_default()
   }
 
   pub fn set_static<N: ToString>(&mut self, name: N, value: Value) {
@@ -73,19 +75,13 @@ impl ClassValue {
 impl Usertype for ClassValue {
   const ID: UsertypeId = "Class";
 
-  fn register(class: &mut NativeClass) {
-    class.define_any_setter(|this, name, value| {
-      if let Ok(this) = this.as_class() {
-        this.set_static(name, value.clone());
-      }
+  fn register(class: &mut NativeClassBuilder<Self>) {
+    class.add_getter("methods", |this| {
+      ArrayValue::new_from_vec(this.methods.keys().map(|s| Value::from(s)).collect_vec()).into()
     });
 
-    class.define_any_getter(|this, name| {
-      if let Ok(this) = this.as_class() {
-        this.get_static(name)
-      } else {
-        Value::nil
-      }
+    class.add_getter("statics", |this| {
+      ArrayValue::new_from_vec(this.static_members.keys().map(|s| Value::from(s)).collect_vec()).into()
     });
   }
 

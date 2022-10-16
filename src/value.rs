@@ -16,7 +16,7 @@ mod tags;
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, Assign, Usertype, UsertypeId, Value};
+  pub use super::{builtin_types::*, Assign, Tag, Usertype, UsertypeId, Value};
 }
 
 type ConstVoid = *const ();
@@ -411,7 +411,7 @@ impl Value {
     }
   }
 
-  pub fn as_native_class_mut(&self) -> ConversionResult<&mut NativeClass> {
+  pub fn as_native_class_mut(&mut self) -> ConversionResult<&mut NativeClass> {
     if self.tag() == Tag::NativeClass {
       Ok(self.as_native_class_mut_unchecked())
     } else {
@@ -467,52 +467,12 @@ impl Value {
 
   // ComplexValue Methods
 
-  pub fn set(&mut self, name: &str, value: Value) -> Value {
-    (self.vtable().set)(self.pointer_mut(), name, value)
-  }
-
-  pub fn get(&self, name: &str) -> Value {
-    (self.vtable().get)(self.pointer(), name)
-  }
-
-  pub fn index(&self, index: Value) -> Value {
-    (self.vtable().index)(self.pointer(), index)
-  }
-
-  fn add_impl(&self, other: Value) -> Value {
-    (self.vtable().add)(self.pointer(), other)
-  }
-
-  fn sub_impl(&self, other: Value) -> Value {
-    (self.vtable().sub)(self.pointer(), other)
-  }
-
-  fn mul_impl(&self, other: Value) -> Value {
-    (self.vtable().mul)(self.pointer(), other)
-  }
-
-  fn div_impl(&self, other: Value) -> Value {
-    (self.vtable().div)(self.pointer(), other)
-  }
-
-  fn rem_impl(&self, other: Value) -> Value {
-    (self.vtable().rem)(self.pointer(), other)
-  }
-
-  fn neg_impl(&self) -> Value {
-    (self.vtable().neg)(self.pointer())
-  }
-
-  fn not_impl(&self) -> Value {
-    (self.vtable().not)(self.pointer())
-  }
-
-  fn eq_impl(&self, other: &Value) -> bool {
-    (self.vtable().eq)(self.pointer(), other)
-  }
-
-  fn cmp_impl(&self, other: &Value) -> Option<Ordering> {
-    (self.vtable().cmp)(self.pointer(), other)
+  pub fn class(&self, env: &Env) -> Value {
+    if self.is_ptr() {
+      (self.vtable().class)(env)
+    } else {
+      env.lookup(Primitive::ID).unwrap_or_default()
+    }
   }
 
   pub fn stringify(&self) -> String {
@@ -585,12 +545,12 @@ impl Value {
     unsafe { &mut *(self.pointer_mut() as *mut T) }
   }
 
-  fn allocate<T>(item: T) -> &'static mut T {
-    unsafe { &mut *(Box::into_raw(Box::new(item))) }
+  fn allocate<T>(item: T) -> *mut T {
+    Box::into_raw(Box::new(item))
   }
 
   fn allocate_usertype<T: Usertype>(item: T) -> Self {
-    let allocated = Self::allocate(AllocatedObject::new(item));
+    let allocated = unsafe { &mut *Self::allocate(AllocatedObject::new(item)) };
 
     let ptr = &mut allocated.obj as *mut T as MutVoid;
     debug_assert_eq!(allocated as *const _ as *const (), &allocated.meta as *const _ as *const ());
@@ -684,15 +644,21 @@ impl From<String> for Value {
   }
 }
 
+impl From<&String> for Value {
+  fn from(item: &String) -> Self {
+    Value::allocate_usertype::<StringValue>(item.clone().into())
+  }
+}
+
 impl From<&[Value]> for Value {
   fn from(array: &[Value]) -> Self {
-    Value::allocate_usertype::<ArrayValue>(array.into())
+    Value::allocate_usertype(ArrayValue::new_from_slice(array))
   }
 }
 
 impl From<Vec<Value>> for Value {
   fn from(vec: Vec<Value>) -> Self {
-    Value::allocate_usertype::<ArrayValue>(vec.into())
+    Value::allocate_usertype(ArrayValue::new_from_vec(vec))
   }
 }
 
@@ -781,9 +747,7 @@ impl Debug for Value {
 
 impl PartialEq for Value {
   fn eq(&self, other: &Self) -> bool {
-    if self.is_ptr() {
-      self.eq_impl(other)
-    } else if self.tag() == other.tag() {
+    if self.tag() == other.tag() {
       self.bits == other.bits
     } else {
       match self.tag() {
@@ -826,7 +790,6 @@ impl PartialOrd for Value {
           _ => None,
         }
       }
-      Tag::Pointer => self.cmp_impl(other),
       _ => None,
     }
   }
@@ -868,7 +831,6 @@ impl Add for Value {
           _ => Self::new_err(format!("could not coalesce {} to char", rhs)),
         }
       }
-      Tag::Pointer => self.add_impl(rhs),
       _ => Self::new_err(format!("add not implemented for {}", self)),
     }
   }
@@ -910,7 +872,6 @@ impl Sub for Value {
           _ => Self::new_err(format!("could not coalesce {} to char", rhs)),
         }
       }
-      Tag::Pointer => self.sub_impl(rhs),
       _ => Self::new_err(format!("sub not implemented for {}", self)),
     }
   }
@@ -952,7 +913,6 @@ impl Mul for Value {
           _ => Self::new_err(format!("could not coalesce {} to char", rhs)),
         }
       }
-      Tag::Pointer => self.mul_impl(rhs),
       _ => Self::new_err(format!("mul not implemented for {}", self)),
     }
   }
@@ -961,6 +921,7 @@ impl Mul for Value {
 impl Div for Value {
   type Output = Self;
 
+  // TODO if is infinity, set to reserved INF value
   fn div(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
@@ -994,7 +955,6 @@ impl Div for Value {
           _ => Self::new_err(format!("could not coalesce {} to char", rhs)),
         }
       }
-      Tag::Pointer => self.div_impl(rhs),
       _ => Self::new_err(format!("div not implemented for {}", self)),
     }
   }
@@ -1036,7 +996,6 @@ impl Rem for Value {
           _ => Self::new_err(format!("could not coalesce {} to char", rhs)),
         }
       }
-      Tag::Pointer => self.rem_impl(rhs),
       _ => Self::new_err(format!("rem not implemented for {}", self)),
     }
   }
@@ -1049,7 +1008,6 @@ impl Neg for Value {
     match self.tag() {
       Tag::F64 => Value::from(-self.as_f64_unchecked()),
       Tag::I32 => Value::from(-self.as_i32_unchecked()),
-      Tag::Pointer => self.neg_impl(),
       _ => Self::new_err(format!("- not implemented for {}", self)),
     }
   }
@@ -1059,11 +1017,7 @@ impl Not for Value {
   type Output = Self;
 
   fn not(self) -> Self::Output {
-    if self.is_ptr() {
-      self.not_impl()
-    } else {
-      Value::from(!self.truthy())
-    }
+    Value::from(!self.truthy())
   }
 }
 

@@ -8,7 +8,7 @@ mod test;
 
 pub use code::Context;
 pub use code::Env;
-use code::{Compiler, OpCode, OpCodeReflection, StackFrame, Yield};
+use code::{Compiler, OpCodeReflection, Opcode, StackFrame, Yield};
 
 use dbg::RuntimeError;
 use ptr::SmartPtr;
@@ -53,7 +53,7 @@ impl ExecutionThread {
     self.stack_frames = Default::default();
   }
 
-  fn unary_op<F>(&mut self, opcode: &OpCode, f: F) -> ExecResult
+  fn unary_op<F>(&mut self, opcode: &Opcode, f: F) -> ExecResult
   where
     F: FnOnce(&mut Self, Value),
   {
@@ -65,14 +65,41 @@ impl ExecutionThread {
     }
   }
 
-  fn binary_op<F>(&mut self, opcode: &OpCode, f: F) -> ExecResult
+  fn binary_op<F>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult
   where
     F: FnOnce(&mut Self, Value, Value),
   {
     if let Some(bv) = self.stack_pop() {
       if let Some(av) = self.stack_pop() {
-        f(self, av, bv);
-        Ok(())
+        if av.is_ptr() {
+          let args = vec![bv];
+          let callable = if let Ok(class) = av.class(env).as_native_class() {
+            class.get_for_instance(
+              &av,
+              match opcode {
+                Opcode::Add => ops::ADD,
+                Opcode::Sub => ops::SUB,
+                Opcode::Mul => ops::MUL,
+                Opcode::Div => ops::DIV,
+                Opcode::Rem => ops::REM,
+                Opcode::Equal => ops::EQUALITY,
+                Opcode::NotEqual => ops::NOT_EQUAL,
+                Opcode::Less => ops::LESS,
+                Opcode::LessEqual => ops::LESS_EQUAL,
+                Opcode::Greater => ops::GREATER,
+                Opcode::GreaterEqual => ops::GREATER_EQUAL,
+                op => Err(self.error(opcode, format!("invalid binary operation {:?}", op)))?,
+              },
+            )
+          } else {
+            Err(self.error(opcode, format!("unable to call operator {:?} for {}", opcode, av)))?
+          };
+          self.current_frame.last_lookup = av;
+          self.call_value(env, opcode, callable, args)
+        } else {
+          f(self, av, bv);
+          Ok(())
+        }
       } else {
         Err(self.error(opcode, String::from("cannot operate on empty stack")))
       }
@@ -81,7 +108,7 @@ impl ExecutionThread {
     }
   }
 
-  fn global_op<F>(&mut self, opcode: &OpCode, index: usize, f: F) -> ExecResult
+  fn global_op<F>(&mut self, opcode: &Opcode, index: usize, f: F) -> ExecResult
   where
     F: FnOnce(&mut Self, String) -> ExecResult,
   {
@@ -99,7 +126,7 @@ impl ExecutionThread {
   }
 
   #[cold]
-  fn error<M: ToString>(&self, opcode: &OpCode, msg: M) -> Vec<RuntimeError> {
+  fn error<M: ToString>(&self, opcode: &Opcode, msg: M) -> Vec<RuntimeError> {
     vec![self.error_at(|opcode_ref| RuntimeError::from_ref(msg, opcode, opcode_ref))]
   }
 
@@ -134,82 +161,81 @@ impl ExecutionThread {
         }
 
         match opcode {
-          OpCode::NoOp => self.exec_noop()?,
-          OpCode::Const(index) => self.exec_const(&opcode, index)?,
-          OpCode::Nil => self.exec_nil(),
-          OpCode::True => self.exec_true(),
-          OpCode::False => self.exec_false(),
-          OpCode::Pop => self.exec_pop(),
-          OpCode::PopN(count) => self.exec_pop_n(count),
-          OpCode::ForceAssignGlobal(index) => self.exec_force_assign_global(env, &opcode, index)?,
-          OpCode::DefineGlobal(index) => self.exec_define_global(env, &opcode, index)?,
-          OpCode::LookupGlobal(index) => self.exec_lookup_global(env, &opcode, index)?,
-          OpCode::AssignGlobal(index) => self.exec_assign_global(env, &opcode, index)?,
-          OpCode::LookupLocal(index) => self.exec_lookup_local(&opcode, index)?,
-          OpCode::AssignLocal(index) => self.exec_assign_local(&opcode, index)?,
-          OpCode::InitializeMember(index) => self.exec_initialize_member(&opcode, index)?,
-          OpCode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
-          OpCode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
-          OpCode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
-          OpCode::Equal => self.exec_equal(&opcode)?,
-          OpCode::NotEqual => self.exec_not_equal(&opcode)?,
-          OpCode::Greater => self.exec_greater(&opcode)?,
-          OpCode::GreaterEqual => self.exec_greater_equal(&opcode)?,
-          OpCode::Less => self.exec_less(&opcode)?,
-          OpCode::LessEqual => self.exec_less_equal(&opcode)?,
-          OpCode::Check => self.exec_check(&opcode)?,
-          OpCode::Add => self.exec_add(&opcode)?,
-          OpCode::Sub => self.exec_sub(&opcode)?,
-          OpCode::Mul => self.exec_mul(&opcode)?,
-          OpCode::Div => self.exec_div(&opcode)?,
-          OpCode::Mod => self.exec_mod(&opcode)?,
-          OpCode::Or(count) => {
+          Opcode::NoOp => self.exec_noop()?,
+          Opcode::Const(index) => self.exec_const(&opcode, index)?,
+          Opcode::Nil => self.exec_nil(),
+          Opcode::True => self.exec_true(),
+          Opcode::False => self.exec_false(),
+          Opcode::Pop => self.exec_pop(),
+          Opcode::PopN(count) => self.exec_pop_n(count),
+          Opcode::ForceAssignGlobal(index) => self.exec_force_assign_global(env, &opcode, index)?,
+          Opcode::DefineGlobal(index) => self.exec_define_global(env, &opcode, index)?,
+          Opcode::LookupGlobal(index) => self.exec_lookup_global(env, &opcode, index)?,
+          Opcode::AssignGlobal(index) => self.exec_assign_global(env, &opcode, index)?,
+          Opcode::LookupLocal(index) => self.exec_lookup_local(&opcode, index)?,
+          Opcode::AssignLocal(index) => self.exec_assign_local(&opcode, index)?,
+          Opcode::InitializeMember(index) => self.exec_initialize_member(&opcode, index)?,
+          Opcode::AssignMember(index) => self.exec_assign_member(env, &opcode, index)?,
+          Opcode::LookupMember(index) => self.exec_lookup_member(env, &opcode, index)?,
+          Opcode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
+          Opcode::Equal => self.exec_equal(env, &opcode)?,
+          Opcode::NotEqual => self.exec_not_equal(env, &opcode)?,
+          Opcode::Greater => self.exec_greater(env, &opcode)?,
+          Opcode::GreaterEqual => self.exec_greater_equal(env, &opcode)?,
+          Opcode::Less => self.exec_less(env, &opcode)?,
+          Opcode::LessEqual => self.exec_less_equal(env, &opcode)?,
+          Opcode::Check => self.exec_check(&opcode)?,
+          Opcode::Add => self.exec_add(env, &opcode)?,
+          Opcode::Sub => self.exec_sub(env, &opcode)?,
+          Opcode::Mul => self.exec_mul(env, &opcode)?,
+          Opcode::Div => self.exec_div(env, &opcode)?,
+          Opcode::Rem => self.exec_rem(env, &opcode)?,
+          Opcode::Or(count) => {
             if self.exec_or(&opcode, count)? {
               continue;
             }
           }
-          OpCode::And(count) => {
+          Opcode::And(count) => {
             if self.exec_and(&opcode, count)? {
               continue;
             }
           }
-          OpCode::Not => self.exec_not(&opcode)?,
-          OpCode::Negate => self.exec_negate(&opcode)?,
-          OpCode::Print => self.exec_print(&opcode)?,
-          OpCode::Jump(count) => {
+          Opcode::Not => self.exec_not(&opcode)?,
+          Opcode::Negate => self.exec_negate(&opcode)?,
+          Opcode::Print => self.exec_print(&opcode)?,
+          Opcode::Jump(count) => {
             self.jump(count);
             continue;
           }
-          OpCode::JumpIfFalse(count) => {
+          Opcode::JumpIfFalse(count) => {
             if self.exec_jump_if_false(&opcode, count)? {
               continue;
             }
           }
-          OpCode::Loop(count) => {
+          Opcode::Loop(count) => {
             self.loop_back(count);
             continue;
           }
-          OpCode::Call(airity) => {
+          Opcode::Call(airity) => {
             self.current_frame.ip += 1;
             self.exec_call(env, &opcode, airity)?;
             continue;
           }
-          OpCode::Ret => {
+          Opcode::Ret => {
             break;
           }
-          OpCode::RetValue => {
+          Opcode::RetValue => {
             returned_value = true;
             break;
           }
-          OpCode::Req => {
+          Opcode::Req => {
             self.current_frame.ip += 1;
             self.exec_req(env, &opcode)?;
             continue;
           }
-          OpCode::Index => self.exec_index(env, &opcode)?,
-          OpCode::CreateList(num_items) => self.exec_create_list(num_items),
-          OpCode::CreateClosure => self.exec_create_closure(&opcode)?,
-          OpCode::Yield => {
+          Opcode::CreateList(num_items) => self.exec_create_list(num_items),
+          Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
+          Opcode::Yield => {
             self.current_frame.ip += 1;
 
             let current_frame = self.current_frame.clear_out();
@@ -265,11 +291,11 @@ impl ExecutionThread {
 
   #[inline]
   fn exec_noop(&self) -> ExecResult {
-    Err(self.error(&OpCode::NoOp, String::from("executed noop opcode, should not happen")))
+    Err(self.error(&Opcode::NoOp, String::from("executed noop opcode, should not happen")))
   }
 
   #[inline]
-  fn exec_const(&mut self, opcode: &OpCode, index: usize) -> ExecResult {
+  fn exec_const(&mut self, opcode: &Opcode, index: usize) -> ExecResult {
     let value = if let Some(c) = self.current_frame.ctx.const_at(index) {
       Ok(c.clone())
     } else {
@@ -306,7 +332,7 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_lookup_local(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_lookup_local(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(local) = self.stack_index(location) {
       self.stack_push(local);
       Ok(())
@@ -316,7 +342,7 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_assign_local(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_assign_local(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_peek() {
       self.stack_assign(location, value);
       Ok(())
@@ -326,7 +352,7 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_lookup_global(&mut self, env: &Env, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_lookup_global(&mut self, env: &Env, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(global) = env.lookup(&name) {
         this.stack_push(global);
@@ -338,7 +364,7 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_force_assign_global(&mut self, env: &mut Env, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_force_assign_global(&mut self, env: &mut Env, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       // used with functions & classes only, so pop
       if let Some(v) = this.stack_pop() {
@@ -351,7 +377,7 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_define_global(&mut self, env: &mut Env, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_define_global(&mut self, env: &mut Env, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(v) = this.stack_peek() {
         if env.define(name, v) {
@@ -366,7 +392,7 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_assign_global(&mut self, env: &mut Env, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_assign_global(&mut self, env: &mut Env, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(v) = this.stack_peek() {
         if env.assign(name, v) {
@@ -381,13 +407,20 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_initialize_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_initialize_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let Ok(name) = name.as_str() {
-            obj.set(name, value);
-            Ok(())
+            if let Ok(obj) = obj.as_struct_mut() {
+              obj.set(name, value);
+              Ok(())
+            } else if let Ok(obj) = obj.as_instance_mut() {
+              obj.set(name, value);
+              Ok(())
+            } else {
+              Err(self.error(opcode, String::from("invalid type for member initialization")))
+            }
           } else {
             Err(self.error(opcode, String::from("invalid name for member")))
           }
@@ -403,13 +436,30 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_assign_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_assign_member(&mut self, env: &Env, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_pop() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let Ok(name) = name.as_str() {
-            self.stack_push(obj.set(name, value));
-            Ok(())
+            if let Ok(obj) = obj.as_struct_mut() {
+              obj.set(name, value.clone());
+              self.stack_push(value);
+              Ok(())
+            } else if let Ok(obj) = obj.as_instance_mut() {
+              obj.set(name, value.clone());
+              self.stack_push(value);
+              Ok(())
+            } else if obj.is_ptr() {
+              if let Ok(class) = obj.class(env).as_native_class() {
+                class.set_for_instance(&mut obj, name, value.clone());
+                self.stack_push(value);
+                Ok(())
+              } else {
+                Err(self.error(opcode, format!("object '{}' class is not a class: {}", obj, obj.class(env))))
+              }
+            } else {
+              Err(self.error(opcode, String::from("invalid type for member assignment")))
+            }
           } else {
             Err(self.error(opcode, String::from("constant at index is not an identifier")))
           }
@@ -425,14 +475,33 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_lookup_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
-    if let Some(obj) = self.stack_pop() {
+  fn exec_lookup_member(&mut self, env: &Env, opcode: &Opcode, location: usize) -> ExecResult {
+    if let Some(mut obj) = self.stack_pop() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let Ok(name) = name.as_str() {
-          if obj.is_ptr() {
-            self.stack_push(obj.get(name));
-            self.current_frame.last_lookup = obj;
+          self.current_frame.last_lookup = obj.clone();
+          if let Ok(s) = obj.as_struct() {
+            self.stack_push(s.get(name));
             Ok(())
+          } else if let Ok(i) = obj.as_instance() {
+            self.stack_push(i.get(name));
+            Ok(())
+          } else if let Ok(c) = obj.as_class() {
+            self.stack_push(c.get_static(name));
+            Ok(())
+          } else if let Ok(c) = obj.as_native_class() {
+            self.stack_push(c.get_static(name));
+            Ok(())
+          } else if obj.is_ptr() {
+            if let Ok(class) = obj.class(env).as_class() {
+              self.stack_push(class.get_method(name));
+              Ok(())
+            } else if let Ok(class) = obj.class(env).as_native_class() {
+              self.stack_push(class.get_for_instance(&mut obj, name));
+              Ok(())
+            } else {
+              Err(self.error(opcode, format!("object class is not a class {}", obj.class(env))))
+            }
           } else {
             Err(self.error(opcode, format!("cannot access member of primitive {}", obj)))
           }
@@ -448,11 +517,14 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_peek_member(&mut self, opcode: &OpCode, location: usize) -> ExecResult {
+  fn exec_peek_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(obj) = self.stack_peek() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let Ok(name) = name.as_str() {
-          if obj.is_ptr() {
+          if let Ok(obj) = obj.as_struct() {
+            self.stack_push(obj.get(name));
+            Ok(())
+          } else if let Ok(obj) = obj.as_instance() {
             self.stack_push(obj.get(name));
             Ok(())
           } else {
@@ -470,44 +542,44 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: &OpCode, f: F) -> ExecResult {
-    self.binary_op(opcode, |this, a, b| {
+  fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult {
+    self.binary_op(env, opcode, |this, a, b| {
       this.stack_push(Value::from(f(a, b)));
     })
   }
 
   #[inline]
-  fn exec_equal(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_bool(opcode, |a, b| a == b)
+  fn exec_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(env, opcode, |a, b| a == b)
   }
 
   #[inline]
-  fn exec_not_equal(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_bool(opcode, |a, b| a != b)
+  fn exec_not_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(env, opcode, |a, b| a != b)
   }
 
   #[inline]
-  fn exec_greater(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_bool(opcode, |a, b| a > b)
+  fn exec_greater(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(env, opcode, |a, b| a > b)
   }
 
   #[inline]
-  fn exec_greater_equal(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_bool(opcode, |a, b| a >= b)
+  fn exec_greater_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(env, opcode, |a, b| a >= b)
   }
 
   #[inline]
-  fn exec_less(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_bool(opcode, |a, b| a < b)
+  fn exec_less(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(env, opcode, |a, b| a < b)
   }
 
   #[inline]
-  fn exec_less_equal(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_bool(opcode, |a, b| a <= b)
+  fn exec_less_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(env, opcode, |a, b| a <= b)
   }
 
   #[inline]
-  fn exec_check(&mut self, opcode: &OpCode) -> ExecResult {
+  fn exec_check(&mut self, opcode: &Opcode) -> ExecResult {
     match self.stack_pop() {
       Some(a) => match self.stack_peek() {
         Some(b) => {
@@ -521,40 +593,40 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_arith<F: FnOnce(Value, Value) -> Value>(&mut self, opcode: &OpCode, f: F) -> ExecResult {
-    self.binary_op(opcode, |this, a, b| {
+  fn exec_arith<F: FnOnce(Value, Value) -> Value>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult {
+    self.binary_op(env, opcode, |this, a, b| {
       this.stack_push(f(a, b));
     })
   }
 
   #[inline]
-  fn exec_add(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_arith(opcode, |a, b| a + b)
+  fn exec_add(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_arith(env, opcode, |a, b| a + b)
   }
 
   #[inline]
-  fn exec_sub(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_arith(opcode, |a, b| a - b)
+  fn exec_sub(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_arith(env, opcode, |a, b| a - b)
   }
 
   #[inline]
-  fn exec_mul(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_arith(opcode, |a, b| a * b)
+  fn exec_mul(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_arith(env, opcode, |a, b| a * b)
   }
 
   #[inline]
-  fn exec_div(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_arith(opcode, |a, b| a / b)
+  fn exec_div(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_arith(env, opcode, |a, b| a / b)
   }
 
   #[inline]
-  fn exec_mod(&mut self, opcode: &OpCode) -> ExecResult {
-    self.exec_arith(opcode, |a, b| a % b)
+  fn exec_rem(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.exec_arith(env, opcode, |a, b| a % b)
   }
 
   /// when f evaluates to true, short circuit
   #[inline]
-  fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, opcode: &OpCode, offset: usize, f: F) -> ExecBoolResult {
+  fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, opcode: &Opcode, offset: usize, f: F) -> ExecBoolResult {
     match self.stack_peek() {
       Some(v) => {
         if f(v) {
@@ -570,38 +642,38 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_or(&mut self, opcode: &OpCode, offset: usize) -> ExecBoolResult {
+  fn exec_or(&mut self, opcode: &Opcode, offset: usize) -> ExecBoolResult {
     self.exec_logical(opcode, offset, |v| v.truthy())
   }
 
   #[inline]
-  fn exec_and(&mut self, opcode: &OpCode, offset: usize) -> ExecBoolResult {
+  fn exec_and(&mut self, opcode: &Opcode, offset: usize) -> ExecBoolResult {
     self.exec_logical(opcode, offset, |v| v.falsy())
   }
 
   #[inline]
-  fn exec_not(&mut self, opcode: &OpCode) -> ExecResult {
+  fn exec_not(&mut self, opcode: &Opcode) -> ExecResult {
     self.unary_op(opcode, |this, v| {
       this.stack_push(!v);
     })
   }
 
   #[inline]
-  fn exec_negate(&mut self, opcode: &OpCode) -> ExecResult {
+  fn exec_negate(&mut self, opcode: &Opcode) -> ExecResult {
     self.unary_op(opcode, |this, v| {
       this.stack_push(-v);
     })
   }
 
   #[inline]
-  fn exec_print(&mut self, opcode: &OpCode) -> ExecResult {
+  fn exec_print(&mut self, opcode: &Opcode) -> ExecResult {
     self.unary_op(opcode, |_this, v| {
       println!("{}", v);
     })
   }
 
   #[inline]
-  fn exec_jump_if_false(&mut self, opcode: &OpCode, offset: usize) -> ExecBoolResult {
+  fn exec_jump_if_false(&mut self, opcode: &Opcode, offset: usize) -> ExecBoolResult {
     match self.stack_pop() {
       Some(v) => {
         if !v.truthy() {
@@ -616,58 +688,17 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_call(&mut self, env: &mut Env, opcode: &OpCode, airity: usize) -> ExecResult {
-    if let Some(mut callable) = self.stack_pop() {
+  fn exec_call(&mut self, env: &mut Env, opcode: &Opcode, airity: usize) -> ExecResult {
+    if let Some(callable) = self.stack_pop() {
       let args = self.stack_drain_from(airity);
-
-      let res = if let Ok(f) = callable.as_fn() {
-        f.call(self, args);
-        Ok(())
-      } else if let Ok(f) = callable.as_closure() {
-        f.call(self, args);
-        Ok(())
-      } else if let Ok(f) = callable.as_method() {
-        let args = Args::from((self.current_frame.last_lookup.take(), args));
-        f.call(self, args);
-        Ok(())
-      } else if let Ok(f) = callable.as_native_fn() {
-        let v = f(self, env, args.into());
-        self.stack_push(v);
-        Ok(())
-      } else if let Ok(f) = callable.as_native_closure_mut() {
-        let v = f.call(self, env, args.into());
-        self.stack_push(v);
-        Ok(())
-      } else if let Ok(f) = callable.as_native_method_mut() {
-        let args = Args::from((self.current_frame.last_lookup.take(), args));
-        let v = f.call(self, env, args);
-        self.stack_push(v);
-        Ok(())
-      } else if callable.is_class() {
-        ClassValue::call_constructor(callable, self, env, args.into());
-        Ok(())
-      } else {
-        Err(vec![format!("unable to call non callable '{}'", callable)])
-      }
-      .map_err(|errors| {
-        errors
-          .into_iter()
-          .map(|e| self.error_at(|opcode_ref| RuntimeError::from_ref(e, opcode, opcode_ref)))
-          .collect()
-      });
-
-      if cfg!(feature = "runtime-disassembly") {
-        println!("<< entering {} >>", self.current_frame.ctx.display_str());
-      }
-
-      res
+      self.call_value(env, opcode, callable, args)
     } else {
       Err(self.error(opcode, "cannot operate on empty stack"))
     }
   }
 
   #[inline]
-  fn exec_req(&mut self, env: &mut Env, opcode: &OpCode) -> ExecResult {
+  fn exec_req(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       let mut attempts = Vec::with_capacity(10);
 
@@ -774,41 +805,13 @@ impl ExecutionThread {
   }
 
   #[inline]
-  fn exec_index(&mut self, env: &mut Env, opcode: &OpCode) -> ExecResult {
-    if let Some(index) = self.stack_pop() {
-      if let Some(indexable) = self.stack_pop() {
-        if indexable.is_ptr() {
-          if let Ok(instance) = indexable.as_instance() {
-            if let Ok(mut callable) = instance.get("__index__").as_callable() {
-              let args = Args::from((indexable, index));
-              callable.call(self, env, args);
-              Ok(())
-            } else {
-              Err(self.error(opcode, "__index__ unimplemented"))
-            }
-          } else {
-            self.stack_push(indexable.index(index));
-            Ok(())
-          }
-        } else {
-          Err(self.error(opcode, format!("cannot index {}", indexable)))
-        }
-      } else {
-        Err(self.error(opcode, "no item to index"))
-      }
-    } else {
-      Err(self.error(opcode, "no item to use as an index"))
-    }
-  }
-
-  #[inline]
   fn exec_create_list(&mut self, num_items: usize) {
     let list = self.stack_drain_from(num_items);
     self.stack_push(Value::from(list));
   }
 
   #[inline]
-  fn exec_create_closure(&mut self, opcode: &OpCode) -> ExecResult {
+  fn exec_create_closure(&mut self, opcode: &Opcode) -> ExecResult {
     match self.stack_pop() {
       Some(function) => match self.stack_pop() {
         Some(captures) => {
@@ -898,6 +901,55 @@ impl ExecutionThread {
 
   fn loop_back(&mut self, count: usize) {
     self.current_frame.ip = self.current_frame.ip.saturating_sub(count);
+  }
+
+  fn call_value(&mut self, env: &mut Env, opcode: &Opcode, mut callable: Value, args: Vec<Value>) -> ExecResult {
+    let res = if let Ok(f) = callable.as_fn() {
+      f.call(self, args);
+      Ok(())
+    } else if let Ok(f) = callable.as_closure() {
+      f.call(self, args);
+      Ok(())
+    } else if let Ok(f) = callable.as_method() {
+      let args = Args::from((self.current_frame.last_lookup.take(), args));
+      f.call(self, args);
+      Ok(())
+    } else if let Ok(f) = callable.as_native_fn() {
+      let v = f(self, env, args.into());
+      self.stack_push(v);
+      Ok(())
+    } else if let Ok(f) = callable.as_native_closure_mut() {
+      let v = f.call(self, env, args.into());
+      self.stack_push(v);
+      Ok(())
+    } else if let Ok(f) = callable.as_native_method_mut() {
+      let args = Args::from((self.current_frame.last_lookup.take(), args));
+      let v = f.call(self, env, args);
+      self.stack_push(v);
+      Ok(())
+    } else if callable.is_class() {
+      ClassValue::construct(callable, self, env, args.into());
+      Ok(())
+    } else if let Ok(c) = callable.clone().as_native_class() {
+      let args = Args::from((self.current_frame.last_lookup.take(), args));
+      let v = c.construct(callable, self, env, args);
+      self.stack_push(v);
+      Ok(())
+    } else {
+      Err(vec![format!("unable to call non callable '{}'", callable)])
+    }
+    .map_err(|errors| {
+      errors
+        .into_iter()
+        .map(|e| self.error_at(|opcode_ref| RuntimeError::from_ref(e, opcode, opcode_ref)))
+        .collect()
+    });
+
+    if cfg!(feature = "runtime-disassembly") {
+      println!("<< entering {} >>", self.current_frame.ctx.display_str());
+    }
+
+    res
   }
 
   #[cold]

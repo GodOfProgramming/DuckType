@@ -1,4 +1,4 @@
-use simple_script::{Env, Library, RunResult, Vm};
+use simple_script::{ArrayValue, ClassValue, Env, Library, RunResult, StringValue, Vm};
 use std::{env, fs, path::Path, process};
 
 fn main() {
@@ -28,6 +28,10 @@ fn run_file<T: ToString>(mut vm: Vm, file: T, args: &[String]) -> bool {
       Ok(contents) => match vm.load(&file, &contents) {
         Ok(ctx) => {
           let mut env = Env::with_library_support(args, Library::All);
+
+          env.register_usertype::<ArrayValue>().ok();
+          env.register_usertype::<StringValue>().ok();
+          env.register_usertype::<ClassValue>().ok();
 
           let mut yield_result = None;
 

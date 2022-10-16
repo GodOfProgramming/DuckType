@@ -10,7 +10,11 @@ pub struct StructValue {
 }
 
 impl StructValue {
-  pub fn set(&mut self, name: &str, value: Value) {
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  pub fn set(&mut self, name: impl ToString, value: Value) {
     self.members.insert(name.to_string(), value.clone());
   }
 

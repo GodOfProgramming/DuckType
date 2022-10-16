@@ -10,7 +10,7 @@ macro_rules! here {
 #[allow(unused)]
 pub(crate) use here;
 
-use crate::code::{OpCode, OpCodeReflection};
+use crate::code::{OpCodeReflection, Opcode};
 
 pub fn _here(file: &str, line: u32) {
   use std::io::{stdout, Write};
@@ -27,7 +27,7 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
-  pub fn from_ref<M: ToString>(msg: M, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
+  pub fn from_ref<M: ToString>(msg: M, opcode: &Opcode, opcode_ref: OpCodeReflection) -> Self {
     let mut err = Self {
       msg: msg.to_string(),
       file: opcode_ref.file.clone(),

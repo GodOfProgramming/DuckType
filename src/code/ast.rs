@@ -1082,9 +1082,7 @@ impl AstGenerator {
 
   fn parse_fn(&mut self) -> Option<Statement> {
     if let Some(loc) = self.meta_at::<0>() {
-      if let Some(Token::Identifier(fn_name)) = self.current() {
-        let ident = Ident::new(fn_name);
-
+      if let Some(current) = self.current() {
         self.advance();
         if !self.consume(Token::LeftParen, "expect '(' after function name") {
           return None;
@@ -1105,6 +1103,31 @@ impl AstGenerator {
           }
 
           if let Some(block_loc) = self.meta_at::<1>() {
+            let ident = Ident::new(match current {
+              Token::Identifier(fn_name) => fn_name,
+              other => match other {
+                Token::Bang => ops::NOT,
+                Token::Plus => ops::ADD,
+                Token::Minus => {
+                  if params.list.is_empty() {
+                    ops::NEG
+                  } else {
+                    ops::SUB
+                  }
+                }
+                Token::Asterisk => ops::MUL,
+                Token::Slash => ops::DIV,
+                Token::Percent => ops::REM,
+                Token::EqualEqual => ops::EQUALITY,
+                Token::BangEqual => ops::NOT_EQUAL,
+                Token::Less => ops::LESS,
+                Token::LessEqual => ops::LESS_EQUAL,
+                Token::Greater => ops::GREATER,
+                Token::GreaterEqual => ops::GREATER_EQUAL,
+                _ => None?,
+              }
+              .to_string(),
+            });
             self
               .block(block_loc)
               .map(|body| Statement::from(FnStatement::new(ident, params.list, Statement::from(body), loc)))

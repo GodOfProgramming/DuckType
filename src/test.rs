@@ -63,7 +63,11 @@ mod integration_tests {
       match this.vm.run(TEST_FILE, ctx, env) {
         Ok(res) => match res {
           RunResult::Value(v) => {
-            assert_eq!(Value::from("foo"), v);
+            if let Ok(v) = v.as_str() {
+              assert_eq!("foo", **v);
+            } else {
+              panic!("value is not a string");
+            }
           }
           RunResult::Yield(_) => panic!("should not use yields"),
         },

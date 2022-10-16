@@ -1,3 +1,5 @@
+use crate::{Args, NativeClassBuilder};
+
 use super::{Assign, Nil, StructValue, Tag, Usertype, UsertypeId, Value};
 use tfix::prelude::*;
 
@@ -36,93 +38,81 @@ impl Default for ImplementedObject {
 impl Usertype for ImplementedObject {
   const ID: UsertypeId = "ImplementedObject";
 
-  fn set(&mut self, name: &str, value: Value) -> Value {
-    match name {
-      "field" => {
-        if let Ok(i) = value.as_i32() {
-          self.field = i;
+  fn register(class: &mut NativeClassBuilder<Self>) {
+    class.add_method("__add__", |this, args| {
+      let other = args.first().unwrap();
+      match other.tag() {
+        Tag::I32 => return (this.field + other.as_i32().unwrap()).into(),
+        Tag::Pointer => {
+          if let Ok(obj) = other.cast_to::<ImplementedObject>() {
+            return (this.field + obj.field).into();
+          } else {
+            Value::new_err("")
+          }
         }
+        _ => Value::new_err(""),
       }
-      _ => panic!("should not reach"),
-    }
-    value
-  }
+    });
 
-  fn get(&self, name: &str) -> Value {
-    match name {
-      "field" => self.field.into(),
-      _ => Value::nil,
-    }
-  }
-
-  fn add(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field + other.as_i32().unwrap()).into(),
-      Tag::Pointer => {
-        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-          (self.field + obj.field).into()
-        } else {
-          Value::new_err(format!("cannot add ImplementedObject and {}", other))
+    class.add_method("__sub__", |this, args| {
+      let other = args.first().unwrap();
+      match other.tag() {
+        Tag::I32 => (this.field - other.as_i32().unwrap()).into(),
+        Tag::Pointer => {
+          if let Ok(obj) = other.cast_to::<ImplementedObject>() {
+            (this.field - obj.field).into()
+          } else {
+            Value::new_err(format!("cannot add ImplementedObject and {}", other))
+          }
         }
+        _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
       }
-      _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-    }
-  }
+    });
 
-  fn sub(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field - other.as_i32().unwrap()).into(),
-      Tag::Pointer => {
-        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-          (self.field - obj.field).into()
-        } else {
-          Value::new_err(format!("cannot add ImplementedObject and {}", other))
+    class.add_method("__mul__", |this, args| {
+      let other = args.first().unwrap();
+      match other.tag() {
+        Tag::I32 => (this.field * other.as_i32().unwrap()).into(),
+        Tag::Pointer => {
+          if let Ok(obj) = other.cast_to::<ImplementedObject>() {
+            (this.field * obj.field).into()
+          } else {
+            Value::new_err(format!("cannot add ImplementedObject and {}", other))
+          }
         }
+        _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
       }
-      _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-    }
-  }
+    });
 
-  fn mul(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field * other.as_i32().unwrap()).into(),
-      Tag::Pointer => {
-        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-          (self.field * obj.field).into()
-        } else {
-          Value::new_err(format!("cannot add ImplementedObject and {}", other))
+    class.add_method("__div__", |this, args| {
+      let other = args.first().unwrap();
+      match other.tag() {
+        Tag::I32 => (this.field / other.as_i32().unwrap()).into(),
+        Tag::Pointer => {
+          if let Ok(obj) = other.cast_to::<ImplementedObject>() {
+            (this.field / obj.field).into()
+          } else {
+            Value::new_err(format!("cannot add ImplementedObject and {}", other))
+          }
         }
+        _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
       }
-      _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-    }
-  }
+    });
 
-  fn div(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field / other.as_i32().unwrap()).into(),
-      Tag::Pointer => {
-        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-          (self.field / obj.field).into()
-        } else {
-          Value::new_err(format!("cannot add ImplementedObject and {}", other))
+    class.add_method("__rem__", |this, args| {
+      let other = args.first().unwrap();
+      match other.tag() {
+        Tag::I32 => (this.field % other.as_i32().unwrap()).into(),
+        Tag::Pointer => {
+          if let Ok(obj) = other.cast_to::<ImplementedObject>() {
+            (this.field % obj.field).into()
+          } else {
+            Value::new_err(format!("cannot add ImplementedObject and {}", other))
+          }
         }
+        _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
       }
-      _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-    }
-  }
-
-  fn rem(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field % other.as_i32().unwrap()).into(),
-      Tag::Pointer => {
-        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-          (self.field % obj.field).into()
-        } else {
-          Value::new_err(format!("cannot add ImplementedObject and {}", other))
-        }
-      }
-      _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-    }
+    });
   }
 
   fn drop(&mut self) {
@@ -165,11 +155,10 @@ mod unit_tests {
 
   #[test]
   fn structs_supported(_: &mut ValueTest) {
-    let mut v = Value::new_struct();
-    assert!(v.is::<StructValue>());
+    let mut v = StructValue::new();
     v.set("foo", 123.into());
     assert_eq!(v.get("foo"), 123.into());
-    assert!(!v.set("field", ImplementedObject::default().into()).is_err());
+    v.set("field", ImplementedObject::default().into());
     assert!(v.get("field").is::<ImplementedObject>());
   }
 
@@ -178,9 +167,7 @@ mod unit_tests {
     let mut x = false;
 
     {
-      let mut v = Value::from(ImplementedObject::new(&mut x));
-      v.set("field", 123.into());
-      assert_eq!(v.get("field"), 123.into());
+      Value::from(ImplementedObject::new(&mut x));
     }
 
     assert!(x);
@@ -213,47 +200,5 @@ mod unit_tests {
     }
 
     assert!(!x);
-  }
-
-  #[test]
-  fn object_trait_returns_expected_value_when_implemented(_: &mut ValueTest) {
-    let mut x = false;
-    let mut obj = ImplementedObject::new(&mut x);
-    obj.field = 0;
-    let mut obj = Value::from(obj);
-
-    let mut other = ImplementedObject::new(&mut x);
-    other.field = 5;
-    let other = Value::from(other);
-
-    assert!(!obj.set("field", 15.into()).is_err());
-    assert_eq!(obj.get("field"), 15.into());
-
-    assert_eq!(obj.clone() + 1.into(), 16.into());
-    assert_eq!(obj.clone() - 1.into(), 14.into());
-    assert_eq!(obj.clone() * 2.into(), 30.into());
-    assert_eq!(obj.clone() / 3.into(), 5.into());
-    assert_eq!(obj.clone() % 7.into(), 1.into());
-
-    assert_eq!(obj.clone() + other.clone(), 20.into());
-    assert_eq!(obj.clone() - other.clone(), 10.into());
-    assert_eq!(obj.clone() * other.clone(), 75.into());
-    assert_eq!(obj.clone() / other.clone(), 3.into());
-    assert_eq!(obj.clone() % other.clone(), 0.into());
-
-    assert_eq!(other.cast_to::<ImplementedObject>().unwrap().field, 5);
-  }
-
-  #[test]
-  fn object_trait_returns_error_when_unimplemented(_: &mut ValueTest) {
-    let mut obj = Value::from(UnimplementedObject);
-
-    assert!(obj.set("", Value::nil).is_err());
-    assert!(obj.get("").is_err());
-    assert!((obj.clone() + Value::nil).is_err());
-    assert!((obj.clone() - Value::nil).is_err());
-    assert!((obj.clone() * Value::nil).is_err());
-    assert!((obj.clone() / Value::nil).is_err());
-    assert!((obj % Value::nil).is_err());
   }
 }

@@ -21,7 +21,7 @@ pub mod lex;
 pub mod opt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OpCode {
+pub enum Opcode {
   /** No operation instruction */
   NoOp,
   /** Looks up a constant value at the specified location. Location is specified by the tuple */
@@ -79,7 +79,7 @@ pub enum OpCode {
   /** Pops two values off the stack, calculates the quotient, then pushes the result back on */
   Div,
   /** Pops two values off the stack, calculates the remainder, then pushes the result back on */
-  Mod,
+  Rem,
   /** Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple */
   Or(usize),
   /** Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple */
@@ -104,8 +104,6 @@ pub enum OpCode {
   RetValue,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
-  /** Index into the indexable. The first argument off the stack is the index, the second is the indexable */
-  Index,
   /** Create a list of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
   CreateList(usize),
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
@@ -200,7 +198,7 @@ pub struct Context {
 
   global: SmartPtr<Context>,
 
-  instructions: Vec<OpCode>,
+  instructions: Vec<Opcode>,
 
   consts: Vec<Value>,
   // map of string to const vec location to save memory
@@ -257,7 +255,7 @@ impl Context {
     }
   }
 
-  pub fn next(&self, index: usize) -> Option<OpCode> {
+  pub fn next(&self, index: usize) -> Option<Opcode> {
     self.instructions.get(index).cloned()
   }
 
@@ -274,7 +272,7 @@ impl Context {
     self.global_ctx().consts.get(index)
   }
 
-  fn write(&mut self, op: OpCode, line: usize, column: usize) {
+  fn write(&mut self, op: Opcode, line: usize, column: usize) {
     #[cfg(test)]
     {
       println!("emitting {:?}", op);
@@ -285,7 +283,7 @@ impl Context {
 
   fn write_const(&mut self, c: Value, line: usize, column: usize) {
     let c = self.add_const(c);
-    self.write(OpCode::Const(c), line, column);
+    self.write(Opcode::Const(c), line, column);
   }
 
   fn add_const(&mut self, c: Value) -> usize {
@@ -312,7 +310,7 @@ impl Context {
     self.instructions.len()
   }
 
-  fn replace_instruction(&mut self, index: usize, op: OpCode) -> bool {
+  fn replace_instruction(&mut self, index: usize, op: Opcode) -> bool {
     if let Some(inst) = self.instructions.get_mut(index) {
       *inst = op;
       true
@@ -381,7 +379,7 @@ impl Context {
     println!("<< END >>");
   }
 
-  pub fn display_instruction(&self, op: &OpCode, offset: usize) {
+  pub fn display_instruction(&self, op: &Opcode, offset: usize) {
     print!("{} ", Self::address_of(offset));
     if let Some(curr) = self.meta.get(offset) {
       if offset > 0 {
@@ -402,7 +400,7 @@ impl Context {
     }
 
     match op {
-      OpCode::Const(index) => {
+      Opcode::Const(index) => {
         println!(
           "{} {} {}",
           Self::opcode_column("Const"),
@@ -410,38 +408,38 @@ impl Context {
           self.const_at_column(*index)
         );
       }
-      OpCode::PopN(count) => println!("{} {}", Self::opcode_column("PopN"), Self::value_column(*count)),
-      OpCode::LookupGlobal(name) => println!(
+      Opcode::PopN(count) => println!("{} {}", Self::opcode_column("PopN"), Self::value_column(*count)),
+      Opcode::LookupGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("LookupGlobal"),
         Self::value_column(*name),
         self.global_const_at_column(*name),
       ),
-      OpCode::ForceAssignGlobal(name) => println!(
+      Opcode::ForceAssignGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("ForceAssignGlobal"),
         Self::value_column(*name),
         self.global_const_at_column(*name)
       ),
-      OpCode::DefineGlobal(name) => println!(
+      Opcode::DefineGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("DefineGlobal"),
         Self::value_column(*name),
         self.global_const_at_column(*name),
       ),
-      OpCode::AssignGlobal(name) => println!(
+      Opcode::AssignGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("AssignGlobal"),
         Self::value_column(*name),
         self.global_const_at_column(*name),
       ),
-      OpCode::LookupLocal(index) => {
+      Opcode::LookupLocal(index) => {
         println!("{} {}", Self::opcode_column("LookupLocal"), Self::value_column(*index))
       }
-      OpCode::AssignLocal(index) => {
+      Opcode::AssignLocal(index) => {
         println!("{} {}", Self::opcode_column("AssignLocal"), Self::value_column(*index))
       }
-      OpCode::AssignMember(index) => {
+      Opcode::AssignMember(index) => {
         println!(
           "{} {} {}",
           Self::opcode_column("AssignMember"),
@@ -449,7 +447,7 @@ impl Context {
           self.const_at_column(*index)
         );
       }
-      OpCode::LookupMember(index) => {
+      Opcode::LookupMember(index) => {
         println!(
           "{} {} {}",
           Self::opcode_column("LookupMember"),
@@ -457,19 +455,19 @@ impl Context {
           self.const_at_column(*index)
         );
       }
-      OpCode::Jump(count) => println!("{} {: >14}", Self::opcode_column("Jump"), Self::address_of(offset + count)),
-      OpCode::JumpIfFalse(count) => {
+      Opcode::Jump(count) => println!("{} {: >14}", Self::opcode_column("Jump"), Self::address_of(offset + count)),
+      Opcode::JumpIfFalse(count) => {
         println!(
           "{} {: >14}",
           Self::opcode_column("JumpIfFalse"),
           Self::address_of(offset + count)
         )
       }
-      OpCode::Loop(count) => println!("{} {: >14}", Self::opcode_column("Loop"), Self::address_of(offset - count)),
-      OpCode::Or(count) => println!("{} {: >14}", Self::opcode_column("Or"), Self::address_of(offset + count)),
-      OpCode::And(count) => println!("{} {: >14}", Self::opcode_column("And"), Self::address_of(offset + count)),
-      OpCode::Call(count) => println!("{} {}", Self::opcode_column("Call"), Self::value_column(*count)),
-      OpCode::CreateList(count) => println!("{} {}", Self::opcode_column("CreateList"), Self::value_column(*count)),
+      Opcode::Loop(count) => println!("{} {: >14}", Self::opcode_column("Loop"), Self::address_of(offset - count)),
+      Opcode::Or(count) => println!("{} {: >14}", Self::opcode_column("Or"), Self::address_of(offset + count)),
+      Opcode::And(count) => println!("{} {: >14}", Self::opcode_column("And"), Self::address_of(offset + count)),
+      Opcode::Call(count) => println!("{} {}", Self::opcode_column("Call"), Self::value_column(*count)),
+      Opcode::CreateList(count) => println!("{} {}", Self::opcode_column("CreateList"), Self::value_column(*count)),
       x => println!("{}", Self::opcode_column(format!("{:?}", x))),
     }
   }
@@ -582,11 +580,11 @@ impl Env {
     env
   }
 
-  pub fn register_usertype<T: Usertype>(&mut self) -> Result<(), Box<dyn Error>> {
+  pub fn register_usertype<T: Usertype + 'static>(&mut self) -> Result<(), Box<dyn Error>> {
     if self.is_available(T::ID) {
-      let mut class = NativeClass::<T>::new();
-      T::register(&mut class);
-      self.vars.insert(T::ID.to_string(), Value::from(class));
+      let mut builder = NativeClassBuilder::<T>::new();
+      T::register(&mut builder);
+      self.vars.insert(T::ID.to_string(), Value::from(builder.build()));
       Ok(())
     } else {
       Err(format!("class '{}' is already defined", T::ID))?

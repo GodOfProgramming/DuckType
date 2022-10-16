@@ -1,5 +1,5 @@
 use super::{AllocatedObject, UsertypeId, VTable, Value, META_OFFSET};
-use crate::Env;
+use crate::{Env, ExecutionThread};
 pub use array_value::ArrayValue;
 pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
@@ -8,6 +8,7 @@ pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
 pub use method_value::MethodValue;
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
+use std::collections::BTreeMap;
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 pub use timestamp_value::TimestampValue;
@@ -26,14 +27,35 @@ mod timestamp_value;
 
 pub struct Nil;
 
-pub trait Usertype
+pub mod ops {
+  pub const NOT: &str = "__not__";
+  pub const NEG: &str = "__neg__";
+
+  pub const ADD: &str = "__add__";
+  pub const SUB: &str = "__sub__";
+  pub const MUL: &str = "__mul__";
+  pub const DIV: &str = "__div__";
+  pub const REM: &str = "__rem__";
+
+  pub const EQUALITY: &str = "__equal__";
+  pub const NOT_EQUAL: &str = "__neq__";
+  pub const LESS: &str = "__less__";
+  pub const LESS_EQUAL: &str = "__leq_";
+  pub const GREATER: &str = "__greater__";
+  pub const GREATER_EQUAL: &str = "__geq__";
+
+  pub const INDEX: &str = "__index__";
+}
+
+pub trait Usertype: 'static
 where
   Self: Sized,
 {
   const ID: UsertypeId;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  fn register(class: &mut NativeClass) {}
+  #[allow(unused)]
+  fn register(class: &mut NativeClassBuilder<Self>) {}
 
   fn class(env: &Env) -> Value {
     env.lookup(Self::ID).unwrap_or_default()
@@ -66,18 +88,14 @@ where
   }
 }
 
-use std::collections::BTreeMap;
-type ClassGetter = fn(Value, &str) -> Value;
-type ClassSetter = fn(Value, &str, Value);
-
 pub struct NativeClass {
   name: &'static str,
   constructor: Option<NativeFn>,
-  methods: BTreeMap<String, NativeFn>,
-  any_getter: Option<ClassGetter>,
-  any_setter: Option<ClassSetter>,
-  property_getters: BTreeMap<String, ClassGetter>,
-  property_setters: BTreeMap<String, ClassSetter>,
+  methods: BTreeMap<String, Value>,
+  statics: BTreeMap<String, Value>,
+
+  setters: BTreeMap<String, Box<dyn Fn(&mut Value, Value)>>,
+  getters: BTreeMap<String, Box<dyn Fn(&Value) -> Value>>,
 }
 
 impl NativeClass {
@@ -85,11 +103,10 @@ impl NativeClass {
     Self {
       name: T::ID,
       constructor: None,
-      methods: BTreeMap::new(),
-      any_getter: None,
-      any_setter: None,
-      property_getters: BTreeMap::new(),
-      property_setters: BTreeMap::new(),
+      methods: BTreeMap::default(),
+      statics: BTreeMap::default(),
+      setters: BTreeMap::default(),
+      getters: BTreeMap::default(),
     }
   }
 
@@ -97,31 +114,183 @@ impl NativeClass {
     self.name
   }
 
+  pub fn set_for_instance(&self, instance: &mut Value, name: &str, value: Value) {
+    self.setters.get(name).map(|s| s(instance, value));
+  }
+
+  pub fn get_for_instance(&self, instance: &Value, name: &str) -> Value {
+    self
+      .getters
+      .get(name)
+      .map(|g| g(instance))
+      .unwrap_or_else(|| self.methods.get(name).cloned().unwrap_or_default())
+  }
+
+  pub fn set_static(&mut self, name: impl ToString, value: Value) {
+    self.statics.insert(name.to_string(), value);
+  }
+
+  pub fn get_static(&self, name: &str) -> Value {
+    self.statics.get(name).cloned().unwrap_or_default()
+  }
+
+  pub(crate) fn construct(&self, this_class: Value, thread: &mut ExecutionThread, env: &mut Env, mut args: Args) -> Value {
+    let this = Value::from(InstanceValue::new(Default::default(), this_class));
+    if let Some(constructor) = self.constructor {
+      args.this = Some(this);
+      constructor(thread, env, args)
+    } else {
+      this
+    }
+  }
+
+  pub(crate) fn get_method(&self, name: &str) -> Value {
+    self.methods.get(name).cloned().unwrap_or_default()
+  }
+}
+
+pub struct NativeClassBuilder<T: Usertype> {
+  constructor: Option<NativeFn>,
+  methods: BTreeMap<String, fn(&mut T, Vec<Value>) -> Value>,
+  statics: BTreeMap<String, fn(Vec<Value>) -> Value>,
+  setters: BTreeMap<String, fn(&mut T, Value)>,
+  getters: BTreeMap<String, fn(&T) -> Value>,
+}
+
+impl<T: Usertype> NativeClassBuilder<T> {
+  pub fn new() -> Self {
+    Self {
+      constructor: None,
+      methods: Default::default(),
+      statics: Default::default(),
+      setters: Default::default(),
+      getters: Default::default(),
+    }
+  }
+
   pub fn constructor(&mut self, f: NativeFn) {
     self.constructor = Some(f);
   }
 
-  pub fn method(&mut self, name: impl ToString, f: NativeFn) {
+  pub fn add_method(&mut self, name: impl ToString, f: fn(&mut T, Vec<Value>) -> Value) {
     self.methods.insert(name.to_string(), f);
   }
 
-  pub fn define_any_getter(&mut self, f: ClassGetter) {
-    self.any_getter = Some(f);
+  pub fn add_static(&mut self, name: impl ToString, f: fn(Vec<Value>) -> Value) {
+    self.statics.insert(name.to_string(), f);
   }
 
-  pub fn define_any_setter(&mut self, f: ClassSetter) {
-    self.any_setter = Some(f);
+  pub fn add_setter(&mut self, name: impl ToString, f: fn(&mut T, Value)) {
+    self.setters.insert(name.to_string(), f);
   }
 
-  pub fn define_property_getter(&mut self, name: impl ToString, getter: ClassGetter) {
-    self.property_getters.insert(name.to_string(), getter);
+  pub fn add_getter(&mut self, name: impl ToString, f: fn(&T) -> Value) {
+    self.getters.insert(name.to_string(), f);
   }
 
-  pub fn define_property_setter(&mut self, name: impl ToString, setter: ClassSetter) {
-    self.property_setters.insert(name.to_string(), setter);
+  pub fn build(self) -> NativeClass {
+    NativeClass {
+      name: T::ID,
+      constructor: self.constructor,
+      methods: self
+        .methods
+        .into_iter()
+        .map(|(name, m)| {
+          (
+            name.clone(),
+            NativeMethodValue::new_native_closure(NativeClosureValue::new(name, move |_thread, _env, args| {
+              if let Some(mut this) = args.this {
+                if let Ok(this) = this.cast_to_mut::<T>() {
+                  return m(this, args.list);
+                }
+              }
+              Value::nil
+            }))
+            .into(),
+          )
+        })
+        .collect(),
+      statics: self
+        .statics
+        .into_iter()
+        .map(|(name, s)| {
+          (
+            name.clone(),
+            Value::new_native_closure(name, move |_thread, _env, args| s(args.list)),
+          )
+        })
+        .collect(),
+      setters: self
+        .setters
+        .into_iter()
+        .map(|(name, setter)| {
+          (
+            name,
+            SetterConv::new(move |this, value| {
+              if let Ok(this) = this.cast_to_mut::<T>() {
+                setter(this, value)
+              }
+            })
+            .into(),
+          )
+        })
+        .collect(),
+      getters: self
+        .getters
+        .into_iter()
+        .map(|(name, getter)| {
+          (
+            name,
+            GetterConv::new(move |this| {
+              if let Ok(this) = this.cast_to::<T>() {
+                getter(this)
+              } else {
+                Value::nil
+              }
+            })
+            .into(),
+          )
+        })
+        .collect(),
+    }
   }
 }
 
+struct SetterConv(Box<dyn Fn(&mut Value, Value)>);
+
+impl SetterConv {
+  fn new<F>(f: F) -> Self
+  where
+    F: Fn(&mut Value, Value) + 'static,
+  {
+    Self(Box::new(f))
+  }
+}
+
+impl Into<Box<dyn Fn(&mut Value, Value)>> for SetterConv {
+  fn into(self) -> Box<dyn Fn(&mut Value, Value)> {
+    self.0
+  }
+}
+
+struct GetterConv(Box<dyn Fn(&Value) -> Value>);
+
+impl GetterConv {
+  fn new<F>(f: F) -> Self
+  where
+    F: Fn(&Value) -> Value + 'static,
+  {
+    Self(Box::new(f))
+  }
+}
+
+impl Into<Box<dyn Fn(&Value) -> Value>> for GetterConv {
+  fn into(self) -> Box<dyn Fn(&Value) -> Value> {
+    self.0
+  }
+}
+
+#[derive(Default, Debug)]
 pub struct Args {
   pub this: Option<Value>,
   pub list: Vec<Value>,
@@ -219,6 +388,4 @@ pub struct Primitive;
 
 impl Usertype for Primitive {
   const ID: UsertypeId = "";
-
-  fn register(class: &mut NativeClass) {}
 }

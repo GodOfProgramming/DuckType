@@ -1,81 +1,51 @@
-use crate::{Args, Env, ExecutionThread};
+use crate::{ops, NativeClassBuilder};
 
-use super::{StructValue, Usertype, UsertypeId, Value};
+use super::{Usertype, UsertypeId, Value};
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
 };
 
-pub struct StringClass;
-
-impl StringClass {
-  fn char_at(_thread: &mut ExecutionThread, _env: &mut Env, args: Args) -> Value {
-    if let Some(this) = args.this {
-      if let Ok(this) = this.as_str() {
-        if let Some(index) = args.list.first() {
-          if let Ok(indx) = index.as_i32() {
-            this.chars().nth(indx as usize).map(|c| c.into()).unwrap_or_default()
-          } else {
-            Value::nil
-          }
-        } else {
-          Value::nil
-        }
-      } else {
-        Value::new_err("cannot index non-string type")
-      }
-    } else {
-      Value::new_err("unable to call char_at without this parameter")
-    }
-  }
-}
-
 #[derive(Default)]
 pub struct StringValue {
   str: String,
-  obj: StructValue,
+}
+
+impl StringValue {
+  fn char_at(&self, index: &Value) -> Value {
+    if let Ok(indx) = index.as_i32() {
+      self.chars().nth(indx as usize).map(|c| c.into()).unwrap_or_default()
+    } else {
+      Value::nil
+    }
+  }
 }
 
 impl Usertype for StringValue {
   const ID: UsertypeId = "String";
 
-  fn set(&mut self, name: &str, value: Value) -> Value {
-    self.obj.set(name, value)
-  }
+  fn register(class: &mut NativeClassBuilder<Self>) {
+    class.add_getter("len", |this| Value::from(this.len() as i32));
 
-  fn get(&self, name: &str) -> Value {
-    println!("{}", name);
-    self.obj.get(name).or_else(|| match name {
-      "len" => {
-        let result = self.len() as i32;
-        if result as usize != self.len() {
-          Value::new_err(format!("string too big to calculate length, limit is {}", i32::MAX))
-        } else {
-          result.into()
+    class.add_method(ops::INDEX, |this, args| this.char_at(args.first().unwrap_or(&Value::nil)));
+
+    class.add_method(ops::ADD, |this, args| {
+      if let Some(other) = args.first() {
+        Value::from(format!("{}{}", this.deref(), other))
+      } else {
+        Value::new_err("somehow called add without argument")
+      }
+    });
+
+    class.add_method(ops::EQUALITY, |this, args| {
+      if let Some(other) = args.first() {
+        if let Ok(other) = other.as_str() {
+          return Value::from(**this == **other);
         }
       }
-      method => StringClass::call(method),
-    })
-  }
 
-  fn add(&self, other: Value) -> Value {
-    Value::from(format!("{}{}", self.deref(), other))
-  }
-
-  fn eq(&self, other: &Value) -> bool {
-    if let Ok(other) = other.cast_to::<Self>() {
-      self.deref().eq(other.deref())
-    } else {
-      false
-    }
-  }
-
-  fn cmp(&self, other: &Value) -> Option<std::cmp::Ordering> {
-    if let Ok(other) = other.cast_to::<Self>() {
-      self.deref().partial_cmp(other.deref())
-    } else {
-      None
-    }
+      Value::from(false)
+    });
   }
 
   fn stringify(&self) -> String {
@@ -127,37 +97,10 @@ impl DerefMut for StringValue {
 
 #[cfg(test)]
 mod test {
-  use crate::Args;
-
   use super::*;
 
   #[test]
   fn default_is_empty_string() {
     assert_eq!(StringValue::default().str, String::default());
-  }
-
-  #[test]
-  fn str_len_gets_correct_value() {
-    let s = StringValue::from("0123456789");
-    assert_eq!(s.get("len"), 10.into());
-  }
-
-  #[test]
-  fn str_supports_overriding_fields() {
-    let mut s = StringValue::from("0123456789");
-    s.set("len", Value::from(0));
-    assert_eq!(s.get("len"), 0.into());
-  }
-
-  #[test]
-  fn str_supports_char_at() {
-    let s = Value::from("4321");
-    let char_at = s.get("char_at").as_native_fn().unwrap();
-    let args = Args::from((s, [0]));
-
-    assert_eq!(
-      char_at(&mut Default::default(), &mut Default::default(), args,),
-      Value::from('4')
-    );
   }
 }
