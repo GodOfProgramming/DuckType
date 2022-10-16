@@ -1,12 +1,12 @@
 use super::{Args, Usertype, UsertypeId, Value};
-use crate::{Env, ExecutionThread};
+use crate::prelude::*;
 use std::fmt::{Display, Formatter, Result};
 
-// type NativeFnTrait = FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static;
+// type NativeFnTrait = FnMut(&mut Vm, &mut Env, Args) -> Value + 'static;
 
-pub type NativeFn = fn(&mut ExecutionThread, &mut Env, Args) -> Value;
+pub type NativeFn = fn(&mut Vm, &mut Env, Args) -> Value;
 
-type NativeClosureType = dyn FnMut(&mut ExecutionThread, &mut Env, Args) -> Value;
+type NativeClosureType = dyn FnMut(&mut Vm, &mut Env, Args) -> Value;
 
 pub struct NativeClosureValue {
   pub name: String,
@@ -17,7 +17,7 @@ impl NativeClosureValue {
   pub fn new<T, F>(name: T, callee: F) -> Self
   where
     T: ToString,
-    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
+    F: FnMut(&mut Vm, &mut Env, Args) -> Value + 'static,
   {
     Self {
       name: name.to_string(),
@@ -25,8 +25,8 @@ impl NativeClosureValue {
     }
   }
 
-  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Args) -> Value {
-    (*self.callee)(thread, env, args)
+  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> Value {
+    (*self.callee)(vm, env, args)
   }
 }
 
@@ -44,8 +44,8 @@ impl Display for NativeClosureValue {
   }
 }
 
-// type NativeMethodTrait = FnMut(&mut ExecutionThread, &mut Env, Value, Args) -> Value + 'static;
-// type NativeMethodType = dyn FnMut(&mut ExecutionThread, &mut Env, Value, Args) -> Value;
+// type NativeMethodTrait = FnMut(&mut Vm, &mut Env, Value, Args) -> Value + 'static;
+// type NativeMethodType = dyn FnMut(&mut Vm, &mut Env, Value, Args) -> Value;
 
 pub enum NativeCallable {
   NativeFn(NativeFn),
@@ -53,10 +53,10 @@ pub enum NativeCallable {
 }
 
 impl NativeCallable {
-  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Args) -> Value {
+  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> Value {
     match self {
-      NativeCallable::NativeFn(f) => f(thread, env, args),
-      NativeCallable::NativeClosure(c) => c.call(thread, env, args),
+      NativeCallable::NativeFn(f) => f(vm, env, args),
+      NativeCallable::NativeClosure(c) => c.call(vm, env, args),
     }
   }
 }
@@ -87,8 +87,8 @@ impl NativeMethodValue {
     }
   }
 
-  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Args) -> Value {
-    self.callee.call(thread, env, args)
+  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> Value {
+    self.callee.call(vm, env, args)
   }
 }
 

@@ -1,5 +1,4 @@
-use super::{FunctionValue, Usertype, UsertypeId, Value};
-use crate::{Context, ExecutionThread, NativeClass};
+use crate::prelude::*;
 use ptr::SmartPtr;
 
 #[derive(Clone)]
@@ -16,7 +15,7 @@ impl ClosureValue {
     }
   }
 
-  pub fn call(&self, thread: &mut ExecutionThread, mut args: Vec<Value>) {
+  pub fn call(&self, vm: &mut Vm, mut args: Vec<Value>) {
     if args.len() > self.function.airity {
       args.drain(0..self.function.airity);
     } else {
@@ -29,9 +28,9 @@ impl ClosureValue {
     captures_with_args.extend(self.captures.clone());
     captures_with_args.extend(args);
 
-    thread.new_frame(self.function.context_ptr().clone());
+    vm.new_frame(self.function.context_ptr().clone());
 
-    thread.set_stack(captures_with_args);
+    vm.set_stack(captures_with_args);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {

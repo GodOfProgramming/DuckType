@@ -1,4 +1,4 @@
-use simple_script::{Env, Library, NativeClassBuilder, Usertype, UsertypeId, Value, Vm};
+use simple_script::prelude::*;
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
 
@@ -52,8 +52,6 @@ impl Usertype for Leaker {
 
 #[fixture(ScriptTest)]
 mod tests {
-  use simple_script::Value;
-
   use super::*;
 
   #[test]

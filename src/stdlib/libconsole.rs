@@ -1,4 +1,4 @@
-use crate::{Args, Env, ExecutionThread, StructValue, Usertype, Value};
+use crate::prelude::*;
 
 pub struct LibConsole;
 
@@ -13,7 +13,7 @@ impl LibConsole {
     Value::from(lib)
   }
 
-  fn print(_thread: &mut ExecutionThread, _env: &mut Env, args: Args) -> Value {
+  fn print(_vm: &mut Vm, _env: &mut Env, args: Args) -> Value {
     for arg in args.list {
       print!("{}", arg);
     }
@@ -21,7 +21,7 @@ impl LibConsole {
     Value::nil
   }
 
-  fn println(_thread: &mut ExecutionThread, _env: &mut Env, args: Args) -> Value {
+  fn println(_vm: &mut Vm, _env: &mut Env, args: Args) -> Value {
     for arg in args.list {
       print!("{}", arg);
     }
@@ -30,7 +30,7 @@ impl LibConsole {
     Value::nil
   }
 
-  fn flushln(_thread: &mut ExecutionThread, _env: &mut Env, args: Args) -> Value {
+  fn flushln(_vm: &mut Vm, _env: &mut Env, args: Args) -> Value {
     use std::io::{stdout, Write};
     for arg in args.list {
       print!("{}", arg);

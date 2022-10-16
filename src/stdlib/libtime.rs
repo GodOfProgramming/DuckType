@@ -1,4 +1,4 @@
-use crate::{Args, StructValue, TimestampValue, Usertype, Value};
+use crate::prelude::*;
 
 pub struct LibTime;
 
@@ -14,12 +14,12 @@ impl LibTime {
 
       mono.set(
         "now",
-        Value::new_native_fn(|_thread, _env, _args: Args| Value::from(TimestampValue::new())),
+        Value::new_native_fn(|_vm, _env, _args: Args| Value::from(TimestampValue::new())),
       );
 
       mono.set(
         "elapsed",
-        Value::new_native_fn(|_thread, _env, args: Args| {
+        Value::new_native_fn(|_vm, _env, args: Args| {
           if let Some(before) = args.list.get(0) {
             if before.is::<TimestampValue>() {
               let now = Instant::now();

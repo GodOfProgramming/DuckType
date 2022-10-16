@@ -1,4 +1,4 @@
-use super::{ClassValue, StructValue, Usertype, Value};
+use crate::prelude::*;
 use enum_iterator::{all, Sequence};
 use libconsole::LibConsole;
 use libenv::LibEnv;
@@ -12,6 +12,10 @@ mod libenv;
 mod libps;
 mod libstring;
 mod libtime;
+
+pub mod prelude {
+  pub use super::{Lib, Library};
+}
 
 #[derive(Clone, Sequence)]
 pub enum Lib {
@@ -73,7 +77,7 @@ fn load_std() -> Value {
 
   lib.set(
     "debug",
-    Value::new_native_fn(|_thread, _env, args| Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil)))),
+    Value::new_native_fn(|_vm, _env, args| Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil)))),
   );
 
   // Structs
@@ -82,7 +86,7 @@ fn load_std() -> Value {
 
     object.set_static(
       "fields",
-      Value::new_native_fn(|_thread, _env, args| {
+      Value::new_native_fn(|_vm, _env, args| {
         let mut args = args.list.into_iter();
         let mut fields = Vec::default();
 

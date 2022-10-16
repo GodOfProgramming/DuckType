@@ -1,4 +1,4 @@
-pub use builtin_types::*;
+use crate::prelude::*;
 use static_assertions::assert_eq_size;
 use std::{
   cmp::Ordering,
@@ -8,20 +8,17 @@ use std::{
 };
 pub use tags::*;
 
-use crate::{Env, ExecutionThread};
-
 mod builtin_types;
 mod tags;
 #[cfg(test)]
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, Assign, Tag, Usertype, UsertypeId, Value};
+  pub use super::{builtin_types::*, Assign, Tag, Value};
 }
 
 type ConstVoid = *const ();
 type MutVoid = *mut ();
-pub type UsertypeId = &'static str;
 
 // ensuring 64 bit platforms, redundancy is just sanity checks
 assert_eq_size!(usize, ConstVoid);
@@ -345,7 +342,7 @@ impl Value {
   pub fn new_native_closure<N, F>(name: N, f: F) -> Self
   where
     N: ToString,
-    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
+    F: FnMut(&mut Vm, &mut Env, Args) -> Value + 'static,
   {
     Self::from(NativeClosureValue::new(name, f))
   }
@@ -378,7 +375,7 @@ impl Value {
 
   pub fn new_native_closure_method<T: ToString, F>(name: T, f: F) -> Self
   where
-    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
+    F: FnMut(&mut Vm, &mut Env, Args) -> Value + 'static,
   {
     Self::from(NativeMethodValue::from(NativeClosureValue::new(name, f)))
   }
@@ -1136,22 +1133,22 @@ impl Callable {
     }
   }
 
-  pub fn call(&mut self, thread: &mut ExecutionThread, env: &mut Env, args: Args) {
+  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) {
     match self {
-      Callable::Fn(f) => f.as_fn_unchecked().call(thread, args.list),
-      Callable::Closure(c) => c.as_closure_unchecked().call(thread, args.list),
-      Callable::Method(m) => m.as_method_unchecked().call(thread, args),
+      Callable::Fn(f) => f.as_fn_unchecked().call(vm, args.list),
+      Callable::Closure(c) => c.as_closure_unchecked().call(vm, args.list),
+      Callable::Method(m) => m.as_method_unchecked().call(vm, args),
       Callable::NativeFn(f) => {
-        let value = f(thread, env, args);
-        thread.stack_push(value);
+        let value = f(vm, env, args);
+        vm.stack_push(value);
       }
       Callable::NativeClosure(c) => {
-        let value = c.as_native_closure_unchecked_mut().call(thread, env, args);
-        thread.stack_push(value);
+        let value = c.as_native_closure_unchecked_mut().call(vm, env, args);
+        vm.stack_push(value);
       }
       Callable::NativeMethod(m) => {
-        let value = m.as_native_method_unchecked_mut().call(thread, env, args);
-        thread.stack_push(value);
+        let value = m.as_native_method_unchecked_mut().call(vm, env, args);
+        vm.stack_push(value);
       }
     }
   }

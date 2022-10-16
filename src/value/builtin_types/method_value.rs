@@ -1,5 +1,4 @@
-use super::{FunctionValue, Usertype, UsertypeId};
-use crate::{Args, Context, ExecutionThread};
+use crate::prelude::*;
 use ptr::SmartPtr;
 
 #[derive(Clone)]
@@ -12,9 +11,9 @@ impl MethodValue {
     Self { function }
   }
 
-  pub fn call(&self, thread: &mut ExecutionThread, mut args: Args) {
+  pub fn call(&self, vm: &mut Vm, mut args: Args) {
     args.list.push(args.this.unwrap());
-    self.function.call(thread, args.list);
+    self.function.call(vm, args.list);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {

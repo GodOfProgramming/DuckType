@@ -1,4 +1,4 @@
-use crate::{Args, NativeClassBuilder};
+use crate::prelude::*;
 
 use super::{Assign, Nil, StructValue, Tag, Usertype, UsertypeId, Value};
 use tfix::prelude::*;

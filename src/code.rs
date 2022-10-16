@@ -1,5 +1,4 @@
-use super::*;
-use crate::dbg::RuntimeError;
+use crate::prelude::*;
 use ast::Ast;
 use gen::BytecodeGenerator;
 use lex::Scanner;
@@ -19,6 +18,10 @@ pub mod ast;
 pub mod gen;
 pub mod lex;
 pub mod opt;
+
+pub mod prelude {
+  pub use super::{Context, Env, Opcode};
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Opcode {
@@ -293,7 +296,7 @@ impl Context {
       if let Some(index) = self.strings.get(string.as_str()) {
         return *index;
       }
-      Some(string.deref().clone())
+      Some((*string).clone())
     } else {
       None
     };

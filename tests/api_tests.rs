@@ -24,7 +24,7 @@ mod tests {
     let ctx = t.vm.load(TEST_FILE, script).unwrap();
     let mut env = Env::initialize(&[], Library::All);
     env.define("some_var", Value::from(true));
-    if let RunResult::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
+    if let Return::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
       assert!(v == Value::from(true));
     } else {
       panic!();
@@ -36,9 +36,9 @@ mod tests {
     let script = "ret some_func();";
     let ctx = t.vm.load("test", script).unwrap();
     let mut env = Env::initialize(&[], Library::All);
-    env.define("some_func", Value::new_native_fn(|_thread, _env, _args| Value::from(true)));
+    env.define("some_func", Value::new_native_fn(|_vm, _env, _args| Value::from(true)));
 
-    if let RunResult::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
+    if let Return::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
       assert!(v == Value::from(true));
     } else {
       panic!();
@@ -52,8 +52,8 @@ mod tests {
     let mut env = Env::initialize(&[], Library::All);
     let result = t.vm.run(TEST_FILE, ctx, &mut env).unwrap();
 
-    if let RunResult::Yield(y) = result {
-      if let RunResult::Value(v) = t.vm.resume(y, &mut env).unwrap() {
+    if let Return::Yield(y) = result {
+      if let Return::Value(v) = t.vm.resume(y, &mut env).unwrap() {
         assert!(v == Value::from(true));
       } else {
         panic!();

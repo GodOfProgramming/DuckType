@@ -4,6 +4,7 @@ use std::{
   collections::BTreeSet,
   fmt::{Display, Formatter, Result as FmtResult},
   mem,
+  path::Path,
 };
 
 #[cfg(feature = "visit-ast")]
@@ -1179,7 +1180,7 @@ impl AstGenerator {
       }
       self.errors.push(RuntimeError {
         msg,
-        file: meta.file.deref().deref().clone(),
+        file: (**meta.file).clone(),
         line: meta.line,
         column: meta.column,
       });

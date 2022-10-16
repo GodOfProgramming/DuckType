@@ -1,4 +1,5 @@
-use super::*;
+use crate::prelude::*;
+use ptr::SmartPtr;
 use tfix::{fixture, TestFixture};
 
 const TEST_FILE: &str = "test";
@@ -36,8 +37,8 @@ impl IntegrationTest {
   fn run<F: FnOnce(SmartPtr<Context>, &Env, Value)>(&mut self, f: F) {
     self.load(|this, ctx, env| match this.vm.run(TEST_FILE, ctx.clone(), env) {
       Ok(v) => match v {
-        RunResult::Value(v) => f(ctx, env, v),
-        RunResult::Yield(_) => panic!("this test function should not be used for yields"),
+        Return::Value(v) => f(ctx, env, v),
+        Return::Yield(_) => panic!("this test function should not be used for yields"),
       },
       Err(err) => panic!("{:#?}", err),
     });
@@ -62,14 +63,14 @@ mod integration_tests {
       env.assign(String::from("foo"), Value::from("foo"));
       match this.vm.run(TEST_FILE, ctx, env) {
         Ok(res) => match res {
-          RunResult::Value(v) => {
+          Return::Value(v) => {
             if let Ok(v) = v.as_str() {
               assert_eq!("foo", **v);
             } else {
               panic!("value is not a string");
             }
           }
-          RunResult::Yield(_) => panic!("should not use yields"),
+          Return::Yield(_) => panic!("should not use yields"),
         },
         Err(err) => panic!("{:#?}", err),
       }
@@ -93,8 +94,8 @@ mod integration_tests {
       );
       match this.vm.run("test", ctx, env) {
         Ok(res) => match res {
-          RunResult::Value(v) => assert_eq!(Value::from(3f64), v),
-          RunResult::Yield(_) => panic!("should not yield"),
+          Return::Value(v) => assert_eq!(Value::from(3f64), v),
+          Return::Yield(_) => panic!("should not yield"),
         },
         Err(err) => panic!("{:#?}", err),
       }

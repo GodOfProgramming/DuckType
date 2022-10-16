@@ -12,6 +12,11 @@ pub(crate) use here;
 
 use crate::code::{OpCodeReflection, Opcode};
 
+pub mod prelude {
+  pub(crate) use super::here;
+  pub use super::RuntimeError;
+}
+
 pub fn _here(file: &str, line: u32) {
   use std::io::{stdout, Write};
   println!("{}:{}", file, line);

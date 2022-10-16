@@ -1,5 +1,5 @@
-use super::{AllocatedObject, UsertypeId, VTable, Value, META_OFFSET};
-use crate::{Env, ExecutionThread};
+use super::{AllocatedObject, VTable, Value, META_OFFSET};
+use crate::prelude::*;
 pub use array_value::ArrayValue;
 pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
@@ -25,8 +25,6 @@ mod string_value;
 mod struct_value;
 mod timestamp_value;
 
-pub struct Nil;
-
 pub mod ops {
   pub const NOT: &str = "__not__";
   pub const NEG: &str = "__neg__";
@@ -47,6 +45,9 @@ pub mod ops {
   pub const INDEX: &str = "__index__";
 }
 
+pub struct Nil;
+
+pub type UsertypeId = &'static str;
 pub trait Usertype: 'static
 where
   Self: Sized,
@@ -134,11 +135,11 @@ impl NativeClass {
     self.statics.get(name).cloned().unwrap_or_default()
   }
 
-  pub(crate) fn construct(&self, this_class: Value, thread: &mut ExecutionThread, env: &mut Env, mut args: Args) -> Value {
+  pub(crate) fn construct(&self, this_class: Value, vm: &mut Vm, env: &mut Env, mut args: Args) -> Value {
     let this = Value::from(InstanceValue::new(Default::default(), this_class));
     if let Some(constructor) = self.constructor {
       args.this = Some(this);
-      constructor(thread, env, args)
+      constructor(vm, env, args)
     } else {
       this
     }
@@ -198,7 +199,7 @@ impl<T: Usertype> NativeClassBuilder<T> {
         .map(|(name, m)| {
           (
             name.clone(),
-            NativeMethodValue::new_native_closure(NativeClosureValue::new(name, move |_thread, _env, args| {
+            NativeMethodValue::new_native_closure(NativeClosureValue::new(name, move |_vm, _env, args| {
               if let Some(mut this) = args.this {
                 if let Ok(this) = this.cast_to_mut::<T>() {
                   return m(this, args.list);
@@ -216,7 +217,7 @@ impl<T: Usertype> NativeClassBuilder<T> {
         .map(|(name, s)| {
           (
             name.clone(),
-            Value::new_native_closure(name, move |_thread, _env, args| s(args.list)),
+            Value::new_native_closure(name, move |_vm, _env, args| s(args.list)),
           )
         })
         .collect(),

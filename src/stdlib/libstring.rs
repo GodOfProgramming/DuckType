@@ -1,4 +1,4 @@
-use crate::{Args, StructValue, Usertype, Value};
+use crate::prelude::*;
 
 pub struct LibString;
 
@@ -6,7 +6,7 @@ impl LibString {
   pub fn load() -> Value {
     let mut lib = StructValue::default();
 
-    let parse_number = Value::new_native_fn(|_thread, _env, args: Args| {
+    let parse_number = Value::new_native_fn(|_vm, _env, args: Args| {
       let mut args = args.list.into_iter();
       if let Some(string_value) = args.next() {
         if let Ok(string) = string_value.as_str() {
@@ -28,7 +28,7 @@ impl LibString {
 
     lib.set("parse_number", parse_number);
 
-    let contains = Value::new_native_fn(|_thread, _env, args| {
+    let contains = Value::new_native_fn(|_vm, _env, args| {
       let mut args = args.list.into_iter();
       if let Some(string_value) = args.next() {
         if let Ok(string) = string_value.as_str() {
@@ -44,7 +44,7 @@ impl LibString {
 
     lib.set("contains", contains);
 
-    let is_prefix = Value::new_native_fn(|_thread, _env, args| {
+    let is_prefix = Value::new_native_fn(|_vm, _env, args| {
       let mut args = args.list.into_iter();
       if let Some(string_value) = args.next() {
         if let Ok(string) = string_value.as_str() {

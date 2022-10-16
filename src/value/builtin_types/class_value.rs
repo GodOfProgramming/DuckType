@@ -1,7 +1,6 @@
 use itertools::Itertools;
 
-use super::{Args, InstanceValue, Usertype, UsertypeId, Value};
-use crate::{ArrayValue, Env, ExecutionThread, NativeClassBuilder, StructValue};
+use crate::prelude::*;
 use std::collections::BTreeMap;
 
 pub struct ClassValue {
@@ -21,22 +20,22 @@ impl ClassValue {
     }
   }
 
-  pub fn construct(mut class_value: Value, thread: &mut ExecutionThread, env: &mut Env, mut args: Args) {
+  pub fn construct(mut class_value: Value, vm: &mut Vm, env: &mut Env, mut args: Args) {
     let class_clone = class_value.clone();
     if let Ok(class) = class_value.as_class_mut() {
       let instance = Value::from(InstanceValue::new(StructValue::default(), class_clone));
       if let Some(initializer) = &mut class.initializer {
         if let Ok(initializer) = initializer.as_fn() {
           args.list.push(instance);
-          initializer.call(thread, args.list);
+          initializer.call(vm, args.list);
         } else {
-          thread.stack_push(Value::new_err(format!("invalid type for constructor {}", initializer)));
+          vm.stack_push(Value::new_err(format!("invalid type for constructor {}", initializer)));
         }
       } else {
-        thread.stack_push(instance);
+        vm.stack_push(instance);
       }
     } else {
-      thread.stack_push(Value::new_err("unable to construct instance from non-class"));
+      vm.stack_push(Value::new_err("unable to construct instance from non-class"));
     };
   }
 
@@ -44,13 +43,13 @@ impl ClassValue {
     self.initializer = Some(value);
   }
 
-  pub fn set_native_constructor_fn(&mut self, f: fn(&mut ExecutionThread, &mut Env, Args) -> Value) {
+  pub fn set_native_constructor_fn(&mut self, f: fn(&mut Vm, &mut Env, Args) -> Value) {
     self.initializer = Some(Value::new_native_fn(f));
   }
 
   pub fn set_native_constructor_closure<F>(&mut self, f: F)
   where
-    F: FnMut(&mut ExecutionThread, &mut Env, Args) -> Value + 'static,
+    F: FnMut(&mut Vm, &mut Env, Args) -> Value + 'static,
   {
     self.initializer = Some(Value::new_native_closure(format!("{}()", self.name), f));
   }

@@ -1,7 +1,5 @@
+use crate::prelude::*;
 use itertools::Itertools;
-
-use super::{Usertype, UsertypeId, Value};
-use crate::{ops, NativeClassBuilder};
 use std::{
   fmt::{Display, Formatter, Result},
   ops::{Deref, DerefMut},
@@ -26,7 +24,7 @@ impl Usertype for ArrayValue {
   const ID: UsertypeId = "Array";
 
   fn register(class: &mut NativeClassBuilder<Self>) {
-    class.constructor(|_thread, _env, args| Value::from(ArrayValue::new_from_vec(args.list)));
+    class.constructor(|_vm, _env, args| Value::from(ArrayValue::new_from_vec(args.list)));
 
     class.add_method(ops::INDEX, |this, args| {
       if let Some(index) = args.first() {
