@@ -17,7 +17,7 @@ impl ScriptTest {
       .run(
         script.to_string_lossy().to_string(),
         ctx,
-        &mut Env::with_library_support(&[], Library::All),
+        &mut Env::initialize(&[], Library::All),
       )
       .unwrap();
   }
@@ -72,7 +72,7 @@ mod tests {
       const SCRIPT: &str = "leaker.this = leaker;";
 
       let ctx = t.vm.load("test", SCRIPT).unwrap();
-      let mut env = Env::with_library_support(&[], Library::None);
+      let mut env = Env::initialize(&[], Library::None);
 
       let l = Leaker {
         b: unsafe { &mut b },

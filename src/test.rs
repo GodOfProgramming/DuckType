@@ -21,7 +21,7 @@ impl IntegrationTest {
   fn load<F: FnOnce(&mut Self, SmartPtr<Context>, &mut Env)>(&mut self, f: F) {
     match self.vm.load(TEST_FILE, &self.script) {
       Ok(ctx) => {
-        let mut env = Env::default();
+        let mut env = Env::initialize(&[], Library::All);
         f(self, ctx, &mut env);
       }
       Err(errs) => {

@@ -1,12 +1,11 @@
 req "lib/sspec/sspec.ss";
 
 use std.Object;
-use std.Array;
 
 describe("empty structs", |t| {
   let obj = {};
   let fields = Object.fields(obj);
-  t.expect(Array.len(fields)).to_be(0);
+  t.expect(fields.len).to_be(0);
 });
 
 describe("struct fields", |t| {
@@ -14,7 +13,7 @@ describe("struct fields", |t| {
   let obj = { num, str: "some string" };
   obj.foo = "bar";
   let fields = Object.fields(obj);
-  t.expect(Array.len(fields)).to_be(3);
+  t.expect(fields.len).to_be(3);
   t.expect(obj.num).to_be(1);
   t.expect(obj.str).to_be("some string");
   t.expect(obj.foo).to_be("bar");

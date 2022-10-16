@@ -1,7 +1,7 @@
 use itertools::Itertools;
 
 use super::{Usertype, UsertypeId, Value};
-use crate::{ops, Env, NativeClass, NativeClassBuilder};
+use crate::{ops, NativeClassBuilder};
 use std::{
   fmt::{Display, Formatter, Result},
   ops::{Deref, DerefMut},
@@ -48,7 +48,7 @@ impl Usertype for ArrayValue {
       Value::nil
     });
 
-    class.add_method("len", |this, args| Value::from(this.list.len() as i32));
+    class.add_getter("len", |this| Value::from(this.list.len() as i32));
   }
 
   fn stringify(&self) -> String {

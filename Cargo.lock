@@ -251,6 +251,7 @@ dependencies = [
  "enum-iterator",
  "horrorshow",
  "itertools",
+ "memoffset",
  "pretty_assertions",
  "ptr",
  "static_assertions",

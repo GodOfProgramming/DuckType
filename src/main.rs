@@ -27,11 +27,7 @@ fn run_file<T: ToString>(mut vm: Vm, file: T, args: &[String]) -> bool {
     match fs::read_to_string(p) {
       Ok(contents) => match vm.load(&file, &contents) {
         Ok(ctx) => {
-          let mut env = Env::with_library_support(args, Library::All);
-
-          env.register_usertype::<ArrayValue>().ok();
-          env.register_usertype::<StringValue>().ok();
-          env.register_usertype::<ClassValue>().ok();
+          let mut env = Env::initialize(args, Library::All);
 
           let mut yield_result = None;
 

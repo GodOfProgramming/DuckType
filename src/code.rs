@@ -544,21 +544,21 @@ impl Display for Yield {
   }
 }
 
-#[derive(Default)]
 pub struct Env {
   vars: BTreeMap<String, Value>,
-
-  with_lib_support: bool,
-
-  library: Library,
+  libs: Library,
   args: Vec<String>,
 }
 
 impl Env {
-  pub fn with_library_support(args: &[String], library: Library) -> Self {
-    let mut env = Env { ..Default::default() };
+  pub fn initialize(args: &[String], library: Library) -> Self {
+    let mut env = Env {
+      vars: Default::default(),
+      libs: library,
+      args: args.into(),
+    };
 
-    env.vars = stdlib::load_libs(args, &library);
+    env.vars = stdlib::load_libs(&env.args, &env.libs);
 
     let mut lib_paths = Vec::default();
 
@@ -571,11 +571,11 @@ impl Env {
 
     module.set("path", lib_paths);
 
-    env.assign("$LIBRARY", Value::from(module));
+    env.assign("$LIBRARY", module.into());
 
-    env.args.extend(args.iter().cloned());
-    env.library = library;
-    env.with_lib_support = true;
+    env.register_usertype::<ArrayValue>().ok();
+    env.register_usertype::<StringValue>().ok();
+    env.register_usertype::<ClassValue>().ok();
 
     env
   }
