@@ -72,13 +72,31 @@ impl Vm {
     self.stack_frames = Default::default();
   }
 
-  fn unary_op<F>(&mut self, opcode: &Opcode, f: F) -> ExecResult
+  fn unary_op<F>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult
   where
     F: FnOnce(&mut Self, Value),
   {
     if let Some(v) = self.stack_pop() {
-      f(self, v);
-      Ok(())
+      if v.is_ptr() {
+        let callable = if let Ok(class) = v.class(env).as_native_class() {
+          class.get_for_instance(
+            &v,
+            match opcode {
+              Opcode::Negate => ops::NEG,
+              Opcode::Not => ops::NOT,
+              op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
+            },
+          )
+        } else {
+          Err(self.error(opcode, format!("unable to call operator {:?} for {}", opcode, v)))?
+        };
+
+        self.current_frame.last_lookup = v;
+        self.call_value(env, opcode, callable, Vec::default())
+      } else {
+        f(self, v);
+        Ok(())
+      }
     } else {
       Err(self.error(opcode, String::from("cannot operate on empty stack")))
     }
@@ -107,7 +125,7 @@ impl Vm {
                 Opcode::LessEqual => ops::LESS_EQUAL,
                 Opcode::Greater => ops::GREATER,
                 Opcode::GreaterEqual => ops::GREATER_EQUAL,
-                op => Err(self.error(opcode, format!("invalid binary operation {:?}", op)))?,
+                op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
               },
             )
           } else {
@@ -205,8 +223,8 @@ impl Vm {
               continue;
             }
           }
-          Opcode::Not => self.exec_not(&opcode)?,
-          Opcode::Negate => self.exec_negate(&opcode)?,
+          Opcode::Not => self.exec_not(env, &opcode)?,
+          Opcode::Negate => self.exec_negate(env, &opcode)?,
           Opcode::Print => self.exec_print(&opcode)?,
           Opcode::Jump(count) => {
             self.jump(count);
@@ -658,24 +676,27 @@ impl Vm {
   }
 
   #[inline]
-  fn exec_not(&mut self, opcode: &Opcode) -> ExecResult {
-    self.unary_op(opcode, |this, v| {
+  fn exec_not(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.unary_op(env, opcode, |this, v| {
       this.stack_push(!v);
     })
   }
 
   #[inline]
-  fn exec_negate(&mut self, opcode: &Opcode) -> ExecResult {
-    self.unary_op(opcode, |this, v| {
+  fn exec_negate(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+    self.unary_op(env, opcode, |this, v| {
       this.stack_push(-v);
     })
   }
 
   #[inline]
   fn exec_print(&mut self, opcode: &Opcode) -> ExecResult {
-    self.unary_op(opcode, |_this, v| {
+    if let Some(v) = self.stack_pop() {
       println!("{}", v);
-    })
+      Ok(())
+    } else {
+      Err(self.error(opcode, "no value to print"))
+    }
   }
 
   #[inline]

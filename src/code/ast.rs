@@ -219,20 +219,15 @@ impl AstGenerator {
               self.advance();
               if initializer.is_none() {
                 if self.consume(Token::LeftParen, "expected '(' after 'new'") {
-                  initializer = self.lambda_expr(true, Token::RightParen, |this, params, mut body| {
-                    if !params.found_self {
-                      this.error::<0>(String::from("missing self arg in initializer"));
-                      None
-                    } else {
-                      body
-                        .statements
-                        .push(Statement::from(DefaultConstructorRet::new(class_loc.clone())));
-                      Some(Expression::from(LambdaExpression::new(
-                        params.list,
-                        Statement::from(body),
-                        class_loc,
-                      )))
-                    }
+                  initializer = self.lambda_expr(SelfRules::Require, Token::RightParen, |params, mut body| {
+                    body
+                      .statements
+                      .push(Statement::from(DefaultConstructorRet::new(class_loc.clone())));
+                    Some(Expression::from(LambdaExpression::new(
+                      params.list,
+                      Statement::from(body),
+                      class_loc,
+                    )))
                   });
                 }
               } else {
@@ -241,31 +236,35 @@ impl AstGenerator {
             }
             Token::Fn => {
               self.advance();
-              if let Some(Token::Identifier(ident)) = self.current() {
-                if !declared_functions.contains(&ident) {
-                  self.advance();
-                  if self.consume(Token::LeftParen, "expected '(' after identifier") {
-                    if let Some(function) = self.lambda_expr(true, Token::RightParen, |_this, params, body| {
-                      declared_functions.insert(ident.clone());
-                      if params.found_self {
-                        Some(Expression::from(MethodExpression::new(
-                          params.list,
-                          Statement::from(body),
-                          class_loc,
-                        )))
+              if let Some(fn_name) = self.current() {
+                self.advance();
+                if self.consume(Token::LeftParen, "expected '(' after identifier") {
+                  if let Some(params) = self.parse_parameters(Token::RightParen) {
+                    if let Some(ident) = self.fn_ident(fn_name, &params) {
+                      if !declared_functions.contains(&ident.name) {
+                        if let Some(function) = self.parse_lambda(params, |params, body| {
+                          declared_functions.insert(ident.name.clone());
+                          if params.found_self {
+                            Some(Expression::from(MethodExpression::new(
+                              params.list,
+                              Statement::from(body),
+                              class_loc,
+                            )))
+                          } else {
+                            Some(Expression::from(LambdaExpression::new(
+                              params.list,
+                              Statement::from(body),
+                              class_loc,
+                            )))
+                          }
+                        }) {
+                          class_members.push((Ident::new(ident), function));
+                        }
                       } else {
-                        Some(Expression::from(LambdaExpression::new(
-                          params.list,
-                          Statement::from(body),
-                          class_loc,
-                        )))
+                        self.error::<0>(String::from("duplicate method definition"));
                       }
-                    }) {
-                      class_members.push((Ident::new(ident), function));
                     }
                   }
-                } else {
-                  self.error::<0>(String::from("duplicate method definition"));
                 }
               }
             }
@@ -969,7 +968,7 @@ impl AstGenerator {
   fn anon_fn_expr(&mut self) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
-    self.lambda_expr(false, Token::Pipe, |_, params, body| {
+    self.lambda_expr(SelfRules::Disallow, Token::Pipe, |params, body| {
       Some(Expression::from(LambdaExpression::new(
         params.list,
         Statement::from(body),
@@ -981,7 +980,7 @@ impl AstGenerator {
   fn closure_expr(&mut self, param_term: Token, captures: StructExpression) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
-    self.lambda_expr(false, param_term, |_, params, body| {
+    self.lambda_expr(SelfRules::Disallow, param_term, |params, body| {
       Some(Expression::from(ClosureExpression::new(
         captures,
         params.list,
@@ -991,30 +990,36 @@ impl AstGenerator {
     })
   }
 
-  fn lambda_expr<F>(&mut self, allow_self: bool, param_term: Token, f: F) -> Option<Expression>
+  fn lambda_expr<F>(&mut self, self_rules: SelfRules, param_term: Token, f: F) -> Option<Expression>
   where
-    F: FnOnce(&mut Self, Params, BlockStatement) -> Option<Expression>,
+    F: FnOnce(Params, BlockStatement) -> Option<Expression>,
   {
-    let mut params = self.parse_parameters(param_term.clone())?;
+    let params = self.parse_parameters(param_term)?;
 
-    if !allow_self && params.found_self {
+    if self_rules == SelfRules::Disallow && params.found_self {
       self.error::<0>(String::from("found 'self' in invalid context"));
       return None;
-    } else if params.found_self {
-      params.list.push(Ident::new("self"));
     }
 
-    if !self.consume(param_term, "expected terminator after parameters") {
+    if self_rules == SelfRules::Require && !params.found_self {
+      self.error::<0>(String::from("missing 'self' in function"));
       return None;
     }
 
+    self.parse_lambda(params, f)
+  }
+
+  fn parse_lambda<F>(&mut self, params: Params, f: F) -> Option<Expression>
+  where
+    F: FnOnce(Params, BlockStatement) -> Option<Expression>,
+  {
     if !self.consume(Token::LeftBrace, "expected '{' after paren") {
       return None;
     }
 
     if let Some(block_loc) = self.meta_at::<1>() {
       let body = self.block(block_loc)?;
-      f(self, params, body)
+      f(params, body)
     } else {
       // sanity check
       self.error::<0>(String::from("could not find original token"));
@@ -1104,31 +1109,7 @@ impl AstGenerator {
           }
 
           if let Some(block_loc) = self.meta_at::<1>() {
-            let ident = Ident::new(match current {
-              Token::Identifier(fn_name) => fn_name,
-              other => match other {
-                Token::Bang => ops::NOT,
-                Token::Plus => ops::ADD,
-                Token::Minus => {
-                  if params.list.is_empty() {
-                    ops::NEG
-                  } else {
-                    ops::SUB
-                  }
-                }
-                Token::Asterisk => ops::MUL,
-                Token::Slash => ops::DIV,
-                Token::Percent => ops::REM,
-                Token::EqualEqual => ops::EQUALITY,
-                Token::BangEqual => ops::NOT_EQUAL,
-                Token::Less => ops::LESS,
-                Token::LessEqual => ops::LESS_EQUAL,
-                Token::Greater => ops::GREATER,
-                Token::GreaterEqual => ops::GREATER_EQUAL,
-                _ => None?,
-              }
-              .to_string(),
-            });
+            let ident = self.fn_ident(current, &params)?;
             self
               .block(block_loc)
               .map(|body| Statement::from(FnStatement::new(ident, params.list, Statement::from(body), loc)))
@@ -1341,7 +1322,11 @@ impl AstGenerator {
       }
     }
 
-    Some(Params::from((found_self, params.into_iter().map(Ident::new).collect())))
+    if self.consume(terminator, "expected terminator after parameters") {
+      Some(Params::from((found_self, params.into_iter().map(Ident::new).collect())))
+    } else {
+      return None;
+    }
   }
 
   fn declaration(&mut self) -> Option<LetStatement> {
@@ -1476,6 +1461,108 @@ impl AstGenerator {
       Token::While => ParseRule::new(None, None, Precedence::None),
       Token::Yield => ParseRule::new(None, None, Precedence::None),
     }
+  }
+
+  fn fn_ident(&mut self, current: Token, params: &Params) -> Option<Ident> {
+    macro_rules! check_missing_self {
+      ($p:ident, $op:literal) => {
+        if !$p.found_self {
+          self.error::<0>(format!("must have self in '{}' overload", $op));
+          None?
+        }
+      };
+    }
+
+    macro_rules! check_not_binary {
+      ($p:ident, $op:literal) => {
+        if $p.list.len() != 2 {
+          self.error::<0>(format!("invalid number of arguments in '{}' overload", $op));
+          None?
+        }
+      };
+    }
+
+    macro_rules! check_not_unary {
+      ($p:ident, $op:literal) => {
+        if $p.list.len() != 1 {
+          self.error::<0>(format!("cannot have arguments in '{}' overload", $op));
+          None?
+        }
+      };
+    }
+
+    Some(Ident::new(match current {
+      Token::Identifier(fn_name) => fn_name,
+      other => match other {
+        Token::Bang => {
+          check_missing_self!(params, "not");
+          check_not_unary!(params, "not");
+          ops::NOT
+        }
+        Token::Plus => {
+          check_missing_self!(params, "add");
+          check_not_binary!(params, "add");
+          ops::ADD
+        }
+        Token::Minus => {
+          if params.list.is_empty() {
+            check_missing_self!(params, "negate");
+            ops::NEG
+          } else {
+            check_missing_self!(params, "sub");
+            check_not_binary!(params, "sub");
+            ops::SUB
+          }
+        }
+        Token::Asterisk => {
+          check_missing_self!(params, "mul");
+          check_not_binary!(params, "mul");
+          ops::MUL
+        }
+        Token::Slash => {
+          check_missing_self!(params, "div");
+          check_not_binary!(params, "div");
+          ops::DIV
+        }
+        Token::Percent => {
+          check_missing_self!(params, "rem");
+          check_not_binary!(params, "rem");
+          ops::REM
+        }
+        Token::EqualEqual => {
+          check_missing_self!(params, "eq");
+          check_not_binary!(params, "eq");
+          ops::EQUALITY
+        }
+        Token::BangEqual => {
+          check_missing_self!(params, "neq");
+          check_not_binary!(params, "neq");
+          ops::NOT_EQUAL
+        }
+        Token::Less => {
+          check_missing_self!(params, "less");
+          check_not_binary!(params, "less");
+          ops::LESS
+        }
+        Token::LessEqual => {
+          check_missing_self!(params, "leq");
+          check_not_binary!(params, "leq");
+          ops::LESS_EQUAL
+        }
+        Token::Greater => {
+          check_missing_self!(params, "greater");
+          check_not_binary!(params, "greater");
+          ops::GREATER
+        }
+        Token::GreaterEqual => {
+          check_missing_self!(params, "geq");
+          check_not_binary!(params, "geq");
+          ops::GREATER_EQUAL
+        }
+        _ => None?,
+      }
+      .to_string(),
+    }))
   }
 }
 
@@ -2532,7 +2619,10 @@ struct Params {
 }
 
 impl From<(bool, Vec<Ident>)> for Params {
-  fn from((found_self, list): (bool, Vec<Ident>)) -> Self {
+  fn from((found_self, mut list): (bool, Vec<Ident>)) -> Self {
+    if found_self {
+      list.push(Ident::new("self"));
+    }
     Self { found_self, list }
   }
 }
@@ -2541,4 +2631,11 @@ impl From<Vec<Ident>> for Params {
   fn from(list: Vec<Ident>) -> Self {
     Self { found_self: false, list }
   }
+}
+
+#[derive(PartialEq, Eq)]
+enum SelfRules {
+  Disallow,
+  Allow,
+  Require,
 }

@@ -1,15 +1,11 @@
 class Test {
   new(self) {
-    self._thing = {};
+    self._thing = 1;
   }
 
-  fn thing(self) {
-    ret self._thing;
+  fn +(self, other) {
+    ret self._thing + other;
   }
 }
 
-let t = Test();
-
-t.thing().foo = "value";
-
-print "new thing = " + Test().thing();
+print Test() + 1;
