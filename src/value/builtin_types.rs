@@ -13,17 +13,17 @@ pub use string_value::StringValue;
 pub use struct_value::StructValue;
 pub use timestamp_value::TimestampValue;
 
-mod array_value;
-mod class_value;
-mod closure_value;
-mod error_value;
-mod function_value;
-mod instance_value;
-mod method_value;
-mod native_value;
-mod string_value;
-mod struct_value;
-mod timestamp_value;
+pub(crate) mod array_value;
+pub(crate) mod class_value;
+pub(crate) mod closure_value;
+pub(crate) mod error_value;
+pub(crate) mod function_value;
+pub(crate) mod instance_value;
+pub(crate) mod method_value;
+pub(crate) mod native_value;
+pub(crate) mod string_value;
+pub(crate) mod struct_value;
+pub(crate) mod timestamp_value;
 
 pub mod ops {
   pub const NOT: &str = "__not__";
@@ -143,10 +143,6 @@ impl NativeClass {
     } else {
       this
     }
-  }
-
-  pub(crate) fn get_method(&self, name: &str) -> Value {
-    self.methods.get(name).cloned().unwrap_or_default()
   }
 }
 

@@ -1,7 +1,9 @@
-use crate::code::{ast::*, ContextName, Reflection, SourceLocation};
+use crate::code::{ast::*, Reflection, SourceLocation};
 use crate::prelude::*;
 use ptr::SmartPtr;
 use std::collections::BTreeMap;
+
+use super::{ClassConstant, ConstantValue, FunctionConstant};
 
 #[cfg(test)]
 mod test;
@@ -106,10 +108,10 @@ impl BytecodeGenerator {
     }
 
     let var = self.declare_global(stmt.ident.clone());
-    let mut class = ClassValue::new(stmt.ident.name.clone());
+    let mut class = ClassConstant::new(stmt.ident.name.clone());
 
     if let Some(initializer) = stmt.initializer {
-      if let Some((function, is_static)) = self.create_class_fn(ContextName::Method, initializer) {
+      if let Some((function, is_static)) = self.create_class_fn("<constructor>".to_string(), initializer) {
         if is_static {
           class.set_constructor(function);
         } else {
@@ -127,7 +129,7 @@ impl BytecodeGenerator {
     }
 
     for (method_name, method) in stmt.methods {
-      if let Some((function, is_static)) = self.create_class_fn(ContextName::Method, method) {
+      if let Some((function, is_static)) = self.create_class_fn(method_name.name.clone(), method) {
         if is_static {
           class.set_static(method_name.name, function);
         } else {
@@ -138,7 +140,7 @@ impl BytecodeGenerator {
       }
     }
 
-    self.emit_const(Value::from(class), stmt.loc.clone());
+    self.emit_const(ConstantValue::Class(class), stmt.loc.clone());
 
     self.define_class(var, stmt.loc);
   }
@@ -155,12 +157,7 @@ impl BytecodeGenerator {
 
     let var = self.declare_global(stmt.ident.clone());
 
-    self.emit_fn(
-      ContextName::Function(stmt.ident.name.clone()),
-      stmt.params,
-      *stmt.body,
-      stmt.loc.clone(),
-    );
+    self.emit_fn(Some(stmt.ident.name), stmt.params, *stmt.body, stmt.loc.clone());
 
     self.define_function(var, stmt.loc);
   }
@@ -467,7 +464,7 @@ impl BytecodeGenerator {
   }
 
   fn lambda_expr(&mut self, expr: LambdaExpression) {
-    self.emit_fn(ContextName::Lambda, expr.params, *expr.body, expr.loc);
+    self.emit_fn(None, expr.params, *expr.body, expr.loc);
   }
 
   fn closure_expr(&mut self, expr: ClosureExpression) {
@@ -486,14 +483,14 @@ impl BytecodeGenerator {
 
       params.extend(expr.params);
 
-      self.emit_fn(ContextName::Closure, params, *expr.body, expr.loc.clone());
+      self.emit_fn(None, params, *expr.body, expr.loc.clone());
 
       self.emit(Opcode::CreateClosure, expr.loc);
     }
   }
 
   fn method_expr(&mut self, expr: MethodExpression) {
-    self.emit_fn(ContextName::Method, expr.params, *expr.body, expr.loc);
+    self.emit_fn(Some(expr.name), expr.params, *expr.body, expr.loc);
   }
 
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
@@ -612,9 +609,9 @@ impl BytecodeGenerator {
     self.loop_depth = loop_depth;
   }
 
-  fn emit_fn(&mut self, name: ContextName, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
+  fn emit_fn(&mut self, name: Option<String>, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
     let function = self.create_fn(name, args, body, loc.clone());
-    self.emit_const(Value::from(function), loc);
+    self.emit_const(ConstantValue::Fn(function), loc);
   }
 
   fn emit_loop(&mut self, start: usize, loc: SourceLocation) {
@@ -622,7 +619,7 @@ impl BytecodeGenerator {
     self.emit(Opcode::Loop(loop_back), loc);
   }
 
-  fn emit_const(&mut self, c: Value, loc: SourceLocation) {
+  fn emit_const(&mut self, c: ConstantValue, loc: SourceLocation) {
     self.current_ctx().write_const(c, loc.line, loc.column);
   }
 
@@ -650,7 +647,7 @@ impl BytecodeGenerator {
   }
 
   fn add_const_ident(&mut self, ident: Ident) -> usize {
-    self.current_ctx().add_const(Value::from(ident.name))
+    self.current_ctx().add_const(ConstantValue::String(ident.name))
   }
 
   fn current_ctx(&mut self) -> &mut Context {
@@ -704,7 +701,7 @@ impl BytecodeGenerator {
     if let Some(index) = self.identifiers.get(&ident.name).cloned() {
       index
     } else {
-      let index = self.global_ctx().add_const(Value::from(ident.name.clone()));
+      let index = self.global_ctx().add_const(ConstantValue::String(ident.name.clone()));
       self.identifiers.insert(ident.name, index);
       index
     }
@@ -821,18 +818,15 @@ impl BytecodeGenerator {
     count
   }
 
-  fn create_class_fn(&mut self, name: ContextName, expr: Expression) -> Option<(Value, bool)> {
+  fn create_class_fn(&mut self, name: String, expr: Expression) -> Option<(FunctionConstant, bool)> {
     match expr {
-      Expression::Method(m) => Some((
-        Value::from(MethodValue::new(self.create_fn(name, m.params, *m.body, m.loc))),
-        false,
-      )),
-      Expression::Lambda(l) => Some((Value::from(self.create_fn(name, l.params, *l.body, l.loc)), true)),
+      Expression::Method(m) => Some((self.create_fn(Some(name), m.params, *m.body, m.loc), false)),
+      Expression::Lambda(l) => Some((self.create_fn(Some(name), l.params, *l.body, l.loc), true)),
       _ => None,
     }
   }
 
-  fn create_fn(&mut self, name: ContextName, args: Vec<Ident>, body: Statement, loc: SourceLocation) -> FunctionValue {
+  fn create_fn(&mut self, name: Option<String>, args: Vec<Ident>, body: Statement, loc: SourceLocation) -> FunctionConstant {
     self.function_id += 1;
 
     let mut locals = Vec::default();
@@ -843,12 +837,7 @@ impl BytecodeGenerator {
 
     let reflection = Reflection::new(parent_ctx.meta.file.clone(), parent_ctx.meta.source.clone());
 
-    self.current_fn = Some(SmartPtr::new(Context::new_child(
-      parent_ctx,
-      reflection,
-      self.function_id,
-      name,
-    )));
+    self.current_fn = Some(SmartPtr::new(Context::new_child(parent_ctx, reflection, self.function_id)));
 
     self.new_scope(|this| {
       let airity = args.len();
@@ -886,7 +875,7 @@ impl BytecodeGenerator {
       this.current_fn = prev_fn;
       this.locals = locals;
 
-      FunctionValue::new(airity, local_count, ctx)
+      FunctionConstant::new(name, airity, local_count, ctx)
     })
   }
 

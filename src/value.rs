@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{code::ConstantValue, prelude::*};
 use static_assertions::assert_eq_size;
 use std::{
   cmp::Ordering,
@@ -8,7 +8,7 @@ use std::{
 };
 pub use tags::*;
 
-mod builtin_types;
+pub(crate) mod builtin_types;
 mod tags;
 #[cfg(test)]
 mod test;
@@ -60,6 +60,18 @@ impl Value {
 
   pub fn falsy(&self) -> bool {
     self.is_nil() || self.is_bool() && self.bits & VALUE_BITMASK == 0
+  }
+
+  pub fn from_constant(v: &ConstantValue) -> Self {
+    match v {
+      ConstantValue::Nil => Self::nil,
+      ConstantValue::Bool(v) => Self::from(*v),
+      ConstantValue::Integer(v) => Self::from(*v),
+      ConstantValue::Float(v) => Self::from(*v),
+      ConstantValue::String(v) => Self::from(v),
+      ConstantValue::Fn(v) => Value::from(FunctionValue::from(v)),
+      ConstantValue::Class(v) => Value::from(ClassValue::from(v)),
+    }
   }
 
   // float

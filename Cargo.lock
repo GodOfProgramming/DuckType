@@ -123,6 +123,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8371fb981840150b1a54f7cb117bf6699f7466a1d4861daac33bc6fe2b5abea0"
 
 [[package]]
+name = "inter-struct"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "322eece48523a09060b7572296a3423bb6fc963462cfc8bf5fc6117510e131cf"
+dependencies = [
+ "inter-struct-codegen",
+]
+
+[[package]]
+name = "inter-struct-codegen"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58ce21bc89c44afac3bdf0cb5c363b4b91cef34e14aa612f7a17bc55f42f1ab7"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -193,6 +214,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "proc-macro-error"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
+dependencies = [
+ "proc-macro-error-attr",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "version_check",
+]
+
+[[package]]
+name = "proc-macro-error-attr"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "version_check",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -250,6 +295,7 @@ version = "0.20.0"
 dependencies = [
  "enum-iterator",
  "horrorshow",
+ "inter-struct",
  "itertools",
  "memoffset",
  "pretty_assertions",
@@ -257,6 +303,7 @@ dependencies = [
  "static_assertions",
  "sysinfo",
  "tfix",
+ "thiserror",
 ]
 
 [[package]]
@@ -308,10 +355,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "thiserror"
+version = "1.0.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10deb33631e3c9018b9baf9dcbbc4f737320d2b576bac10f6aefa048fa407e3e"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "982d17546b47146b28f7c22e3d08465f6b8903d0ea13c1660d9d84a6e7adcdbb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d22af068fba1eb5edcb4aea19d382b2a3deb4c8f9d475c589b6ada9e0fd493ee"
+
+[[package]]
+name = "version_check"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "winapi"

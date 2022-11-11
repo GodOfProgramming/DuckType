@@ -246,6 +246,7 @@ impl AstGenerator {
                           declared_functions.insert(ident.name.clone());
                           if params.found_self {
                             Some(Expression::from(MethodExpression::new(
+                              ident.name.clone(),
                               params.list,
                               Statement::from(body),
                               class_loc,
@@ -596,26 +597,34 @@ impl AstGenerator {
     if let Some(prev) = self.previous() {
       match prev {
         Token::Nil => {
-          expr = Some(Expression::from(LiteralExpression::new(Value::nil, self.meta_at::<1>()?)));
+          expr = Some(Expression::from(LiteralExpression::new(
+            ConstantValue::Nil,
+            self.meta_at::<1>()?,
+          )));
         }
         Token::True => {
           expr = Some(Expression::from(LiteralExpression::new(
-            Value::from(true),
+            ConstantValue::Bool(true),
             self.meta_at::<1>()?,
           )));
         }
         Token::False => {
           expr = Some(Expression::from(LiteralExpression::new(
-            Value::from(false),
+            ConstantValue::Bool(false),
             self.meta_at::<1>()?,
           )));
         }
-        Token::String(s) => expr = Some(Expression::from(LiteralExpression::new(Value::from(s), self.meta_at::<1>()?))),
+        Token::String(s) => {
+          expr = Some(Expression::from(LiteralExpression::new(
+            ConstantValue::String(s),
+            self.meta_at::<1>()?,
+          )))
+        }
         Token::Number(n) => {
           expr = Some(Expression::from(LiteralExpression::new(
             match n {
-              NumberToken::I32(i) => Value::from(i),
-              NumberToken::F64(f) => Value::from(f),
+              NumberToken::I32(i) => ConstantValue::Integer(i),
+              NumberToken::F64(f) => ConstantValue::Float(f),
             },
             self.meta_at::<1>()?,
           )))
@@ -1097,10 +1106,6 @@ impl AstGenerator {
         if let Some(params) = self.parse_parameters(Token::RightParen) {
           if params.found_self {
             self.error::<0>(String::from("found 'self' in invalid context"));
-            return None;
-          }
-
-          if !self.consume(Token::RightParen, "expected ')' after arguments") {
             return None;
           }
 
@@ -2254,13 +2259,13 @@ impl From<MethodExpression> for Expression {
 }
 
 pub struct LiteralExpression {
-  pub value: Value,
+  pub value: ConstantValue,
 
   pub loc: SourceLocation, // location of the literal
 }
 
 impl LiteralExpression {
-  fn new(value: Value, loc: SourceLocation) -> Self {
+  fn new(value: ConstantValue, loc: SourceLocation) -> Self {
     Self { value, loc }
   }
 }
@@ -2546,14 +2551,16 @@ impl ClosureExpression {
 }
 
 pub struct MethodExpression {
+  pub name: String,
   pub params: Vec<Ident>,
   pub body: Box<Statement>,
   pub loc: SourceLocation,
 }
 
 impl MethodExpression {
-  fn new(params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
+  fn new(name: String, params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
     Self {
+      name,
       params,
       body: Box::new(body),
       loc,

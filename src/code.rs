@@ -1,6 +1,7 @@
 use crate::prelude::*;
 use ast::Ast;
 use gen::BytecodeGenerator;
+use inter_struct::prelude::*;
 use lex::Scanner;
 use opt::Optimizer;
 use ptr::SmartPtr;
@@ -9,7 +10,7 @@ use std::{
   convert::TryFrom,
   env,
   error::Error,
-  fmt::{self, Debug, Display, Formatter},
+  fmt::{self, Debug, Display, Formatter, Result as FmtResult},
   path::PathBuf,
   str,
 };
@@ -187,25 +188,94 @@ pub struct OpCodeReflection {
 }
 
 #[derive(Debug)]
-enum ContextName {
-  Main,
-  Lambda,
-  Closure,
-  Method,
-  Function(String),
+pub enum ConstantValue {
+  Nil,
+  Bool(bool),
+  Integer(i32),
+  Float(f64),
+  String(String),
+  Fn(FunctionConstant),
+  Class(ClassConstant),
+}
+
+#[derive(Debug, Clone, StructMerge)]
+#[struct_merge("crate::value::builtin_types::class_value::ClassValue")]
+pub struct FunctionConstant {
+  pub name: Option<String>,
+  pub airity: usize,
+  pub locals: usize,
+  pub ctx: SmartPtr<Context>,
+}
+
+impl FunctionConstant {
+  pub fn new(name: Option<String>, airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
+    Self {
+      name,
+      airity,
+      locals,
+      ctx,
+    }
+  }
+
+  fn name(&self) -> &str {
+    self.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>")
+  }
+}
+
+#[derive(Debug)]
+pub struct ClassConstant {
+  pub name: String,
+  pub initializer: Option<FunctionConstant>,
+  pub methods: BTreeMap<String, FunctionConstant>,
+  pub statics: BTreeMap<String, FunctionConstant>,
+}
+
+impl ClassConstant {
+  fn new(name: String) -> Self {
+    Self {
+      name,
+      initializer: None,
+      methods: Default::default(),
+      statics: Default::default(),
+    }
+  }
+
+  fn set_constructor(&mut self, c: FunctionConstant) {
+    self.initializer = Some(c);
+  }
+
+  fn set_static(&mut self, key: String, value: FunctionConstant) {
+    self.statics.insert(key, value);
+  }
+
+  fn set_method(&mut self, key: String, value: FunctionConstant) {
+    self.methods.insert(key, value);
+  }
+}
+
+impl Display for ConstantValue {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    match self {
+      Self::Nil => write!(f, "nil"),
+      Self::Bool(v) => write!(f, "{}", v),
+      Self::Integer(v) => write!(f, "{}", v),
+      Self::Float(v) => write!(f, "{}", v),
+      Self::String(v) => write!(f, "{}", v),
+      Self::Fn(v) => write!(f, "{}", v.name()),
+      Self::Class(v) => write!(f, "{}", v.name),
+    }
+  }
 }
 
 #[derive(Debug)]
 pub struct Context {
-  name: ContextName,
-
   pub id: usize, // the function id within the local file
 
   global: SmartPtr<Context>,
 
   instructions: Vec<Opcode>,
 
-  consts: Vec<Value>,
+  consts: Vec<ConstantValue>,
   // map of string to const vec location to save memory
   strings: BTreeMap<String, usize>,
 
@@ -215,7 +285,6 @@ pub struct Context {
 impl Context {
   fn new(reflection: Reflection) -> Self {
     Self {
-      name: ContextName::Main,
       id: Default::default(),
       global: Default::default(),
       instructions: Default::default(),
@@ -225,7 +294,7 @@ impl Context {
     }
   }
 
-  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize, name: ContextName) -> Self {
+  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize) -> Self {
     let global = if ctx.global.valid() {
       ctx.global.clone()
     } else {
@@ -234,7 +303,6 @@ impl Context {
     };
 
     Self {
-      name,
       id,
       global,
       consts: Default::default(),
@@ -264,16 +332,16 @@ impl Context {
     self.instructions.get(index).cloned()
   }
 
-  pub fn const_at(&self, index: usize) -> Option<&Value> {
+  pub fn const_at(&self, index: usize) -> Option<&ConstantValue> {
     self.consts.get(index)
   }
 
   #[cfg(debug_assertions)]
-  pub fn consts(&self) -> &Vec<Value> {
+  pub fn consts(&self) -> &Vec<ConstantValue> {
     &self.consts
   }
 
-  pub fn global_const_at(&self, index: usize) -> Option<&Value> {
+  pub fn global_const_at(&self, index: usize) -> Option<&ConstantValue> {
     self.global_ctx().consts.get(index)
   }
 
@@ -286,17 +354,17 @@ impl Context {
     self.meta.add(line, column);
   }
 
-  fn write_const(&mut self, c: Value, line: usize, column: usize) {
+  fn write_const(&mut self, c: ConstantValue, line: usize, column: usize) {
     let c = self.add_const(c);
     self.write(Opcode::Const(c), line, column);
   }
 
-  fn add_const(&mut self, c: Value) -> usize {
-    let string = if let Ok(string) = c.as_str() {
+  fn add_const(&mut self, c: ConstantValue) -> usize {
+    let string = if let ConstantValue::String(string) = &c {
       if let Some(index) = self.strings.get(string.as_str()) {
         return *index;
       }
-      Some((*string).clone())
+      Some(string.clone())
     } else {
       None
     };
@@ -324,64 +392,41 @@ impl Context {
     }
   }
 
-  /* Debugging Functions */
-
-  pub fn name(&self) -> &str {
-    match &self.name {
-      ContextName::Main => "MAIN",
-      ContextName::Closure => "closure",
-      ContextName::Lambda => "lambda",
-      ContextName::Method => "method",
-      ContextName::Function(name) => name.as_str(),
-    }
-  }
-
   #[cfg(debug_assertions)]
   pub fn disassemble(&self) {
     self.display_opcodes();
 
     for value in self.consts() {
-      if let Ok(f) = value.as_fn() {
-        f.context().disassemble();
-      } else if let Ok(c) = value.as_class() {
-        if let Some(i) = &c.initializer {
-          if let Ok(f) = i.as_fn() {
-            f.context().disassemble();
-          } else if let Ok(m) = i.as_method() {
-            m.context().disassemble();
-          }
+      match value {
+        ConstantValue::Fn(f) => {
+          f.ctx.disassemble();
         }
-        for method in c.methods.values() {
-          if let Ok(f) = method.as_fn() {
-            f.context().disassemble();
+        ConstantValue::Class(c) => {
+          if let Some(i) = &c.initializer {
+            i.ctx.disassemble();
           }
-        }
 
-        for static_method in c.static_members.values() {
-          if let Ok(f) = static_method.as_fn() {
-            f.context().disassemble();
+          for value in c.methods.values() {
+            value.ctx.disassemble();
+          }
+
+          for value in c.statics.values() {
+            value.ctx.disassemble();
           }
         }
+        _ => (),
       }
     }
   }
 
-  pub fn display_str(&self) -> String {
-    if self.id == 0 {
-      String::from("MAIN")
-    } else {
-      format!("function {} {}", self.id, self.name())
-    }
-  }
-
   pub fn display_opcodes(&self) {
-    println!("<< {} >>", self.display_str());
+    println!(">>>>>>");
 
     for (i, op) in self.instructions.iter().enumerate() {
       self.display_instruction(op, i);
     }
 
-    println!("<< END >>");
+    println!("<<<<<<");
   }
 
   pub fn display_instruction(&self, op: &Opcode, offset: usize) {
@@ -486,11 +531,19 @@ impl Context {
   }
 
   fn global_const_at_column(&self, index: usize) -> String {
-    format!("{: >4?}", self.global_const_at(index).unwrap_or(&Value::from("????")))
+    format!(
+      "{: >4?}",
+      self
+        .global_const_at(index)
+        .unwrap_or(&ConstantValue::String("????".to_string()))
+    )
   }
 
   fn const_at_column(&self, index: usize) -> String {
-    format!("{: >4?}", self.const_at(index).unwrap_or(&Value::from("????")))
+    format!(
+      "{: >4?}",
+      self.const_at(index).unwrap_or(&ConstantValue::String("????".to_string()))
+    )
   }
 
   pub fn address_of(offset: usize) -> String {
@@ -545,7 +598,7 @@ impl Yield {
 
 impl Display for Yield {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.current_frame.ctx.name())
+    write!(f, "yield")
   }
 }
 

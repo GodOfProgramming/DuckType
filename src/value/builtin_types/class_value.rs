@@ -1,6 +1,5 @@
+use crate::{code::ClassConstant, prelude::*};
 use itertools::Itertools;
-
-use crate::prelude::*;
 use std::collections::BTreeMap;
 
 pub struct ClassValue {
@@ -90,5 +89,24 @@ impl Usertype for ClassValue {
 
   fn debug_string(&self) -> String {
     format!("class {}", self.stringify())
+  }
+}
+
+impl From<&ClassConstant> for ClassValue {
+  fn from(c: &ClassConstant) -> Self {
+    Self {
+      name: c.name.clone(),
+      initializer: c.initializer.as_ref().map(|i| Value::from(FunctionValue::from(i))),
+      methods: c
+        .methods
+        .iter()
+        .map(|(k, v)| (k.clone(), Value::from(MethodValue::new(FunctionValue::from(v)))))
+        .collect(),
+      static_members: c
+        .statics
+        .iter()
+        .map(|(k, v)| (k.clone(), Value::from(FunctionValue::from(v))))
+        .collect(),
+    }
   }
 }

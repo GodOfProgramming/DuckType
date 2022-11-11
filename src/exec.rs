@@ -1,5 +1,5 @@
 use crate::{
-  code::{Compiler, Context, Env, OpCodeReflection, Opcode, StackFrame, Yield},
+  code::{Compiler, ConstantValue, Context, Env, OpCodeReflection, Opcode, StackFrame, Yield},
   dbg::RuntimeError,
   value::prelude::*,
 };
@@ -150,7 +150,7 @@ impl Vm {
     F: FnOnce(&mut Self, String) -> ExecResult,
   {
     let name = if let Some(name) = self.current_frame.ctx.global_const_at(index) {
-      if let Ok(name) = name.as_str() {
+      if let ConstantValue::String(name) = name {
         Ok((*name).clone())
       } else {
         Err(self.error(opcode, format!("global variable name is not an identifier: {}", name)))
@@ -171,7 +171,7 @@ impl Vm {
     loop {
       #[cfg(feature = "runtime-disassembly")]
       {
-        println!("<< {} >>", self.current_frame.ctx.display_str());
+        println!("<< {} >>", self.current_frame.ctx.id);
       }
 
       let mut returned_value = false;
@@ -320,13 +320,12 @@ impl Vm {
 
   #[inline]
   fn exec_const(&mut self, opcode: &Opcode, index: usize) -> ExecResult {
-    let value = if let Some(c) = self.current_frame.ctx.const_at(index) {
-      Ok(c.clone())
+    if let Some(c) = self.current_frame.ctx.const_at(index) {
+      self.stack_push(Value::from_constant(c));
     } else {
-      Err(self.error(opcode, String::from("could not lookup constant")))
-    }?;
+      Err(self.error(opcode, String::from("could not lookup constant")))?;
+    }
 
-    self.stack_push(value);
     Ok(())
   }
 
@@ -435,7 +434,7 @@ impl Vm {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
-          if let Ok(name) = name.as_str() {
+          if let ConstantValue::String(name) = name {
             if let Ok(obj) = obj.as_struct_mut() {
               obj.set(name, value);
               Ok(())
@@ -464,7 +463,7 @@ impl Vm {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_pop() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
-          if let Ok(name) = name.as_str() {
+          if let ConstantValue::String(name) = name {
             if let Ok(obj) = obj.as_struct_mut() {
               obj.set(name, value.clone());
               self.stack_push(value);
@@ -502,7 +501,7 @@ impl Vm {
   fn exec_lookup_member(&mut self, env: &Env, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(mut obj) = self.stack_pop() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
-        if let Ok(name) = name.as_str() {
+        if let ConstantValue::String(name) = name {
           self.current_frame.last_lookup = obj.clone();
           if let Ok(s) = obj.as_struct() {
             self.stack_push(s.get(name));
@@ -544,7 +543,7 @@ impl Vm {
   fn exec_peek_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(obj) = self.stack_peek() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
-        if let Ok(name) = name.as_str() {
+        if let ConstantValue::String(name) = name {
           if let Ok(obj) = obj.as_struct() {
             self.stack_push(obj.get(name));
             Ok(())
@@ -977,7 +976,7 @@ impl Vm {
     });
 
     if cfg!(feature = "runtime-disassembly") {
-      println!("<< entering {} >>", self.current_frame.ctx.display_str());
+      println!("<< entering {} >>", self.current_frame.ctx.id);
     }
 
     res
