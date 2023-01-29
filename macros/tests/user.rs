@@ -10,7 +10,7 @@ mod tests {
   use std::error::Error;
 
   trait Class {
-    fn get(&self, field: &str) -> Value;
+    fn get(&self, field: &str) -> Option<Value>;
     fn set(&mut self, field: &str, value: Value) -> Result<(), Box<dyn Error>>;
   }
 

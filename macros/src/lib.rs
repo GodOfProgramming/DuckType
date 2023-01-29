@@ -35,10 +35,10 @@ pub fn derive_class(input: TokenStream) -> TokenStream {
     .collect::<Vec<Literal>>();
   quote! {
     impl Class for #name {
-      fn get(&self, field: &str) -> Value {
+      fn get(&self, field: &str) -> Option<Value> {
         match field {
-          #(#getter_strs => Value::from(&self.#getters),)*
-          _ => Value::default(),
+          #(#getter_strs => Some(Value::from(&self.#getters)),)*
+          _ => None,
         }
       }
 
