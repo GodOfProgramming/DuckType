@@ -6,8 +6,20 @@ fn user_tests() {
 
 #[cfg(test)]
 mod tests {
-  use macros::Class;
+  use macros::{class_body, Class};
   use std::error::Error;
+
+  type NativeFn = fn(&mut Vm, &mut Env, Args) -> ValueResult;
+
+  struct Vm;
+  struct Env;
+
+  struct Args {
+    pub this: Option<Value>,
+    pub list: Vec<Value>,
+  }
+
+  type ValueResult = Result<Value, Box<dyn Error>>;
 
   trait Class {
     fn get(&self, field: &str) -> Option<Value>;
@@ -75,11 +87,10 @@ mod tests {
     foo2: f32,
   }
 
-  #[macros::class_body]
+  #[class_body]
   impl Foo {
-    #[method]
-    fn foo(&mut self) -> i32 {
-      1
+    fn bar(&mut self) -> f32 {
+      1.0
     }
   }
 

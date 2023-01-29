@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::Literal;
 use quote::quote;
-use syn::{parse_macro_input, Fields, ImplItem, ItemImpl, ItemStruct};
+use syn::{parse_macro_input, Fields, FnArg, ImplItem, ItemImpl, ItemStruct};
 
 #[proc_macro_derive(Class, attributes(field))]
 pub fn derive_class(input: TokenStream) -> TokenStream {
@@ -55,12 +55,12 @@ pub fn derive_class(input: TokenStream) -> TokenStream {
 pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
   let struct_impl = parse_macro_input!(input as ItemImpl);
 
-  let me = struct_impl.self_ty;
+  let me = struct_impl.self_ty.clone();
 
   let mut methods = Vec::new();
   let mut statics = Vec::new();
 
-  for item in struct_impl.items {
+  for item in &struct_impl.items {
     /* impl Foo {
      *   #[method]
      *   fn do_foo(&mut self, arg1: i32) -> f32 {
@@ -75,38 +75,32 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
      */
 
     if let ImplItem::Method(method) = item {
-      let is_method = method.attrs.iter().find(|attr| attr.path.is_ident("method")).is_some();
-      let is_static = method.attrs.iter().find(|attr| attr.path.is_ident("static_method")).is_some();
-      if is_method && is_static {
-        return TokenStream::from(syn::Error::new_spanned(method, "fn cannot be both a method and static").to_compile_error());
-      } else if is_method {
-        methods.push(method.clone());
-      } else if is_static {
-        statics.push(method.clone());
+      if let Some(FnArg::Receiver(_this)) = method.sig.inputs.iter().next() {
+        methods.push(method.sig.ident.clone());
+      } else {
+        statics.push(method.sig.ident.clone());
       }
     }
   }
 
   let method_strs = methods
     .iter()
-    .map(|m| Literal::string(&m.sig.ident.to_string()))
+    .map(|m| Literal::string(&m.to_string()))
     .collect::<Vec<Literal>>();
 
-  let static_strs = methods
+  let static_strs = statics
     .iter()
-    .map(|s| Literal::string(&s.sig.ident.to_string()))
+    .map(|s| Literal::string(&s.to_string()))
     .collect::<Vec<Literal>>();
 
   quote! {
+    #struct_impl
+
     impl ClassBody for #me {
       fn lookup(name: &str) -> Option<Value> {
         match name {
-          #(#method_strs => Some(Value::from(|args| {
-            #me :: #methods
-          })),)*
-          #(#static_strs => Some(Value::from(|args| {
-            #me :: #statics
-          })),)*
+          #(#method_strs => Some(Value::from(#me::#methods)),)*
+          #(#static_strs => Some(Value::from(#me::#statics)),)*
           _ => None,
         }
       }
