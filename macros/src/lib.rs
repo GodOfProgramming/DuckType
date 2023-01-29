@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
-use proc_macro2::Literal;
-use quote::quote;
-use syn::{parse_macro_input, Fields, FnArg, ImplItem, ItemImpl, ItemStruct};
+use proc_macro2::{Ident, Literal};
+use quote::{quote, TokenStreamExt};
+use syn::{parse_macro_input, Fields, FnArg, ImplItem, ItemImpl, ItemStruct, Pat, PatType, Receiver, ReturnType, Token};
 
 #[proc_macro_derive(Class, attributes(field))]
 pub fn derive_class(input: TokenStream) -> TokenStream {
@@ -56,6 +56,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
   let struct_impl = parse_macro_input!(input as ItemImpl);
 
   let me = struct_impl.self_ty.clone();
+  let me_str = quote! { stringify!(#me) };
 
   let mut methods = Vec::new();
   let mut statics = Vec::new();
@@ -74,24 +75,100 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
      * }
      */
 
+    struct Method {
+      name: Ident,
+      receiver: Receiver,
+      nargs: usize,
+      ret: ReturnType,
+    }
+
+    struct Static {
+      name: Ident,
+      nargs: usize,
+      ret: ReturnType,
+    }
+
     if let ImplItem::Method(method) = item {
-      if let Some(FnArg::Receiver(_this)) = method.sig.inputs.iter().next() {
-        methods.push(method.sig.ident.clone());
+      let name = method.sig.ident.clone();
+      let nargs = method
+        .sig
+        .inputs
+        .iter()
+        .filter(|input| matches!(input, FnArg::Typed(_)))
+        .count();
+      let ret = method.sig.output.clone();
+
+      if let Some(FnArg::Receiver(this)) = method.sig.inputs.iter().next() {
+        methods.push(Method {
+          name,
+          receiver: this.clone(),
+          nargs,
+          ret,
+        });
       } else {
-        statics.push(method.sig.ident.clone());
+        statics.push(Static { name, nargs, ret });
       }
     }
   }
 
   let method_strs = methods
     .iter()
-    .map(|m| Literal::string(&m.to_string()))
+    .map(|m| Literal::string(&m.name.to_string()))
     .collect::<Vec<Literal>>();
 
   let static_strs = statics
     .iter()
-    .map(|s| Literal::string(&s.to_string()))
+    .map(|s| Literal::string(&s.name.to_string()))
     .collect::<Vec<Literal>>();
+
+  let mut lambda_bodies = Vec::new();
+  for method in methods {
+    if method.receiver.reference.is_some() {
+      let nargs = method.nargs;
+      let name = method.name;
+      let name_str = Literal::string(&name.to_string());
+
+      let mut args = quote! {};
+      args.append_separated(
+        (0..nargs).map(|i| {
+          quote! {
+            args
+            .next()
+            .unwrap()
+            .try_into()
+            .map_err(|e| ValueError::WrongType(#name_str, #i, e))?
+          }
+        }),
+        quote! {,},
+      );
+      if method.receiver.mutability.is_some() {
+        lambda_bodies.push(quote! {
+          Value::native(|_, _, args| {
+            if args.list.len() != #nargs {
+              if let Some(mut this) = args.this {
+                if let Some(this) = this.cast_to_mut::<#me>() {
+                  let mut args = args.list.into_iter();
+                  #me::#name(this, #args).map(Value::from)
+                } else {
+                  Err(ValueError::BadCast(#name_str, #me_str, this))
+                }
+              } else {
+                Err(ValueError::MissingSelf(#name_str))
+              }
+            } else {
+              Err(ValueError::ArgumentError(args.list.len(), #nargs))
+            }
+          })
+        });
+      } else {
+      }
+    } else {
+      return TokenStream::from(
+        syn::Error::new_spanned(method.name, "cannot impl method for fn signature not taking self reference")
+          .into_compile_error(),
+      );
+    }
+  }
 
   quote! {
     #struct_impl
@@ -99,8 +176,8 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
     impl ClassBody for #me {
       fn lookup(name: &str) -> Option<Value> {
         match name {
-          #(#method_strs => Some(Value::from(#me::#methods)),)*
-          #(#static_strs => Some(Value::from(#me::#statics)),)*
+           #(#method_strs => Some(#lambda_bodies ),)*
+           // #(#static_strs => Some(Value::from(#me::#statics)),)*
           _ => None,
         }
       }

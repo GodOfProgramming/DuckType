@@ -19,7 +19,18 @@ mod tests {
     pub list: Vec<Value>,
   }
 
-  type ValueResult = Result<Value, Box<dyn Error>>;
+  type ValueResult = Result<Value, ValueError>;
+
+  enum ValueError {
+    // fn name
+    MissingSelf(&'static str),
+    // fn name, argument index, error
+    WrongType(&'static str, usize, Box<dyn Error>),
+    // fn name, type, actual/this
+    BadCast(&'static str, &'static str, Value),
+    // given, expected
+    ArgumentError(usize, usize),
+  }
 
   trait Class {
     fn get(&self, field: &str) -> Option<Value>;
@@ -34,12 +45,35 @@ mod tests {
   enum Value {
     I32(i32),
     F32(f32),
+    Fn(fn(&mut Vm, &mut Env, Args) -> ValueResult),
     Nil,
+  }
+
+  impl Value {
+    fn native(f: fn(&mut Vm, &mut Env, Args) -> ValueResult) -> Value {
+      Value::Fn(f)
+    }
+
+    fn cast_to_mut<T: Default>(&mut self) -> Option<&mut T> {
+      Some(&mut T::default())
+    }
+  }
+
+  impl From<i32> for Value {
+    fn from(value: i32) -> Self {
+      Self::from(&value)
+    }
   }
 
   impl From<&i32> for Value {
     fn from(value: &i32) -> Self {
       Self::I32(*value)
+    }
+  }
+
+  impl From<f32> for Value {
+    fn from(value: f32) -> Self {
+      Self::from(&value)
     }
   }
 
@@ -50,24 +84,23 @@ mod tests {
   }
 
   impl TryFrom<Value> for i32 {
-    type Error = &'static str;
+    type Error = Box<dyn Error>;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
       if let Value::I32(i) = value {
         Ok(i)
       } else {
-        Err("")
+        Err("")?
       }
     }
   }
 
   impl TryFrom<Value> for f32 {
-    type Error = &'static str;
-
+    type Error = Box<dyn Error>;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
       if let Value::F32(f) = value {
         Ok(f)
       } else {
-        Err("")
+        Err("")?
       }
     }
   }
@@ -87,15 +120,29 @@ mod tests {
     foo2: f32,
   }
 
+  impl Foo {
+    fn new(foo: i32, foo2: f32) -> Self {
+      Self { foo, foo2 }
+    }
+  }
+
   #[class_body]
   impl Foo {
-    fn bar(&mut self) -> f32 {
-      1.0
+    fn bar(&mut self) -> Result<i32, ValueError> {
+      Ok(1)
+    }
+
+    fn baz(&mut self) -> Result<f32, ValueError> {
+      Ok(1.0)
+    }
+
+    fn barbaz(&mut self, a: i32, b: f32) -> Result<f32, ValueError> {
+      Ok(a as f32 + b)
     }
   }
 
   #[test]
   fn try_compile() {
-    Foo::default();
+    Foo::new(1, 1.0);
   }
 }
