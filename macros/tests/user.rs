@@ -14,6 +14,10 @@ mod tests {
     fn set(&mut self, field: &str, value: Value) -> Result<(), Box<dyn Error>>;
   }
 
+  trait ClassBody {
+    fn lookup(name: &str) -> Option<Value>;
+  }
+
   #[derive(Debug)]
   enum Value {
     I32(i32),
@@ -69,6 +73,14 @@ mod tests {
 
     #[field]
     foo2: f32,
+  }
+
+  #[macros::class_body]
+  impl Foo {
+    #[method]
+    fn foo(&mut self) -> i32 {
+      1
+    }
   }
 
   #[test]
