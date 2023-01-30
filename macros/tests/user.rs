@@ -54,8 +54,18 @@ mod tests {
       Value::Fn(f)
     }
 
+    fn cast_to<T: Default>(&self) -> Option<&T> {
+      Some(&T::default())
+    }
+
     fn cast_to_mut<T: Default>(&mut self) -> Option<&mut T> {
       Some(&mut T::default())
+    }
+  }
+
+  impl From<()> for Value {
+    fn from(value: ()) -> Self {
+      Self::Nil
     }
   }
 
@@ -128,16 +138,22 @@ mod tests {
 
   #[class_body]
   impl Foo {
-    fn bar(&mut self) -> Result<i32, ValueError> {
+    fn foo(x: i32) -> Result<i32, ValueError> {
+      Ok(x)
+    }
+
+    fn bar(&self) -> Result<i32, ValueError> {
       Ok(1)
     }
 
-    fn baz(&mut self) -> Result<f32, ValueError> {
+    fn baz(&self) -> Result<f32, ValueError> {
       Ok(1.0)
     }
 
-    fn barbaz(&mut self, a: i32, b: f32) -> Result<f32, ValueError> {
-      Ok(a as f32 + b)
+    fn barbaz(&mut self, a: i32, b: f32) -> Result<(), ValueError> {
+      self.foo = a;
+      self.foo2 = b;
+      Ok(())
     }
   }
 

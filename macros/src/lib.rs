@@ -121,7 +121,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
     .map(|s| Literal::string(&s.name.to_string()))
     .collect::<Vec<Literal>>();
 
-  let mut lambda_bodies = Vec::new();
+  let mut method_lambda_bodies = Vec::new();
   for method in methods {
     if method.receiver.reference.is_some() {
       let nargs = method.nargs;
@@ -142,7 +142,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
         quote! {,},
       );
       if method.receiver.mutability.is_some() {
-        lambda_bodies.push(quote! {
+        method_lambda_bodies.push(quote! {
           Value::native(|_, _, args| {
             if args.list.len() != #nargs {
               if let Some(mut this) = args.this {
@@ -161,6 +161,24 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
           })
         });
       } else {
+        method_lambda_bodies.push(quote! {
+          Value::native(|_, _, args| {
+            if args.list.len() != #nargs {
+              if let Some(this) = args.this {
+                if let Some(this) = this.cast_to::<#me>() {
+                  let mut args = args.list.into_iter();
+                  #me::#name(this, #args).map(Value::from)
+                } else {
+                  Err(ValueError::BadCast(#name_str, #me_str, this))
+                }
+              } else {
+                Err(ValueError::MissingSelf(#name_str))
+              }
+            } else {
+              Err(ValueError::ArgumentError(args.list.len(), #nargs))
+            }
+          })
+        });
       }
     } else {
       return TokenStream::from(
@@ -170,14 +188,46 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
     }
   }
 
+  let mut static_lambda_bodies = Vec::new();
+  for static_method in statics {
+    let nargs = static_method.nargs;
+    let name = static_method.name;
+    let name_str = Literal::string(&name.to_string());
+
+    let mut args = quote! {};
+    args.append_separated(
+      (0..nargs).map(|i| {
+        quote! {
+          args
+          .next()
+          .unwrap()
+          .try_into()
+          .map_err(|e| ValueError::WrongType(#name_str, #i, e))?
+        }
+      }),
+      quote! {,},
+    );
+
+    static_lambda_bodies.push(quote! {
+      Value::native(|_, _, args| {
+        if args.list.len() != #nargs {
+          let mut args = args.list.into_iter();
+          #me::#name(#args).map(Value::from)
+        } else {
+          Err(ValueError::ArgumentError(args.list.len(), #nargs))
+        }
+      })
+    });
+  }
+
   quote! {
     #struct_impl
 
     impl ClassBody for #me {
       fn lookup(name: &str) -> Option<Value> {
         match name {
-           #(#method_strs => Some(#lambda_bodies ),)*
-           // #(#static_strs => Some(Value::from(#me::#statics)),)*
+           #(#method_strs => Some(#method_lambda_bodies),)*
+           #(#static_strs => Some(#static_lambda_bodies),)*
           _ => None,
         }
       }
