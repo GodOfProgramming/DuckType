@@ -7,9 +7,7 @@ fn user_tests() {
 #[cfg(test)]
 mod tests {
   use macros::{class_body, Class};
-  use std::error::Error;
-
-  type NativeFn = fn(&mut Vm, &mut Env, Args) -> ValueResult;
+  use std::{error::Error, fmt::Debug};
 
   struct Vm;
   struct Env;
@@ -33,6 +31,7 @@ mod tests {
   }
 
   trait Class {
+    const MOD_NAME: &'static str;
     fn get(&self, field: &str) -> Option<Value>;
     fn set(&mut self, field: &str, value: Value) -> Result<(), Box<dyn Error>>;
   }
@@ -41,7 +40,6 @@ mod tests {
     fn lookup(name: &str) -> Option<Value>;
   }
 
-  #[derive(Debug)]
   enum Value {
     I32(i32),
     F32(f32),
@@ -55,16 +53,27 @@ mod tests {
     }
 
     fn cast_to<T: Default>(&self) -> Option<&T> {
-      Some(&T::default())
+      Some(Box::leak(Box::new(T::default())))
     }
 
     fn cast_to_mut<T: Default>(&mut self) -> Option<&mut T> {
-      Some(&mut T::default())
+      Some(Box::leak(Box::new(T::default())))
+    }
+  }
+
+  impl Debug for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+        Self::I32(arg0) => f.debug_tuple("I32").field(arg0).finish(),
+        Self::F32(arg0) => f.debug_tuple("F32").field(arg0).finish(),
+        Self::Fn(_arg0) => write!(f, "Fn"),
+        Self::Nil => write!(f, "Nil"),
+      }
     }
   }
 
   impl From<()> for Value {
-    fn from(value: ()) -> Self {
+    fn from(_value: ()) -> Self {
       Self::Nil
     }
   }
@@ -122,18 +131,13 @@ mod tests {
   }
 
   #[derive(Default, Class)]
+  #[module("std.Foo")]
   struct Foo {
     #[field]
     foo: i32,
 
     #[field]
     foo2: f32,
-  }
-
-  impl Foo {
-    fn new(foo: i32, foo2: f32) -> Self {
-      Self { foo, foo2 }
-    }
   }
 
   #[class_body]
@@ -155,10 +159,5 @@ mod tests {
       self.foo2 = b;
       Ok(())
     }
-  }
-
-  #[test]
-  fn try_compile() {
-    Foo::new(1, 1.0);
   }
 }

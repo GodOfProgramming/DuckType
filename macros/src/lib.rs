@@ -1,20 +1,41 @@
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Literal};
 use quote::{quote, TokenStreamExt};
-use syn::{parse_macro_input, Fields, FnArg, ImplItem, ItemImpl, ItemStruct, Pat, PatType, Receiver, ReturnType, Token};
+use syn::{
+  parenthesized,
+  parse::{Parse, ParseStream},
+  parse_macro_input, token, Fields, FnArg, ImplItem, ItemImpl, ItemStruct, Receiver, Result as SynResult,
+};
 
-#[proc_macro_derive(Class, attributes(field))]
+struct ModuleAttr {
+  #[allow(unused)]
+  paren_token: token::Paren,
+  arg: Literal,
+}
+
+impl Parse for ModuleAttr {
+  fn parse(input: ParseStream) -> SynResult<Self> {
+    let content;
+    let paren_token = parenthesized!(content in input);
+    let arg = content.parse()?;
+    Ok(Self { paren_token, arg })
+  }
+}
+
+#[proc_macro_derive(Class, attributes(field, module))]
 pub fn derive_class(input: TokenStream) -> TokenStream {
   let struct_def = parse_macro_input!(input as ItemStruct);
+  let module_attr = struct_def.attrs.iter().find(|attr| attr.path.is_ident("module"));
 
+  let name = struct_def.ident;
   let mut idents = Vec::new();
 
+  let in_script_ident = match module_attr.map(|m| TokenStream::from(m.tokens.clone())) {
+    Some(tokens) => parse_macro_input!(tokens as ModuleAttr).arg,
+    None => Literal::string(&name.to_string()),
+  };
+
   if let Fields::Named(fields) = &struct_def.fields {
-    /* struct Foo {
-     *   #[field]
-     *   foo: String,
-     * }
-     */
     for field in &fields.named {
       if field.attrs.iter().find(|attr| attr.path.is_ident("field")).is_some() {
         idents.push(field.ident.clone().unwrap());
@@ -24,14 +45,14 @@ pub fn derive_class(input: TokenStream) -> TokenStream {
     return TokenStream::from(syn::Error::new_spanned(struct_def.fields, "not a valid class field").to_compile_error());
   }
 
-  let name = struct_def.ident;
-
   let ident_strs = idents
     .iter()
     .map(|ident| Literal::string(&ident.to_string()))
     .collect::<Vec<Literal>>();
   quote! {
     impl Class for #name {
+      const MOD_NAME: &'static str = #in_script_ident;
+
       fn get(&self, field: &str) -> Option<Value> {
         match field {
           #(#ident_strs => Some(Value::from(&self.#idents)),)*
@@ -62,30 +83,15 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
   let mut statics = Vec::new();
 
   for item in &struct_impl.items {
-    /* impl Foo {
-     *   #[method]
-     *   fn do_foo(&mut self, arg1: i32) -> f32 {
-     *     1.0
-     *   }
-     *
-     *   #[static_method]
-     *   fn do_bar(arg1: f32) -> i32 {
-     *     1
-     *   }
-     * }
-     */
-
     struct Method {
       name: Ident,
       receiver: Receiver,
       nargs: usize,
-      ret: ReturnType,
     }
 
     struct Static {
       name: Ident,
       nargs: usize,
-      ret: ReturnType,
     }
 
     if let ImplItem::Method(method) = item {
@@ -96,17 +102,15 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
         .iter()
         .filter(|input| matches!(input, FnArg::Typed(_)))
         .count();
-      let ret = method.sig.output.clone();
 
       if let Some(FnArg::Receiver(this)) = method.sig.inputs.iter().next() {
         methods.push(Method {
           name,
           receiver: this.clone(),
           nargs,
-          ret,
         });
       } else {
-        statics.push(Static { name, nargs, ret });
+        statics.push(Static { name, nargs });
       }
     }
   }
@@ -234,10 +238,4 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
     }
   }
   .into()
-}
-
-#[allow(unused)]
-fn token_stream_with_error(mut tokens: TokenStream, error: syn::Error) -> TokenStream {
-  tokens.extend(TokenStream::from(error.into_compile_error()));
-  tokens
 }
