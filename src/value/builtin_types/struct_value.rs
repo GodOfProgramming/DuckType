@@ -1,4 +1,4 @@
-use super::{Usertype, UsertypeId, Value};
+use super::{Usertype, Value};
 use std::{
   collections::BTreeMap,
   fmt::{Display, Formatter, Result as FmtResult},
@@ -24,7 +24,7 @@ impl StructValue {
 }
 
 impl Usertype for StructValue {
-  const ID: UsertypeId = "Struct";
+  const ID: &'static str = "Struct";
 
   fn stringify(&self) -> String {
     self.to_string()

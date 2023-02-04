@@ -1,4 +1,4 @@
-use crate::prelude::{Usertype, UsertypeId};
+use crate::prelude::Usertype;
 use std::{ops::Deref, time::Instant};
 
 pub struct TimestampValue(Instant);
@@ -16,7 +16,7 @@ impl Default for TimestampValue {
 }
 
 impl Usertype for TimestampValue {
-  const ID: UsertypeId = "Timestamp";
+  const ID: &'static str = "Timestamp";
 }
 
 impl Deref for TimestampValue {

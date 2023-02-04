@@ -1,6 +1,4 @@
-use crate::prelude::*;
-
-use super::{Assign, Nil, StructValue, Tag, Usertype, UsertypeId, Value};
+use super::{Nil, StructValue, Usertype, Value};
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -36,96 +34,13 @@ impl Default for ImplementedObject {
 }
 
 impl Usertype for ImplementedObject {
-  const ID: UsertypeId = "ImplementedObject";
-
-  fn register(class: &mut NativeClassBuilder<Self>) {
-    class.add_method("__add__", |this, args| {
-      let other = args.first().unwrap();
-      match other.tag() {
-        Tag::I32 => return (this.field + other.as_i32().unwrap()).into(),
-        Tag::Pointer => {
-          if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-            return (this.field + obj.field).into();
-          } else {
-            Value::new_err("")
-          }
-        }
-        _ => Value::new_err(""),
-      }
-    });
-
-    class.add_method("__sub__", |this, args| {
-      let other = args.first().unwrap();
-      match other.tag() {
-        Tag::I32 => (this.field - other.as_i32().unwrap()).into(),
-        Tag::Pointer => {
-          if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-            (this.field - obj.field).into()
-          } else {
-            Value::new_err(format!("cannot add ImplementedObject and {}", other))
-          }
-        }
-        _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-      }
-    });
-
-    class.add_method("__mul__", |this, args| {
-      let other = args.first().unwrap();
-      match other.tag() {
-        Tag::I32 => (this.field * other.as_i32().unwrap()).into(),
-        Tag::Pointer => {
-          if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-            (this.field * obj.field).into()
-          } else {
-            Value::new_err(format!("cannot add ImplementedObject and {}", other))
-          }
-        }
-        _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-      }
-    });
-
-    class.add_method("__div__", |this, args| {
-      let other = args.first().unwrap();
-      match other.tag() {
-        Tag::I32 => (this.field / other.as_i32().unwrap()).into(),
-        Tag::Pointer => {
-          if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-            (this.field / obj.field).into()
-          } else {
-            Value::new_err(format!("cannot add ImplementedObject and {}", other))
-          }
-        }
-        _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-      }
-    });
-
-    class.add_method("__rem__", |this, args| {
-      let other = args.first().unwrap();
-      match other.tag() {
-        Tag::I32 => (this.field % other.as_i32().unwrap()).into(),
-        Tag::Pointer => {
-          if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-            (this.field % obj.field).into()
-          } else {
-            Value::new_err(format!("cannot add ImplementedObject and {}", other))
-          }
-        }
-        _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-      }
-    });
-  }
-
-  fn drop(&mut self) {
-    if !self.ptr.is_null() {
-      unsafe { *self.ptr = !*self.ptr };
-    }
-  }
+  const ID: &'static str = "ImplementedObject";
 }
 
 struct UnimplementedObject;
 
 impl Usertype for UnimplementedObject {
-  const ID: UsertypeId = "UnimplementedObject";
+  const ID: &'static str = "UnimplementedObject";
 }
 
 #[fixture(ValueTest)]
@@ -182,19 +97,19 @@ mod unit_tests {
       assert!(v.is::<ImplementedObject>());
       assert!(!x);
 
-      v.assign(123);
+      v = Value::from(123);
       assert!(v.is_i32());
       assert!(x);
 
-      v.assign(1.23);
+      v = Value::from(1.23);
       assert!(v.is_f64());
       assert!(x);
 
-      v.assign(ImplementedObject::new(&mut x));
+      v = Value::from(ImplementedObject::new(&mut x));
       assert!(v.is::<ImplementedObject>());
       assert!(x);
 
-      v.assign(Nil);
+      v = Value::from(Nil);
       assert!(v.is_nil());
       assert!(!x);
     }

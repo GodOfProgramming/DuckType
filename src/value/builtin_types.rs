@@ -1,22 +1,6 @@
-use super::{AllocatedObject, VTable, Value, META_OFFSET};
-use crate::prelude::*;
-pub use array_value::ArrayValue;
-pub use class_value::ClassValue;
-pub use closure_value::ClosureValue;
-pub use error_value::ErrorValue;
-pub use function_value::FunctionValue;
-pub use instance_value::InstanceValue;
-pub use method_value::MethodValue;
-pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use std::collections::BTreeMap;
-pub use string_value::StringValue;
-pub use struct_value::StructValue;
-pub use timestamp_value::TimestampValue;
-
 pub(crate) mod array_value;
 pub(crate) mod class_value;
 pub(crate) mod closure_value;
-pub(crate) mod error_value;
 pub(crate) mod function_value;
 pub(crate) mod instance_value;
 pub(crate) mod method_value;
@@ -45,48 +29,53 @@ pub mod ops {
   pub const INDEX: &str = "__index__";
 }
 
+use super::{VTable, Value};
+use crate::prelude::*;
+pub use array_value::ArrayValue;
+pub use class_value::ClassValue;
+pub use closure_value::ClosureValue;
+pub use function_value::FunctionValue;
+pub use instance_value::InstanceValue;
+pub use method_value::MethodValue;
+pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
+use std::collections::BTreeMap;
+pub use string_value::StringValue;
+pub use struct_value::StructValue;
+use thiserror::Error;
+pub use timestamp_value::TimestampValue;
+
 pub struct Nil;
 
-pub type UsertypeId = &'static str;
-pub trait Usertype: 'static
+pub trait Usertype
 where
-  Self: Sized,
+  Self: Sized + 'static,
 {
-  const ID: UsertypeId;
+  const ID: &'static str;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  #[allow(unused)]
-  fn register(class: &mut NativeClassBuilder<Self>) {}
-
-  fn class(env: &Env) -> Value {
-    env.lookup(Self::ID).unwrap_or_default()
+  fn lookup(&self, name: &str) -> Value {
+    Value::nil
   }
 
+  fn assign(&mut self, name: &str, value: Value) {}
+
   fn stringify(&self) -> String {
-    Self::type_name()
+    Self::ID.to_string()
   }
 
   fn debug_string(&self) -> String {
     self.stringify()
   }
+}
 
-  fn drop(&mut self) {}
+pub trait Class {
+  const ID: &'static str;
+  fn get(&self, field: &str) -> Option<Value>;
+  fn set(&mut self, field: &str, value: Value) -> Result<(), ValueError>;
+}
 
-  // override this only if necessary
-
-  fn dealloc(this: *mut Self) {
-    consume::<Self>(this);
-  }
-
-  // below this line should not to be reimplemented by the user
-
-  fn type_id() -> UsertypeId {
-    Self::ID
-  }
-
-  fn type_name() -> String {
-    std::any::type_name::<Self>().to_string()
-  }
+pub trait ClassBody {
+  fn lookup(name: &str) -> Option<Value>;
 }
 
 pub struct NativeClass {
@@ -135,155 +124,14 @@ impl NativeClass {
     self.statics.get(name).cloned().unwrap_or_default()
   }
 
-  pub(crate) fn construct(&self, this_class: Value, vm: &mut Vm, env: &mut Env, mut args: Args) -> Value {
+  pub(crate) fn construct(&self, this_class: Value, vm: &mut Vm, env: &mut Env, mut args: Args) -> Result<Value, ValueError> {
     let this = Value::from(InstanceValue::new(Default::default(), this_class));
     if let Some(constructor) = self.constructor {
       args.this = Some(this);
       constructor(vm, env, args)
     } else {
-      this
+      Ok(this)
     }
-  }
-}
-
-pub struct NativeClassBuilder<T: Usertype> {
-  constructor: Option<NativeFn>,
-  methods: BTreeMap<String, fn(&mut T, Vec<Value>) -> Value>,
-  statics: BTreeMap<String, fn(Vec<Value>) -> Value>,
-  setters: BTreeMap<String, fn(&mut T, Value)>,
-  getters: BTreeMap<String, fn(&T) -> Value>,
-}
-
-impl<T: Usertype> NativeClassBuilder<T> {
-  pub fn new() -> Self {
-    Self {
-      constructor: None,
-      methods: Default::default(),
-      statics: Default::default(),
-      setters: Default::default(),
-      getters: Default::default(),
-    }
-  }
-
-  pub fn constructor(&mut self, f: NativeFn) {
-    self.constructor = Some(f);
-  }
-
-  pub fn add_method(&mut self, name: impl ToString, f: fn(&mut T, Vec<Value>) -> Value) {
-    self.methods.insert(name.to_string(), f);
-  }
-
-  pub fn add_static(&mut self, name: impl ToString, f: fn(Vec<Value>) -> Value) {
-    self.statics.insert(name.to_string(), f);
-  }
-
-  pub fn add_setter(&mut self, name: impl ToString, f: fn(&mut T, Value)) {
-    self.setters.insert(name.to_string(), f);
-  }
-
-  pub fn add_getter(&mut self, name: impl ToString, f: fn(&T) -> Value) {
-    self.getters.insert(name.to_string(), f);
-  }
-
-  pub fn build(self) -> NativeClass {
-    NativeClass {
-      name: T::ID,
-      constructor: self.constructor,
-      methods: self
-        .methods
-        .into_iter()
-        .map(|(name, m)| {
-          (
-            name.clone(),
-            NativeMethodValue::new_native_closure(NativeClosureValue::new(name, move |_vm, _env, args| {
-              if let Some(mut this) = args.this {
-                if let Ok(this) = this.cast_to_mut::<T>() {
-                  return m(this, args.list);
-                }
-              }
-              Value::nil
-            }))
-            .into(),
-          )
-        })
-        .collect(),
-      statics: self
-        .statics
-        .into_iter()
-        .map(|(name, s)| {
-          (
-            name.clone(),
-            Value::new_native_closure(name, move |_vm, _env, args| s(args.list)),
-          )
-        })
-        .collect(),
-      setters: self
-        .setters
-        .into_iter()
-        .map(|(name, setter)| {
-          (
-            name,
-            SetterConv::new(move |this, value| {
-              if let Ok(this) = this.cast_to_mut::<T>() {
-                setter(this, value)
-              }
-            })
-            .into(),
-          )
-        })
-        .collect(),
-      getters: self
-        .getters
-        .into_iter()
-        .map(|(name, getter)| {
-          (
-            name,
-            GetterConv::new(move |this| {
-              if let Ok(this) = this.cast_to::<T>() {
-                getter(this)
-              } else {
-                Value::nil
-              }
-            })
-            .into(),
-          )
-        })
-        .collect(),
-    }
-  }
-}
-
-struct SetterConv(Box<dyn Fn(&mut Value, Value)>);
-
-impl SetterConv {
-  fn new<F>(f: F) -> Self
-  where
-    F: Fn(&mut Value, Value) + 'static,
-  {
-    Self(Box::new(f))
-  }
-}
-
-impl Into<Box<dyn Fn(&mut Value, Value)>> for SetterConv {
-  fn into(self) -> Box<dyn Fn(&mut Value, Value)> {
-    self.0
-  }
-}
-
-struct GetterConv(Box<dyn Fn(&Value) -> Value>);
-
-impl GetterConv {
-  fn new<F>(f: F) -> Self
-  where
-    F: Fn(&Value) -> Value + 'static,
-  {
-    Self(Box::new(f))
-  }
-}
-
-impl Into<Box<dyn Fn(&Value) -> Value>> for GetterConv {
-  fn into(self) -> Box<dyn Fn(&Value) -> Value> {
-    self.0
   }
 }
 
@@ -376,13 +224,26 @@ impl UnimplementedFunction {
   }
 }
 
-fn consume<T: Usertype>(this: *mut T) -> Box<AllocatedObject<T>> {
-  unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) }
-}
-
 /// Intentionally empty
 pub struct Primitive;
 
 impl Usertype for Primitive {
-  const ID: UsertypeId = "";
+  const ID: &'static str = "";
+}
+
+// TODO fill out this error
+#[derive(Debug, Error)]
+pub enum ValueError {
+  // fn name
+  #[error("missing self in call to {0}")]
+  MissingSelf(&'static str),
+  // fn name, argument index, error
+  #[error("wrong type in {0} arg {1}: {2}")]
+  WrongType(&'static str, usize, Box<dyn std::error::Error>),
+  // fn name, type, actual/this
+  #[error("bad cast in {0} casting from {2} to {1}")]
+  BadCast(&'static str, &'static str, Value),
+  // given, expected
+  #[error("argument error, given {0} expected {1}")]
+  ArgumentError(usize, usize),
 }

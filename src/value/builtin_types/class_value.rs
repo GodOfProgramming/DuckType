@@ -1,5 +1,4 @@
 use crate::{code::ClassConstant, prelude::*};
-use itertools::Itertools;
 use std::collections::BTreeMap;
 
 pub struct ClassValue {
@@ -42,17 +41,6 @@ impl ClassValue {
     self.initializer = Some(value);
   }
 
-  pub fn set_native_constructor_fn(&mut self, f: fn(&mut Vm, &mut Env, Args) -> Value) {
-    self.initializer = Some(Value::new_native_fn(f));
-  }
-
-  pub fn set_native_constructor_closure<F>(&mut self, f: F)
-  where
-    F: FnMut(&mut Vm, &mut Env, Args) -> Value + 'static,
-  {
-    self.initializer = Some(Value::new_native_closure(format!("{}()", self.name), f));
-  }
-
   pub fn get_method(&self, name: &str) -> Value {
     self.methods.get(name).cloned().unwrap_or_default()
   }
@@ -71,17 +59,7 @@ impl ClassValue {
 }
 
 impl Usertype for ClassValue {
-  const ID: UsertypeId = "Class";
-
-  fn register(class: &mut NativeClassBuilder<Self>) {
-    class.add_getter("methods", |this| {
-      ArrayValue::new_from_vec(this.methods.keys().map(|s| Value::from(s)).collect_vec()).into()
-    });
-
-    class.add_getter("statics", |this| {
-      ArrayValue::new_from_vec(this.static_members.keys().map(|s| Value::from(s)).collect_vec()).into()
-    });
-  }
+  const ID: &'static str = "Class";
 
   fn stringify(&self) -> String {
     self.name.clone()

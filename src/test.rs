@@ -84,12 +84,12 @@ mod integration_tests {
     test.load(|this, ctx, env| {
       env.define(
         "test_func",
-        Value::new_native_fn(|_thread, _env, args| {
+        Value::native(|_thread, _env, args| {
           let args = args.list;
           assert_eq!(args.len(), 2);
           assert_eq!(args[0], Value::from(1));
           assert_eq!(args[1], Value::from(2));
-          Value::from(3f64)
+          Ok(Value::from(3f64))
         }),
       );
       match this.vm.run("test", ctx, env) {

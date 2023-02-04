@@ -36,7 +36,7 @@ mod tests {
     let script = "ret some_func();";
     let ctx = t.vm.load("test", script).unwrap();
     let mut env = Env::initialize(&[], Library::All);
-    env.define("some_func", Value::new_native_fn(|_vm, _env, _args| Value::from(true)));
+    env.define("some_func", Value::native(|_vm, _env, _args| Value::from(true)));
 
     if let Return::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
       assert!(v == Value::from(true));

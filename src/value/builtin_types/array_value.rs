@@ -1,11 +1,13 @@
+use super::{Class, ClassBody};
 use crate::prelude::*;
 use itertools::Itertools;
+use macros::{class_body, Class};
 use std::{
   fmt::{Display, Formatter, Result},
   ops::{Deref, DerefMut},
 };
 
-#[derive(Default)]
+#[derive(Class, Default)]
 pub struct ArrayValue {
   list: Vec<Value>,
 }
@@ -20,34 +22,27 @@ impl ArrayValue {
   }
 }
 
-impl Usertype for ArrayValue {
-  const ID: UsertypeId = "Array";
-
-  fn register(class: &mut NativeClassBuilder<Self>) {
-    class.constructor(|_vm, _env, args| Value::from(ArrayValue::new_from_vec(args.list)));
-
-    class.add_method(ops::INDEX, |this, args| {
-      if let Some(index) = args.first() {
-        if let Ok(mut index) = index.as_i32() {
-          if index < 0 {
-            index = this.len() as i32 - index;
-          }
-          this.list.get(index as usize).cloned().unwrap_or(Value::nil)
-        } else {
-          Value::nil
-        }
-      } else {
-        Value::nil
-      }
-    });
-
-    class.add_method("push", |this, args| {
-      this.extend(args.into_iter());
-      Value::nil
-    });
-
-    class.add_getter("len", |this| Value::from(this.list.len() as i32));
+#[class_body]
+impl ArrayValue {
+  fn new(args: Vec<Value>) -> Self {
+    Self::new_from_vec(args)
   }
+
+  fn index(&self, index: i32) -> Value {
+    self.list.get(index as usize).cloned().unwrap_or_default()
+  }
+
+  fn push(&mut self, value: Value) {
+    self.list.push(value);
+  }
+
+  fn len(&self) -> i32 {
+    self.list.len() as i32
+  }
+}
+
+impl Usertype for ArrayValue {
+  const ID: &'static str = "Array";
 
   fn stringify(&self) -> String {
     format!("[{}]", self.list.iter().map(|v| v.to_string()).join(", "))

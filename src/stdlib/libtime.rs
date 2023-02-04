@@ -14,12 +14,12 @@ impl LibTime {
 
       mono.set(
         "now",
-        Value::new_native_fn(|_vm, _env, _args: Args| Value::from(TimestampValue::new())),
+        Value::native(|_vm, _env, _args: Args| Value::from(TimestampValue::new())),
       );
 
       mono.set(
         "elapsed",
-        Value::new_native_fn(|_vm, _env, args: Args| {
+        Value::native(|_vm, _env, args: Args| {
           if let Some(before) = args.list.get(0) {
             if before.is::<TimestampValue>() {
               let now = Instant::now();

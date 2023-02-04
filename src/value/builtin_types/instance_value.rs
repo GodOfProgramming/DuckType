@@ -1,4 +1,4 @@
-use super::{StructValue, Usertype, UsertypeId, Value};
+use super::{StructValue, Usertype, Value};
 
 #[derive(Default)]
 pub struct InstanceValue {
@@ -27,7 +27,7 @@ impl InstanceValue {
 }
 
 impl Usertype for InstanceValue {
-  const ID: UsertypeId = "Instance";
+  const ID: &'static str = "Instance";
 
   fn stringify(&self) -> String {
     format!("<instance of {}>", self.class.stringify())

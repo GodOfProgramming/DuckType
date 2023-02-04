@@ -14,7 +14,7 @@ mod tags;
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, Assign, Tag, Value};
+  pub use super::{builtin_types::*, Tag, Value};
 }
 
 type ConstVoid = *const ();
@@ -204,29 +204,6 @@ impl Value {
     self.cast_to_mut::<StructValue>()
   }
 
-  // error
-
-  pub fn new_err<T: ToString>(msg: T) -> Self {
-    Self::from(ErrorValue::from(msg.to_string()))
-  }
-
-  /// Convenience function to check if the value is not an error
-  pub fn is_ok(&self) -> bool {
-    !self.is::<ErrorValue>()
-  }
-
-  pub fn is_err(&self) -> bool {
-    self.is::<ErrorValue>()
-  }
-
-  pub fn as_err(&self) -> ConversionResult<&ErrorValue> {
-    self.cast_to::<ErrorValue>()
-  }
-
-  pub fn as_err_mut(&mut self) -> ConversionResult<&mut ErrorValue> {
-    self.cast_to_mut::<ErrorValue>()
-  }
-
   // class
 
   pub fn new_class<T: ToString>(name: T) -> Self {
@@ -329,7 +306,7 @@ impl Value {
 
   // -- native fn
 
-  pub fn new_native_fn(f: NativeFn) -> Self {
+  pub fn native(f: NativeFn) -> Self {
     Self::from(f)
   }
 
@@ -354,7 +331,7 @@ impl Value {
   pub fn new_native_closure<N, F>(name: N, f: F) -> Self
   where
     N: ToString,
-    F: FnMut(&mut Vm, &mut Env, Args) -> Value + 'static,
+    F: FnMut(&mut Vm, &mut Env, Args) -> Result<Value, ValueError> + 'static,
   {
     Self::from(NativeClosureValue::new(name, f))
   }
@@ -387,7 +364,7 @@ impl Value {
 
   pub fn new_native_closure_method<T: ToString, F>(name: T, f: F) -> Self
   where
-    F: FnMut(&mut Vm, &mut Env, Args) -> Value + 'static,
+    F: FnMut(&mut Vm, &mut Env, Args) -> Result<Value, ValueError> + 'static,
   {
     Self::from(NativeMethodValue::from(NativeClosureValue::new(name, f)))
   }
@@ -436,7 +413,7 @@ impl Value {
     self.convert_mut()
   }
 
-  // cmplx value pointer
+  // value pointer
 
   pub fn is_ptr(&self) -> bool {
     self.is_type::<POINTER_TAG>()
@@ -474,13 +451,19 @@ impl Value {
     Callable::from_value(self.clone()).map_err(|_e| ConversionError::WrongType)
   }
 
-  // ComplexValue Methods
+  // value methods
 
-  pub fn class(&self, env: &Env) -> Value {
+  pub fn lookup(&self, name: &str) -> Value {
     if self.is_ptr() {
-      (self.vtable().class)(env)
+      (self.vtable().lookup)(self.pointer(), name)
     } else {
-      env.lookup(Primitive::ID).unwrap_or_default()
+      Value::nil
+    }
+  }
+
+  pub fn assign(&mut self, name: &str, value: Value) {
+    if self.is_ptr() {
+      (self.vtable().assign)(self.pointer_mut(), name, value);
     }
   }
 
@@ -595,7 +578,6 @@ impl Drop for Value {
       meta.ref_count -= 1;
 
       if meta.ref_count == 0 {
-        (meta.vtable.drop)(pointer);
         (meta.vtable.dealloc)(pointer);
       }
     }
@@ -702,14 +684,6 @@ where
     Value::allocate_usertype::<T>(item)
   }
 }
-
-impl Assign<i32> for Value {}
-
-impl Assign<f64> for Value {}
-
-impl<T: Usertype> Assign<T> for Value {}
-
-impl Assign<Nil> for Value {}
 
 impl Display for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -1031,10 +1005,10 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  class: fn(&Env) -> Value,
+  lookup: fn(ConstVoid, &str) -> Value,
+  assign: fn(MutVoid, &str, Value),
   stringify: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
-  drop: fn(MutVoid),
   dealloc: fn(MutVoid),
   type_id: fn() -> &'static str,
   type_name: fn() -> String,
@@ -1043,22 +1017,22 @@ pub struct VTable {
 impl VTable {
   const fn new<T: Usertype>() -> Self {
     Self {
-      class: |env| <T as Usertype>::class(env),
-      stringify: |this| <T as Usertype>::stringify(unsafe { &*Self::void_to(this) }),
-      debug_string: |this| <T as Usertype>::debug_string(unsafe { &*Self::void_to(this) }),
-      drop: |this| <T as Usertype>::drop(unsafe { &mut *Self::void_to_mut(this) }),
-      dealloc: |this| <T as Usertype>::dealloc(this as *mut T),
-      type_id: || <T as Usertype>::type_id(),
-      type_name: || <T as Usertype>::type_name(),
+      lookup: |this, name| <T as Usertype>::lookup(Self::cast(this), name),
+      assign: |this, name, value| <T as Usertype>::assign(Self::cast_mut(this), name, value),
+      stringify: |this| <T as Usertype>::stringify(Self::cast(this)),
+      debug_string: |this| <T as Usertype>::debug_string(Self::cast(this)),
+      dealloc: |this| consume(this as *mut T),
+      type_id: || <T as Usertype>::ID,
+      type_name: || std::any::type_name::<T>().to_string(),
     }
   }
 
-  fn void_to<T>(ptr: ConstVoid) -> *const T {
-    ptr as *const T
+  fn cast<'t, T>(ptr: ConstVoid) -> &'t T {
+    unsafe { &*(ptr as *const T) }
   }
 
-  fn void_to_mut<T>(ptr: MutVoid) -> *mut T {
-    ptr as *mut T
+  fn cast_mut<'t, T>(ptr: MutVoid) -> &'t mut T {
+    unsafe { &mut *(ptr as *mut T) }
   }
 }
 
@@ -1080,15 +1054,6 @@ impl<T: Usertype> AllocatedObject<T> {
       vtable: &T::VTABLE,
     };
     Self { obj, meta }
-  }
-}
-
-pub trait Assign<T>: From<T>
-where
-  Self: Sized,
-{
-  fn assign(&mut self, t: T) {
-    *self = Self::from(t);
   }
 }
 
@@ -1151,17 +1116,27 @@ impl Callable {
       Callable::Closure(c) => c.as_closure_unchecked().call(vm, args.list),
       Callable::Method(m) => m.as_method_unchecked().call(vm, args),
       Callable::NativeFn(f) => {
-        let value = f(vm, env, args);
+        let value = f(vm, env, args).expect("TODO must handle error here");
         vm.stack_push(value);
       }
       Callable::NativeClosure(c) => {
-        let value = c.as_native_closure_unchecked_mut().call(vm, env, args);
+        let value = c
+          .as_native_closure_unchecked_mut()
+          .call(vm, env, args)
+          .expect("TODO must handle error here");
         vm.stack_push(value);
       }
       Callable::NativeMethod(m) => {
-        let value = m.as_native_method_unchecked_mut().call(vm, env, args);
+        let value = m
+          .as_native_method_unchecked_mut()
+          .call(vm, env, args)
+          .expect("TODO must handle error here");
         vm.stack_push(value);
       }
     }
   }
+}
+
+fn consume<T: Usertype>(this: *mut T) {
+  unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) };
 }

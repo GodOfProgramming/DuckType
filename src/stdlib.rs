@@ -77,7 +77,7 @@ fn load_std() -> Value {
 
   lib.set(
     "debug",
-    Value::new_native_fn(|_vm, _env, args| Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil)))),
+    Value::native(|_vm, _env, args| Ok(Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil))))),
   );
 
   // Structs
@@ -86,7 +86,7 @@ fn load_std() -> Value {
 
     object.set_static(
       "fields",
-      Value::new_native_fn(|_vm, _env, args| {
+      Value::native(|_vm, _env, args| {
         let mut args = args.list.into_iter();
         let mut fields = Vec::default();
 
@@ -100,7 +100,7 @@ fn load_std() -> Value {
           }
         }
 
-        Value::from(fields)
+        Ok(Value::from(fields))
       }),
     );
 

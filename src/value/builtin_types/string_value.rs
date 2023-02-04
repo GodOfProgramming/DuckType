@@ -1,52 +1,38 @@
-use crate::prelude::*;
-
-use super::{Usertype, UsertypeId, Value};
+use super::{Class, ClassBody, Usertype, Value, ValueError};
+use macros::{class_body, Class};
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
 };
 
-#[derive(Default)]
+#[derive(Default, Class)]
 pub struct StringValue {
   str: String,
 }
 
+#[class_body]
 impl StringValue {
-  fn char_at(&self, index: &Value) -> Value {
-    if let Ok(indx) = index.as_i32() {
-      self.chars().nth(indx as usize).map(|c| c.into()).unwrap_or_default()
-    } else {
-      Value::nil
+  fn len(&self) -> i32 {
+    self.len() as i32
+  }
+
+  fn add(&self, other: Self) -> Self {
+    Self {
+      str: format!("{}{}", self, other),
     }
+  }
+
+  fn index(&self, index: i32) -> Value {
+    self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default()
+  }
+
+  fn eq(&self, other: Self) -> bool {
+    self.str == other.str
   }
 }
 
 impl Usertype for StringValue {
-  const ID: UsertypeId = "String";
-
-  fn register(class: &mut NativeClassBuilder<Self>) {
-    class.add_getter("len", |this| Value::from(this.len() as i32));
-
-    class.add_method(ops::INDEX, |this, args| this.char_at(args.first().unwrap_or(&Value::nil)));
-
-    class.add_method(ops::ADD, |this, args| {
-      if let Some(other) = args.first() {
-        Value::from(format!("{}{}", this.deref(), other))
-      } else {
-        Value::new_err("somehow called add without argument")
-      }
-    });
-
-    class.add_method(ops::EQUALITY, |this, args| {
-      if let Some(other) = args.first() {
-        if let Ok(other) = other.as_str() {
-          return Value::from(**this == **other);
-        }
-      }
-
-      Value::from(false)
-    });
-  }
+  const ID: &'static str = "String";
 
   fn stringify(&self) -> String {
     self.deref().clone()

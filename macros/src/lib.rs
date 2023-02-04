@@ -51,7 +51,7 @@ pub fn derive_class(input: TokenStream) -> TokenStream {
     .collect::<Vec<Literal>>();
   quote! {
     impl Class for #name {
-      const MOD_NAME: &'static str = #in_script_ident;
+      const ID: &'static str = #in_script_ident;
 
       fn get(&self, field: &str) -> Option<Value> {
         match field {
@@ -60,7 +60,7 @@ pub fn derive_class(input: TokenStream) -> TokenStream {
         }
       }
 
-      fn set(&mut self, field: &str, value: Value) -> Result<(), Box<dyn std::error::Error>> {
+      fn set(&mut self, field: &str, value: Value) -> Result<(), ValueError> {
         match field {
           #(#ident_strs => self.#idents = value.try_into()?,)*
           _ => (),

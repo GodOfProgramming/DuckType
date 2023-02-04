@@ -30,7 +30,7 @@ impl MethodValue {
 }
 
 impl Usertype for MethodValue {
-  const ID: UsertypeId = "Method";
+  const ID: &'static str = "Method";
 
   fn stringify(&self) -> String {
     format!("method {}", self.function.stringify())

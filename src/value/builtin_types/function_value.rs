@@ -47,7 +47,7 @@ impl FunctionValue {
 }
 
 impl Usertype for FunctionValue {
-  const ID: UsertypeId = "Function";
+  const ID: &'static str = "Function";
 
   fn stringify(&self) -> String {
     format!("fn {}", self.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>"))

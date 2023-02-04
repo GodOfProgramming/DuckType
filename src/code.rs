@@ -631,22 +631,7 @@ impl Env {
 
     env.assign("$LIBRARY", module.into());
 
-    env.register_usertype::<ArrayValue>().ok();
-    env.register_usertype::<StringValue>().ok();
-    env.register_usertype::<ClassValue>().ok();
-
     env
-  }
-
-  pub fn register_usertype<T: Usertype + 'static>(&mut self) -> Result<(), Box<dyn Error>> {
-    if self.is_available(T::ID) {
-      let mut builder = NativeClassBuilder::<T>::new();
-      T::register(&mut builder);
-      self.vars.insert(T::ID.to_string(), Value::from(builder.build()));
-      Ok(())
-    } else {
-      Err(format!("class '{}' is already defined", T::ID))?
-    }
   }
 
   /// Defines a new variable. Returns true if the variable is new, false otherwise

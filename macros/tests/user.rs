@@ -31,7 +31,7 @@ mod tests {
   }
 
   trait Class {
-    const MOD_NAME: &'static str;
+    const ID: &'static str;
     fn get(&self, field: &str) -> Option<Value>;
     fn set(&mut self, field: &str, value: Value) -> Result<(), Box<dyn Error>>;
   }
@@ -142,6 +142,10 @@ mod tests {
 
   #[class_body]
   impl Foo {
+    fn constructor(foo: i32, foo2: f32) -> Result<Self, ValueError> {
+      Ok(Self { foo, foo2 })
+    }
+
     fn foo(x: i32) -> Result<i32, ValueError> {
       Ok(x)
     }

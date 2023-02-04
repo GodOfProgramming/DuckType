@@ -43,7 +43,7 @@ impl ClosureValue {
 }
 
 impl Usertype for ClosureValue {
-  const ID: UsertypeId = "Closure";
+  const ID: &'static str = "Closure";
 
   fn stringify(&self) -> String {
     format!("closure {}", self.function.stringify())

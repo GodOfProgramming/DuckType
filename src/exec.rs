@@ -78,18 +78,11 @@ impl Vm {
   {
     if let Some(v) = self.stack_pop() {
       if v.is_ptr() {
-        let callable = if let Ok(class) = v.class(env).as_native_class() {
-          class.get_for_instance(
-            &v,
-            match opcode {
-              Opcode::Negate => ops::NEG,
-              Opcode::Not => ops::NOT,
-              op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
-            },
-          )
-        } else {
-          Err(self.error(opcode, format!("unable to call operator {:?} for {}", opcode, v)))?
-        };
+        let callable = v.lookup(match opcode {
+          Opcode::Negate => ops::NEG,
+          Opcode::Not => ops::NOT,
+          op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
+        });
 
         self.current_frame.last_lookup = v;
         self.call_value(env, opcode, callable, Vec::default())
@@ -110,27 +103,20 @@ impl Vm {
       if let Some(av) = self.stack_pop() {
         if av.is_ptr() {
           let args = vec![bv];
-          let callable = if let Ok(class) = av.class(env).as_native_class() {
-            class.get_for_instance(
-              &av,
-              match opcode {
-                Opcode::Add => ops::ADD,
-                Opcode::Sub => ops::SUB,
-                Opcode::Mul => ops::MUL,
-                Opcode::Div => ops::DIV,
-                Opcode::Rem => ops::REM,
-                Opcode::Equal => ops::EQUALITY,
-                Opcode::NotEqual => ops::NOT_EQUAL,
-                Opcode::Less => ops::LESS,
-                Opcode::LessEqual => ops::LESS_EQUAL,
-                Opcode::Greater => ops::GREATER,
-                Opcode::GreaterEqual => ops::GREATER_EQUAL,
-                op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
-              },
-            )
-          } else {
-            Err(self.error(opcode, format!("unable to call operator {:?} for {}", opcode, av)))?
-          };
+          let callable = av.lookup(match opcode {
+            Opcode::Add => ops::ADD,
+            Opcode::Sub => ops::SUB,
+            Opcode::Mul => ops::MUL,
+            Opcode::Div => ops::DIV,
+            Opcode::Rem => ops::REM,
+            Opcode::Equal => ops::EQUALITY,
+            Opcode::NotEqual => ops::NOT_EQUAL,
+            Opcode::Less => ops::LESS,
+            Opcode::LessEqual => ops::LESS_EQUAL,
+            Opcode::Greater => ops::GREATER,
+            Opcode::GreaterEqual => ops::GREATER_EQUAL,
+            op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
+          });
           self.current_frame.last_lookup = av;
           self.call_value(env, opcode, callable, args)
         } else {
@@ -464,25 +450,9 @@ impl Vm {
       if let Some(mut obj) = self.stack_pop() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
-            if let Ok(obj) = obj.as_struct_mut() {
-              obj.set(name, value.clone());
-              self.stack_push(value);
-              Ok(())
-            } else if let Ok(obj) = obj.as_instance_mut() {
-              obj.set(name, value.clone());
-              self.stack_push(value);
-              Ok(())
-            } else if obj.is_ptr() {
-              if let Ok(class) = obj.class(env).as_native_class() {
-                class.set_for_instance(&mut obj, name, value.clone());
-                self.stack_push(value);
-                Ok(())
-              } else {
-                Err(self.error(opcode, format!("object '{}' class is not a class: {}", obj, obj.class(env))))
-              }
-            } else {
-              Err(self.error(opcode, String::from("invalid type for member assignment")))
-            }
+            obj.assign(&name, value.clone());
+            self.stack_push(value);
+            Ok(())
           } else {
             Err(self.error(opcode, String::from("constant at index is not an identifier")))
           }
@@ -503,31 +473,8 @@ impl Vm {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
           self.current_frame.last_lookup = obj.clone();
-          if let Ok(s) = obj.as_struct() {
-            self.stack_push(s.get(name));
-            Ok(())
-          } else if let Ok(i) = obj.as_instance() {
-            self.stack_push(i.get(name));
-            Ok(())
-          } else if let Ok(c) = obj.as_class() {
-            self.stack_push(c.get_static(name));
-            Ok(())
-          } else if let Ok(c) = obj.as_native_class() {
-            self.stack_push(c.get_static(name));
-            Ok(())
-          } else if obj.is_ptr() {
-            if let Ok(class) = obj.class(env).as_class() {
-              self.stack_push(class.get_method(name));
-              Ok(())
-            } else if let Ok(class) = obj.class(env).as_native_class() {
-              self.stack_push(class.get_for_instance(&mut obj, name));
-              Ok(())
-            } else {
-              Err(self.error(opcode, format!("object class is not a class {}", obj.class(env))))
-            }
-          } else {
-            Err(self.error(opcode, format!("cannot access member of primitive {}", obj)))
-          }
+          self.stack_push(obj.lookup(name));
+          Ok(())
         } else {
           Err(self.error(opcode, "member identifier is not a string"))
         }
@@ -945,16 +892,16 @@ impl Vm {
       f.call(self, args);
       Ok(())
     } else if let Ok(f) = callable.as_native_fn() {
-      let v = f(self, env, args.into());
+      let v = f(self, env, args.into()).expect("TODO must handle error here");
       self.stack_push(v);
       Ok(())
     } else if let Ok(f) = callable.as_native_closure_mut() {
-      let v = f.call(self, env, args.into());
+      let v = f.call(self, env, args.into()).expect("TODO must handle error here");
       self.stack_push(v);
       Ok(())
     } else if let Ok(f) = callable.as_native_method_mut() {
       let args = Args::from((self.current_frame.last_lookup.take(), args));
-      let v = f.call(self, env, args);
+      let v = f.call(self, env, args).expect("TODO must handle error here");
       self.stack_push(v);
       Ok(())
     } else if callable.is_class() {
@@ -962,7 +909,7 @@ impl Vm {
       Ok(())
     } else if let Ok(c) = callable.clone().as_native_class() {
       let args = Args::from((self.current_frame.last_lookup.take(), args));
-      let v = c.construct(callable, self, env, args);
+      let v = c.construct(callable, self, env, args).expect("TODO must handle error here");
       self.stack_push(v);
       Ok(())
     } else {

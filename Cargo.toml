@@ -18,6 +18,8 @@ memoffset = "0.6.5"
 thiserror = "1.0.37"
 inter-struct = "0.2.0"
 
+macros = { path = "macros" }
+
 [dev-dependencies]
 pretty_assertions = "1.3.0"
 
