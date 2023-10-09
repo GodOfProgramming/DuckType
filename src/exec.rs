@@ -74,7 +74,7 @@ impl Vm {
 
   fn unary_op<F>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult
   where
-    F: FnOnce(&mut Self, Value),
+    F: FnOnce(Value) -> ValueResult,
   {
     if let Some(v) = self.stack_pop() {
       if v.is_ptr() {
@@ -87,7 +87,7 @@ impl Vm {
         self.current_frame.last_lookup = v;
         self.call_value(env, opcode, callable, Vec::default())
       } else {
-        f(self, v);
+        self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
         Ok(())
       }
     } else {
@@ -97,7 +97,7 @@ impl Vm {
 
   fn binary_op<F>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult
   where
-    F: FnOnce(&mut Self, Value, Value),
+    F: FnOnce(Value, Value) -> ValueResult,
   {
     if let Some(bv) = self.stack_pop() {
       if let Some(av) = self.stack_pop() {
@@ -120,7 +120,7 @@ impl Vm {
           self.current_frame.last_lookup = av;
           self.call_value(env, opcode, callable, args)
         } else {
-          f(self, av, bv);
+          self.stack_push(f(av, bv).map_err(|e| self.error(opcode, e))?);
           Ok(())
         }
       } else {
@@ -421,10 +421,10 @@ impl Vm {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
-            if let Ok(obj) = obj.as_struct_mut() {
+            if let Some(obj) = obj.as_struct_mut() {
               obj.set(name, value);
               Ok(())
-            } else if let Ok(obj) = obj.as_instance_mut() {
+            } else if let Some(obj) = obj.as_instance_mut() {
               obj.set(name, value);
               Ok(())
             } else {
@@ -491,10 +491,10 @@ impl Vm {
     if let Some(obj) = self.stack_peek() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
-          if let Ok(obj) = obj.as_struct() {
+          if let Some(obj) = obj.as_struct() {
             self.stack_push(obj.get(name));
             Ok(())
-          } else if let Ok(obj) = obj.as_instance() {
+          } else if let Some(obj) = obj.as_instance() {
             self.stack_push(obj.get(name));
             Ok(())
           } else {
@@ -513,9 +513,7 @@ impl Vm {
 
   #[inline]
   fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult {
-    self.binary_op(env, opcode, |this, a, b| {
-      this.stack_push(Value::from(f(a, b)));
-    })
+    self.binary_op(env, opcode, |a, b| Ok(Value::from(f(a, b))))
   }
 
   #[inline]
@@ -563,10 +561,8 @@ impl Vm {
   }
 
   #[inline]
-  fn exec_arith<F: FnOnce(Value, Value) -> Value>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult {
-    self.binary_op(env, opcode, |this, a, b| {
-      this.stack_push(f(a, b));
-    })
+  fn exec_arith<F: FnOnce(Value, Value) -> ValueResult>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult {
+    self.binary_op(env, opcode, |a, b| f(a, b))
   }
 
   #[inline]
@@ -623,16 +619,12 @@ impl Vm {
 
   #[inline]
   fn exec_not(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.unary_op(env, opcode, |this, v| {
-      this.stack_push(!v);
-    })
+    self.unary_op(env, opcode, |v| Ok(!v))
   }
 
   #[inline]
   fn exec_negate(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.unary_op(env, opcode, |this, v| {
-      this.stack_push(-v);
-    })
+    self.unary_op(env, opcode, |v| -v)
   }
 
   #[inline]
@@ -722,8 +714,8 @@ impl Vm {
           // if still not found, try searching library paths
           if found_file.is_none() {
             if let Some(library_mod) = env.lookup("$LIBRARY") {
-              if let Ok(library_mod) = library_mod.as_struct() {
-                if let Ok(list) = library_mod.get("path").as_array() {
+              if let Some(library_mod) = library_mod.as_struct() {
+                if let Some(list) = library_mod.get("path").as_array() {
                   for item in list.iter() {
                     let base = PathBuf::from(item.to_string());
                     let path = base.join(&required_file);
@@ -788,8 +780,8 @@ impl Vm {
     match self.stack_pop() {
       Some(function) => match self.stack_pop() {
         Some(captures) => {
-          if let Ok(f) = function.as_fn() {
-            if let Ok(captures) = captures.as_array() {
+          if let Some(f) = function.as_fn() {
+            if let Some(captures) = captures.as_array() {
               self.stack_push(Value::from(ClosureValue::new(captures, f.clone())));
               Ok(())
             } else {
@@ -881,33 +873,33 @@ impl Vm {
   }
 
   fn call_value(&mut self, env: &mut Env, opcode: &Opcode, mut callable: Value, args: Vec<Value>) -> ExecResult {
-    let res = if let Ok(f) = callable.as_fn() {
+    let res = if let Some(f) = callable.as_fn() {
       f.call(self, args);
       Ok(())
-    } else if let Ok(f) = callable.as_closure() {
+    } else if let Some(f) = callable.as_closure() {
       f.call(self, args);
       Ok(())
-    } else if let Ok(f) = callable.as_method() {
+    } else if let Some(f) = callable.as_method() {
       let args = Args::from((self.current_frame.last_lookup.take(), args));
       f.call(self, args);
       Ok(())
-    } else if let Ok(f) = callable.as_native_fn() {
+    } else if let Some(f) = callable.as_native_fn() {
       let v = f(self, env, args.into()).expect("TODO must handle error here");
       self.stack_push(v);
       Ok(())
-    } else if let Ok(f) = callable.as_native_closure_mut() {
+    } else if let Some(f) = callable.as_native_closure_mut() {
       let v = f.call(self, env, args.into()).expect("TODO must handle error here");
       self.stack_push(v);
       Ok(())
-    } else if let Ok(f) = callable.as_native_method_mut() {
+    } else if let Some(f) = callable.as_native_method_mut() {
       let args = Args::from((self.current_frame.last_lookup.take(), args));
       let v = f.call(self, env, args).expect("TODO must handle error here");
       self.stack_push(v);
       Ok(())
     } else if callable.is_class() {
-      ClassValue::construct(callable, self, env, args.into());
+      ClassValue::construct(callable, self, env, args.into()).map_err(|e| self.error(opcode, e))?;
       Ok(())
-    } else if let Ok(c) = callable.clone().as_native_class() {
+    } else if let Some(c) = callable.clone().as_native_class() {
       let args = Args::from((self.current_frame.last_lookup.take(), args));
       let v = c.construct(callable, self, env, args).expect("TODO must handle error here");
       self.stack_push(v);

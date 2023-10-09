@@ -31,9 +31,9 @@ mod tests {
   }
 
   trait Class {
-    const ID: &'static str;
+    fn id(&self) -> &'static str;
     fn get(&self, field: &str) -> Option<Value>;
-    fn set(&mut self, field: &str, value: Value) -> Result<(), Box<dyn Error>>;
+    fn set(&mut self, field: &str, value: Value) -> Result<(), ValueError>;
   }
 
   trait ClassBody {
@@ -44,6 +44,7 @@ mod tests {
     I32(i32),
     F32(f32),
     Fn(fn(&mut Vm, &mut Env, Args) -> ValueResult),
+    Class(Box<dyn Class>),
     Nil,
   }
 
@@ -102,6 +103,15 @@ mod tests {
     }
   }
 
+  impl<T> From<T> for Value
+  where
+    T: Class,
+  {
+    fn from(value: T) -> Self {
+      Self::Class(Box::new(value))
+    }
+  }
+
   impl TryFrom<Value> for i32 {
     type Error = Box<dyn Error>;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -142,10 +152,6 @@ mod tests {
 
   #[class_body]
   impl Foo {
-    fn constructor(foo: i32, foo2: f32) -> Result<Self, ValueError> {
-      Ok(Self { foo, foo2 })
-    }
-
     fn foo(x: i32) -> Result<i32, ValueError> {
       Ok(x)
     }

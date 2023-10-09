@@ -2,7 +2,8 @@ req "lib/sspec/sspec.ss";
 
 describe("arrays.size_0", |t| {
   let arr = [];
-  t.expect(arr.len).to_be(0);
+  let exp = t.expect(arr.len);
+  exp.to_be(0);
   t.expect(arr[0]).to_be(nil);
 });
 

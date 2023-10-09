@@ -50,8 +50,11 @@ pub fn derive_class(input: TokenStream) -> TokenStream {
     .map(|ident| Literal::string(&ident.to_string()))
     .collect::<Vec<Literal>>();
   quote! {
+    #[automatically_derived]
     impl Class for #name {
-      const ID: &'static str = #in_script_ident;
+      fn id(&self) -> &'static str {
+        #in_script_ident
+      }
 
       fn get(&self, field: &str) -> Option<Value> {
         match field {
@@ -60,10 +63,10 @@ pub fn derive_class(input: TokenStream) -> TokenStream {
         }
       }
 
-      fn set(&mut self, field: &str, value: Value) -> Result<(), ValueError> {
+      fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
         match field {
           #(#ident_strs => self.#idents = value.try_into()?,)*
-          _ => (),
+          _ => Err(ValueError::InvalidAssignment(field.to_string()))?,
         }
         Ok(())
       }
@@ -136,11 +139,9 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
       args.append_separated(
         (0..nargs).map(|i| {
           quote! {
-            args
+            try_arg_cast(args
             .next()
-            .unwrap()
-            .try_into()
-            .map_err(|e| ValueError::WrongType(#name_str, #i, e))?
+            .unwrap(), #name_str, #i)?
           }
         }),
         quote! {,},
@@ -152,7 +153,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
               if let Some(mut this) = args.this {
                 if let Some(this) = this.cast_to_mut::<#me>() {
                   let mut args = args.list.into_iter();
-                  #me::#name(this, #args).map(Value::from)
+                  Ok(Value::from(#me::#name(this, #args)))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
                 }
@@ -171,7 +172,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
               if let Some(this) = args.this {
                 if let Some(this) = this.cast_to::<#me>() {
                   let mut args = args.list.into_iter();
-                  #me::#name(this, #args).map(Value::from)
+                  Ok(Value::from(#me::#name(this, #args)))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
                 }
@@ -202,11 +203,9 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
     args.append_separated(
       (0..nargs).map(|i| {
         quote! {
-          args
+          try_arg_cast(args
           .next()
-          .unwrap()
-          .try_into()
-          .map_err(|e| ValueError::WrongType(#name_str, #i, e))?
+          .unwrap(), #name_str, #i)?
         }
       }),
       quote! {,},
@@ -216,7 +215,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
       Value::native(|_, _, args| {
         if args.list.len() != #nargs {
           let mut args = args.list.into_iter();
-          #me::#name(#args).map(Value::from)
+          Ok(Value::from(#me::#name(#args)))
         } else {
           Err(ValueError::ArgumentError(args.list.len(), #nargs))
         }
@@ -227,8 +226,17 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
   quote! {
     #struct_impl
 
+    #[automatically_derived]
     impl ClassBody for #me {
       fn lookup(name: &str) -> Option<Value> {
+
+        pub fn try_arg_cast<T>(this: Value, fn_name: &'static str, pos: usize) -> ValueResult<T>
+        where
+          T: MaybeFrom<Value>,
+        {
+          T::maybe_from(this).ok_or_else(|| ValueError::InvalidArgument(fn_name, pos))
+        }
+
         match name {
            #(#method_strs => Some(#method_lambda_bodies),)*
            #(#static_strs => Some(#static_lambda_bodies),)*

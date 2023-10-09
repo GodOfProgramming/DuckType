@@ -1,4 +1,6 @@
-use super::{Nil, StructValue, Usertype, Value};
+use std::error::Error;
+
+use super::{MaybeFrom, Nil, StructValue, Usertype, Value};
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -10,26 +12,14 @@ impl TestFixture for ValueTest {
   }
 }
 
+#[derive(Default)]
 struct ImplementedObject {
   field: i32,
-  ptr: *mut bool,
 }
 
 impl ImplementedObject {
-  fn new(ptr: &mut bool) -> Self {
-    Self {
-      field: 0,
-      ptr: ptr as *mut _ as *mut bool,
-    }
-  }
-}
-
-impl Default for ImplementedObject {
-  fn default() -> Self {
-    Self {
-      field: 0,
-      ptr: std::ptr::null_mut(),
-    }
+  fn new(x: i32) -> Self {
+    Self { field: x }
   }
 }
 
@@ -79,41 +69,26 @@ mod unit_tests {
 
   #[test]
   fn userdata_supported(_: &mut ValueTest) {
-    let mut x = false;
-
-    {
-      Value::from(ImplementedObject::new(&mut x));
-    }
-
-    assert!(x);
+    const V: i32 = 1;
+    let value = Value::from(ImplementedObject::new(V));
+    assert_eq!(value.cast_to::<ImplementedObject>().unwrap().field, V);
   }
 
   #[test]
   fn can_assign_different_types(_: &mut ValueTest) {
-    let mut x = false;
+    let mut v = Value::from(ImplementedObject::default());
+    assert!(v.is::<ImplementedObject>());
 
-    {
-      let mut v = Value::from(ImplementedObject::new(&mut x));
-      assert!(v.is::<ImplementedObject>());
-      assert!(!x);
+    v = Value::from(123);
+    assert!(v.is_i32());
 
-      v = Value::from(123);
-      assert!(v.is_i32());
-      assert!(x);
+    v = Value::from(1.23);
+    assert!(v.is_f64());
 
-      v = Value::from(1.23);
-      assert!(v.is_f64());
-      assert!(x);
+    v = Value::from(ImplementedObject::default());
+    assert!(v.is::<ImplementedObject>());
 
-      v = Value::from(ImplementedObject::new(&mut x));
-      assert!(v.is::<ImplementedObject>());
-      assert!(x);
-
-      v = Value::from(Nil);
-      assert!(v.is_nil());
-      assert!(!x);
-    }
-
-    assert!(!x);
+    v = Value::from(Nil);
+    assert!(v.is_nil());
   }
 }

@@ -22,7 +22,7 @@ pub mod ops {
   pub const EQUALITY: &str = "__equal__";
   pub const NOT_EQUAL: &str = "__neq__";
   pub const LESS: &str = "__less__";
-  pub const LESS_EQUAL: &str = "__leq_";
+  pub const LESS_EQUAL: &str = "__leq__";
   pub const GREATER: &str = "__greater__";
   pub const GREATER_EQUAL: &str = "__geq__";
 
@@ -38,7 +38,7 @@ pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
 pub use method_value::MethodValue;
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, convert::Infallible, error::Error};
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 use thiserror::Error;
@@ -69,9 +69,9 @@ where
 }
 
 pub trait Class {
-  const ID: &'static str;
+  fn id(&self) -> &'static str;
   fn get(&self, field: &str) -> Option<Value>;
-  fn set(&mut self, field: &str, value: Value) -> Result<(), ValueError>;
+  fn set(&mut self, field: &str, value: Value) -> ValueResult<()>;
 }
 
 pub trait ClassBody {
@@ -124,7 +124,7 @@ impl NativeClass {
     self.statics.get(name).cloned().unwrap_or_default()
   }
 
-  pub(crate) fn construct(&self, this_class: Value, vm: &mut Vm, env: &mut Env, mut args: Args) -> Result<Value, ValueError> {
+  pub(crate) fn construct(&self, this_class: Value, vm: &mut Vm, env: &mut Env, mut args: Args) -> ValueResult {
     let this = Value::from(InstanceValue::new(Default::default(), this_class));
     if let Some(constructor) = self.constructor {
       args.this = Some(this);
@@ -228,22 +228,56 @@ impl UnimplementedFunction {
 pub struct Primitive;
 
 impl Usertype for Primitive {
-  const ID: &'static str = "";
+  const ID: &'static str = "Primitive";
+}
+
+impl TryFrom<Value> for Primitive {
+  type Error = Box<dyn Error>;
+
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
+    unimplemented!()
+  }
 }
 
 // TODO fill out this error
 #[derive(Debug, Error)]
 pub enum ValueError {
-  // fn name
-  #[error("missing self in call to {0}")]
+  /// fn name
+  #[error("MissingSelf: missing self in call to {0}")]
   MissingSelf(&'static str),
-  // fn name, argument index, error
-  #[error("wrong type in {0} arg {1}: {2}")]
-  WrongType(&'static str, usize, Box<dyn std::error::Error>),
-  // fn name, type, actual/this
-  #[error("bad cast in {0} casting from {2} to {1}")]
+  /// fn name, argument index, error
+  #[error("InvalidArgument: wrong type passed to {0} in argument position {1}")]
+  InvalidArgument(&'static str, usize),
+  /// fn name, type, actual/this
+  #[error("BadCast: wrong cast in {0} (casting from {2} to {1})")]
   BadCast(&'static str, &'static str, Value),
-  // given, expected
-  #[error("argument error, given {0} expected {1}")]
+  /// given, expected
+  #[error("ArgumentError: wrong number of arguments (given {0} expected {1})")]
   ArgumentError(usize, usize),
+  /// tried, needed
+  #[error("CoercionError: cannot coerce {0} to {1}")]
+  CoercionError(Value, &'static str),
+  /// op, lhs, rhs
+  #[error("Tried to perform '{0}' with {1} and {2}")]
+  InvalidOperation(char, Value, Value),
+  /// method, value
+  #[error("{0} not implemented for {1}")]
+  UnimplementedError(&'static str, Value),
+  /// member name
+  #[error("Tried assigning a value to unimplemented member {0}")]
+  InvalidAssignment(String),
+  /// meant to be a placeholder for me being lazy
+  #[error("{0}")]
+  Todo(String),
+
+  #[error("Infallible")]
+  Infallible,
 }
+
+impl From<Infallible> for ValueError {
+  fn from(_: Infallible) -> Self {
+    Self::Infallible
+  }
+}
+
+pub type ValueResult<T = Value> = Result<T, ValueError>;

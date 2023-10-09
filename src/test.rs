@@ -64,7 +64,7 @@ mod integration_tests {
       match this.vm.run(TEST_FILE, ctx, env) {
         Ok(res) => match res {
           Return::Value(v) => {
-            if let Ok(v) = v.as_str() {
+            if let Some(v) = v.as_str() {
               assert_eq!("foo", **v);
             } else {
               panic!("value is not a string");

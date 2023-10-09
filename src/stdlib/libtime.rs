@@ -14,7 +14,7 @@ impl LibTime {
 
       mono.set(
         "now",
-        Value::native(|_vm, _env, _args: Args| Value::from(TimestampValue::new())),
+        Value::native(|_vm, _env, _args: Args| Ok(Value::from(TimestampValue::new()))),
       );
 
       mono.set(
@@ -23,13 +23,15 @@ impl LibTime {
           if let Some(before) = args.list.get(0) {
             if before.is::<TimestampValue>() {
               let now = Instant::now();
-              if let Ok(ts) = before.cast_to::<TimestampValue>() {
+              if let Some(ts) = before.cast_to::<TimestampValue>() {
                 let since = now.duration_since(**ts);
-                return Value::from(since.as_secs_f64());
+                return Ok(Value::from(since.as_secs_f64()));
               }
             }
           }
-          Value::new_err(String::from("elapsed called with wrong number of arguments or invalid types"))
+          Err(ValueError::Todo(String::from(
+            "elapsed called with wrong number of arguments or invalid types",
+          )))
         }),
       );
 

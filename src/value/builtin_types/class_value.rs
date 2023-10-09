@@ -18,23 +18,24 @@ impl ClassValue {
     }
   }
 
-  pub fn construct(mut class_value: Value, vm: &mut Vm, env: &mut Env, mut args: Args) {
+  pub fn construct(mut class_value: Value, vm: &mut Vm, env: &mut Env, mut args: Args) -> ValueResult<()> {
     let class_clone = class_value.clone();
-    if let Ok(class) = class_value.as_class_mut() {
+    if let Some(class) = class_value.as_class_mut() {
       let instance = Value::from(InstanceValue::new(StructValue::default(), class_clone));
       if let Some(initializer) = &mut class.initializer {
-        if let Ok(initializer) = initializer.as_fn() {
+        if let Some(initializer) = initializer.as_fn() {
           args.list.push(instance);
           initializer.call(vm, args.list);
         } else {
-          vm.stack_push(Value::new_err(format!("invalid type for constructor {}", initializer)));
+          Err(ValueError::Todo(format!("invalid type for constructor {}", initializer)))?;
         }
       } else {
         vm.stack_push(instance);
       }
     } else {
-      vm.stack_push(Value::new_err("unable to construct instance from non-class"));
+      Err(ValueError::Todo("unable to construct instance from non-class".to_string()))?;
     };
+    Ok(())
   }
 
   pub fn set_constructor(&mut self, value: Value) {

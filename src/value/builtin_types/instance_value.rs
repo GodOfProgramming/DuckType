@@ -17,7 +17,7 @@ impl InstanceValue {
 
   pub fn get(&self, name: &str) -> Value {
     self.data.get(name).or_else(|| {
-      if let Ok(class) = self.class.as_class() {
+      if let Some(class) = self.class.as_class() {
         class.get_method(name)
       } else {
         Value::nil

@@ -1,12 +1,12 @@
-use super::{Args, Usertype, Value, ValueError};
+use super::{Args, Usertype};
 use crate::prelude::*;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
 // type NativeFnTrait = FnMut(&mut Vm, &mut Env, Args) -> Value + 'static;
 
-pub type NativeFn = fn(&mut Vm, &mut Env, Args) -> Result<Value, ValueError>;
+pub type NativeFn = fn(&mut Vm, &mut Env, Args) -> ValueResult;
 
-type NativeClosureType = dyn FnMut(&mut Vm, &mut Env, Args) -> Result<Value, ValueError>;
+type NativeClosureType = dyn FnMut(&mut Vm, &mut Env, Args) -> ValueResult;
 
 pub struct NativeClosureValue {
   pub name: String,
@@ -17,7 +17,7 @@ impl NativeClosureValue {
   pub fn new<T, F>(name: T, callee: F) -> Self
   where
     T: ToString,
-    F: FnMut(&mut Vm, &mut Env, Args) -> Result<Value, ValueError> + 'static,
+    F: FnMut(&mut Vm, &mut Env, Args) -> ValueResult + 'static,
   {
     Self {
       name: name.to_string(),
@@ -25,7 +25,7 @@ impl NativeClosureValue {
     }
   }
 
-  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> Result<Value, ValueError> {
+  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult {
     (*self.callee)(vm, env, args)
   }
 }
@@ -53,7 +53,7 @@ pub enum NativeCallable {
 }
 
 impl NativeCallable {
-  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> Result<Value, ValueError> {
+  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult {
     match self {
       NativeCallable::NativeFn(f) => f(vm, env, args),
       NativeCallable::NativeClosure(c) => c.call(vm, env, args),
@@ -87,7 +87,7 @@ impl NativeMethodValue {
     }
   }
 
-  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> Result<Value, ValueError> {
+  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult {
     self.callee.call(vm, env, args)
   }
 }

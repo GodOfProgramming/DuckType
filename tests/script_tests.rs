@@ -1,3 +1,4 @@
+use macros::Class;
 use simple_script::prelude::*;
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
@@ -29,8 +30,11 @@ impl TestFixture for ScriptTest {
   }
 }
 
+#[derive(Class)]
 struct Leaker {
   b: &'static mut bool,
+
+  #[field]
   this: Value,
 }
 
@@ -41,13 +45,7 @@ impl Drop for Leaker {
 }
 
 impl Usertype for Leaker {
-  const ID: UsertypeId = "Leaker";
-
-  fn register(class: &mut NativeClassBuilder<Self>) {
-    class.add_setter("this", |this, value| {
-      this.this = value;
-    });
-  }
+  const ID: &'static str = "Leaker";
 }
 
 #[fixture(ScriptTest)]
@@ -61,27 +59,28 @@ mod tests {
       .for_each(|dir| dir.flatten().into_iter().for_each(|entry| t.run(&entry.path())));
   }
 
-  static mut b: bool = false;
+  static mut B: bool = false;
 
   /// This tests for the memory leaking capability of reference counting. This should fail once garbage collection is implemented
   #[test]
   fn memory_leak_test(t: &mut ScriptTest) {
     {
-      const SCRIPT: &str = "leaker.this = leaker;";
+      const SCRIPT: &str = "print(leaker); print(leaker.this); leaker.this = leaker; print(leaker.this);";
 
       let ctx = t.vm.load("test", SCRIPT).unwrap();
       let mut env = Env::initialize(&[], Library::None);
 
       let l = Leaker {
-        b: unsafe { &mut b },
+        b: unsafe { &mut B },
         this: Value::nil,
       };
-      env.register_usertype::<Leaker>().ok();
+
       env.define("leaker", Value::from(l));
 
       t.vm.run("test", ctx, &mut env).unwrap();
     }
 
-    assert!(unsafe { !b });
+    assert!(unsafe { !B });
+    assert!(false);
   }
 }

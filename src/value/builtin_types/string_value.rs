@@ -1,9 +1,17 @@
-use super::{Class, ClassBody, Usertype, Value, ValueError};
+use super::{super::MaybeFrom, Class, ClassBody, Usertype, Value, ValueError, ValueResult};
 use macros::{class_body, Class};
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
 };
+
+#[derive(Class)]
+struct Leaker {
+  b: &'static mut bool,
+
+  #[field]
+  this: Value,
+}
 
 #[derive(Default, Class)]
 pub struct StringValue {
@@ -13,10 +21,10 @@ pub struct StringValue {
 #[class_body]
 impl StringValue {
   fn len(&self) -> i32 {
-    self.len() as i32
+    self.str.len() as i32
   }
 
-  fn add(&self, other: Self) -> Self {
+  fn add(&self, other: &Self) -> Self {
     Self {
       str: format!("{}{}", self, other),
     }
@@ -26,7 +34,7 @@ impl StringValue {
     self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default()
   }
 
-  fn eq(&self, other: Self) -> bool {
+  fn eq(&self, other: &Self) -> bool {
     self.str == other.str
   }
 }
@@ -40,6 +48,12 @@ impl Usertype for StringValue {
 
   fn debug_string(&self) -> String {
     format!("\"{}\"", self.stringify())
+  }
+}
+
+impl MaybeFrom<Value> for &'static StringValue {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.cast_to::<StringValue>()
   }
 }
 

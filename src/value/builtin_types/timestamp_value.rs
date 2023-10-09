@@ -1,4 +1,4 @@
-use crate::prelude::Usertype;
+use crate::prelude::{Usertype, Value};
 use std::{ops::Deref, time::Instant};
 
 pub struct TimestampValue(Instant);

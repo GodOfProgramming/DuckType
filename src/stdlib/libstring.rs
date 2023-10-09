@@ -9,20 +9,16 @@ impl LibString {
     let parse_number = Value::native(|_vm, _env, args: Args| {
       let mut args = args.list.into_iter();
       if let Some(string_value) = args.next() {
-        if let Ok(string) = string_value.as_str() {
-          match string
+        if let Some(string) = string_value.as_str() {
+          string
             .parse::<f64>()
             .map(Value::from)
-            .map_err(|e| Value::new_err(format!("{}", e)))
-          {
-            Ok(r) => r,
-            Err(r) => r,
-          }
+            .map_err(|e| ValueError::Todo(e.to_string()))
         } else {
-          Value::new_err(format!("can not convert {} to a number", string_value))
+          Err(ValueError::Todo(format!("can not convert {} to a number", string_value)))
         }
       } else {
-        Value::new_err("expected 1 argument")
+        Err(ValueError::Todo("expected 1 argument".to_string()))
       }
     });
 
@@ -31,15 +27,15 @@ impl LibString {
     let contains = Value::native(|_vm, _env, args| {
       let mut args = args.list.into_iter();
       if let Some(string_value) = args.next() {
-        if let Ok(string) = string_value.as_str() {
+        if let Some(string) = string_value.as_str() {
           if let Some(substr_value) = args.next() {
-            if let Ok(substr) = substr_value.as_str() {
-              return Value::from(string.contains::<&str>(substr.as_ref()));
+            if let Some(substr) = substr_value.as_str() {
+              return Ok(Value::from(string.contains::<&str>(substr.as_ref())));
             }
           }
         }
       }
-      Value::from(false)
+      Ok(Value::from(false))
     });
 
     lib.set("contains", contains);
@@ -47,15 +43,15 @@ impl LibString {
     let is_prefix = Value::native(|_vm, _env, args| {
       let mut args = args.list.into_iter();
       if let Some(string_value) = args.next() {
-        if let Ok(string) = string_value.as_str() {
+        if let Some(string) = string_value.as_str() {
           if let Some(substr_value) = args.next() {
-            if let Ok(substr) = substr_value.as_str() {
-              return Value::from(string.strip_prefix::<&str>(substr.as_ref()).is_some());
+            if let Some(substr) = substr_value.as_str() {
+              return Ok(Value::from(string.strip_prefix::<&str>(substr.as_ref()).is_some()));
             }
           }
         }
       }
-      Value::from(false)
+      Ok(Value::from(false))
     });
 
     lib.set("is_prefix", is_prefix);

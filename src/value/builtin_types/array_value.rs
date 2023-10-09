@@ -1,9 +1,9 @@
-use super::{Class, ClassBody};
+use super::{super::MaybeFrom, Class, ClassBody};
 use crate::prelude::*;
 use itertools::Itertools;
 use macros::{class_body, Class};
 use std::{
-  fmt::{Display, Formatter, Result},
+  fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
 };
 
@@ -17,14 +17,14 @@ impl ArrayValue {
     Self { list: list.into() }
   }
 
-  pub fn new_from_vec(list: Vec<Value>) -> Self {
-    Self { list }
+  pub fn new_from_vec(list: &Vec<Value>) -> Self {
+    Self { list: list.clone() }
   }
 }
 
 #[class_body]
 impl ArrayValue {
-  fn new(args: Vec<Value>) -> Self {
+  fn new(args: &Vec<Value>) -> Self {
     Self::new_from_vec(args)
   }
 
@@ -53,8 +53,14 @@ impl Usertype for ArrayValue {
   }
 }
 
+impl MaybeFrom<&Value> for &ArrayValue {
+  fn maybe_from(value: &Value) -> Option<Self> {
+    value.cast_to()
+  }
+}
+
 impl Display for ArrayValue {
-  fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     write!(f, "{:?}", self.list)
   }
 }

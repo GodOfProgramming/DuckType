@@ -93,9 +93,9 @@ fn load_std() -> Value {
         if let Some(obj) = args.next() {
           let get_fields = |s: &StructValue| s.members.keys().cloned().map(Value::from).collect::<Vec<Value>>();
 
-          if let Ok(i) = obj.as_instance() {
+          if let Some(i) = obj.as_instance() {
             fields.extend(get_fields(&i.data))
-          } else if let Ok(s) = obj.as_struct() {
+          } else if let Some(s) = obj.as_struct() {
             fields.extend(get_fields(s))
           }
         }
