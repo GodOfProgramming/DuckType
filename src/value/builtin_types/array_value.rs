@@ -1,4 +1,3 @@
-use super::{super::MaybeFrom, Class, ClassBody};
 use crate::prelude::*;
 use itertools::Itertools;
 use macros::{class_body, Class};

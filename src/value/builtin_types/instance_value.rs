@@ -1,6 +1,7 @@
-use super::{StructValue, Usertype, Value};
+use crate::prelude::*;
+use macros::Class;
 
-#[derive(Default)]
+#[derive(Default, Class)]
 pub struct InstanceValue {
   pub data: StructValue,
   pub class: Value,

@@ -15,7 +15,7 @@ mod tags;
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, Tag, Value};
+  pub use super::{builtin_types::*, MaybeFrom, Tag, Value};
 }
 
 type ConstVoid = *const ();
@@ -1044,7 +1044,7 @@ impl Not for Value {
 
 pub struct VTable {
   lookup: fn(ConstVoid, &str) -> Value,
-  assign: fn(MutVoid, &str, Value),
+  assign: fn(MutVoid, &str, Value) -> ValueResult<()>,
   stringify: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
   dealloc: fn(MutVoid),
@@ -1055,8 +1055,8 @@ pub struct VTable {
 impl VTable {
   const fn new<T: Usertype>() -> Self {
     Self {
-      lookup: |this, name| <T as Usertype>::lookup(Self::cast(this), name),
-      assign: |this, name, value| <T as Usertype>::assign(Self::cast_mut(this), name, value),
+      lookup: |this, name| <T as Class>::get(Self::cast(this), name).unwrap_or_default(),
+      assign: |this, name, value| <T as Class>::set(Self::cast_mut(this), name, value),
       stringify: |this| <T as Usertype>::stringify(Self::cast(this)),
       debug_string: |this| <T as Usertype>::debug_string(Self::cast(this)),
       dealloc: |this| consume(this as *mut T),

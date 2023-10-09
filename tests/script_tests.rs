@@ -81,6 +81,5 @@ mod tests {
     }
 
     assert!(unsafe { !B });
-    assert!(false);
   }
 }

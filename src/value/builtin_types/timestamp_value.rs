@@ -1,11 +1,18 @@
-use crate::prelude::{Usertype, Value};
+use macros::Class;
+
+use crate::prelude::*;
 use std::{ops::Deref, time::Instant};
 
-pub struct TimestampValue(Instant);
+#[derive(Class)]
+pub struct TimestampValue {
+  timestamp: Instant,
+}
 
 impl TimestampValue {
   pub fn new() -> Self {
-    Self(Instant::now())
+    Self {
+      timestamp: Instant::now(),
+    }
   }
 }
 
@@ -23,6 +30,6 @@ impl Deref for TimestampValue {
   type Target = Instant;
 
   fn deref(&self) -> &Self::Target {
-    &self.0
+    &self.timestamp
   }
 }

@@ -1,7 +1,8 @@
 use crate::{code::FunctionConstant, prelude::*};
+use macros::Class;
 use ptr::SmartPtr;
 
-#[derive(Clone)]
+#[derive(Clone, Class)]
 pub struct FunctionValue {
   name: Option<String>,
   pub airity: usize,

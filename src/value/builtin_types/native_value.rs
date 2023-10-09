@@ -1,3 +1,5 @@
+use macros::Class;
+
 use super::{Args, Usertype};
 use crate::prelude::*;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -8,6 +10,7 @@ pub type NativeFn = fn(&mut Vm, &mut Env, Args) -> ValueResult;
 
 type NativeClosureType = dyn FnMut(&mut Vm, &mut Env, Args) -> ValueResult;
 
+#[derive(Class)]
 pub struct NativeClosureValue {
   pub name: String,
   pub callee: Box<NativeClosureType>,
@@ -70,6 +73,7 @@ impl Display for NativeCallable {
   }
 }
 
+#[derive(Class)]
 pub struct NativeMethodValue {
   callee: NativeCallable,
 }

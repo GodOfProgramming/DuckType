@@ -1,10 +1,11 @@
-use super::{Usertype, Value};
+use crate::prelude::*;
+use macros::Class;
 use std::{
   collections::BTreeMap,
   fmt::{Display, Formatter, Result as FmtResult},
 };
 
-#[derive(Default)]
+#[derive(Default, Class)]
 pub struct StructValue {
   pub members: BTreeMap<String, Value>,
 }

@@ -1,6 +1,9 @@
+use macros::Class;
+
 use crate::{code::ClassConstant, prelude::*};
 use std::collections::BTreeMap;
 
+#[derive(Class)]
 pub struct ClassValue {
   pub name: String,
   pub initializer: Option<Value>,

@@ -1,17 +1,9 @@
-use super::{super::MaybeFrom, Class, ClassBody, Usertype, Value, ValueError, ValueResult};
+use crate::prelude::*;
 use macros::{class_body, Class};
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
 };
-
-#[derive(Class)]
-struct Leaker {
-  b: &'static mut bool,
-
-  #[field]
-  this: Value,
-}
 
 #[derive(Default, Class)]
 pub struct StringValue {

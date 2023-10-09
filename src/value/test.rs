@@ -1,6 +1,7 @@
-use std::error::Error;
+use crate::prelude::Class;
 
-use super::{MaybeFrom, Nil, StructValue, Usertype, Value};
+use super::{Nil, StructValue, Usertype, Value, ValueError, ValueResult};
+use macros::Class;
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -12,7 +13,7 @@ impl TestFixture for ValueTest {
   }
 }
 
-#[derive(Default)]
+#[derive(Default, Class)]
 struct ImplementedObject {
   field: i32,
 }
@@ -27,7 +28,8 @@ impl Usertype for ImplementedObject {
   const ID: &'static str = "ImplementedObject";
 }
 
-struct UnimplementedObject;
+#[derive(Class)]
+struct UnimplementedObject {}
 
 impl Usertype for UnimplementedObject {
   const ID: &'static str = "UnimplementedObject";

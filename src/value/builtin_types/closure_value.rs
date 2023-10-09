@@ -1,7 +1,8 @@
 use crate::prelude::*;
+use macros::Class;
 use ptr::SmartPtr;
 
-#[derive(Clone)]
+#[derive(Clone, Class)]
 pub struct ClosureValue {
   captures: Vec<Value>,
   function: FunctionValue,
