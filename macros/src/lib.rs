@@ -148,9 +148,9 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
       );
       if method.receiver.mutability.is_some() {
         method_lambda_bodies.push(quote! {
-          Value::native(|_, _, args| {
-            if args.list.len() == #nargs {
-              if let Some(mut this) = args.this {
+          Value::native(|_, _, mut args| {
+            if args.list.len() == #nargs + 1 {
+              if let Some(mut this) = args.list.pop() {
                 if let Some(this) = this.cast_to_mut::<#me>() {
                   let mut args = args.list.into_iter();
                   Ok(Value::from(#me::#name(this, #args)))
@@ -167,9 +167,9 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
         });
       } else {
         method_lambda_bodies.push(quote! {
-          Value::native(|_, _, args| {
-            if args.list.len() == #nargs {
-              if let Some(this) = args.this {
+          Value::native(|_, _, mut args| {
+            if args.list.len() == #nargs + 1 {
+              if let Some(this) = args.list.pop() {
                 if let Some(this) = this.cast_to::<#me>() {
                   let mut args = args.list.into_iter();
                   Ok(Value::from(#me::#name(this, #args)))

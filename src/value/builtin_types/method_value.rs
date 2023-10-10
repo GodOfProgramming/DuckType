@@ -12,8 +12,7 @@ impl MethodValue {
     Self { function }
   }
 
-  pub fn call(&self, vm: &mut Vm, mut args: Args) {
-    args.list.push(args.this.unwrap());
+  pub fn call(&self, vm: &mut Vm, args: Args) {
     self.function.call(vm, args.list);
   }
 

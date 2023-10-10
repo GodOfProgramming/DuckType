@@ -463,11 +463,11 @@ impl Value {
 
   // value methods
 
-  pub fn lookup(&self, name: &str) -> Value {
+  pub fn lookup(&self, name: &str) -> ValueResult {
     if self.is_ptr() {
       (self.vtable().lookup)(self.pointer(), name)
     } else {
-      Value::nil
+      Err(ValueError::InvalidLookup(self.clone()))
     }
   }
 
@@ -1047,7 +1047,7 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  lookup: fn(ConstVoid, &str) -> Value,
+  lookup: fn(ConstVoid, &str) -> ValueResult<Value>,
   assign: fn(MutVoid, &str, Value) -> ValueResult<()>,
   stringify: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
@@ -1059,7 +1059,7 @@ pub struct VTable {
 impl VTable {
   const fn new<T: Usertype>() -> Self {
     Self {
-      lookup: |this, name| <T as Usertype>::get(Self::cast(this), name).unwrap_or_default(),
+      lookup: |this, name| <T as Usertype>::get(Self::cast(this), name),
       assign: |this, name, value| <T as Usertype>::set(Self::cast_mut(this), name, value),
       stringify: |this| <T as Usertype>::stringify(Self::cast(this)),
       debug_string: |this| <T as Usertype>::debug_string(Self::cast(this)),

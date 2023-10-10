@@ -78,14 +78,15 @@ impl Vm {
   {
     if let Some(v) = self.stack_pop() {
       if v.is_ptr() {
-        let callable = v.lookup(match opcode {
-          Opcode::Negate => ops::NEG,
-          Opcode::Not => ops::NOT,
-          op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
-        });
-        self.current_frame.ip += 1;
-        self.current_frame.last_lookup = v;
-        self.call_value(env, opcode, callable, Vec::default())
+        let callable = v
+          .lookup(match opcode {
+            Opcode::Negate => ops::NEG,
+            Opcode::Not => ops::NOT,
+            op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
+          })
+          .map_err(|e| self.error(opcode, e))?;
+        self.stack_push(v);
+        self.call_value(env, opcode, callable, 0)
       } else {
         self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
         Ok(())
@@ -102,24 +103,25 @@ impl Vm {
     if let Some(bv) = self.stack_pop() {
       if let Some(av) = self.stack_pop() {
         if av.is_ptr() {
-          let args = vec![bv];
-          let callable = av.lookup(match opcode {
-            Opcode::Add => ops::ADD,
-            Opcode::Sub => ops::SUB,
-            Opcode::Mul => ops::MUL,
-            Opcode::Div => ops::DIV,
-            Opcode::Rem => ops::REM,
-            Opcode::Equal => ops::EQUALITY,
-            Opcode::NotEqual => ops::NOT_EQUAL,
-            Opcode::Less => ops::LESS,
-            Opcode::LessEqual => ops::LESS_EQUAL,
-            Opcode::Greater => ops::GREATER,
-            Opcode::GreaterEqual => ops::GREATER_EQUAL,
-            op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
-          });
-          self.current_frame.ip += 1;
-          self.current_frame.last_lookup = av;
-          self.call_value(env, opcode, callable, args)
+          let callable = av
+            .lookup(match opcode {
+              Opcode::Add => ops::ADD,
+              Opcode::Sub => ops::SUB,
+              Opcode::Mul => ops::MUL,
+              Opcode::Div => ops::DIV,
+              Opcode::Rem => ops::REM,
+              Opcode::Equal => ops::EQUALITY,
+              Opcode::NotEqual => ops::NOT_EQUAL,
+              Opcode::Less => ops::LESS,
+              Opcode::LessEqual => ops::LESS_EQUAL,
+              Opcode::Greater => ops::GREATER,
+              Opcode::GreaterEqual => ops::GREATER_EQUAL,
+              op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
+            })
+            .map_err(|e| self.error(opcode, e))?;
+          self.stack_push(bv);
+          self.stack_push(av);
+          self.call_value(env, opcode, callable, 1)
         } else {
           self.stack_push(f(av, bv).map_err(|e| self.error(opcode, e))?);
           Ok(())
@@ -185,8 +187,8 @@ impl Vm {
           Opcode::LookupLocal(index) => self.exec_lookup_local(&opcode, index)?,
           Opcode::AssignLocal(index) => self.exec_assign_local(&opcode, index)?,
           Opcode::InitializeMember(index) => self.exec_initialize_member(&opcode, index)?,
-          Opcode::AssignMember(index) => self.exec_assign_member(env, &opcode, index)?,
-          Opcode::LookupMember(index) => self.exec_lookup_member(env, &opcode, index)?,
+          Opcode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
+          Opcode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
           Opcode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
           Opcode::Equal => self.exec_equal(env, &opcode)?,
           Opcode::NotEqual => self.exec_not_equal(env, &opcode)?,
@@ -245,7 +247,7 @@ impl Vm {
           }
           Opcode::CreateList(num_items) => self.exec_create_list(num_items),
           Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
-          Opcode::CreateStruct => self.exec_create_struct(&opcode),
+          Opcode::CreateStruct => self.exec_create_struct(),
           Opcode::Yield => {
             self.current_frame.ip += 1;
 
@@ -446,12 +448,12 @@ impl Vm {
   }
 
   #[inline]
-  fn exec_assign_member(&mut self, env: &Env, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_assign_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_pop() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
-            obj.assign(&name, value.clone());
+            obj.assign(&name, value.clone()).map_err(|e| self.error(opcode, e))?;
             self.stack_push(value);
             Ok(())
           } else {
@@ -469,12 +471,11 @@ impl Vm {
   }
 
   #[inline]
-  fn exec_lookup_member(&mut self, env: &Env, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_lookup_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(obj) = self.stack_pop() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
-          self.current_frame.last_lookup = obj.clone();
-          self.stack_push(obj.lookup(name));
+          self.stack_push(obj.lookup(name).map_err(|e| self.error(opcode, e))?);
           Ok(())
         } else {
           Err(self.error(opcode, "member identifier is not a string"))
@@ -656,8 +657,7 @@ impl Vm {
   #[inline]
   fn exec_call(&mut self, env: &mut Env, opcode: &Opcode, airity: usize) -> ExecResult {
     if let Some(callable) = self.stack_pop() {
-      let args = self.stack_drain_from(airity);
-      self.call_value(env, opcode, callable, args)
+      self.call_value(env, opcode, callable, airity)
     } else {
       Err(self.error(opcode, "cannot operate on empty stack"))
     }
@@ -798,7 +798,7 @@ impl Vm {
     }
   }
   #[inline]
-  fn exec_create_struct(&mut self, opcode: &Opcode) {
+  fn exec_create_struct(&mut self) {
     self.stack_push(Value::new_struct());
   }
 
@@ -873,7 +873,8 @@ impl Vm {
     self.current_frame.ip = self.current_frame.ip.saturating_sub(count);
   }
 
-  fn call_value(&mut self, env: &mut Env, opcode: &Opcode, mut callable: Value, args: Vec<Value>) -> ExecResult {
+  fn call_value(&mut self, env: &mut Env, opcode: &Opcode, mut callable: Value, airity: usize) -> ExecResult {
+    let args = self.stack_drain_from(airity);
     let res = if let Some(f) = callable.as_fn() {
       f.call(self, args);
       Ok(())
@@ -881,7 +882,7 @@ impl Vm {
       f.call(self, args);
       Ok(())
     } else if let Some(f) = callable.as_method() {
-      let args = Args::from((self.current_frame.last_lookup.take(), args));
+      let args = Args::from(args);
       f.call(self, args);
       Ok(())
     } else if let Some(f) = callable.as_native_fn() {
@@ -893,7 +894,7 @@ impl Vm {
       self.stack_push(v);
       Ok(())
     } else if let Some(f) = callable.as_native_method_mut() {
-      let args = Args::from((self.current_frame.last_lookup.take(), args));
+      let args = Args::from(args);
       let v = f.call(self, env, args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
@@ -901,7 +902,7 @@ impl Vm {
       ClassValue::construct(callable, self, env, args.into()).map_err(|e| self.error(opcode, e))?;
       Ok(())
     } else if let Some(c) = callable.clone().as_native_class() {
-      let args = Args::from((self.current_frame.last_lookup.take(), args));
+      let args = Args::from(args);
       let v = c.construct(callable, self, env, args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())

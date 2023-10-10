@@ -9,6 +9,8 @@ pub(crate) mod string_value;
 pub(crate) mod struct_value;
 pub(crate) mod timestamp_value;
 
+// mod out;
+
 pub mod ops {
   pub const NOT: &str = "__not__";
   pub const NEG: &str = "__neg__";
@@ -54,8 +56,12 @@ where
   const ID: &'static str;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  fn get(&self, field: &str) -> Option<Value> {
-    <Self as Class>::get(self, field).or_else(|| <Self as ClassBody>::lookup(field))
+  fn get(&self, field: &str) -> ValueResult<Value> {
+    Ok(
+      <Self as Class>::get(self, field)
+        .or_else(|| <Self as ClassBody>::lookup(field))
+        .unwrap_or_default(),
+    )
   }
 
   fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
@@ -132,7 +138,6 @@ impl NativeClass {
   pub(crate) fn construct(&self, this_class: Value, vm: &mut Vm, env: &mut Env, mut args: Args) -> ValueResult {
     let this = Value::from(InstanceValue::new(Default::default(), this_class));
     if let Some(constructor) = self.constructor {
-      args.this = Some(this);
       constructor(vm, env, args)
     } else {
       Ok(this)
@@ -142,50 +147,30 @@ impl NativeClass {
 
 #[derive(Default, Debug)]
 pub struct Args {
-  pub this: Option<Value>,
   pub list: Vec<Value>,
 }
 
 impl Args {
   pub fn count(&self) -> usize {
-    (if self.this.is_some() { 1 } else { 0 }) + self.list.len()
+    self.list.len()
   }
 }
 
 impl From<Value> for Args {
   fn from(arg: Value) -> Self {
-    Self {
-      this: None,
-      list: vec![arg],
-    }
-  }
-}
-
-impl From<(Value, Value)> for Args {
-  fn from((this, arg): (Value, Value)) -> Self {
-    Self {
-      this: Some(this),
-      list: vec![arg],
-    }
+    Self { list: vec![arg] }
   }
 }
 
 impl From<Vec<Value>> for Args {
   fn from(list: Vec<Value>) -> Self {
-    Self { this: None, list }
+    Self { list }
   }
 }
 
-impl From<(Value, Vec<Value>)> for Args {
-  fn from((this, list): (Value, Vec<Value>)) -> Self {
-    Self { this: Some(this), list }
-  }
-}
-
-impl<T: Into<Value> + Clone, const I: usize> From<(Value, [T; I])> for Args {
-  fn from((this, list): (Value, [T; I])) -> Self {
+impl<T: Into<Value> + Clone, const I: usize> From<[T; I]> for Args {
+  fn from(list: [T; I]) -> Self {
     Self {
-      this: Some(this),
       list: list.into_iter().map(|v| -> Value { v.into() }).collect(),
     }
   }
@@ -275,6 +260,9 @@ pub enum ValueError {
   /// member name
   #[error("Tried assigning a value to unimplemented member {0}")]
   InvalidAssignment(String),
+  /// value
+  #[error("Tried to lookup a member on a primitive '{0}'")]
+  InvalidLookup(Value),
   /// meant to be a placeholder for me being lazy
   #[error("{0}")]
   Todo(String),
