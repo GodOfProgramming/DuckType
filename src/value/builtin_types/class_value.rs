@@ -1,4 +1,4 @@
-use macros::Class;
+use macros::{class_body, Class};
 
 use crate::{code::ClassConstant, prelude::*};
 use std::collections::BTreeMap;
@@ -61,6 +61,9 @@ impl ClassValue {
     self.static_members.insert(name.to_string(), value);
   }
 }
+
+#[class_body]
+impl ClassValue {}
 
 impl Usertype for ClassValue {
   const ID: &'static str = "Class";

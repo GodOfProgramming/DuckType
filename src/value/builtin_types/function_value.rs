@@ -1,5 +1,5 @@
 use crate::{code::FunctionConstant, prelude::*};
-use macros::Class;
+use macros::{class_body, Class};
 use ptr::SmartPtr;
 
 #[derive(Clone, Class)]
@@ -46,6 +46,9 @@ impl FunctionValue {
     &mut self.ctx
   }
 }
+
+#[class_body]
+impl FunctionValue {}
 
 impl Usertype for FunctionValue {
   const ID: &'static str = "Function";

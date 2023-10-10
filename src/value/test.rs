@@ -1,7 +1,6 @@
-use crate::prelude::Class;
+use crate::prelude::*;
 
-use super::{Nil, StructValue, Usertype, Value, ValueError, ValueResult};
-use macros::Class;
+use macros::{class_body, Class};
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -24,12 +23,18 @@ impl ImplementedObject {
   }
 }
 
+#[class_body]
+impl ImplementedObject {}
+
 impl Usertype for ImplementedObject {
   const ID: &'static str = "ImplementedObject";
 }
 
 #[derive(Class)]
 struct UnimplementedObject {}
+
+#[class_body]
+impl UnimplementedObject {}
 
 impl Usertype for UnimplementedObject {
   const ID: &'static str = "UnimplementedObject";

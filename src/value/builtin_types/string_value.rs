@@ -16,7 +16,7 @@ impl StringValue {
     self.str.len() as i32
   }
 
-  fn add(&self, other: &Self) -> Self {
+  fn __add__(&self, other: &Self) -> Self {
     Self {
       str: format!("{}{}", self, other),
     }

@@ -83,7 +83,7 @@ impl Vm {
           Opcode::Not => ops::NOT,
           op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
         });
-
+        self.current_frame.ip += 1;
         self.current_frame.last_lookup = v;
         self.call_value(env, opcode, callable, Vec::default())
       } else {
@@ -117,6 +117,7 @@ impl Vm {
             Opcode::GreaterEqual => ops::GREATER_EQUAL,
             op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
           });
+          self.current_frame.ip += 1;
           self.current_frame.last_lookup = av;
           self.call_value(env, opcode, callable, args)
         } else {
@@ -469,7 +470,7 @@ impl Vm {
 
   #[inline]
   fn exec_lookup_member(&mut self, env: &Env, opcode: &Opcode, location: usize) -> ExecResult {
-    if let Some(mut obj) = self.stack_pop() {
+    if let Some(obj) = self.stack_pop() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
           self.current_frame.last_lookup = obj.clone();
@@ -884,16 +885,16 @@ impl Vm {
       f.call(self, args);
       Ok(())
     } else if let Some(f) = callable.as_native_fn() {
-      let v = f(self, env, args.into()).expect("TODO must handle error here");
+      let v = f(self, env, args.into()).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if let Some(f) = callable.as_native_closure_mut() {
-      let v = f.call(self, env, args.into()).expect("TODO must handle error here");
+      let v = f.call(self, env, args.into()).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if let Some(f) = callable.as_native_method_mut() {
       let args = Args::from((self.current_frame.last_lookup.take(), args));
-      let v = f.call(self, env, args).expect("TODO must handle error here");
+      let v = f.call(self, env, args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if callable.is_class() {
@@ -901,7 +902,7 @@ impl Vm {
       Ok(())
     } else if let Some(c) = callable.clone().as_native_class() {
       let args = Args::from((self.current_frame.last_lookup.take(), args));
-      let v = c.construct(callable, self, env, args).expect("TODO must handle error here");
+      let v = c.construct(callable, self, env, args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else {

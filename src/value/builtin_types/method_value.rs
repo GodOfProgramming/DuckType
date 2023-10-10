@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use macros::Class;
+use macros::{class_body, Class};
 use ptr::SmartPtr;
 
 #[derive(Clone, Class)]
@@ -29,6 +29,9 @@ impl MethodValue {
     self.function.context_mut()
   }
 }
+
+#[class_body]
+impl MethodValue {}
 
 impl Usertype for MethodValue {
   const ID: &'static str = "Method";

@@ -7,6 +7,7 @@ use std::{
   mem,
   ops::{Add, Deref, Div, Mul, Neg, Not, Rem, Sub},
 };
+use sysinfo::User;
 pub use tags::*;
 
 pub(crate) mod builtin_types;
@@ -77,8 +78,9 @@ impl Value {
       ConstantValue::Integer(v) => Self::from(*v),
       ConstantValue::Float(v) => Self::from(*v),
       ConstantValue::String(v) => Self::from(v),
-      ConstantValue::Fn(v) => Value::from(FunctionValue::from(v)),
-      ConstantValue::Class(v) => Value::from(ClassValue::from(v)),
+      ConstantValue::StaticString(v) => Self::from(*v),
+      ConstantValue::Fn(v) => Self::from(FunctionValue::from(v)),
+      ConstantValue::Class(v) => Self::from(ClassValue::from(v)),
     }
   }
 
@@ -469,9 +471,11 @@ impl Value {
     }
   }
 
-  pub fn assign(&mut self, name: &str, value: Value) {
+  pub fn assign(&mut self, name: &str, value: Value) -> ValueResult<()> {
     if self.is_ptr() {
-      (self.vtable().assign)(self.pointer_mut(), name, value);
+      (self.vtable().assign)(self.pointer_mut(), name, value)
+    } else {
+      Ok(())
     }
   }
 
@@ -1055,8 +1059,8 @@ pub struct VTable {
 impl VTable {
   const fn new<T: Usertype>() -> Self {
     Self {
-      lookup: |this, name| <T as Class>::get(Self::cast(this), name).unwrap_or_default(),
-      assign: |this, name, value| <T as Class>::set(Self::cast_mut(this), name, value),
+      lookup: |this, name| <T as Usertype>::get(Self::cast(this), name).unwrap_or_default(),
+      assign: |this, name, value| <T as Usertype>::set(Self::cast_mut(this), name, value),
       stringify: |this| <T as Usertype>::stringify(Self::cast(this)),
       debug_string: |this| <T as Usertype>::debug_string(Self::cast(this)),
       dealloc: |this| consume(this as *mut T),
@@ -1140,28 +1144,34 @@ impl Callable {
     }
   }
 
-  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) {
+  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult<()> {
     match self {
-      Callable::Fn(f) => f.as_fn_unchecked().call(vm, args.list),
-      Callable::Closure(c) => c.as_closure_unchecked().call(vm, args.list),
-      Callable::Method(m) => m.as_method_unchecked().call(vm, args),
+      Callable::Fn(f) => {
+        f.as_fn_unchecked().call(vm, args.list);
+        Ok(())
+      }
+      Callable::Closure(c) => {
+        c.as_closure_unchecked().call(vm, args.list);
+        Ok(())
+      }
+      Callable::Method(m) => {
+        m.as_method_unchecked().call(vm, args);
+        Ok(())
+      }
       Callable::NativeFn(f) => {
-        let value = f(vm, env, args).expect("TODO must handle error here");
+        let value = f(vm, env, args)?;
         vm.stack_push(value);
+        Ok(())
       }
       Callable::NativeClosure(c) => {
-        let value = c
-          .as_native_closure_unchecked_mut()
-          .call(vm, env, args)
-          .expect("TODO must handle error here");
+        let value = c.as_native_closure_unchecked_mut().call(vm, env, args)?;
         vm.stack_push(value);
+        Ok(())
       }
       Callable::NativeMethod(m) => {
-        let value = m
-          .as_native_method_unchecked_mut()
-          .call(vm, env, args)
-          .expect("TODO must handle error here");
+        let value = m.as_native_method_unchecked_mut().call(vm, env, args)?;
         vm.stack_push(value);
+        Ok(())
       }
     }
   }

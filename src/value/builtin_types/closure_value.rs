@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use macros::Class;
+use macros::{class_body, Class};
 use ptr::SmartPtr;
 
 #[derive(Clone, Class)]
@@ -42,6 +42,9 @@ impl ClosureValue {
     self.function.context()
   }
 }
+
+#[class_body]
+impl ClosureValue {}
 
 impl Usertype for ClosureValue {
   const ID: &'static str = "Closure";

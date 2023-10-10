@@ -1,4 +1,4 @@
-use macros::Class;
+use macros::{class_body, Class};
 
 use crate::prelude::*;
 use std::{ops::Deref, time::Instant};
@@ -15,6 +15,9 @@ impl TimestampValue {
     }
   }
 }
+
+#[class_body]
+impl TimestampValue {}
 
 impl Default for TimestampValue {
   fn default() -> Self {

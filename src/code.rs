@@ -194,11 +194,12 @@ pub enum ConstantValue {
   Integer(i32),
   Float(f64),
   String(String),
+  StaticString(&'static str),
   Fn(FunctionConstant),
   Class(ClassConstant),
 }
 
-#[derive(Debug, Clone, StructMerge)]
+#[derive(Clone, StructMerge)]
 #[struct_merge("crate::value::builtin_types::class_value::ClassValue")]
 pub struct FunctionConstant {
   pub name: Option<String>,
@@ -219,6 +220,12 @@ impl FunctionConstant {
 
   fn name(&self) -> &str {
     self.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>")
+  }
+}
+
+impl Debug for FunctionConstant {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    write!(f, "{}", self.name())
   }
 }
 
@@ -261,6 +268,7 @@ impl Display for ConstantValue {
       Self::Integer(v) => write!(f, "{}", v),
       Self::Float(v) => write!(f, "{}", v),
       Self::String(v) => write!(f, "{}", v),
+      Self::StaticString(v) => write!(f, "{}", v),
       Self::Fn(v) => write!(f, "{}", v.name()),
       Self::Class(v) => write!(f, "{}", v.name),
     }
@@ -540,10 +548,9 @@ impl Context {
   }
 
   fn const_at_column(&self, index: usize) -> String {
-    format!(
-      "{: >4?}",
-      self.const_at(index).unwrap_or(&ConstantValue::String("????".to_string()))
-    )
+    let cval = &ConstantValue::StaticString("????");
+    let value = self.const_at(index).unwrap_or(cval);
+    format!("{value: >4?}")
   }
 
   pub fn address_of(offset: usize) -> String {

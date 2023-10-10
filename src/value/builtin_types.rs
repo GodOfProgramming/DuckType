@@ -36,7 +36,7 @@ pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
 pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
-use macros::Class;
+use macros::{class_body, Class};
 pub use method_value::MethodValue;
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
 use std::{collections::BTreeMap, convert::Infallible, error::Error};
@@ -49,10 +49,18 @@ pub struct Nil;
 
 pub trait Usertype
 where
-  Self: Class + Sized + 'static,
+  Self: Class + ClassBody + Sized + 'static,
 {
   const ID: &'static str;
   const VTABLE: VTable = VTable::new::<Self>();
+
+  fn get(&self, field: &str) -> Option<Value> {
+    <Self as Class>::get(self, field).or_else(|| <Self as ClassBody>::lookup(field))
+  }
+
+  fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
+    <Self as Class>::set(self, field, value)
+  }
 
   fn stringify(&self) -> String {
     Self::ID.to_string()
@@ -70,7 +78,9 @@ pub trait Class {
 }
 
 pub trait ClassBody: Class {
-  fn lookup(name: &str) -> Option<Value>;
+  fn lookup(_name: &str) -> Option<Value> {
+    None
+  }
 }
 
 pub struct NativeClass {
@@ -222,6 +232,9 @@ impl UnimplementedFunction {
 /// Intentionally empty
 #[derive(Class)]
 pub struct Primitive {}
+
+#[class_body]
+impl Primitive {}
 
 impl Usertype for Primitive {
   const ID: &'static str = "Primitive";

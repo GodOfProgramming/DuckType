@@ -1,4 +1,4 @@
-use macros::Class;
+use macros::{class_body, Class};
 
 use super::{Args, Usertype};
 use crate::prelude::*;
@@ -32,6 +32,9 @@ impl NativeClosureValue {
     (*self.callee)(vm, env, args)
   }
 }
+
+#[class_body]
+impl NativeClosureValue {}
 
 impl Usertype for NativeClosureValue {
   const ID: &'static str = "NativeClosure";
@@ -95,6 +98,9 @@ impl NativeMethodValue {
     self.callee.call(vm, env, args)
   }
 }
+
+#[class_body]
+impl NativeMethodValue {}
 
 impl Usertype for NativeMethodValue {
   const ID: &'static str = "NativeMethod";

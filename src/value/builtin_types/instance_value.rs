@@ -1,7 +1,8 @@
-use crate::prelude::*;
-use macros::Class;
+use macros::class_body;
 
-#[derive(Default, Class)]
+use crate::prelude::*;
+
+#[derive(Default)]
 pub struct InstanceValue {
   pub data: StructValue,
   pub class: Value,
@@ -27,10 +28,28 @@ impl InstanceValue {
   }
 }
 
+#[class_body]
+impl InstanceValue {}
+
 impl Usertype for InstanceValue {
   const ID: &'static str = "Instance";
 
   fn stringify(&self) -> String {
     format!("<instance of {}>", self.class.stringify())
+  }
+}
+
+impl Class for InstanceValue {
+  fn id(&self) -> &'static str {
+    "InstanceValue"
+  }
+
+  fn get(&self, field: &str) -> Option<Value> {
+    Some(self.get(field))
+  }
+
+  fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
+    self.set(field, value);
+    Ok(())
   }
 }
