@@ -4,12 +4,13 @@ use ptr::SmartPtr;
 
 #[derive(Clone, Class)]
 pub struct MethodValue {
+  pub this: Value,
   pub function: FunctionValue,
 }
 
 impl MethodValue {
-  pub fn new(function: FunctionValue) -> Self {
-    Self { function }
+  pub fn new(this: Value, function: FunctionValue) -> Self {
+    Self { this, function }
   }
 
   pub fn call(&self, vm: &mut Vm, args: Args) {

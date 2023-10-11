@@ -11,25 +11,13 @@ impl InstanceValue {
     Self { data, class }
   }
 
-  pub fn set(&mut self, name: impl ToString, value: Value) {
-    self.data.set(name, value);
-  }
-
-  pub fn get(&self, name: &str) -> Value {
-    self.data.get(name).or_else(|| {
-      if let Some(class) = self.class.as_class() {
-        class.get_method(name)
-      } else {
-        Value::nil
-      }
-    })
-  }
+  pub fn set(&mut self, name: impl ToString, value: Value) {}
 }
 
 impl ClassBody for InstanceValue {
-  fn lookup(&self, _this: &Value, name: &str) -> Option<Value> {
+  fn get_method(&self, this: &Value, name: &str) -> Option<Value> {
     if let Some(class) = self.class.as_class() {
-      Some(class.get_method(name))
+      class.get_method(this, name)
     } else {
       None
     }
@@ -49,12 +37,12 @@ impl Class for InstanceValue {
     "InstanceValue"
   }
 
-  fn get(&self, field: &str) -> Option<Value> {
-    Some(self.get(field))
+  fn get_member(&self, field: &str) -> Option<Value> {
+    self.data.get_member(field)
   }
 
-  fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
-    self.set(field, value);
+  fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()> {
+    self.data.set(field, value);
     Ok(())
   }
 }

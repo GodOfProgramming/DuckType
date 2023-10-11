@@ -56,14 +56,14 @@ pub fn derive_class(input: TokenStream) -> TokenStream {
         #in_script_ident
       }
 
-      fn get(&self, field: &str) -> Option<Value> {
+      fn get_member(&self, field: &str) -> Option<Value> {
         match field {
           #(#ident_strs => Some(Value::from(&self.#idents)),)*
           _ => None,
         }
       }
 
-      fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
+      fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()> {
         match field {
           #(#ident_strs => self.#idents = value.try_into()?,)*
           _ => Err(ValueError::InvalidAssignment(field.to_string()))?,
@@ -228,7 +228,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
 
     #[automatically_derived]
     impl ClassBody for #me {
-      fn lookup(&self, this: &Value, name: &str) -> Option<Value> {
+      fn get_method(&self, this: &Value, name: &str) -> Option<Value> {
 
         pub fn try_arg_cast<T>(this: Value, fn_name: &'static str, pos: usize) -> ValueResult<T>
         where

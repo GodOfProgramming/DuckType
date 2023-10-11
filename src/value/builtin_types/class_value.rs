@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 pub struct ClassValue {
   pub name: String,
   pub initializer: Option<Value>,
-  pub methods: BTreeMap<String, Value>,
+  pub methods: BTreeMap<String, FunctionValue>,
   pub static_members: BTreeMap<String, Value>,
 }
 
@@ -45,16 +45,20 @@ impl ClassValue {
     self.initializer = Some(value);
   }
 
-  pub fn get_method(&self, this: Value, name: &str) -> Value {
-    self.methods.get(name).cloned().unwrap_or_default()
+  pub fn get_method(&self, this: &Value, name: &str) -> Option<Value> {
+    self
+      .methods
+      .get(name)
+      .cloned()
+      .map(|method| MethodValue::new(this.clone(), method).into())
   }
 
-  pub fn set_method<N: ToString>(&mut self, name: N, value: Value) {
+  pub fn set_method<N: ToString>(&mut self, name: N, value: FunctionValue) {
     self.methods.insert(name.to_string(), value);
   }
 
-  pub fn get_static(&self, name: &str) -> Value {
-    self.static_members.get(name).cloned().unwrap_or_default()
+  pub fn get_static(&self, name: &str) -> Option<Value> {
+    self.static_members.get(name).cloned()
   }
 
   pub fn set_static<N: ToString>(&mut self, name: N, value: Value) {
@@ -82,11 +86,7 @@ impl From<&ClassConstant> for ClassValue {
     Self {
       name: c.name.clone(),
       initializer: c.initializer.as_ref().map(|i| Value::from(FunctionValue::from(i))),
-      methods: c
-        .methods
-        .iter()
-        .map(|(k, v)| (k.clone(), Value::from(MethodValue::new(FunctionValue::from(v)))))
-        .collect(),
+      methods: c.methods.iter().map(|(k, v)| (k.clone(), FunctionValue::from(v))).collect(),
       static_members: c
         .statics
         .iter()

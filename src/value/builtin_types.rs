@@ -58,14 +58,14 @@ where
 
   fn get(&self, this: &Value, field: &str) -> ValueResult<Value> {
     Ok(
-      <Self as Class>::get(self, field)
-        .or_else(|| <Self as ClassBody>::lookup(self, this, field))
+      <Self as Class>::get_member(self, field)
+        .or_else(|| <Self as ClassBody>::get_method(self, this, field))
         .unwrap_or_default(),
     )
   }
 
   fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
-    <Self as Class>::set(self, field, value)
+    <Self as Class>::set_member(self, field, value)
   }
 
   fn stringify(&self) -> String {
@@ -79,12 +79,12 @@ where
 
 pub trait Class {
   fn id(&self) -> &'static str;
-  fn get(&self, field: &str) -> Option<Value>;
-  fn set(&mut self, field: &str, value: Value) -> ValueResult<()>;
+  fn get_member(&self, field: &str) -> Option<Value>;
+  fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()>;
 }
 
 pub trait ClassBody: Class {
-  fn lookup(&self, _this: &Value, _name: &str) -> Option<Value> {
+  fn get_method(&self, _this: &Value, _name: &str) -> Option<Value> {
     None
   }
 }

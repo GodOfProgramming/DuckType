@@ -69,9 +69,9 @@ mod unit_tests {
   fn structs_supported(_: &mut ValueTest) {
     let mut v = StructValue::new();
     v.set("foo", 123.into());
-    assert_eq!(v.get("foo"), 123.into());
+    assert_eq!(v.get_member("foo").unwrap(), 123.into());
     v.set("field", ImplementedObject::default().into());
-    assert!(v.get("field").is::<ImplementedObject>());
+    assert!(v.get_member("field").unwrap().is::<ImplementedObject>());
   }
 
   #[test]

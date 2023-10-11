@@ -85,6 +85,8 @@ impl Vm {
             op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
           })
           .map_err(|e| self.error(opcode, e))?;
+
+        self.current_frame.ip += 1;
         self.call_value(env, opcode, callable, 0)
       } else {
         self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
@@ -118,6 +120,8 @@ impl Vm {
               op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
             })
             .map_err(|e| self.error(opcode, e))?;
+
+          self.current_frame.ip += 1;
           self.stack_push(bv);
           self.call_value(env, opcode, callable, 1)
         } else {
@@ -488,23 +492,25 @@ impl Vm {
 
   #[inline]
   fn exec_peek_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
-    if let Some(obj) = self.stack_peek() {
+    if let Some(value) = self.stack_peek() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
-          if let Some(obj) = obj.as_struct() {
-            self.stack_push(obj.get(name));
+          if let Some(obj) = value.as_struct() {
+            let member = obj.get(&value, name).map_err(|e| self.error(opcode, e))?;
+            self.stack_push(member);
             Ok(())
-          } else if let Some(obj) = obj.as_instance() {
-            self.stack_push(obj.get(name));
+          } else if let Some(obj) = value.as_instance() {
+            let member = obj.get(&value, name).map_err(|e| self.error(opcode, e))?;
+            self.stack_push(member);
             Ok(())
           } else {
-            Err(self.error(opcode, format!("invalid type for member access: {}", obj)))
+            Err(self.error(opcode, format!("invalid type for member access: {}", value)))
           }
         } else {
-          Err(self.error(opcode, format!("invalid lookup for member access: {}", obj)))
+          Err(self.error(opcode, format!("invalid lookup for member access: {}", value)))
         }
       } else {
-        Err(self.error(opcode, format!("no name for member access: {}", obj)))
+        Err(self.error(opcode, format!("no name for member access: {}", value)))
       }
     } else {
       Err(self.error(opcode, "no object to lookup on"))
@@ -714,7 +720,7 @@ impl Vm {
           if found_file.is_none() {
             if let Some(library_mod) = env.lookup("$LIBRARY") {
               if let Some(library_mod) = library_mod.as_struct() {
-                if let Some(list) = library_mod.get("path").as_array() {
+                if let Some(list) = library_mod.get_member("path").map(|l| l.as_array()) {
                   for item in list.iter() {
                     let base = PathBuf::from(item.to_string());
                     let path = base.join(&required_file);
@@ -880,7 +886,7 @@ impl Vm {
       f.call(self, args);
       Ok(())
     } else if let Some(f) = callable.as_method() {
-      let args = Args::from(args);
+      let args = Args::new_with_this(f.this.clone(), args);
       f.call(self, args);
       Ok(())
     } else if let Some(f) = callable.as_native_fn() {

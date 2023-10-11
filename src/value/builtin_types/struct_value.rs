@@ -18,10 +18,6 @@ impl StructValue {
   pub fn set(&mut self, name: impl ToString, value: Value) {
     self.members.insert(name.to_string(), value.clone());
   }
-
-  pub fn get(&self, name: &str) -> Value {
-    self.members.get(name).cloned().unwrap_or_default()
-  }
 }
 
 #[class_body]
@@ -40,11 +36,11 @@ impl Class for StructValue {
     "StructValue"
   }
 
-  fn get(&self, field: &str) -> Option<Value> {
-    Some(self.get(field))
+  fn get_member(&self, field: &str) -> Option<Value> {
+    self.members.get(field).cloned()
   }
 
-  fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
+  fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()> {
     self.set(field, value);
     Ok(())
   }
