@@ -1,5 +1,3 @@
-use macros::class_body;
-
 use crate::prelude::*;
 
 #[derive(Default)]
@@ -28,8 +26,15 @@ impl InstanceValue {
   }
 }
 
-#[class_body]
-impl InstanceValue {}
+impl ClassBody for InstanceValue {
+  fn lookup(&self, _this: &Value, name: &str) -> Option<Value> {
+    if let Some(class) = self.class.as_class() {
+      Some(class.get_method(name))
+    } else {
+      None
+    }
+  }
+}
 
 impl Usertype for InstanceValue {
   const ID: &'static str = "Instance";

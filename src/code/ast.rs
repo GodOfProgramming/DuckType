@@ -588,7 +588,7 @@ impl AstGenerator {
   /* Expressions */
 
   fn expression(&mut self) -> Option<Expression> {
-    self.parse_precedence(Precedence::Assignment)
+    self.parse_precedence(Precedence::None)
   }
 
   fn literal_expr(&mut self) -> Option<Expression> {
@@ -1440,15 +1440,15 @@ impl AstGenerator {
       Token::LessEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
       Token::Arrow => ParseRule::new(None, None, Precedence::None),
       Token::BackArrow => ParseRule::new(None, None, Precedence::None),
-      Token::Identifier(_) => ParseRule::new(Some(Self::ident_expr), None, Precedence::None),
-      Token::String(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
-      Token::Number(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
+      Token::Identifier(_) => ParseRule::new(Some(Self::ident_expr), None, Precedence::Primary),
+      Token::String(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
+      Token::Number(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::And => ParseRule::new(None, Some(Self::and_expr), Precedence::And),
       Token::Break => ParseRule::new(None, None, Precedence::None),
       Token::Class => ParseRule::new(None, None, Precedence::None),
       Token::Cont => ParseRule::new(None, None, Precedence::None),
       Token::Else => ParseRule::new(None, None, Precedence::None),
-      Token::False => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
+      Token::False => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::For => ParseRule::new(None, None, Precedence::None),
       Token::Fn => ParseRule::new(None, None, Precedence::None),
       Token::If => ParseRule::new(None, None, Precedence::None),
@@ -1456,12 +1456,12 @@ impl AstGenerator {
       Token::Loop => ParseRule::new(None, None, Precedence::None),
       Token::Match => ParseRule::new(None, None, Precedence::None),
       Token::New => ParseRule::new(None, None, Precedence::None),
-      Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
+      Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::Or => ParseRule::new(None, Some(Self::or_expr), Precedence::Or),
       Token::Print => ParseRule::new(None, None, Precedence::None),
       Token::Req => ParseRule::new(None, None, Precedence::None),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
-      Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::None),
+      Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::Use => ParseRule::new(None, None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
       Token::Yield => ParseRule::new(None, None, Precedence::None),
@@ -1571,7 +1571,7 @@ impl AstGenerator {
   }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Ident {
   pub name: String,
 }
@@ -1592,6 +1592,7 @@ impl Display for Ident {
   }
 }
 
+#[derive(Debug)]
 pub enum Statement {
   Block(BlockStatement),
   Break(BreakStatement),
@@ -1839,6 +1840,7 @@ impl From<ExpressionStatement> for Statement {
   }
 }
 
+#[derive(Debug)]
 pub struct BlockStatement {
   pub statements: Vec<Statement>,
   pub loc: SourceLocation,
@@ -1850,6 +1852,7 @@ impl BlockStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct BreakStatement {
   pub loc: SourceLocation,
 }
@@ -1860,6 +1863,7 @@ impl BreakStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct ContStatement {
   pub loc: SourceLocation,
 }
@@ -1870,6 +1874,7 @@ impl ContStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct ClassStatement {
   pub ident: Ident,
   pub initializer: Option<Expression>,
@@ -1888,6 +1893,7 @@ impl ClassStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct DefaultConstructorRet {
   pub loc: SourceLocation,
 }
@@ -1898,6 +1904,7 @@ impl DefaultConstructorRet {
   }
 }
 
+#[derive(Debug)]
 pub struct FnStatement {
   pub ident: Ident,
   pub params: Vec<Ident>,
@@ -1916,6 +1923,7 @@ impl FnStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct ForStatement {
   pub initializer: Box<Statement>,
   pub comparison: Expression,
@@ -1937,6 +1945,7 @@ impl ForStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct IfStatement {
   pub comparison: Expression,
   pub block: Box<Statement>,
@@ -1955,6 +1964,7 @@ impl IfStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct LetStatement {
   pub ident: Ident,
   pub value: Option<Expression>,
@@ -1968,6 +1978,7 @@ impl LetStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct ReqStatement {
   pub file: Expression,
   pub ident: Option<Ident>,
@@ -1980,6 +1991,7 @@ impl ReqStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct LoopStatement {
   pub block: Box<Statement>,
   pub loc: SourceLocation,
@@ -1994,6 +2006,7 @@ impl LoopStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct MatchStatement {
   pub expr: Expression,
   pub branches: Vec<(Expression, Statement)>,
@@ -2012,6 +2025,7 @@ impl MatchStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct PrintStatement {
   pub expr: Expression,
   pub loc: SourceLocation,
@@ -2023,6 +2037,7 @@ impl PrintStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct RetStatement {
   pub expr: Option<Expression>,
   pub loc: SourceLocation,
@@ -2034,6 +2049,7 @@ impl RetStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct UseStatement {
   pub path: Vec<Ident>,
   pub loc: SourceLocation,
@@ -2045,6 +2061,7 @@ impl UseStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct WhileStatement {
   pub comparison: Expression,
   pub block: Box<Statement>,
@@ -2061,6 +2078,7 @@ impl WhileStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct YieldStatement {
   pub loc: SourceLocation,
 }
@@ -2071,6 +2089,7 @@ impl YieldStatement {
   }
 }
 
+#[derive(Debug)]
 pub struct ExpressionStatement {
   pub expr: Expression,
   pub loc: SourceLocation,
@@ -2082,6 +2101,7 @@ impl ExpressionStatement {
   }
 }
 
+#[derive(Debug)]
 pub enum Expression {
   Literal(LiteralExpression),
   Unary(UnaryExpression),
@@ -2258,6 +2278,7 @@ impl From<MethodExpression> for Expression {
   }
 }
 
+#[derive(Debug)]
 pub struct LiteralExpression {
   pub value: ConstantValue,
 
@@ -2276,6 +2297,7 @@ pub enum UnaryOperator {
   Negate,
 }
 
+#[derive(Debug)]
 pub struct UnaryExpression {
   pub op: UnaryOperator,
   pub expr: Box<Expression>,
@@ -2293,6 +2315,7 @@ impl UnaryExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct AndExpression {
   pub left: Box<Expression>,
   pub right: Box<Expression>,
@@ -2310,6 +2333,7 @@ impl AndExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct OrExpression {
   pub left: Box<Expression>,
   pub right: Box<Expression>,
@@ -2326,6 +2350,7 @@ impl OrExpression {
   }
 }
 
+#[derive(Debug)]
 pub enum BinaryOperator {
   Equal,
   NotEq,
@@ -2340,6 +2365,7 @@ pub enum BinaryOperator {
   Mod,
 }
 
+#[derive(Debug)]
 pub struct BinaryExpression {
   pub left: Box<Expression>,
   pub op: BinaryOperator,
@@ -2359,6 +2385,7 @@ impl BinaryExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct GroupExpression {
   pub expr: Box<Expression>,
 
@@ -2374,6 +2401,7 @@ impl GroupExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct IdentExpression {
   pub ident: Ident,
 
@@ -2386,6 +2414,7 @@ impl IdentExpression {
   }
 }
 
+#[derive(Debug)]
 pub enum AssignOperator {
   Assign,
   Add,
@@ -2395,6 +2424,7 @@ pub enum AssignOperator {
   Mod,
 }
 
+#[derive(Debug)]
 pub struct AssignExpression {
   pub ident: Ident,
   pub op: AssignOperator,
@@ -2414,6 +2444,7 @@ impl AssignExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct CallExpression {
   pub callable: Box<Expression>,
   pub args: Vec<Expression>,
@@ -2431,6 +2462,7 @@ impl CallExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct ListExpression {
   pub items: Vec<Expression>,
   pub loc: SourceLocation,
@@ -2442,6 +2474,7 @@ impl ListExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct IndexExpression {
   pub indexable: Box<Expression>,
   pub index: Box<Expression>,
@@ -2459,6 +2492,7 @@ impl IndexExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct MemberAccessExpression {
   pub obj: Box<Expression>,
   pub ident: Ident,
@@ -2475,6 +2509,7 @@ impl MemberAccessExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct MemberAssignExpression {
   pub obj: Box<Expression>,
   pub ident: Ident,
@@ -2495,6 +2530,7 @@ impl MemberAssignExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct StructExpression {
   pub members: Vec<(Ident, Expression)>,
   pub loc: SourceLocation,
@@ -2506,6 +2542,7 @@ impl StructExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct LambdaExpression {
   pub params: Vec<Ident>,
   pub body: Box<Statement>,
@@ -2532,6 +2569,7 @@ impl From<ClosureExpression> for LambdaExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct ClosureExpression {
   pub captures: StructExpression,
   pub params: Vec<Ident>,
@@ -2550,6 +2588,7 @@ impl ClosureExpression {
   }
 }
 
+#[derive(Debug)]
 pub struct MethodExpression {
   pub name: String,
   pub params: Vec<Ident>,
@@ -2568,7 +2607,7 @@ impl MethodExpression {
   }
 }
 
-#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 enum Precedence {
   None,
   Assignment, // = <-
@@ -2580,7 +2619,7 @@ enum Precedence {
   Factor,     // / *
   Unary,      // - ! @
   Call,       // . () []
-  Primary,
+  Primary,    // literal
 }
 
 impl Precedence {

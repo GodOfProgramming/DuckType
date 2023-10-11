@@ -16,6 +16,16 @@ impl StringValue {
     self.str.len() as i32
   }
 
+  fn clone(&self) -> Self {
+    Self { str: self.str.clone() }
+  }
+
+  fn reverse(&self) -> Self {
+    Self {
+      str: self.str.chars().rev().collect::<String>(),
+    }
+  }
+
   fn __add__(&self, other: &Self) -> Self {
     Self {
       str: format!("{}{}", self, other),

@@ -85,7 +85,6 @@ impl Vm {
             op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
           })
           .map_err(|e| self.error(opcode, e))?;
-        self.stack_push(v);
         self.call_value(env, opcode, callable, 0)
       } else {
         self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
@@ -120,7 +119,6 @@ impl Vm {
             })
             .map_err(|e| self.error(opcode, e))?;
           self.stack_push(bv);
-          self.stack_push(av);
           self.call_value(env, opcode, callable, 1)
         } else {
           self.stack_push(f(av, bv).map_err(|e| self.error(opcode, e))?);
@@ -894,12 +892,12 @@ impl Vm {
       self.stack_push(v);
       Ok(())
     } else if let Some(f) = callable.as_native_method_mut() {
-      let args = Args::from(args);
+      let args = Args::new_with_this(f.this.clone(), args);
       let v = f.call(self, env, args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if callable.is_class() {
-      ClassValue::construct(callable, self, env, args.into()).map_err(|e| self.error(opcode, e))?;
+      ClassValue::construct(callable, self, args.into()).map_err(|e| self.error(opcode, e))?;
       Ok(())
     } else if let Some(c) = callable.clone().as_native_class() {
       let args = Args::from(args);

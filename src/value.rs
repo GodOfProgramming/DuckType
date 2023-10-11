@@ -368,15 +368,15 @@ impl Value {
 
   // -- native closure method
 
-  pub fn new_native_fn_method(f: NativeFn) -> Self {
-    Self::from(NativeMethodValue::from(f))
+  pub fn new_native_fn_method(this: Value, f: NativeFn) -> Self {
+    Self::from(NativeMethodValue::new_native_fn(this, f))
   }
 
-  pub fn new_native_closure_method<T: ToString, F>(name: T, f: F) -> Self
+  pub fn new_native_closure_method<T: ToString, F>(name: T, this: Value, f: F) -> Self
   where
     F: FnMut(&mut Vm, &mut Env, Args) -> ValueResult + 'static,
   {
-    Self::from(NativeMethodValue::from(NativeClosureValue::new(name, f)))
+    Self::from(NativeMethodValue::new_native_closure(this, NativeClosureValue::new(name, f)))
   }
 
   pub fn is_native_method(&self) -> bool {
@@ -465,7 +465,7 @@ impl Value {
 
   pub fn lookup(&self, name: &str) -> ValueResult {
     if self.is_ptr() {
-      (self.vtable().lookup)(self.pointer(), name)
+      (self.vtable().lookup)(self, name)
     } else {
       Err(ValueError::InvalidLookup(self.clone()))
     }
@@ -1047,7 +1047,7 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  lookup: fn(ConstVoid, &str) -> ValueResult<Value>,
+  lookup: fn(&Value, &str) -> ValueResult<Value>,
   assign: fn(MutVoid, &str, Value) -> ValueResult<()>,
   stringify: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
@@ -1059,7 +1059,7 @@ pub struct VTable {
 impl VTable {
   const fn new<T: Usertype>() -> Self {
     Self {
-      lookup: |this, name| <T as Usertype>::get(Self::cast(this), name),
+      lookup: |this, name| <T as Usertype>::get(Self::cast(this.pointer()), this, name),
       assign: |this, name, value| <T as Usertype>::set(Self::cast_mut(this), name, value),
       stringify: |this| <T as Usertype>::stringify(Self::cast(this)),
       debug_string: |this| <T as Usertype>::debug_string(Self::cast(this)),

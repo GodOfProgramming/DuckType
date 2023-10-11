@@ -21,7 +21,7 @@ impl ClassValue {
     }
   }
 
-  pub fn construct(mut class_value: Value, vm: &mut Vm, env: &mut Env, mut args: Args) -> ValueResult<()> {
+  pub fn construct(mut class_value: Value, vm: &mut Vm, mut args: Args) -> ValueResult<()> {
     let class_clone = class_value.clone();
     if let Some(class) = class_value.as_class_mut() {
       let instance = Value::from(InstanceValue::new(StructValue::default(), class_clone));
@@ -45,7 +45,7 @@ impl ClassValue {
     self.initializer = Some(value);
   }
 
-  pub fn get_method(&self, name: &str) -> Value {
+  pub fn get_method(&self, this: Value, name: &str) -> Value {
     self.methods.get(name).cloned().unwrap_or_default()
   }
 

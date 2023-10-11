@@ -56,10 +56,10 @@ where
   const ID: &'static str;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  fn get(&self, field: &str) -> ValueResult<Value> {
+  fn get(&self, this: &Value, field: &str) -> ValueResult<Value> {
     Ok(
       <Self as Class>::get(self, field)
-        .or_else(|| <Self as ClassBody>::lookup(field))
+        .or_else(|| <Self as ClassBody>::lookup(self, this, field))
         .unwrap_or_default(),
     )
   }
@@ -84,7 +84,7 @@ pub trait Class {
 }
 
 pub trait ClassBody: Class {
-  fn lookup(_name: &str) -> Option<Value> {
+  fn lookup(&self, _this: &Value, _name: &str) -> Option<Value> {
     None
   }
 }
@@ -151,6 +151,10 @@ pub struct Args {
 }
 
 impl Args {
+  pub fn new_with_this(this: Value, mut args: Vec<Value>) -> Self {
+    args.push(this);
+    Self { list: args }
+  }
   pub fn count(&self) -> usize {
     self.list.len()
   }

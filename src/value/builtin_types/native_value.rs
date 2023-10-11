@@ -78,18 +78,21 @@ impl Display for NativeCallable {
 
 #[derive(Class)]
 pub struct NativeMethodValue {
+  pub this: Value,
   callee: NativeCallable,
 }
 
 impl NativeMethodValue {
-  pub fn new_native_fn(callee: NativeFn) -> Self {
+  pub fn new_native_fn(this: Value, callee: NativeFn) -> Self {
     Self {
+      this,
       callee: NativeCallable::NativeFn(callee),
     }
   }
 
-  pub fn new_native_closure(callee: NativeClosureValue) -> Self {
+  pub fn new_native_closure(this: Value, callee: NativeClosureValue) -> Self {
     Self {
+      this,
       callee: NativeCallable::NativeClosure(callee),
     }
   }
@@ -113,21 +116,5 @@ impl Usertype for NativeMethodValue {
 impl Display for NativeMethodValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     write!(f, "{}", self.callee)
-  }
-}
-
-impl From<NativeFn> for NativeMethodValue {
-  fn from(f: NativeFn) -> Self {
-    Self {
-      callee: NativeCallable::NativeFn(f),
-    }
-  }
-}
-
-impl From<NativeClosureValue> for NativeMethodValue {
-  fn from(f: NativeClosureValue) -> Self {
-    Self {
-      callee: NativeCallable::NativeClosure(f),
-    }
   }
 }

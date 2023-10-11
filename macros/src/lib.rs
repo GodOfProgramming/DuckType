@@ -148,7 +148,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
       );
       if method.receiver.mutability.is_some() {
         method_lambda_bodies.push(quote! {
-          Value::native(|_, _, mut args| {
+          Value::new_native_fn_method(this.clone(), |_, _, mut args| {
             if args.list.len() == #nargs + 1 {
               if let Some(mut this) = args.list.pop() {
                 if let Some(this) = this.cast_to_mut::<#me>() {
@@ -161,13 +161,13 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
                 Err(ValueError::MissingSelf(#name_str))
               }
             } else {
-              Err(ValueError::ArgumentError(args.list.len(), #nargs))
+              Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))
             }
           })
         });
       } else {
         method_lambda_bodies.push(quote! {
-          Value::native(|_, _, mut args| {
+          Value::new_native_fn_method(this.clone(), |_, _, mut args| {
             if args.list.len() == #nargs + 1 {
               if let Some(this) = args.list.pop() {
                 if let Some(this) = this.cast_to::<#me>() {
@@ -180,7 +180,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
                 Err(ValueError::MissingSelf(#name_str))
               }
             } else {
-              Err(ValueError::ArgumentError(args.list.len(), #nargs))
+              Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))
             }
           })
         });
@@ -228,7 +228,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
 
     #[automatically_derived]
     impl ClassBody for #me {
-      fn lookup(name: &str) -> Option<Value> {
+      fn lookup(&self, this: &Value, name: &str) -> Option<Value> {
 
         pub fn try_arg_cast<T>(this: Value, fn_name: &'static str, pos: usize) -> ValueResult<T>
         where
