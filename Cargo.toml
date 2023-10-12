@@ -28,4 +28,5 @@ evalexpr = "11.1.0"
 visit-ast = []
 disassemble = []
 runtime-disassembly = []
+print-precedence = []
 quit-after-disassemble = []

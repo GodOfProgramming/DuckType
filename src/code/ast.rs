@@ -588,7 +588,7 @@ impl AstGenerator {
   /* Expressions */
 
   fn expression(&mut self) -> Option<Expression> {
-    self.parse_precedence(Precedence::None)
+    self.parse_precedence(Precedence::Assignment)
   }
 
   fn literal_expr(&mut self) -> Option<Expression> {
@@ -786,12 +786,15 @@ impl AstGenerator {
     let mut args = Vec::default();
 
     if let Some(token) = self.current() {
-      if token != Token::RightParen {
-        loop {
-          args.push(self.expression()?);
-          if !self.advance_if_matches(Token::Comma) {
-            break;
-          }
+      loop {
+        if token == Token::RightParen {
+          break;
+        }
+
+        args.push(self.expression()?);
+
+        if !self.advance_if_matches(Token::Comma) {
+          break;
         }
       }
     }
@@ -837,9 +840,9 @@ impl AstGenerator {
     }
   }
 
-  fn member_expr(&mut self, obj: Expression) -> Option<Expression> {
+  fn member_expr(&mut self, expr: Expression) -> Option<Expression> {
     if let Some(token) = self.current() {
-      if let Token::Identifier(ident) = token {
+      if let Token::Identifier(member) = token {
         let ident_meta = self.meta_at::<0>()?;
 
         self.advance();
@@ -850,8 +853,8 @@ impl AstGenerator {
               self.advance();
               let value = self.expression()?;
               Some(Expression::from(MemberAssignExpression::new(
-                obj,
-                Ident::new(ident),
+                expr,
+                Ident::new(member),
                 AssignOperator::Assign,
                 value,
                 ident_meta,
@@ -861,8 +864,8 @@ impl AstGenerator {
               self.advance();
               let value = self.expression()?;
               Some(Expression::from(MemberAssignExpression::new(
-                obj,
-                Ident::new(ident),
+                expr,
+                Ident::new(member),
                 AssignOperator::Add,
                 value,
                 ident_meta,
@@ -872,8 +875,8 @@ impl AstGenerator {
               self.advance();
               let value = self.expression()?;
               Some(Expression::from(MemberAssignExpression::new(
-                obj,
-                Ident::new(ident),
+                expr,
+                Ident::new(member),
                 AssignOperator::Sub,
                 value,
                 ident_meta,
@@ -883,8 +886,8 @@ impl AstGenerator {
               self.advance();
               let value = self.expression()?;
               Some(Expression::from(MemberAssignExpression::new(
-                obj,
-                Ident::new(ident),
+                expr,
+                Ident::new(member),
                 AssignOperator::Mul,
                 value,
                 ident_meta,
@@ -894,8 +897,8 @@ impl AstGenerator {
               self.advance();
               let value = self.expression()?;
               Some(Expression::from(MemberAssignExpression::new(
-                obj,
-                Ident::new(ident),
+                expr,
+                Ident::new(member),
                 AssignOperator::Div,
                 value,
                 ident_meta,
@@ -905,16 +908,16 @@ impl AstGenerator {
               self.advance();
               let value = self.expression()?;
               Some(Expression::from(MemberAssignExpression::new(
-                obj,
-                Ident::new(ident),
+                expr,
+                Ident::new(member),
                 AssignOperator::Mod,
                 value,
                 ident_meta,
               )))
             }
             _ => Some(Expression::from(MemberAccessExpression::new(
-              obj,
-              Ident::new(ident),
+              expr,
+              Ident::new(member),
               ident_meta,
             ))),
           }
@@ -1359,40 +1362,54 @@ impl AstGenerator {
   }
 
   fn parse_precedence(&mut self, root_token_precedence: Precedence) -> Option<Expression> {
+    let indents = self.index;
+    let indent = format!("{:indents$}", " ", indents = indents);
+    #[cfg(feature = "print-precedence")]
+    println!("{indent}root: {:?}", root_token_precedence);
     self.advance();
 
     if let Some(prev) = self.previous() {
       let mut expr: Expression;
       let prev_token_rule = Self::rule_for(&prev);
+      #[cfg(feature = "print-precedence")]
+      println!("{indent}first: {:?} | {}", prev_token_rule.precedence, prev);
 
-      if let Some(prefix) = prev_token_rule.prefix {
-        match prefix(self) {
-          Some(e) => expr = e,
-          None => {
-            self.error::<1>(format!("no prefix rule for {}", prev));
-            return None;
-          }
-        }
-      } else {
+      let prefix_rule = prev_token_rule.prefix.or_else(|| {
         self.error::<1>(String::from("expected an expression"));
-        return None;
-      }
+        None
+      })?;
+
+      expr = prefix_rule(self).or_else(|| {
+        self.error::<1>(format!("no prefix rule for {}", prev));
+        None
+      })?;
 
       while let Some(curr) = self.current() {
         let current_token_rule = Self::rule_for(&curr);
+        #[cfg(feature = "print-precedence")]
+        {
+          println!("{indent}{}", self.peek_range::<5>());
+          println!("{indent}current: {:?} | {}", current_token_rule.precedence, curr);
+          println!(
+            "{indent}{:?} <= {:?}: {}",
+            root_token_precedence,
+            current_token_rule.precedence,
+            root_token_precedence <= current_token_rule.precedence
+          );
+          println!();
+        }
         if root_token_precedence <= current_token_rule.precedence {
-          if let Some(infix) = current_token_rule.infix {
-            self.advance();
-            match infix(self, expr) {
-              Some(e) => expr = e,
-              None => return None,
+          match current_token_rule.infix {
+            Some(infix) => {
+              self.advance();
+              expr = infix(self, expr)?;
             }
-          } else {
+
             // TODO if weird results start happening, this could be the cause
             // allows for structs to be made and braces to still work for scoping purposes
             //   self.error::<0>(format!("no infix rule for {:?}", curr));
             //   return None;
-            break;
+            None => break,
           }
         } else {
           break;
@@ -1440,7 +1457,7 @@ impl AstGenerator {
       Token::LessEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
       Token::Arrow => ParseRule::new(None, None, Precedence::None),
       Token::BackArrow => ParseRule::new(None, None, Precedence::None),
-      Token::Identifier(_) => ParseRule::new(Some(Self::ident_expr), None, Precedence::Primary),
+      Token::Identifier(_) => ParseRule::new(Some(Self::ident_expr), None, Precedence::None),
       Token::String(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::Number(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::And => ParseRule::new(None, Some(Self::and_expr), Precedence::And),
@@ -1568,6 +1585,22 @@ impl AstGenerator {
       }
       .to_string(),
     }))
+  }
+
+  fn peek_range<const I: usize>(&self) -> String {
+    let min_pos = self.index.saturating_sub(I);
+    let max_pos = self.index + I;
+    let mut v = Vec::new();
+    for i in min_pos..max_pos {
+      if let Some(t) = self.tokens.get(i) {
+        if i == self.index {
+          v.push(format!("*{}*", t.to_string()));
+        } else {
+          v.push(t.to_string());
+        }
+      }
+    }
+    v.join("|")
   }
 }
 

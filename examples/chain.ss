@@ -1,0 +1,1 @@
+third(second(first())).sixth(fifth(fourth())).ninth(eighth(seventh()));
