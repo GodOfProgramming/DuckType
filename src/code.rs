@@ -1,7 +1,7 @@
-use super::*;
-use crate::dbg::RuntimeError;
+use crate::prelude::*;
 use ast::Ast;
 use gen::BytecodeGenerator;
+use inter_struct::prelude::*;
 use lex::Scanner;
 use opt::Optimizer;
 use ptr::SmartPtr;
@@ -10,7 +10,7 @@ use std::{
   convert::TryFrom,
   env,
   error::Error,
-  fmt::{self, Debug, Display, Formatter},
+  fmt::{self, Debug, Display, Formatter, Result as FmtResult},
   path::PathBuf,
   str,
 };
@@ -20,8 +20,12 @@ pub mod gen;
 pub mod lex;
 pub mod opt;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum OpCode {
+pub mod prelude {
+  pub use super::{Context, Env, Opcode};
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Opcode {
   /** No operation instruction */
   NoOp,
   /** Looks up a constant value at the specified location. Location is specified by the tuple */
@@ -79,7 +83,7 @@ pub enum OpCode {
   /** Pops two values off the stack, calculates the quotient, then pushes the result back on */
   Div,
   /** Pops two values off the stack, calculates the remainder, then pushes the result back on */
-  Mod,
+  Rem,
   /** Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple */
   Or(usize),
   /** Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple */
@@ -104,12 +108,12 @@ pub enum OpCode {
   RetValue,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
-  /** Index into the indexable. The first argument off the stack is the index, the second is the indexable */
-  Index,
   /** Create a list of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
   CreateList(usize),
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
   CreateClosure,
+  /** Create a new struct */
+  CreateStruct,
   /** Yield at the current location */
   Yield,
 }
@@ -141,8 +145,8 @@ impl Compiler {
     let file = SmartPtr::new(String::from(file));
     let source_ptr = SmartPtr::new(String::from(source));
 
-    let reflection = Reflection::new(file, source_ptr.clone());
-    let ctx = SmartPtr::new(Context::new(reflection));
+    let reflection = Reflection::new(file, source_ptr);
+    let ctx = SmartPtr::new(Context::new(Some("*main*"), reflection));
 
     let generator = BytecodeGenerator::new(ctx);
 
@@ -162,19 +166,20 @@ impl Compiler {
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourceLocation {
+  pub file: SmartPtr<String>,
   pub line: usize,
   pub column: usize,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpCodeInfo {
   pub line: usize,
   pub column: usize,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpCodeReflection {
   pub file: String,
   pub source_line: String,
@@ -183,25 +188,97 @@ pub struct OpCodeReflection {
 }
 
 #[derive(Debug)]
-enum ContextName {
-  Main,
-  Lambda,
-  Closure,
-  Method,
-  Function(String),
+pub enum ConstantValue {
+  Nil,
+  Bool(bool),
+  Integer(i32),
+  Float(f64),
+  String(String),
+  StaticString(&'static str),
+  Fn(FunctionConstant),
+  Class(ClassConstant),
+}
+
+#[derive(Clone, StructMerge)]
+#[struct_merge("crate::value::builtin_types::class_value::ClassValue")]
+pub struct FunctionConstant {
+  pub airity: usize,
+  pub locals: usize,
+  pub ctx: SmartPtr<Context>,
+}
+
+impl FunctionConstant {
+  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
+    Self { airity, locals, ctx }
+  }
+
+  fn name(&self) -> &str {
+    self.ctx.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>")
+  }
+}
+
+impl Debug for FunctionConstant {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    write!(f, "{}", self.name())
+  }
+}
+
+#[derive(Debug)]
+pub struct ClassConstant {
+  pub name: String,
+  pub initializer: Option<FunctionConstant>,
+  pub methods: BTreeMap<String, FunctionConstant>,
+  pub statics: BTreeMap<String, FunctionConstant>,
+}
+
+impl ClassConstant {
+  fn new(name: String) -> Self {
+    Self {
+      name,
+      initializer: None,
+      methods: Default::default(),
+      statics: Default::default(),
+    }
+  }
+
+  fn set_constructor(&mut self, c: FunctionConstant) {
+    self.initializer = Some(c);
+  }
+
+  fn set_static(&mut self, key: String, value: FunctionConstant) {
+    self.statics.insert(key, value);
+  }
+
+  fn set_method(&mut self, key: String, value: FunctionConstant) {
+    self.methods.insert(key, value);
+  }
+}
+
+impl Display for ConstantValue {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    match self {
+      Self::Nil => write!(f, "nil"),
+      Self::Bool(v) => write!(f, "{}", v),
+      Self::Integer(v) => write!(f, "{}", v),
+      Self::Float(v) => write!(f, "{}", v),
+      Self::String(v) => write!(f, "{}", v),
+      Self::StaticString(v) => write!(f, "{}", v),
+      Self::Fn(v) => write!(f, "{}", v.name()),
+      Self::Class(v) => write!(f, "{}", v.name),
+    }
+  }
 }
 
 #[derive(Debug)]
 pub struct Context {
-  name: ContextName,
-
+  pub name: Option<String>,
   pub id: usize, // the function id within the local file
 
   global: SmartPtr<Context>,
 
-  instructions: Vec<OpCode>,
+  instructions: Vec<Opcode>,
 
-  consts: Vec<Value>,
+  consts: Vec<ConstantValue>,
   // map of string to const vec location to save memory
   strings: BTreeMap<String, usize>,
 
@@ -209,9 +286,9 @@ pub struct Context {
 }
 
 impl Context {
-  fn new(reflection: Reflection) -> Self {
+  fn new(name: Option<impl Into<String>>, reflection: Reflection) -> Self {
     Self {
-      name: ContextName::Main,
+      name: name.map(|n| n.into()),
       id: Default::default(),
       global: Default::default(),
       instructions: Default::default(),
@@ -221,8 +298,13 @@ impl Context {
     }
   }
 
-  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize, name: ContextName) -> Self {
-    let global = if ctx.global.valid() { ctx.global.clone() } else { ctx.clone() };
+  fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
+    let global = if ctx.global.valid() {
+      ctx.global.clone()
+    } else {
+      // is global ctx
+      ctx
+    };
 
     Self {
       name,
@@ -251,24 +333,24 @@ impl Context {
     }
   }
 
-  pub fn next(&self, index: usize) -> Option<OpCode> {
+  pub fn next(&self, index: usize) -> Option<Opcode> {
     self.instructions.get(index).cloned()
   }
 
-  pub fn const_at(&self, index: usize) -> Option<&Value> {
+  pub fn const_at(&self, index: usize) -> Option<&ConstantValue> {
     self.consts.get(index)
   }
 
   #[cfg(debug_assertions)]
-  pub fn consts(&self) -> &Vec<Value> {
+  pub fn consts(&self) -> &Vec<ConstantValue> {
     &self.consts
   }
 
-  pub fn global_const_at(&self, index: usize) -> Option<&Value> {
+  pub fn global_const_at(&self, index: usize) -> Option<&ConstantValue> {
     self.global_ctx().consts.get(index)
   }
 
-  fn write(&mut self, op: OpCode, line: usize, column: usize) {
+  fn write(&mut self, op: Opcode, line: usize, column: usize) {
     #[cfg(test)]
     {
       println!("emitting {:?}", op);
@@ -277,17 +359,17 @@ impl Context {
     self.meta.add(line, column);
   }
 
-  fn write_const(&mut self, c: Value, line: usize, column: usize) {
+  fn write_const(&mut self, c: ConstantValue, line: usize, column: usize) {
     let c = self.add_const(c);
-    self.write(OpCode::Const(c), line, column);
+    self.write(Opcode::Const(c), line, column);
   }
 
-  fn add_const(&mut self, c: Value) -> usize {
-    let string = if let Ok(string) = c.as_str() {
+  fn add_const(&mut self, c: ConstantValue) -> usize {
+    let string = if let ConstantValue::String(string) = &c {
       if let Some(index) = self.strings.get(string.as_str()) {
         return *index;
       }
-      Some(string.deref().clone())
+      Some(string.clone())
     } else {
       None
     };
@@ -306,7 +388,7 @@ impl Context {
     self.instructions.len()
   }
 
-  fn replace_instruction(&mut self, index: usize, op: OpCode) -> bool {
+  fn replace_instruction(&mut self, index: usize, op: Opcode) -> bool {
     if let Some(inst) = self.instructions.get_mut(index) {
       *inst = op;
       true
@@ -315,67 +397,46 @@ impl Context {
     }
   }
 
-  /* Debugging Functions */
-
-  pub fn name(&self) -> &str {
-    match &self.name {
-      ContextName::Main => "MAIN",
-      ContextName::Closure => "closure",
-      ContextName::Lambda => "lambda",
-      ContextName::Method => "method",
-      ContextName::Function(name) => name.as_str(),
-    }
-  }
-
   #[cfg(debug_assertions)]
   pub fn disassemble(&self) {
     self.display_opcodes();
 
     for value in self.consts() {
-      if let Ok(f) = value.as_fn() {
-        f.context().disassemble();
-      } else if let Ok(c) = value.as_class() {
-        if let Some(i) = &c.initializer {
-          if let Ok(f) = i.as_fn() {
-            f.context().disassemble();
-          } else if let Ok(m) = i.as_method() {
-            m.context().disassemble();
-          }
+      match value {
+        ConstantValue::Fn(f) => {
+          f.ctx.disassemble();
         }
-        for (_name, method) in &c.methods {
-          if let Ok(f) = method.as_fn() {
-            f.context().disassemble();
+        ConstantValue::Class(c) => {
+          if let Some(i) = &c.initializer {
+            i.ctx.disassemble();
           }
-        }
 
-        for static_method in c.static_members.values() {
-          if let Ok(f) = static_method.as_fn() {
-            f.context().disassemble();
+          for value in c.methods.values() {
+            value.ctx.disassemble();
+          }
+
+          for value in c.statics.values() {
+            value.ctx.disassemble();
           }
         }
+        _ => (),
       }
     }
   }
 
-  pub fn display_str(&self) -> String {
-    if self.id == 0 {
-      String::from("MAIN")
-    } else {
-      format!("function {} {}", self.id, self.name())
-    }
-  }
-
   pub fn display_opcodes(&self) {
-    println!("<< {} >>", self.display_str());
+    let default = self.id.to_string();
+    let name = self.name.as_ref().unwrap_or_else(|| &default);
+    println!(">>>>>> {} <<<<<<", name);
 
     for (i, op) in self.instructions.iter().enumerate() {
       self.display_instruction(op, i);
     }
 
-    println!("<< END >>");
+    println!("======={}=======", "=".repeat(name.len()));
   }
 
-  pub fn display_instruction(&self, op: &OpCode, offset: usize) {
+  pub fn display_instruction(&self, op: &Opcode, offset: usize) {
     print!("{} ", Self::address_of(offset));
     if let Some(curr) = self.meta.get(offset) {
       if offset > 0 {
@@ -396,7 +457,7 @@ impl Context {
     }
 
     match op {
-      OpCode::Const(index) => {
+      Opcode::Const(index) => {
         println!(
           "{} {} {}",
           Self::opcode_column("Const"),
@@ -404,38 +465,38 @@ impl Context {
           self.const_at_column(*index)
         );
       }
-      OpCode::PopN(count) => println!("{} {}", Self::opcode_column("PopN"), Self::value_column(*count)),
-      OpCode::LookupGlobal(name) => println!(
+      Opcode::PopN(count) => println!("{} {}", Self::opcode_column("PopN"), Self::value_column(*count)),
+      Opcode::LookupGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("LookupGlobal"),
         Self::value_column(*name),
         self.global_const_at_column(*name),
       ),
-      OpCode::ForceAssignGlobal(name) => println!(
+      Opcode::ForceAssignGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("ForceAssignGlobal"),
         Self::value_column(*name),
         self.global_const_at_column(*name)
       ),
-      OpCode::DefineGlobal(name) => println!(
+      Opcode::DefineGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("DefineGlobal"),
         Self::value_column(*name),
         self.global_const_at_column(*name),
       ),
-      OpCode::AssignGlobal(name) => println!(
+      Opcode::AssignGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("AssignGlobal"),
         Self::value_column(*name),
         self.global_const_at_column(*name),
       ),
-      OpCode::LookupLocal(index) => {
+      Opcode::LookupLocal(index) => {
         println!("{} {}", Self::opcode_column("LookupLocal"), Self::value_column(*index))
       }
-      OpCode::AssignLocal(index) => {
+      Opcode::AssignLocal(index) => {
         println!("{} {}", Self::opcode_column("AssignLocal"), Self::value_column(*index))
       }
-      OpCode::AssignMember(index) => {
+      Opcode::AssignMember(index) => {
         println!(
           "{} {} {}",
           Self::opcode_column("AssignMember"),
@@ -443,7 +504,7 @@ impl Context {
           self.const_at_column(*index)
         );
       }
-      OpCode::LookupMember(index) => {
+      Opcode::LookupMember(index) => {
         println!(
           "{} {} {}",
           Self::opcode_column("LookupMember"),
@@ -451,19 +512,19 @@ impl Context {
           self.const_at_column(*index)
         );
       }
-      OpCode::Jump(count) => println!("{} {: >14}", Self::opcode_column("Jump"), Self::address_of(offset + count)),
-      OpCode::JumpIfFalse(count) => {
+      Opcode::Jump(count) => println!("{} {: >14}", Self::opcode_column("Jump"), Self::address_of(offset + count)),
+      Opcode::JumpIfFalse(count) => {
         println!(
           "{} {: >14}",
           Self::opcode_column("JumpIfFalse"),
           Self::address_of(offset + count)
         )
       }
-      OpCode::Loop(count) => println!("{} {: >14}", Self::opcode_column("Loop"), Self::address_of(offset - count)),
-      OpCode::Or(count) => println!("{} {: >14}", Self::opcode_column("Or"), Self::address_of(offset + count)),
-      OpCode::And(count) => println!("{} {: >14}", Self::opcode_column("And"), Self::address_of(offset + count)),
-      OpCode::Call(count) => println!("{} {}", Self::opcode_column("Call"), Self::value_column(*count)),
-      OpCode::CreateList(count) => println!("{} {}", Self::opcode_column("CreateList"), Self::value_column(*count)),
+      Opcode::Loop(count) => println!("{} {: >14}", Self::opcode_column("Loop"), Self::address_of(offset - count)),
+      Opcode::Or(count) => println!("{} {: >14}", Self::opcode_column("Or"), Self::address_of(offset + count)),
+      Opcode::And(count) => println!("{} {: >14}", Self::opcode_column("And"), Self::address_of(offset + count)),
+      Opcode::Call(count) => println!("{} {}", Self::opcode_column("Call"), Self::value_column(*count)),
+      Opcode::CreateList(count) => println!("{} {}", Self::opcode_column("CreateList"), Self::value_column(*count)),
       x => println!("{}", Self::opcode_column(format!("{:?}", x))),
     }
   }
@@ -477,11 +538,18 @@ impl Context {
   }
 
   fn global_const_at_column(&self, index: usize) -> String {
-    format!("{: >4?}", self.global_const_at(index).unwrap_or(&mut Value::from("????")))
+    format!(
+      "{: >4?}",
+      self
+        .global_const_at(index)
+        .unwrap_or(&ConstantValue::String("????".to_string()))
+    )
   }
 
   fn const_at_column(&self, index: usize) -> String {
-    format!("{: >4?}", self.const_at(index).unwrap_or(&Value::from("????")))
+    let cval = &ConstantValue::StaticString("????");
+    let value = self.const_at(index).unwrap_or(cval);
+    format!("{value: >4?}")
   }
 
   pub fn address_of(offset: usize) -> String {
@@ -494,7 +562,6 @@ pub struct StackFrame {
   pub ip: usize,
   pub ctx: SmartPtr<Context>,
   pub stack: Vec<Value>,
-  pub last_lookup: Value,
 }
 
 impl StackFrame {
@@ -503,7 +570,6 @@ impl StackFrame {
       ip: Default::default(),
       ctx,
       stack: Default::default(),
-      last_lookup: Default::default(),
     }
   }
 
@@ -536,25 +602,25 @@ impl Yield {
 
 impl Display for Yield {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.current_frame.ctx.name())
+    write!(f, "yield")
   }
 }
 
-#[derive(Default)]
 pub struct Env {
   vars: BTreeMap<String, Value>,
-
-  with_lib_support: bool,
-
-  library: Library,
+  libs: Library,
   args: Vec<String>,
 }
 
 impl Env {
-  pub fn with_library_support(args: &[String], library: Library) -> Self {
-    let mut env = Env::default();
+  pub fn initialize(args: &[String], library: Library) -> Self {
+    let mut env = Env {
+      vars: Default::default(),
+      libs: library,
+      args: args.into(),
+    };
 
-    env.vars = stdlib::load_libs(args, &library);
+    env.vars = stdlib::load_libs(&env.args, &env.libs);
 
     let mut lib_paths = Vec::default();
 
@@ -567,17 +633,18 @@ impl Env {
 
     module.set("path", lib_paths);
 
-    env.assign("$LIBRARY", Value::from(module));
-
-    env.args.extend(args.iter().cloned());
-    env.library = library;
-    env.with_lib_support = true;
+    env.assign("$LIBRARY", module.into());
 
     env
   }
 
+  /// Defines a new variable. Returns true if the variable is new, false otherwise
   pub fn define<T: ToString>(&mut self, name: T, value: Value) -> bool {
     self.vars.insert(name.to_string(), value).is_none()
+  }
+
+  pub fn is_available(&self, name: &str) -> bool {
+    !self.is_defined(name)
   }
 
   pub fn is_defined(&self, name: &str) -> bool {

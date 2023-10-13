@@ -1,4 +1,4 @@
-use simple_script::{Env, Library, RunResult, Vm};
+use simple_script::prelude::*;
 use std::{env, fs, path::Path, process};
 
 fn main() {
@@ -27,7 +27,7 @@ fn run_file<T: ToString>(mut vm: Vm, file: T, args: &[String]) -> bool {
     match fs::read_to_string(p) {
       Ok(contents) => match vm.load(&file, &contents) {
         Ok(ctx) => {
-          let mut env = Env::with_library_support(args, Library::All);
+          let mut env = Env::initialize(args, Library::All);
 
           let mut yield_result = None;
 
@@ -35,11 +35,11 @@ fn run_file<T: ToString>(mut vm: Vm, file: T, args: &[String]) -> bool {
             if let Some(y) = yield_result.take() {
               match vm.resume(y, &mut env) {
                 Ok(result) => match result {
-                  RunResult::Value(v) => {
+                  Return::Value(v) => {
                     println!("{}", v);
                     break;
                   }
-                  RunResult::Yield(y) => yield_result = Some(y),
+                  Return::Yield(y) => yield_result = Some(y),
                 },
                 Err(errors) => {
                   for err in errors {
@@ -51,11 +51,11 @@ fn run_file<T: ToString>(mut vm: Vm, file: T, args: &[String]) -> bool {
             } else {
               match vm.run(&file, ctx.clone(), &mut env) {
                 Ok(result) => match result {
-                  RunResult::Value(v) => {
+                  Return::Value(v) => {
                     println!("{}", v);
                     break;
                   }
-                  RunResult::Yield(y) => yield_result = Some(y),
+                  Return::Yield(y) => yield_result = Some(y),
                 },
                 Err(errors) => {
                   for err in errors {

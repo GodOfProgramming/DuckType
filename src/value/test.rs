@@ -1,4 +1,6 @@
-use super::{Assign, ComplexValue, ComplexValueId, ErrorValue, Nil, StructValue, Tag, Value};
+use crate::prelude::*;
+
+use macros::{class_body, Class};
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -10,132 +12,32 @@ impl TestFixture for ValueTest {
   }
 }
 
+#[derive(Default, Class)]
 struct ImplementedObject {
   field: i32,
-  ptr: *mut bool,
 }
 
 impl ImplementedObject {
-  fn new(ptr: &mut bool) -> Self {
-    Self {
-      field: 0,
-      ptr: ptr as *mut _ as *mut bool,
-    }
+  fn new(x: i32) -> Self {
+    Self { field: x }
   }
 }
 
-impl Default for ImplementedObject {
-  fn default() -> Self {
-    Self {
-      field: 0,
-      ptr: std::ptr::null_mut(),
-    }
-  }
+#[class_body]
+impl ImplementedObject {}
+
+impl Usertype for ImplementedObject {
+  const ID: &'static str = "ImplementedObject";
 }
 
-impl ComplexValue for ImplementedObject {
-  const ID: ComplexValueId = "ImplementedObject";
+#[derive(Class)]
+struct UnimplementedObject {}
 
-  fn set(&mut self, name: &str, value: Value) -> Value {
-    match name {
-      "field" => {
-        if let Ok(i) = value.as_i32() {
-          self.field = i;
-        }
-      }
-      _ => panic!("should not reach"),
-    }
-    value
-  }
+#[class_body]
+impl UnimplementedObject {}
 
-  fn get(&self, name: &str) -> Value {
-    match name {
-      "field" => self.field.into(),
-      _ => Value::nil,
-    }
-  }
-
-  fn add(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field + other.as_i32().unwrap()).into(),
-      Tag::Pointer => {
-        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-          (self.field + obj.field).into()
-        } else {
-          Value::new_err(format!("cannot add ImplementedObject and {}", other))
-        }
-      }
-      _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-    }
-  }
-
-  fn sub(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field - other.as_i32().unwrap()).into(),
-      Tag::Pointer => {
-        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-          (self.field - obj.field).into()
-        } else {
-          Value::new_err(format!("cannot add ImplementedObject and {}", other))
-        }
-      }
-      _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-    }
-  }
-
-  fn mul(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field * other.as_i32().unwrap()).into(),
-      Tag::Pointer => {
-        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-          (self.field * obj.field).into()
-        } else {
-          Value::new_err(format!("cannot add ImplementedObject and {}", other))
-        }
-      }
-      _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-    }
-  }
-
-  fn div(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field / other.as_i32().unwrap()).into(),
-      Tag::Pointer => {
-        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-          (self.field / obj.field).into()
-        } else {
-          Value::new_err(format!("cannot add ImplementedObject and {}", other))
-        }
-      }
-      _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-    }
-  }
-
-  fn rem(&self, other: Value) -> Value {
-    match other.tag() {
-      Tag::I32 => (self.field % other.as_i32().unwrap()).into(),
-      Tag::Pointer => {
-        if let Ok(obj) = other.cast_to::<ImplementedObject>() {
-          (self.field % obj.field).into()
-        } else {
-          Value::new_err(format!("cannot add ImplementedObject and {}", other))
-        }
-      }
-      _ => Value::new_err(format!("cannot add ImplementedObject and {}", other)),
-    }
-  }
-
-  fn drop(&mut self) {
-    if !self.ptr.is_null() {
-      unsafe { *self.ptr = !*self.ptr };
-    }
-  }
-}
-
-struct UnimplementedObject;
-
-impl ComplexValue for UnimplementedObject {
-  const ID: ComplexValueId = "UnimplementedObject";
+impl Usertype for UnimplementedObject {
+  const ID: &'static str = "UnimplementedObject";
 }
 
 #[fixture(ValueTest)]
@@ -165,95 +67,35 @@ mod unit_tests {
 
   #[test]
   fn structs_supported(_: &mut ValueTest) {
-    let mut v = Value::new_struct();
-    assert!(v.is::<StructValue>());
+    let mut v = StructValue::new();
     v.set("foo", 123.into());
-    assert_eq!(v.get("foo"), 123.into());
-    assert!(!v.set("field", ImplementedObject::default().into()).is_err());
-    assert!(v.get("field").is::<ImplementedObject>());
+    assert_eq!(v.get_member("foo").unwrap(), 123.into());
+    v.set("field", ImplementedObject::default().into());
+    assert!(v.get_member("field").unwrap().is::<ImplementedObject>());
   }
 
   #[test]
   fn userdata_supported(_: &mut ValueTest) {
-    let mut x = false;
-
-    {
-      let mut v = Value::from(ImplementedObject::new(&mut x));
-      v.set("field", 123.into());
-      assert_eq!(v.get("field"), 123.into());
-    }
-
-    assert!(x);
+    const V: i32 = 1;
+    let value = Value::from(ImplementedObject::new(V));
+    assert_eq!(value.cast_to::<ImplementedObject>().unwrap().field, V);
   }
 
   #[test]
   fn can_assign_different_types(_: &mut ValueTest) {
-    let mut x = false;
+    let mut v = Value::from(ImplementedObject::default());
+    assert!(v.is::<ImplementedObject>());
 
-    {
-      let mut v = Value::from(ImplementedObject::new(&mut x));
-      assert!(v.is::<ImplementedObject>());
-      assert!(!x);
+    v = Value::from(123);
+    assert!(v.is_i32());
 
-      v.assign(123);
-      assert!(v.is_i32());
-      assert!(x);
+    v = Value::from(1.23);
+    assert!(v.is_f64());
 
-      v.assign(1.23);
-      assert!(v.is_f64());
-      assert!(x);
+    v = Value::from(ImplementedObject::default());
+    assert!(v.is::<ImplementedObject>());
 
-      v.assign(ImplementedObject::new(&mut x));
-      assert!(v.is::<ImplementedObject>());
-      assert!(x);
-
-      v.assign(Nil);
-      assert!(v.is_nil());
-      assert!(!x);
-    }
-
-    assert!(!x);
-  }
-
-  #[test]
-  fn object_trait_returns_expected_value_when_implemented(_: &mut ValueTest) {
-    let mut x = false;
-    let mut obj = ImplementedObject::new(&mut x);
-    obj.field = 0;
-    let mut obj = Value::from(obj);
-
-    let mut other = ImplementedObject::new(&mut x);
-    other.field = 5;
-    let other = Value::from(other);
-
-    assert!(!obj.set("field", 15.into()).is_err());
-    assert_eq!(obj.get("field"), 15.into());
-
-    assert_eq!(obj.clone() + 1.into(), 16.into());
-    assert_eq!(obj.clone() - 1.into(), 14.into());
-    assert_eq!(obj.clone() * 2.into(), 30.into());
-    assert_eq!(obj.clone() / 3.into(), 5.into());
-    assert_eq!(obj.clone() % 7.into(), 1.into());
-
-    assert_eq!(obj.clone() + other.clone(), 20.into());
-    assert_eq!(obj.clone() - other.clone(), 10.into());
-    assert_eq!(obj.clone() * other.clone(), 75.into());
-    assert_eq!(obj.clone() / other.clone(), 3.into());
-    assert_eq!(obj.clone() % other.clone(), 0.into());
-
-    assert_eq!(other.cast_to::<ImplementedObject>().unwrap().field, 5);
-  }
-
-  #[test]
-  fn object_trait_returns_error_when_unimplemented(_: &mut ValueTest) {
-    let mut obj = Value::from(UnimplementedObject);
-
-    assert!(obj.set("", Value::nil).is_err());
-    assert!(obj.get("").is_err());
-    assert!((obj.clone() + Value::nil).is_err());
-    assert!((obj.clone() - Value::nil).is_err());
-    assert!((obj.clone() * Value::nil).is_err());
-    assert!((obj.clone() / Value::nil).is_err());
-    assert!((obj % Value::nil).is_err());
+    v = Value::from(Nil);
+    assert!(v.is_nil());
   }
 }

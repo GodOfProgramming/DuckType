@@ -1,8 +1,8 @@
-use super::*;
-use crate::Context;
+use crate::{code::FunctionConstant, prelude::*};
+use macros::{class_body, Class};
 use ptr::SmartPtr;
 
-#[derive(Clone)]
+#[derive(Clone, Class)]
 pub struct FunctionValue {
   pub airity: usize,
   locals: usize,
@@ -14,7 +14,7 @@ impl FunctionValue {
     Self { airity, locals, ctx }
   }
 
-  pub fn call(&self, thread: &mut crate::ExecutionThread, mut args: Vec<Value>) {
+  pub fn call(&self, vm: &mut Vm, mut args: Vec<Value>) {
     if args.len() > self.airity {
       args.drain(0..self.airity);
     } else {
@@ -24,8 +24,8 @@ impl FunctionValue {
     }
 
     args.reserve(self.locals);
-    thread.new_frame(self.ctx.clone());
-    thread.set_stack(args);
+    vm.new_frame(self.ctx.clone());
+    vm.set_stack(args);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
@@ -41,14 +41,27 @@ impl FunctionValue {
   }
 }
 
-impl ComplexValue for FunctionValue {
-  const ID: ComplexValueId = "Function";
+#[class_body]
+impl FunctionValue {}
+
+impl Usertype for FunctionValue {
+  const ID: &'static str = "Function";
 
   fn stringify(&self) -> String {
-    format!("fn {}", self.ctx.name())
+    format!("fn {}", self.ctx.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>"))
   }
 
   fn debug_string(&self) -> String {
     format!("<{}>", self.stringify())
+  }
+}
+
+impl From<&FunctionConstant> for FunctionValue {
+  fn from(f: &FunctionConstant) -> Self {
+    Self {
+      airity: f.airity,
+      locals: f.locals,
+      ctx: f.ctx.clone(),
+    }
   }
 }

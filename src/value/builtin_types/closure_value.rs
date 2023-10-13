@@ -1,8 +1,8 @@
-use super::{ComplexValue, ComplexValueId, FunctionValue, Value};
-use crate::{Context, ExecutionThread};
+use crate::prelude::*;
+use macros::{class_body, Class};
 use ptr::SmartPtr;
 
-#[derive(Clone)]
+#[derive(Clone, Class)]
 pub struct ClosureValue {
   captures: Vec<Value>,
   function: FunctionValue,
@@ -16,7 +16,7 @@ impl ClosureValue {
     }
   }
 
-  pub fn call(&self, thread: &mut ExecutionThread, mut args: Vec<Value>) {
+  pub fn call(&self, vm: &mut Vm, mut args: Vec<Value>) {
     if args.len() > self.function.airity {
       args.drain(0..self.function.airity);
     } else {
@@ -29,22 +29,25 @@ impl ClosureValue {
     captures_with_args.extend(self.captures.clone());
     captures_with_args.extend(args);
 
-    thread.new_frame(self.function.context_ptr().clone());
+    vm.new_frame(self.function.context_ptr().clone());
 
-    thread.set_stack(captures_with_args);
+    vm.set_stack(captures_with_args);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
-    &self.function.context_ptr()
+    self.function.context_ptr()
   }
 
   pub fn context(&self) -> &Context {
-    &self.function.context()
+    self.function.context()
   }
 }
 
-impl ComplexValue for ClosureValue {
-  const ID: ComplexValueId = "Closure";
+#[class_body]
+impl ClosureValue {}
+
+impl Usertype for ClosureValue {
+  const ID: &'static str = "Closure";
 
   fn stringify(&self) -> String {
     format!("closure {}", self.function.stringify())

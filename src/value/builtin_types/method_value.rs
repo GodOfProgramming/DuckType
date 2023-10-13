@@ -1,20 +1,20 @@
-use super::{ComplexValue, ComplexValueId, FunctionValue};
-use crate::{Args, Context, ExecutionThread};
+use crate::prelude::*;
+use macros::{class_body, Class};
 use ptr::SmartPtr;
 
-#[derive(Clone)]
+#[derive(Clone, Class)]
 pub struct MethodValue {
+  pub this: Value,
   pub function: FunctionValue,
 }
 
 impl MethodValue {
-  pub fn new(function: FunctionValue) -> Self {
-    Self { function }
+  pub fn new(this: Value, function: FunctionValue) -> Self {
+    Self { this, function }
   }
 
-  pub fn call(&self, thread: &mut ExecutionThread, mut args: Args) {
-    args.list.push(args.this.unwrap());
-    self.function.call(thread, args.list);
+  pub fn call(&self, vm: &mut Vm, args: Args) {
+    self.function.call(vm, args.list);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
@@ -30,8 +30,11 @@ impl MethodValue {
   }
 }
 
-impl ComplexValue for MethodValue {
-  const ID: ComplexValueId = "Method";
+#[class_body]
+impl MethodValue {}
+
+impl Usertype for MethodValue {
+  const ID: &'static str = "Method";
 
   fn stringify(&self) -> String {
     format!("method {}", self.function.stringify())

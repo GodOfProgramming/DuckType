@@ -22,9 +22,9 @@ mod tests {
   fn can_register_global_variables(t: &mut ApiTest) {
     let script = "ret some_var;";
     let ctx = t.vm.load(TEST_FILE, script).unwrap();
-    let mut env = Env::with_library_support(&[], Library::All);
+    let mut env = Env::initialize(&[], Library::All);
     env.define("some_var", Value::from(true));
-    if let RunResult::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
+    if let Return::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
       assert!(v == Value::from(true));
     } else {
       panic!();
@@ -35,10 +35,10 @@ mod tests {
   fn can_register_lambda(t: &mut ApiTest) {
     let script = "ret some_func();";
     let ctx = t.vm.load("test", script).unwrap();
-    let mut env = Env::with_library_support(&[], Library::All);
-    env.define("some_func", Value::new_native_fn(|_thread, _env, _args| Value::from(true)));
+    let mut env = Env::initialize(&[], Library::All);
+    env.define("some_func", Value::native(|_vm, _env, _args| Ok(Value::from(true))));
 
-    if let RunResult::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
+    if let Return::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
       assert!(v == Value::from(true));
     } else {
       panic!();
@@ -49,11 +49,11 @@ mod tests {
   fn can_yield(t: &mut ApiTest) {
     let script = "let x = true; yield; ret x;";
     let ctx = t.vm.load("test", script).unwrap();
-    let mut env = Env::with_library_support(&[], Library::All);
+    let mut env = Env::initialize(&[], Library::All);
     let result = t.vm.run(TEST_FILE, ctx, &mut env).unwrap();
 
-    if let RunResult::Yield(y) = result {
-      if let RunResult::Value(v) = t.vm.resume(y, &mut env).unwrap() {
+    if let Return::Yield(y) = result {
+      if let Return::Value(v) = t.vm.resume(y, &mut env).unwrap() {
         assert!(v == Value::from(true));
       } else {
         panic!();

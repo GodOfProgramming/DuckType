@@ -1,4 +1,5 @@
-use simple_script::{ComplexValue, ComplexValueId, Env, Library, StructValue, Value, Vm};
+use macros::{class_body, Class};
+use simple_script::prelude::*;
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
 
@@ -17,7 +18,7 @@ impl ScriptTest {
       .run(
         script.to_string_lossy().to_string(),
         ctx,
-        &mut Env::with_library_support(&[], Library::All),
+        &mut Env::initialize(&[], Library::All),
       )
       .unwrap();
   }
@@ -29,33 +30,29 @@ impl TestFixture for ScriptTest {
   }
 }
 
-struct Leaker<'b> {
-  b: &'b mut bool,
-  data: StructValue,
+#[derive(Class)]
+struct Leaker {
+  b: &'static mut bool,
+
+  #[field]
+  this: Value,
 }
 
-impl<'b> Drop for Leaker<'b> {
+#[class_body]
+impl Leaker {}
+
+impl Drop for Leaker {
   fn drop(&mut self) {
     *self.b = true;
   }
 }
 
-impl<'b> ComplexValue for Leaker<'b> {
-  const ID: ComplexValueId = "Leaker";
-
-  fn set(&mut self, name: &str, value: Value) -> Value {
-    self.data.set(name, value)
-  }
-
-  fn get(&self, name: &str) -> Value {
-    self.data.get(name)
-  }
+impl Usertype for Leaker {
+  const ID: &'static str = "Leaker";
 }
 
 #[fixture(ScriptTest)]
 mod tests {
-  use simple_script::Value;
-
   use super::*;
 
   #[test]
@@ -65,20 +62,20 @@ mod tests {
       .for_each(|dir| dir.flatten().into_iter().for_each(|entry| t.run(&entry.path())));
   }
 
+  static mut B: bool = false;
+
   /// This tests for the memory leaking capability of reference counting. This should fail once garbage collection is implemented
   #[test]
   fn memory_leak_test(t: &mut ScriptTest) {
-    let mut b = false;
-
     {
-      const SCRIPT: &str = "leaker.this = leaker;";
+      const SCRIPT: &str = "print(leaker); print(leaker.this); leaker.this = leaker; print(leaker.this);";
 
       let ctx = t.vm.load("test", SCRIPT).unwrap();
-      let mut env = Env::with_library_support(&[], Library::None);
+      let mut env = Env::initialize(&[], Library::None);
 
       let l = Leaker {
-        b: &mut b,
-        data: Default::default(),
+        b: unsafe { &mut B },
+        this: Value::nil,
       };
 
       env.define("leaker", Value::from(l));
@@ -86,6 +83,6 @@ mod tests {
       t.vm.run("test", ctx, &mut env).unwrap();
     }
 
-    assert!(!b);
+    assert!(unsafe { !B });
   }
 }

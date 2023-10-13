@@ -1,17 +1,21 @@
-use super::{ClassValue, ComplexValue, StructValue, Value};
+use crate::prelude::*;
 use enum_iterator::{all, Sequence};
 use libconsole::LibConsole;
 use libenv::LibEnv;
 use libps::LibPs;
 use libstring::LibString;
 use libtime::LibTime;
-use std::{collections::BTreeMap, ops::Index};
+use std::collections::BTreeMap;
 
 mod libconsole;
 mod libenv;
 mod libps;
 mod libstring;
 mod libtime;
+
+pub mod prelude {
+  pub use super::{Lib, Library};
+}
 
 #[derive(Clone, Sequence)]
 pub enum Lib {
@@ -73,109 +77,8 @@ fn load_std() -> Value {
 
   lib.set(
     "debug",
-    Value::new_native_fn(|_thread, _env, args| Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil)))),
+    Value::native(|_vm, _env, args| Ok(Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil))))),
   );
-
-  // Arrays
-  {
-    let mut array = ClassValue::new("Array");
-
-    array.set_static(
-      "len",
-      Value::new_native_fn(|_thread, _env, args| {
-        let mut args = args.list.into_iter();
-        if let Some(arr) = args.next() {
-          if let Ok(arr) = arr.as_array() {
-            Value::from(arr.len() as i32)
-          } else {
-            Value::new_err("cannot compute length of non array")
-          }
-        } else {
-          Value::new_err("cannot compute length of nothing")
-        }
-      }),
-    );
-
-    lib.set("Array", Value::from(array));
-  }
-
-  // Vectors
-  {
-    let mut vec = ClassValue::new("Vec");
-
-    vec.set_native_constructor_closure(|_thread, _env, args| {
-      if let Some(mut this) = args.this {
-        if let Ok(instance) = this.as_instance_mut() {
-          let values = Value::from(args.list);
-          instance.set("_buffer", values);
-          this
-        } else {
-          Value::new_err(format!("self not instance type {} (logic error)", this))
-        }
-      } else {
-        Value::new_err("no class instance to pass into constructor")
-      }
-    });
-
-    vec.set_method(
-      "push",
-      Value::new_native_fn_method(|_thread, _env, args| {
-        if let Some(mut this) = args.this {
-          if let Ok(this) = this.as_instance_mut() {
-            let mut buff = this.get("_buffer");
-            if let Ok(buff) = buff.as_array_mut() {
-              buff.extend(args.list);
-              Value::nil
-            } else {
-              Value::new_err("_buffer missing for self")
-            }
-          } else {
-            Value::new_err("self is not a class instance")
-          }
-        } else {
-          Value::new_err("push called without self")
-        }
-      }),
-    );
-
-    vec.set_method(
-      "__index__",
-      Value::new_native_fn_method(|_thread, _env, args| {
-        if let Some(this) = args.this {
-          if let Some(value) = args.list.first().cloned() {
-            let buff = this.get("_buffer");
-            if let Ok(arr) = buff.as_array() {
-              arr.index(value)
-            } else {
-              Value::new_err("Vec.__index__ called on object that is not a Vec")
-            }
-          } else {
-            Value::new_err("index called without index")
-          }
-        } else {
-          Value::new_err("index called without self")
-        }
-      }),
-    );
-
-    vec.set_method(
-      "len",
-      Value::new_native_fn_method(|_thread, _env, args| {
-        if let Some(this) = args.this {
-          let buff = this.get("_buffer");
-          if let Ok(arr) = buff.as_array() {
-            Value::from(arr.len() as i32)
-          } else {
-            Value::new_err("buffer is not array")
-          }
-        } else {
-          Value::new_err("len called without self")
-        }
-      }),
-    );
-
-    lib.set("Vec", Value::from(vec));
-  }
 
   // Structs
   {
@@ -183,21 +86,21 @@ fn load_std() -> Value {
 
     object.set_static(
       "fields",
-      Value::new_native_fn(|_thread, _env, args| {
+      Value::native(|_vm, _env, args| {
         let mut args = args.list.into_iter();
         let mut fields = Vec::default();
 
         if let Some(obj) = args.next() {
-          let get_fields = |s: &StructValue| s.members.keys().cloned().map(|k| Value::from(k)).collect::<Vec<Value>>();
+          let get_fields = |s: &StructValue| s.members.keys().cloned().map(Value::from).collect::<Vec<Value>>();
 
-          if let Ok(i) = obj.as_instance() {
+          if let Some(i) = obj.as_instance() {
             fields.extend(get_fields(&i.data))
-          } else if let Ok(s) = obj.as_struct() {
-            fields.extend(get_fields(&s))
+          } else if let Some(s) = obj.as_struct() {
+            fields.extend(get_fields(s))
           }
         }
 
-        Value::from(fields)
+        Ok(Value::from(fields))
       }),
     );
 

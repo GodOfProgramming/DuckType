@@ -1,4 +1,4 @@
-use crate::{Args, ComplexValue, Env, ExecutionThread, StructValue, Value};
+use crate::prelude::*;
 
 pub struct LibConsole;
 
@@ -6,31 +6,31 @@ impl LibConsole {
   pub fn load() -> Value {
     let mut lib = StructValue::default();
 
-    lib.set("write", Value::new_native_fn(Self::print));
-    lib.set("writeln", Value::new_native_fn(Self::println));
-    lib.set("flushln", Value::new_native_fn(Self::flushln));
+    lib.set("write", Value::native(Self::print));
+    lib.set("writeln", Value::native(Self::println));
+    lib.set("flushln", Value::native(Self::flushln));
 
     Value::from(lib)
   }
 
-  fn print(_thread: &mut ExecutionThread, _env: &mut Env, args: Args) -> Value {
+  fn print(_vm: &mut Vm, _env: &mut Env, args: Args) -> ValueResult {
     for arg in args.list {
       print!("{}", arg);
     }
 
-    Value::nil
+    Ok(Value::nil)
   }
 
-  fn println(_thread: &mut ExecutionThread, _env: &mut Env, args: Args) -> Value {
+  fn println(_vm: &mut Vm, _env: &mut Env, args: Args) -> ValueResult {
     for arg in args.list {
       print!("{}", arg);
     }
     println!();
 
-    Value::nil
+    Ok(Value::nil)
   }
 
-  fn flushln(_thread: &mut ExecutionThread, _env: &mut Env, args: Args) -> Value {
+  fn flushln(_vm: &mut Vm, _env: &mut Env, args: Args) -> ValueResult {
     use std::io::{stdout, Write};
     for arg in args.list {
       print!("{}", arg);
@@ -38,6 +38,6 @@ impl LibConsole {
     println!();
     stdout().flush().ok();
 
-    Value::nil
+    Ok(Value::nil)
   }
 }

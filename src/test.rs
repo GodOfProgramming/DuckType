@@ -1,10 +1,11 @@
-use super::*;
+use crate::prelude::*;
+use ptr::SmartPtr;
 use tfix::{fixture, TestFixture};
 
 const TEST_FILE: &str = "test";
 
 struct IntegrationTest {
-  script: &'static str,
+  script: String,
   vm: Vm,
 }
 
@@ -21,7 +22,7 @@ impl IntegrationTest {
   fn load<F: FnOnce(&mut Self, SmartPtr<Context>, &mut Env)>(&mut self, f: F) {
     match self.vm.load(TEST_FILE, &self.script) {
       Ok(ctx) => {
-        let mut env = Env::default();
+        let mut env = Env::initialize(&[], Library::All);
         f(self, ctx, &mut env);
       }
       Err(errs) => {
@@ -36,8 +37,8 @@ impl IntegrationTest {
   fn run<F: FnOnce(SmartPtr<Context>, &Env, Value)>(&mut self, f: F) {
     self.load(|this, ctx, env| match this.vm.run(TEST_FILE, ctx.clone(), env) {
       Ok(v) => match v {
-        RunResult::Value(v) => f(ctx, env, v),
-        RunResult::Yield(_) => panic!("this test function should not be used for yields"),
+        Return::Value(v) => f(ctx, env, v),
+        Return::Yield(_) => panic!("this test function should not be used for yields"),
       },
       Err(err) => panic!("{:#?}", err),
     });
@@ -52,20 +53,26 @@ impl TestFixture for IntegrationTest {
 
 #[fixture(IntegrationTest)]
 mod integration_tests {
+  use evalexpr::eval;
+
   use super::*;
 
   #[test]
   fn adding_a_global(test: &mut IntegrationTest) {
-    test.script = "ret foo;";
+    test.script = "ret foo;".into();
 
     test.load(|this, ctx, env| {
       env.assign(String::from("foo"), Value::from("foo"));
       match this.vm.run(TEST_FILE, ctx, env) {
         Ok(res) => match res {
-          RunResult::Value(v) => {
-            assert_eq!(Value::from("foo"), v);
+          Return::Value(v) => {
+            if let Some(v) = v.as_str() {
+              assert_eq!("foo", **v);
+            } else {
+              panic!("value is not a string");
+            }
           }
-          RunResult::Yield(_) => panic!("should not use yields"),
+          Return::Yield(_) => panic!("should not use yields"),
         },
         Err(err) => panic!("{:#?}", err),
       }
@@ -74,23 +81,23 @@ mod integration_tests {
 
   #[test]
   fn calling_a_native_function(test: &mut IntegrationTest) {
-    test.script = "let x = 1; ret test_func(x, 2);";
+    test.script = "let x = 1; ret test_func(x, 2);".into();
 
     test.load(|this, ctx, env| {
       env.define(
         "test_func",
-        Value::new_native_fn(|_thread, _env, args| {
+        Value::native(|_thread, _env, args| {
           let args = args.list;
           assert_eq!(args.len(), 2);
           assert_eq!(args[0], Value::from(1));
           assert_eq!(args[1], Value::from(2));
-          Value::from(3f64)
+          Ok(Value::from(3f64))
         }),
       );
       match this.vm.run("test", ctx, env) {
         Ok(res) => match res {
-          RunResult::Value(v) => assert_eq!(Value::from(3f64), v),
-          RunResult::Yield(_) => panic!("should not yield"),
+          Return::Value(v) => assert_eq!(Value::from(3f64), v),
+          Return::Yield(_) => panic!("should not yield"),
         },
         Err(err) => panic!("{:#?}", err),
       }
@@ -102,7 +109,7 @@ mod integration_tests {
    */
   #[test]
   fn let_0(test: &mut IntegrationTest) {
-    test.script = "let $foo;";
+    test.script = "let $foo;".into();
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
@@ -115,7 +122,7 @@ mod integration_tests {
    */
   #[test]
   fn let_1(test: &mut IntegrationTest) {
-    test.script = "let $foo = true;";
+    test.script = "let $foo = true;".into();
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
@@ -125,17 +132,21 @@ mod integration_tests {
 
   #[test]
   fn let_2(test: &mut IntegrationTest) {
-    test.script = "let $foo = 1 + 2 * 3 - 4.0 / 5 + 6 % 5;";
+    let math = "1 + 2 * 3 - 4.0 / 5 + 6 % 5";
+    let value = eval(math).unwrap().as_float().unwrap();
+    test.script = format!("let $foo = {math};");
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::from(7.2));
+      assert_eq!(val, Value::from(value));
     });
   }
 
   #[test]
   fn let_3(test: &mut IntegrationTest) {
-    test.script = "let $foo; $foo = 1 + 2 * 3 - 4.0 / 5 + 6 % 5;";
+    let math = "1 + 2 * 3 - 4.0 / 5 + 6 % 5";
+    let value = eval(math).unwrap().as_float().unwrap();
+    test.script = format!("let $foo; $foo = {math};");
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
@@ -145,7 +156,7 @@ mod integration_tests {
 
   #[test]
   fn block_0(test: &mut IntegrationTest) {
-    test.script = "let $foo; { $foo = 1; }";
+    test.script = "let $foo; { $foo = 1; }".into();
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
@@ -155,7 +166,7 @@ mod integration_tests {
 
   #[test]
   fn block_1(test: &mut IntegrationTest) {
-    test.script = "let $foo; { $foo = 1; let bar; bar = 0; }";
+    test.script = "let $foo; { $foo = 1; let bar; bar = 0; }".into();
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
@@ -166,7 +177,7 @@ mod integration_tests {
 
   #[test]
   fn if_0(test: &mut IntegrationTest) {
-    test.script = "let $foo = true; if $foo { $foo = 1; }";
+    test.script = "let $foo = true; if $foo { $foo = 1; }".into();
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
@@ -179,7 +190,7 @@ mod integration_tests {
    */
   #[test]
   fn if_1(test: &mut IntegrationTest) {
-    test.script = "let $foo = true; if $foo { $foo = 1; } else { $foo = 2; }";
+    test.script = "let $foo = true; if $foo { $foo = 1; } else { $foo = 2; }".into();
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
@@ -189,7 +200,7 @@ mod integration_tests {
 
   #[test]
   fn if_2(test: &mut IntegrationTest) {
-    test.script = "let $foo = false; if $foo { $foo = 1; } else { $foo = 2; }";
+    test.script = "let $foo = false; if $foo { $foo = 1; } else { $foo = 2; }".into();
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
@@ -199,21 +210,21 @@ mod integration_tests {
 
   #[test]
   fn if_3(test: &mut IntegrationTest) {
-    test.script = "if true and false or true { ret true; } else { ret false; }";
+    test.script = "if true and false or true { ret true; } else { ret false; }".into();
 
     test.run(|_, _, v| assert!(v.truthy()));
   }
 
   #[test]
   fn if_4(test: &mut IntegrationTest) {
-    test.script = "if true and false and false or true { ret true; } else { ret false; }";
+    test.script = "if true and false and false or true { ret true; } else { ret false; }".into();
 
     test.run(|_, _, v| assert!(v.truthy()));
   }
 
   #[test]
   fn if_5(test: &mut IntegrationTest) {
-    test.script = "if true and false and (false or true) { ret true; } else { ret false; }";
+    test.script = "if true and false and (false or true) { ret true; } else { ret false; }".into();
 
     test.run(|_, _, v| {
       println!("{:?}", v);

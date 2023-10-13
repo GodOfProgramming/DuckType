@@ -301,6 +301,7 @@ impl<'src> Scanner<'src> {
 
         tokens.push(token);
         meta.push(SourceLocation {
+          file: self.file.clone(),
           line: line + 1,
           column: column + 1,
         });
@@ -482,10 +483,6 @@ impl<'src> Scanner<'src> {
 
   fn peek_n(&self, n: usize) -> Option<char> {
     self.src.get(self.pos.saturating_add(n)).map(|c| *c as char)
-  }
-
-  fn index_n(&self, n: usize) -> Option<char> {
-    self.src.get(n).map(|c| *c as char)
   }
 
   fn advance(&mut self) {

@@ -1,14 +1,21 @@
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
+#[allow(unused)]
 macro_rules! here {
   () => {
     crate::dbg::_here(file!(), line!());
   };
 }
 
+#[allow(unused)]
 pub(crate) use here;
 
-use crate::code::{OpCode, OpCodeReflection};
+use crate::code::{OpCodeReflection, Opcode};
+
+pub mod prelude {
+  pub(crate) use super::here;
+  pub use super::RuntimeError;
+}
 
 pub fn _here(file: &str, line: u32) {
   use std::io::{stdout, Write};
@@ -16,7 +23,7 @@ pub fn _here(file: &str, line: u32) {
   stdout().flush().unwrap();
 }
 
-#[derive(Default, PartialEq)]
+#[derive(Default, PartialEq, Eq)]
 pub struct RuntimeError {
   pub msg: String,
   pub file: String,
@@ -25,16 +32,16 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
-  pub fn from_ref<M: ToString>(msg: M, opcode: &OpCode, opcode_ref: OpCodeReflection) -> Self {
-    let mut e = Self {
+  pub fn from_ref<M: ToString>(msg: M, opcode: &Opcode, opcode_ref: OpCodeReflection) -> Self {
+    let mut err = Self {
       msg: msg.to_string(),
       file: opcode_ref.file.clone(),
       line: opcode_ref.line,
       column: opcode_ref.column,
     };
-    e.format_with_src_line(opcode_ref.source_line);
-    e.msg = format!("{}\nOffending OpCode: {:?}", e.msg, opcode);
-    e
+    err.format_with_src_line(opcode_ref.source_line);
+    err.msg = format!("{}\nOffending OpCode: {:?}", err.msg, opcode);
+    err
   }
 
   pub fn format_with_src_line(&mut self, src: String) {
