@@ -497,6 +497,8 @@ impl AstGenerator {
     }
   }
 
+  fn mod_stmt(&mut self) {}
+
   fn print_stmt(&mut self) {
     if let Some(loc) = self.meta_at::<1>() {
       if let Some(expr) = self.expression() {
@@ -1472,6 +1474,7 @@ impl AstGenerator {
       Token::Let => ParseRule::new(None, None, Precedence::None),
       Token::Loop => ParseRule::new(None, None, Precedence::None),
       Token::Match => ParseRule::new(None, None, Precedence::None),
+      Token::Mod => ParseRule::new(None, None, Precedence::None),
       Token::New => ParseRule::new(None, None, Precedence::None),
       Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::Or => ParseRule::new(None, Some(Self::or_expr), Precedence::Or),
