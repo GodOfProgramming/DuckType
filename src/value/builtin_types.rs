@@ -21,7 +21,7 @@ pub mod ops {
   pub const DIV: &str = "__div__";
   pub const REM: &str = "__rem__";
 
-  pub const EQUALITY: &str = "__equal__";
+  pub const EQUALITY: &str = "__eq__";
   pub const NOT_EQUAL: &str = "__neq__";
   pub const LESS: &str = "__less__";
   pub const LESS_EQUAL: &str = "__leq__";

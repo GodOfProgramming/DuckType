@@ -449,9 +449,9 @@ impl BytecodeGenerator {
 
   fn index_expr(&mut self, expr: IndexExpression) {
     let ident = self.add_const_ident(Ident::new(ops::INDEX));
-    self.emit_expr(*expr.index);
     self.emit_expr(*expr.indexable);
     self.emit(Opcode::LookupMember(ident), expr.loc.clone());
+    self.emit_expr(*expr.index);
     self.emit(Opcode::Call(1), expr.loc);
   }
 
@@ -838,7 +838,12 @@ impl BytecodeGenerator {
 
     let reflection = Reflection::new(parent_ctx.meta.file.clone(), parent_ctx.meta.source.clone());
 
-    self.current_fn = Some(SmartPtr::new(Context::new_child(parent_ctx, reflection, self.function_id)));
+    self.current_fn = Some(SmartPtr::new(Context::new_child(
+      name,
+      self.function_id,
+      parent_ctx,
+      reflection,
+    )));
 
     self.new_scope(|this| {
       let airity = args.len();
@@ -876,7 +881,7 @@ impl BytecodeGenerator {
       this.current_fn = prev_fn;
       this.locals = locals;
 
-      FunctionConstant::new(name, airity, local_count, ctx)
+      FunctionConstant::new(airity, local_count, ctx)
     })
   }
 

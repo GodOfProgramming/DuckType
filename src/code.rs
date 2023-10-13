@@ -146,7 +146,7 @@ impl Compiler {
     let source_ptr = SmartPtr::new(String::from(source));
 
     let reflection = Reflection::new(file, source_ptr);
-    let ctx = SmartPtr::new(Context::new(reflection));
+    let ctx = SmartPtr::new(Context::new(Some("*main*"), reflection));
 
     let generator = BytecodeGenerator::new(ctx);
 
@@ -202,24 +202,18 @@ pub enum ConstantValue {
 #[derive(Clone, StructMerge)]
 #[struct_merge("crate::value::builtin_types::class_value::ClassValue")]
 pub struct FunctionConstant {
-  pub name: Option<String>,
   pub airity: usize,
   pub locals: usize,
   pub ctx: SmartPtr<Context>,
 }
 
 impl FunctionConstant {
-  pub fn new(name: Option<String>, airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
-    Self {
-      name,
-      airity,
-      locals,
-      ctx,
-    }
+  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
+    Self { airity, locals, ctx }
   }
 
   fn name(&self) -> &str {
-    self.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>")
+    self.ctx.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>")
   }
 }
 
@@ -277,6 +271,7 @@ impl Display for ConstantValue {
 
 #[derive(Debug)]
 pub struct Context {
+  pub name: Option<String>,
   pub id: usize, // the function id within the local file
 
   global: SmartPtr<Context>,
@@ -291,8 +286,9 @@ pub struct Context {
 }
 
 impl Context {
-  fn new(reflection: Reflection) -> Self {
+  fn new(name: Option<impl Into<String>>, reflection: Reflection) -> Self {
     Self {
+      name: name.map(|n| n.into()),
       id: Default::default(),
       global: Default::default(),
       instructions: Default::default(),
@@ -302,7 +298,7 @@ impl Context {
     }
   }
 
-  fn new_child(ctx: SmartPtr<Context>, reflection: Reflection, id: usize) -> Self {
+  fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
     let global = if ctx.global.valid() {
       ctx.global.clone()
     } else {
@@ -311,6 +307,7 @@ impl Context {
     };
 
     Self {
+      name,
       id,
       global,
       consts: Default::default(),
@@ -428,13 +425,15 @@ impl Context {
   }
 
   pub fn display_opcodes(&self) {
-    println!(">>>>>>");
+    let default = self.id.to_string();
+    let name = self.name.as_ref().unwrap_or_else(|| &default);
+    println!(">>>>>> {} <<<<<<", name);
 
     for (i, op) in self.instructions.iter().enumerate() {
       self.display_instruction(op, i);
     }
 
-    println!("<<<<<<");
+    println!("======={}=======", "=".repeat(name.len()));
   }
 
   pub fn display_instruction(&self, op: &Opcode, offset: usize) {

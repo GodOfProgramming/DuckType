@@ -27,7 +27,7 @@ impl ArrayValue {
     Self::new_from_vec(args)
   }
 
-  fn index(&self, index: i32) -> Value {
+  fn __index__(&self, index: i32) -> Value {
     self.list.get(index as usize).cloned().unwrap_or_default()
   }
 

@@ -72,6 +72,15 @@ impl ClassValue {}
 impl Usertype for ClassValue {
   const ID: &'static str = "Class";
 
+  fn get(&self, _this: &Value, field: &str) -> ValueResult<Value> {
+    Ok(self.get_static(field).unwrap_or_default())
+  }
+
+  fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
+    self.set_static(field, value);
+    Ok(())
+  }
+
   fn stringify(&self) -> String {
     self.name.clone()
   }

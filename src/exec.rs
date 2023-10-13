@@ -910,7 +910,10 @@ impl Vm {
       self.stack_push(v);
       Ok(())
     } else {
-      Err(vec![format!("unable to call non callable '{}'", callable)])
+      Err(vec![format!(
+        "unable to call non callable '{}', perhaps an operator overload was undefined?",
+        callable
+      )])
     }
     .map_err(|errors| {
       errors

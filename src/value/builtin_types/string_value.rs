@@ -32,6 +32,10 @@ impl StringValue {
     }
   }
 
+  fn __eq__(&self, other: &Self) -> bool {
+    self.str == other.str
+  }
+
   fn index(&self, index: i32) -> Value {
     self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default()
   }

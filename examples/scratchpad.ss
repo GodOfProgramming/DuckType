@@ -33,4 +33,4 @@ fn falsh() {
 
 let f = Foo();
 
-f.foo(truth()).bar(falsh());
+print f.foo(truth()).bar(falsh());

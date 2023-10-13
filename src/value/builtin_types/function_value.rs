@@ -4,20 +4,14 @@ use ptr::SmartPtr;
 
 #[derive(Clone, Class)]
 pub struct FunctionValue {
-  name: Option<String>,
   pub airity: usize,
   locals: usize,
   ctx: SmartPtr<Context>,
 }
 
 impl FunctionValue {
-  pub fn new(name: Option<String>, airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
-    Self {
-      name,
-      airity,
-      locals,
-      ctx,
-    }
+  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
+    Self { airity, locals, ctx }
   }
 
   pub fn call(&self, vm: &mut Vm, mut args: Vec<Value>) {
@@ -54,7 +48,7 @@ impl Usertype for FunctionValue {
   const ID: &'static str = "Function";
 
   fn stringify(&self) -> String {
-    format!("fn {}", self.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>"))
+    format!("fn {}", self.ctx.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>"))
   }
 
   fn debug_string(&self) -> String {
@@ -65,7 +59,6 @@ impl Usertype for FunctionValue {
 impl From<&FunctionConstant> for FunctionValue {
   fn from(f: &FunctionConstant) -> Self {
     Self {
-      name: f.name.clone(),
       airity: f.airity,
       locals: f.locals,
       ctx: f.ctx.clone(),
