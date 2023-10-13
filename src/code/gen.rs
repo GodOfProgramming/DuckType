@@ -430,11 +430,12 @@ impl BytecodeGenerator {
   fn call_expr(&mut self, expr: CallExpression) {
     let arg_count = expr.args.len();
 
+    self.emit_expr(*expr.callable);
+
     for arg in expr.args {
       self.emit_expr(arg)
     }
 
-    self.emit_expr(*expr.callable);
     self.emit(Opcode::Call(arg_count), expr.loc);
   }
 

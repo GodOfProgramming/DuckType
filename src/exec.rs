@@ -87,7 +87,7 @@ impl Vm {
           .map_err(|e| self.error(opcode, e))?;
 
         self.current_frame.ip += 1;
-        self.call_value(env, opcode, callable, 0)
+        self.call_value(env, opcode, callable, vec![])
       } else {
         self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
         Ok(())
@@ -122,8 +122,7 @@ impl Vm {
             .map_err(|e| self.error(opcode, e))?;
 
           self.current_frame.ip += 1;
-          self.stack_push(bv);
-          self.call_value(env, opcode, callable, 1)
+          self.call_value(env, opcode, callable, vec![bv])
         } else {
           self.stack_push(f(av, bv).map_err(|e| self.error(opcode, e))?);
           Ok(())
@@ -660,8 +659,9 @@ impl Vm {
 
   #[inline]
   fn exec_call(&mut self, env: &mut Env, opcode: &Opcode, airity: usize) -> ExecResult {
+    let args = self.stack_drain_from(airity);
     if let Some(callable) = self.stack_pop() {
-      self.call_value(env, opcode, callable, airity)
+      self.call_value(env, opcode, callable, args)
     } else {
       Err(self.error(opcode, "cannot operate on empty stack"))
     }
@@ -877,8 +877,7 @@ impl Vm {
     self.current_frame.ip = self.current_frame.ip.saturating_sub(count);
   }
 
-  fn call_value(&mut self, env: &mut Env, opcode: &Opcode, mut callable: Value, airity: usize) -> ExecResult {
-    let args = self.stack_drain_from(airity);
+  fn call_value(&mut self, env: &mut Env, opcode: &Opcode, mut callable: Value, args: Vec<Value>) -> ExecResult {
     let res = if let Some(f) = callable.as_fn() {
       f.call(self, args);
       Ok(())
