@@ -625,8 +625,14 @@ impl From<f64> for Value {
 
 impl From<i32> for Value {
   fn from(item: i32) -> Self {
+    Self::from(&item)
+  }
+}
+
+impl From<&i32> for Value {
+  fn from(value: &i32) -> Self {
     Self {
-      bits: unsafe { mem::transmute::<i64, u64>(item as i64) } | I32_TAG,
+      bits: unsafe { mem::transmute::<i64, u64>(*value as i64) } | I32_TAG,
     }
   }
 }
@@ -697,6 +703,18 @@ impl From<NativeClass> for Value {
 impl From<Nil> for Value {
   fn from(_: Nil) -> Self {
     Self { bits: NIL_TAG }
+  }
+}
+
+impl TryFrom<Value> for i32 {
+  type Error = ValueError;
+
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
+    match value.tag() {
+      Tag::I32 => Ok(value.as_i32_unchecked()),
+      Tag::F64 => Ok(value.as_f64_unchecked() as i32),
+      _ => Err(ValueError::CoercionError(value, "i32")),
+    }
   }
 }
 
