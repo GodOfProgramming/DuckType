@@ -557,6 +557,7 @@ impl Value {
     (self.vtable().type_id)()
   }
 
+  #[allow(unused)]
   fn type_name(&self) -> String {
     (self.vtable().type_name)()
   }
@@ -632,7 +633,7 @@ impl From<&Value> for Value {
 }
 
 impl From<()> for Value {
-  fn from(value: ()) -> Self {
+  fn from(_value: ()) -> Self {
     Self::nil
   }
 }

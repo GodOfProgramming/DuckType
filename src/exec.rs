@@ -3,11 +3,18 @@ use crate::{
   dbg::RuntimeError,
   value::prelude::*,
 };
+use dlopen2::wrapper::{Container, WrapperApi};
 use ptr::SmartPtr;
 use std::{
-  fs,
+  collections::BTreeMap,
+  env, fs,
   path::{Path, PathBuf},
 };
+
+#[derive(WrapperApi)]
+struct NativeApi {
+  simple_script_load_module: fn(vm: &mut Vm, env: &mut Env) -> ValueResult<()>,
+}
 
 pub mod prelude {
   pub use super::{Return, Vm};
@@ -30,8 +37,11 @@ pub enum Return {
 pub struct Vm {
   current_frame: StackFrame,
   stack_frames: Vec<StackFrame>,
+
   // usize for what frame to pop on, string for file path
   opened_files: Vec<(usize, PathBuf)>,
+
+  opened_libs: BTreeMap<PathBuf, Container<NativeApi>>,
 }
 
 impl Vm {
@@ -636,72 +646,54 @@ impl Vm {
 
       let file = value.to_string();
       let this_file = &self.opened_files.last().unwrap().1; // must exist by program logic
+
       let required_file = PathBuf::from(file.as_str());
-      let required_file_with_ext = if required_file.extension().is_none() {
-        Some(required_file.with_extension("ss"))
-      } else {
-        // if already given ext, assume it was intentional to not follow convention
-        None
-      };
 
       let mut found_file = None;
 
-      // find relative first, if not already at cwd
-      if let Some(this_dir) = this_file.parent() {
-        let relative_path = this_dir.join(&required_file);
-        if Path::exists(&relative_path) {
-          found_file = Some(relative_path);
-        } else if let Some(required_file_with_ext) = &required_file_with_ext {
-          attempts.push(relative_path);
-          // then try with the .ss extension
-          let relative_path = this_dir.join(required_file_with_ext);
-          if Path::exists(&relative_path) {
-            found_file = Some(relative_path);
-          } else {
-            attempts.push(relative_path);
-          }
+      fn try_to_find_file(root: &Path, desired: &PathBuf, attempts: &mut Vec<PathBuf>) -> Option<PathBuf> {
+        let direct = root.join(&desired);
+        if direct.exists() {
+          return Some(direct);
         }
+        attempts.push(direct.clone());
+
+        let direct_with_native_extension = direct.with_extension(dlopen2::utils::PLATFORM_FILE_EXTENSION);
+        if direct_with_native_extension.exists() {
+          return Some(direct_with_native_extension);
+        }
+        attempts.push(direct_with_native_extension);
+
+        let direct_with_script_extension = direct.with_extension("ss");
+        if direct_with_script_extension.exists() {
+          return Some(direct_with_script_extension);
+        }
+        attempts.push(direct_with_script_extension);
+
+        None
       }
 
+      // find relative first, if not already at cwd
+      if let Some(this_dir) = this_file.parent() {
+        found_file = try_to_find_file(this_dir, &required_file, &mut attempts);
+      }
+
+      // then try to find from cwd
       if found_file.is_none() {
-        // then try to find from cwd
-        if Path::exists(&required_file) {
-          found_file = Some(required_file);
-        } else {
-          attempts.push(required_file.clone());
-          // then try with the .ss extension
-          if let Some(required_file_with_ext) = &required_file_with_ext {
-            if Path::exists(required_file_with_ext) {
-              found_file = Some(required_file_with_ext.clone());
-            } else {
-              attempts.push(required_file_with_ext.to_path_buf());
-            }
-          }
+        let this_dir = env::current_dir().map_err(|e| self.error(opcode, e))?;
+        found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
+      }
 
-          // if still not found, try searching library paths
-          if found_file.is_none() {
-            if let Some(library_mod) = env.lookup("$LIBRARY") {
-              if let Some(library_mod) = library_mod.as_struct() {
-                if let Some(list) = library_mod.get_member("path").map(|l| l.as_array()) {
-                  for item in list.iter() {
-                    let base = PathBuf::from(item.to_string());
-                    let path = base.join(&required_file);
-
-                    if Path::exists(&path) {
-                      found_file = Some(path);
-                      break;
-                    } else if let Some(required_file_with_ext) = &required_file_with_ext {
-                      attempts.push(path);
-                      let path = base.join(required_file_with_ext);
-
-                      if Path::exists(&path) {
-                        found_file = Some(path);
-                        break;
-                      } else {
-                        attempts.push(path);
-                      }
-                    }
-                  }
+      // if still not found, try searching library paths
+      if found_file.is_none() {
+        if let Some(library_mod) = env.lookup("$LIBRARY") {
+          if let Some(library_mod) = library_mod.as_struct() {
+            if let Some(list) = library_mod.get_member("path").map(|l| l.as_array()) {
+              for item in list.iter() {
+                let base = PathBuf::from(item.to_string());
+                found_file = try_to_find_file(&base, &required_file, &mut attempts);
+                if found_file.is_some() {
+                  break;
                 }
               }
             }
@@ -710,24 +702,35 @@ impl Vm {
       }
 
       if let Some(found_file) = found_file {
-        match fs::read_to_string(&found_file) {
-          Ok(data) => {
-            let new_ctx = Compiler::compile(&file, &data)?;
+        match found_file.extension().and_then(|s| s.to_str()) {
+          Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
+            let lib: Container<NativeApi> =
+              unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
-            #[cfg(feature = "disassemble")]
-            {
-              println!("!!!!! ENTERING {} !!!!!", found_file.display());
-              new_ctx.disassemble();
-              println!("!!!!! LEAVING  {} !!!!!", found_file.display());
-            }
+            lib.simple_script_load_module(self, env).map_err(|e| self.error(opcode, e))?;
 
-            self.new_frame(new_ctx);
-
-            self.opened_files.push((self.stack_frames.len(), found_file));
-
+            self.opened_libs.insert(found_file, lib);
             Ok(())
           }
-          Err(e) => Err(self.error(opcode, format!("unable to read file '{}': {}", file, e,))),
+          _ => match fs::read_to_string(&found_file) {
+            Ok(data) => {
+              let new_ctx = Compiler::compile(&file, &data)?;
+
+              #[cfg(feature = "disassemble")]
+              {
+                println!("!!!!! ENTERING {} !!!!!", found_file.display());
+                new_ctx.disassemble();
+                println!("!!!!! LEAVING  {} !!!!!", found_file.display());
+              }
+
+              self.new_frame(new_ctx);
+
+              self.opened_files.push((self.stack_frames.len(), found_file));
+
+              Ok(())
+            }
+            Err(e) => Err(self.error(opcode, format!("unable to read file '{}': {}", file, e,))),
+          },
         }
       } else {
         Err(self.error(opcode, format!("unable to find file, tried: {:#?}", attempts)))

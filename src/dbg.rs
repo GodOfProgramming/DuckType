@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
 #[allow(unused)]
+#[cfg(debug_assertions)]
 macro_rules! here {
   () => {
     crate::dbg::_here(file!(), line!());
@@ -8,11 +9,14 @@ macro_rules! here {
 }
 
 #[allow(unused)]
+#[cfg(debug_assertions)]
 pub(crate) use here;
 
 use crate::code::{OpCodeReflection, Opcode};
 
 pub mod prelude {
+  #[allow(unused)]
+  #[cfg(debug_assertions)]
   pub(crate) use super::here;
   pub use super::RuntimeError;
 }

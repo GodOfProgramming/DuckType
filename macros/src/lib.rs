@@ -1,26 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Literal};
 use quote::{quote, TokenStreamExt};
-use syn::{
-  parenthesized,
-  parse::{Parse, ParseStream},
-  parse_macro_input, token, Fields, FnArg, ImplItem, ItemImpl, ItemStruct, Receiver, Result as SynResult,
-};
-
-struct ModuleAttr {
-  #[allow(unused)]
-  paren_token: token::Paren,
-  arg: Literal,
-}
-
-impl Parse for ModuleAttr {
-  fn parse(input: ParseStream) -> SynResult<Self> {
-    let content;
-    let paren_token = parenthesized!(content in input);
-    let arg = content.parse()?;
-    Ok(Self { paren_token, arg })
-  }
-}
+use syn::{parse_macro_input, Fields, FnArg, ImplItem, ItemImpl, ItemStruct, Receiver};
 
 #[proc_macro_derive(Usertype, attributes(__str__, __dbg__))]
 pub fn derive_usertype(input: TokenStream) -> TokenStream {
