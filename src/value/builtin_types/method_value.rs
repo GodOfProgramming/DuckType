@@ -1,8 +1,7 @@
 use crate::prelude::*;
-use macros::{class_body, Class};
 use ptr::SmartPtr;
 
-#[derive(Clone, Class)]
+#[derive(Clone, Usertype, Class)]
 pub struct MethodValue {
   pub this: Value,
   pub function: FunctionValue,
@@ -30,17 +29,13 @@ impl MethodValue {
   }
 }
 
-#[class_body]
-impl MethodValue {}
-
-impl Usertype for MethodValue {
-  const ID: &'static str = "Method";
-
-  fn stringify(&self) -> String {
-    format!("method {}", self.function.stringify())
+#[methods]
+impl MethodValue {
+  fn __str__(&self) -> String {
+    format!("method {}", self.function.__str__())
   }
 
   fn debug_string(&self) -> String {
-    format!("<{}>", self.stringify())
+    format!("<{}>", self.__str__())
   }
 }

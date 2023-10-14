@@ -1,5 +1,3 @@
-use macros::{class_body, Class};
-
 use crate::{code::ClassConstant, prelude::*};
 use std::collections::BTreeMap;
 
@@ -66,8 +64,20 @@ impl ClassValue {
   }
 }
 
-#[class_body]
-impl ClassValue {}
+#[methods]
+impl ClassValue {
+  fn __str__(&self) -> String {
+    if let Some(name) = &self.name {
+      name.clone()
+    } else {
+      "<unnamed class>".to_string()
+    }
+  }
+
+  fn __dbg__(&self) -> String {
+    format!("class {}", self.__str__())
+  }
+}
 
 impl Usertype for ClassValue {
   const ID: &'static str = "Class";
@@ -79,18 +89,6 @@ impl Usertype for ClassValue {
   fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
     self.set_static(field, value);
     Ok(())
-  }
-
-  fn stringify(&self) -> String {
-    if let Some(name) = &self.name {
-      name.clone()
-    } else {
-      "<unnamed class>".to_string()
-    }
-  }
-
-  fn debug_string(&self) -> String {
-    format!("class {}", self.stringify())
   }
 }
 

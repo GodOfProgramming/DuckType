@@ -1,6 +1,4 @@
-use macros::{class_body, Class};
-
-use super::{Args, Usertype};
+use super::Args;
 use crate::prelude::*;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
@@ -10,7 +8,7 @@ pub type NativeFn = fn(&mut Vm, &mut Env, Args) -> ValueResult;
 
 type NativeClosureType = dyn FnMut(&mut Vm, &mut Env, Args) -> ValueResult;
 
-#[derive(Class)]
+#[derive(Usertype, Class)]
 pub struct NativeClosureValue {
   pub name: String,
   pub callee: Box<NativeClosureType>,
@@ -33,13 +31,9 @@ impl NativeClosureValue {
   }
 }
 
-#[class_body]
-impl NativeClosureValue {}
-
-impl Usertype for NativeClosureValue {
-  const ID: &'static str = "NativeClosure";
-
-  fn stringify(&self) -> String {
+#[methods]
+impl NativeClosureValue {
+  fn __str__(&self) -> String {
     format!("{}", self)
   }
 }
@@ -76,7 +70,7 @@ impl Display for NativeCallable {
   }
 }
 
-#[derive(Class)]
+#[derive(Usertype, Class)]
 pub struct NativeMethodValue {
   pub this: Value,
   callee: NativeCallable,
@@ -102,13 +96,9 @@ impl NativeMethodValue {
   }
 }
 
-#[class_body]
-impl NativeMethodValue {}
-
-impl Usertype for NativeMethodValue {
-  const ID: &'static str = "NativeMethod";
-
-  fn stringify(&self) -> String {
+#[methods]
+impl NativeMethodValue {
+  fn __str__(&self) -> String {
     format!("{}", self)
   }
 }

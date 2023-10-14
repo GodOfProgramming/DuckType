@@ -247,6 +247,7 @@ impl Vm {
           Opcode::CreateList(num_items) => self.exec_create_list(num_items),
           Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
           Opcode::CreateStruct => self.exec_create_struct(),
+          Opcode::CreateModule => self.exec_create_module(),
           Opcode::Yield => {
             self.current_frame.ip += 1;
 
@@ -799,9 +800,15 @@ impl Vm {
       None => Err(self.error(opcode, "no item on the stack to pop for closure function")),
     }
   }
+
   #[inline]
   fn exec_create_struct(&mut self) {
     self.stack_push(Value::new_struct());
+  }
+
+  #[inline]
+  fn exec_create_module(&mut self) {
+    self.stack_push(Value::new_module());
   }
 
   /* Utility Functions */

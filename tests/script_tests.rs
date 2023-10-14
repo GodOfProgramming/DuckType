@@ -1,4 +1,4 @@
-use macros::{class_body, Class};
+use macros::{methods, Class};
 use simple_script::prelude::*;
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
@@ -38,7 +38,7 @@ struct Leaker {
   this: Value,
 }
 
-#[class_body]
+#[methods]
 impl Leaker {}
 
 impl Drop for Leaker {

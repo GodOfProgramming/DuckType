@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-use macros::{class_body, Class};
+use macros::{methods, Class};
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -23,7 +23,7 @@ impl ImplementedObject {
   }
 }
 
-#[class_body]
+#[methods]
 impl ImplementedObject {}
 
 impl Usertype for ImplementedObject {
@@ -33,7 +33,7 @@ impl Usertype for ImplementedObject {
 #[derive(Class)]
 struct UnimplementedObject {}
 
-#[class_body]
+#[methods]
 impl UnimplementedObject {}
 
 impl Usertype for UnimplementedObject {

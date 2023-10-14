@@ -1,26 +1,14 @@
-let arr = [1, 2, 3];
-print(arr);
+mod Foo {
+  class Bar {
+    new(self, value) {
+      self.value = value;
+    }
 
-let obj = struct {
-  value: "foobar"
-};
+    fn display(self) {
+      print(self.value);
+    }
+  }
+}
 
-print(obj.value);
-
-let lambda = [obj] |value| {
-  obj.value = value;
-};
-
-lambda("barfoo");
-
-print(obj.value);
-
-let ass_lambda = [obj] |value| {
-  obj.value = value;
-};
-
-ass_lambda(4);
-
-print(arr);
-
-print(obj);
+let bar = Foo.Bar("foobar");
+bar.display();

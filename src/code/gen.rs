@@ -117,7 +117,7 @@ impl BytecodeGenerator {
 
     self.emit_expr(stmt.body);
 
-    self.define_class(var, stmt.loc);
+    self.force_define_global(var, stmt.loc);
   }
 
   fn default_constructor_ret(&mut self, stmt: DefaultConstructorRet) {
@@ -222,6 +222,19 @@ impl BytecodeGenerator {
     self.patch_jumps(jumps);
 
     self.emit(Opcode::Pop, stmt.loc);
+  }
+
+  fn mod_stmt(&mut self, stmt: ModStatement) {
+    if self.scope_depth > 0 {
+      self.error(stmt.loc, String::from("modules must be declared at the surface scope"));
+      return;
+    }
+
+    let var = self.declare_global(stmt.ident.clone());
+
+    self.emit_expr(stmt.body);
+
+    self.force_define_global(var, stmt.loc);
   }
 
   fn print_stmt(&mut self, stmt: PrintStatement) {
@@ -472,7 +485,14 @@ impl BytecodeGenerator {
     self.emit_const(ConstantValue::Class(class), expr.loc.clone());
   }
 
-  fn mod_expr(&mut self, expr: ModExpression) {}
+  fn mod_expr(&mut self, expr: ModExpression) {
+    self.emit(Opcode::CreateModule, expr.loc.clone());
+    for (member, assign) in expr.items {
+      let ident = self.add_const_ident(member);
+      self.emit_expr(assign);
+      self.emit(Opcode::InitializeMember(ident), expr.loc.clone());
+    }
+  }
 
   fn lambda_expr(&mut self, expr: LambdaExpression) {
     self.emit_fn(None, expr.params, *expr.body, expr.loc);
@@ -560,6 +580,7 @@ impl BytecodeGenerator {
       Statement::Let(stmt) => self.let_stmt(stmt),
       Statement::Loop(stmt) => self.loop_stmt(stmt),
       Statement::Match(stmt) => self.match_stmt(stmt),
+      Statement::Mod(stmt) => self.mod_stmt(stmt),
       Statement::Print(stmt) => self.print_stmt(stmt),
       Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
@@ -767,7 +788,7 @@ impl BytecodeGenerator {
     self.emit(Opcode::ForceAssignGlobal(var), loc);
   }
 
-  fn define_class(&mut self, var: usize, loc: SourceLocation) {
+  fn force_define_global(&mut self, var: usize, loc: SourceLocation) {
     self.emit(Opcode::ForceAssignGlobal(var), loc);
   }
 

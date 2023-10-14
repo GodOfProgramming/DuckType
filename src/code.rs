@@ -114,6 +114,8 @@ pub enum Opcode {
   CreateClosure,
   /** Create a new struct */
   CreateStruct,
+  /** Create a new module */
+  CreateModule,
   /** Yield at the current location */
   Yield,
 }

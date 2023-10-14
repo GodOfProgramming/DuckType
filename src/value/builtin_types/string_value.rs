@@ -1,16 +1,15 @@
 use crate::prelude::*;
-use macros::{class_body, Class};
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
 };
 
-#[derive(Default, Class)]
+#[derive(Default, Usertype, Class)]
 pub struct StringValue {
   str: String,
 }
 
-#[class_body]
+#[methods]
 impl StringValue {
   fn len(&self) -> i32 {
     self.str.len() as i32
@@ -39,17 +38,13 @@ impl StringValue {
   fn __index__(&self, index: i32) -> Value {
     self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default()
   }
-}
 
-impl Usertype for StringValue {
-  const ID: &'static str = "String";
-
-  fn stringify(&self) -> String {
+  fn __str__(&self) -> String {
     self.deref().clone()
   }
 
-  fn debug_string(&self) -> String {
-    format!("\"{}\"", self.stringify())
+  fn __dbg__(&self) -> String {
+    format!("\"{}\"", self.__str__())
   }
 }
 

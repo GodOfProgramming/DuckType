@@ -122,6 +122,10 @@ impl AstGenerator {
         self.advance();
         self.match_stmt();
       }
+      Token::Mod => {
+        self.advance();
+        self.mod_stmt();
+      }
       Token::Print => {
         self.advance();
         self.print_stmt();
@@ -406,19 +410,17 @@ impl AstGenerator {
   }
 
   fn mod_stmt(&mut self) {
-    if let Some(mod_loc) = self.meta_at::<0>() {
+    self.meta_at::<0>().unwrap_and(|mod_loc| {
       if let Some(Token::Identifier(mod_name)) = self.current() {
+        let ident = Ident::new(mod_name);
         self.advance();
-
-        if !self.consume(Token::LeftBrace, "expected '{' after mod name") {
-          return;
-        }
-
-        if !self.consume(Token::RightBrace, "expected '}' after mod body") {
-          return;
-        }
+        self.mod_expr(Some(ident.clone())).unwrap_and(|expr| {
+          self.statements.push(Statement::from(ModStatement::new(ident, expr, mod_loc)));
+        });
+      } else {
+        self.error::<1>("expected ident after mod");
       }
-    }
+    });
   }
 
   fn print_stmt(&mut self) {
@@ -958,7 +960,7 @@ impl AstGenerator {
 
   fn mod_expr(&mut self, name: Option<Ident>) -> Option<Expression> {
     if let Some(mod_loc) = self.meta_at::<0>() {
-      if !self.consume(Token::LeftBrace, "expected '{' after class name") {
+      if !self.consume(Token::LeftBrace, "expected '{' after mod name") {
         return None;
       }
 
@@ -1753,6 +1755,7 @@ pub enum Statement {
   Let(LetStatement),
   Loop(LoopStatement),
   Match(MatchStatement),
+  Mod(ModStatement),
   Print(PrintStatement),
   Req(ReqStatement),
   Ret(RetStatement),
@@ -1809,6 +1812,7 @@ impl Statement {
       }
       Statement::Loop(_) => (),
       Statement::Match(_) => (),
+      Statement::Mod(m) => m.body.dump(tmpl),
       Statement::Print(_) => (),
       Statement::Req(_) => (),
       Statement::Ret(_) => (),
@@ -1839,6 +1843,7 @@ impl Display for Statement {
       Self::Let(_) => write!(f, "let"),
       Self::Loop(_) => write!(f, "loop"),
       Self::Match(_) => write!(f, "match"),
+      Self::Mod(_) => write!(f, "mod"),
       Self::Print(_) => write!(f, "print"),
       Self::Req(_) => write!(f, "req"),
       Self::Ret(_) => write!(f, "ret"),
@@ -1919,6 +1924,12 @@ impl From<LoopStatement> for Statement {
 impl From<MatchStatement> for Statement {
   fn from(stmt: MatchStatement) -> Self {
     Self::Match(stmt)
+  }
+}
+
+impl From<ModStatement> for Statement {
+  fn from(stmt: ModStatement) -> Self {
+    Self::Mod(stmt)
   }
 }
 
@@ -2134,6 +2145,19 @@ impl MatchStatement {
       default: default.map(Box::new),
       loc,
     }
+  }
+}
+
+#[derive(Debug)]
+pub struct ModStatement {
+  pub ident: Ident,
+  pub body: Expression,
+  pub loc: SourceLocation,
+}
+
+impl ModStatement {
+  fn new(ident: Ident, body: Expression, loc: SourceLocation) -> Self {
+    Self { ident, body, loc }
   }
 }
 

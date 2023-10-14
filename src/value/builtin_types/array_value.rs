@@ -1,12 +1,11 @@
 use crate::prelude::*;
 use itertools::Itertools;
-use macros::{class_body, Class};
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
 };
 
-#[derive(Class, Default)]
+#[derive(Default, Usertype, Class)]
 pub struct ArrayValue {
   list: Vec<Value>,
 }
@@ -21,7 +20,7 @@ impl ArrayValue {
   }
 }
 
-#[class_body]
+#[methods]
 impl ArrayValue {
   fn new(args: &Vec<Value>) -> Self {
     Self::new_from_vec(args)
@@ -38,16 +37,12 @@ impl ArrayValue {
   fn len(&self) -> i32 {
     self.list.len() as i32
   }
-}
 
-impl Usertype for ArrayValue {
-  const ID: &'static str = "Array";
-
-  fn stringify(&self) -> String {
+  fn __str__(&self) -> String {
     format!("[{}]", self.list.iter().map(|v| v.to_string()).join(", "))
   }
 
-  fn debug_string(&self) -> String {
+  fn __dbg__(&self) -> String {
     format!("{:?}", self.list)
   }
 }

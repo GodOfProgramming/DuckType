@@ -4,6 +4,7 @@ pub(crate) mod closure_value;
 pub(crate) mod function_value;
 pub(crate) mod instance_value;
 pub(crate) mod method_value;
+pub(crate) mod module_value;
 pub(crate) mod native_value;
 pub(crate) mod string_value;
 pub(crate) mod struct_value;
@@ -38,10 +39,11 @@ pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
 pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
-use macros::{class_body, Class};
+use macros::{methods, Class};
 pub use method_value::MethodValue;
+pub use module_value::ModuleValue;
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use std::{collections::BTreeMap, convert::Infallible, error::Error};
+use std::{collections::BTreeMap, convert::Infallible, error::Error, fmt::Debug};
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 use thiserror::Error;
@@ -51,42 +53,39 @@ pub struct Nil;
 
 pub trait Usertype
 where
-  Self: Class + ClassBody + Sized + 'static,
+  Self: ClassFields + ClassMethods + DisplayValue + DebugValue + Sized + 'static,
 {
   const ID: &'static str;
   const VTABLE: VTable = VTable::new::<Self>();
 
   fn get(&self, this: &Value, field: &str) -> ValueResult<Value> {
     Ok(
-      <Self as Class>::get_member(self, field)
-        .or_else(|| <Self as ClassBody>::get_method(self, this, field))
+      <Self as ClassFields>::get_member(self, field)
+        .or_else(|| <Self as ClassMethods>::get_method(self, this, field))
         .unwrap_or_default(),
     )
   }
 
   fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
-    <Self as Class>::set_member(self, field, value)
-  }
-
-  fn stringify(&self) -> String {
-    Self::ID.to_string()
-  }
-
-  fn debug_string(&self) -> String {
-    self.stringify()
+    <Self as ClassFields>::set_member(self, field, value)
   }
 }
 
-pub trait Class {
-  fn id(&self) -> &'static str;
+pub trait ClassFields {
   fn get_member(&self, field: &str) -> Option<Value>;
   fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()>;
 }
 
-pub trait ClassBody: Class {
-  fn get_method(&self, _this: &Value, _name: &str) -> Option<Value> {
-    None
-  }
+pub trait ClassMethods {
+  fn get_method(&self, this: &Value, field: &str) -> Option<Value>;
+}
+
+pub trait DisplayValue {
+  fn __str__(&self) -> String;
+}
+
+pub trait DebugValue {
+  fn __dbg__(&self) -> String;
 }
 
 pub struct NativeClass {
@@ -180,54 +179,12 @@ impl<T: Into<Value> + Clone, const I: usize> From<[T; I]> for Args {
   }
 }
 
-pub enum UnimplementedFunction {
-  Set,
-  Get,
-  Index,
-  Add,
-  Sub,
-  Mul,
-  Div,
-  Rem,
-  Neg,
-  Not,
-  Cmp,
-  Custom(String),
-}
-
-impl UnimplementedFunction {
-  fn fmt<T: Usertype>(&self, v: &T) -> String {
-    format!(
-      "{} is unimplemented for {}",
-      match self {
-        UnimplementedFunction::Set => "set",
-        UnimplementedFunction::Get => "get",
-        UnimplementedFunction::Index => "index",
-        UnimplementedFunction::Add => "add",
-        UnimplementedFunction::Sub => "sub",
-        UnimplementedFunction::Mul => "mul",
-        UnimplementedFunction::Div => "div",
-        UnimplementedFunction::Rem => "rem",
-        UnimplementedFunction::Neg => "neg",
-        UnimplementedFunction::Not => "not",
-        UnimplementedFunction::Cmp => "cmp",
-        UnimplementedFunction::Custom(s) => s,
-      },
-      v.stringify()
-    )
-  }
-}
-
 /// Intentionally empty
-#[derive(Class)]
+#[derive(Usertype, Class)]
 pub struct Primitive {}
 
-#[class_body]
+#[methods]
 impl Primitive {}
-
-impl Usertype for Primitive {
-  const ID: &'static str = "Primitive";
-}
 
 impl TryFrom<Value> for Primitive {
   type Error = Box<dyn Error>;

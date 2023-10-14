@@ -17,4 +17,5 @@ pub mod prelude {
   pub(crate) use super::stdlib;
   pub use super::stdlib::prelude::*;
   pub use super::value::prelude::*;
+  pub use macros::*;
 }
