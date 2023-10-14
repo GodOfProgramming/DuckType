@@ -1,3 +1,3 @@
-let file = io.open("Cargo.toml");
+req "examples/ss_module/target/debug/ss_module";
 
-print(file.read());
+ExampleModule.test_function();

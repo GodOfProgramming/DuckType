@@ -3,11 +3,18 @@ use crate::{
   dbg::RuntimeError,
   value::prelude::*,
 };
+use dlopen2::wrapper::{Container, WrapperApi};
 use ptr::SmartPtr;
 use std::{
+  collections::BTreeMap,
   env, fs,
   path::{Path, PathBuf},
 };
+
+#[derive(WrapperApi)]
+struct NativeApi {
+  simple_script_load_module: fn(vm: &mut Vm, env: &mut Env) -> ValueResult<()>,
+}
 
 pub mod prelude {
   pub use super::{Return, Vm};
@@ -30,8 +37,11 @@ pub enum Return {
 pub struct Vm {
   current_frame: StackFrame,
   stack_frames: Vec<StackFrame>,
+
   // usize for what frame to pop on, string for file path
   opened_files: Vec<(usize, PathBuf)>,
+
+  opened_libs: BTreeMap<PathBuf, Container<NativeApi>>,
 }
 
 impl Vm {
@@ -694,15 +704,13 @@ impl Vm {
       if let Some(found_file) = found_file {
         match found_file.extension().and_then(|s| s.to_str()) {
           Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-            use dlopen2::wrapper::{Container, WrapperApi};
-            #[derive(WrapperApi)]
-            struct Api {
-              simple_script_load_module: fn(vm: &mut Vm, env: &mut Env) -> ValueResult<()>,
-            }
+            let lib: Container<NativeApi> =
+              unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
-            let cont: Container<Api> = unsafe { Container::load(found_file).expect("somehow wasn't able to load found file") };
+            lib.simple_script_load_module(self, env).map_err(|e| self.error(opcode, e))?;
 
-            cont.simple_script_load_module(self, env).map_err(|e| self.error(opcode, e))
+            self.opened_libs.insert(found_file, lib);
+            Ok(())
           }
           _ => match fs::read_to_string(&found_file) {
             Ok(data) => {

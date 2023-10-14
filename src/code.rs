@@ -640,10 +640,11 @@ impl Env {
       lib_paths.extend(paths.split_terminator(';').map(Value::from));
     }
 
-    let mut module = StructValue::default();
-    let lib_paths = Value::from(lib_paths);
+    let module = LockedModule::initialize(|module| {
+      let lib_paths = Value::from(lib_paths);
 
-    module.set("path", lib_paths);
+      module.set("path", lib_paths).ok();
+    });
 
     env.assign("$LIBRARY", module.into());
 
