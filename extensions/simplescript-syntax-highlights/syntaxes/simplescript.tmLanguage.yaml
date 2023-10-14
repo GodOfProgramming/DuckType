@@ -51,11 +51,13 @@ repository:
     patterns:
       - name: "entity.name.type.class"
         match: "(?<=class)\\s+${ IDENT }"
+      - name: "entity.name.type.module"
+        match: "(?<=mod)\\s+${ IDENT }"
       - name: "entity.name.type"
         match: "\\b([A-Z]\\w*)\\b"
   function:
     name: "entity.name.function"
-    match: "(?<=fn)\\s+${ IDENT }"
+    match: "((?<=fn)\\s+${ IDENT })|(${ IDENT }(?>\\())"
   strings:
     patterns:
       - name: "string.quoted.double"

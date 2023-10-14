@@ -1,6 +1,6 @@
 req "lib/sspec/sspec.ss";
 
-use SSpec.describe;
+use sspec.describe;
 
 $SSPEC_VERBOSE = true;
 

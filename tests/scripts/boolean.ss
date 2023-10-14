@@ -1,6 +1,6 @@
 req "lib/sspec/sspec.ss";
 
-use SSpec.describe;
+use sspec.describe;
 
 describe("truthy values", |t| {
   t.expect(true).to_be_truthy();
