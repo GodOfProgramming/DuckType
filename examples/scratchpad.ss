@@ -1,12 +1,26 @@
-let Foo = class {
-  new(self, value) {
-    self.value = value;
-  }
+let arr = [1, 2, 3];
+print(arr);
 
-  fn display(self) {
-    print(self.value);
-  }
+let obj = struct {
+  value: "foobar"
 };
 
-let foo = Foo("foo");
-foo.display();
+print(obj.value);
+
+let lambda = [obj] |value| {
+  obj.value = value;
+};
+
+lambda("barfoo");
+
+print(obj.value);
+
+let ass_lambda = [obj] |value| {
+  obj.value = value;
+};
+
+ass_lambda(4);
+
+print(arr);
+
+print(obj);

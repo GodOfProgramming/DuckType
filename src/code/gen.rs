@@ -8,6 +8,12 @@ use super::{ClassConstant, ConstantValue, FunctionConstant};
 #[cfg(test)]
 mod test;
 
+macro_rules! sanity_check {
+  () => {
+    format!("{} ({}): sanity check", file!(), line!());
+  };
+}
+
 struct Local {
   name: String,
   depth: usize,
@@ -126,7 +132,7 @@ impl BytecodeGenerator {
 
     let var = self.declare_global(stmt.ident.clone());
 
-    self.emit_fn(Some(stmt.ident.name), stmt.params, *stmt.body, stmt.loc.clone());
+    self.emit_fn(Some(stmt.ident), stmt.params, *stmt.body, stmt.loc.clone());
 
     self.define_function(var, stmt.loc);
   }
@@ -437,7 +443,7 @@ impl BytecodeGenerator {
     let mut class = ClassConstant::new(name.clone());
 
     if let Some(initializer) = expr.initializer {
-      if let Some((function, is_static)) = self.create_class_fn("<constructor>".to_string(), *initializer) {
+      if let Some((function, is_static)) = self.create_class_fn(Ident::new("<constructor>"), *initializer) {
         if is_static {
           class.set_constructor(function);
         } else {
@@ -452,7 +458,7 @@ impl BytecodeGenerator {
     }
 
     for (method_name, method) in expr.methods {
-      if let Some((function, is_static)) = self.create_class_fn(method_name.name.clone(), method) {
+      if let Some((function, is_static)) = self.create_class_fn(method_name.clone(), method) {
         if is_static {
           class.set_static(method_name.name, function);
         } else {
@@ -473,24 +479,26 @@ impl BytecodeGenerator {
   }
 
   fn closure_expr(&mut self, expr: ClosureExpression) {
-    let num_captures = expr.captures.members.len();
+    let num_captures = expr.captures.len();
 
     if num_captures == 0 {
       self.lambda_expr(LambdaExpression::from(expr));
     } else {
-      let mut params = Vec::with_capacity(num_captures);
-      for (member, assign) in expr.captures.members {
-        params.push(member);
-        self.emit_expr(assign);
-      }
+      self.new_scope(|this| {
+        let mut params = Vec::with_capacity(num_captures);
+        for member in expr.captures {
+          params.push(member.ident.clone());
+          this.ident_expr(member);
+        }
 
-      self.emit(Opcode::CreateList(params.len()), expr.loc.clone());
+        this.emit(Opcode::CreateList(params.len()), expr.loc.clone());
 
-      params.extend(expr.params);
+        params.extend(expr.params);
 
-      self.emit_fn(None, params, *expr.body, expr.loc.clone());
+        this.emit_fn(None, params, *expr.body, expr.loc.clone());
 
-      self.emit(Opcode::CreateClosure, expr.loc);
+        this.emit(Opcode::CreateClosure, expr.loc);
+      });
     }
   }
 
@@ -616,7 +624,7 @@ impl BytecodeGenerator {
     self.loop_depth = loop_depth;
   }
 
-  fn emit_fn(&mut self, name: Option<String>, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
+  fn emit_fn(&mut self, name: Option<Ident>, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
     let function = self.create_fn(name, args, body, loc.clone());
     self.emit_const(ConstantValue::Fn(function), loc);
   }
@@ -714,6 +722,12 @@ impl BytecodeGenerator {
     }
   }
 
+  /**
+   * Checks if the given identifier is present in all locals in the current scope
+   *
+   * If found but the depth is less, this is an ok declaration. Adds to the list of locals and returns true
+   * Otherwise returns false
+   */
   fn declare_local(&mut self, ident: Ident, loc: SourceLocation) -> bool {
     for local in self.locals.iter().rev() {
       // declared already in parent scope, break to redeclare in current scope
@@ -825,15 +839,15 @@ impl BytecodeGenerator {
     count
   }
 
-  fn create_class_fn(&mut self, name: String, expr: Expression) -> Option<(FunctionConstant, bool)> {
+  fn create_class_fn(&mut self, ident: Ident, expr: Expression) -> Option<(FunctionConstant, bool)> {
     match expr {
-      Expression::Method(m) => Some((self.create_fn(Some(name), m.params, *m.body, m.loc), false)),
-      Expression::Lambda(l) => Some((self.create_fn(Some(name), l.params, *l.body, l.loc), true)),
+      Expression::Method(m) => Some((self.create_fn(Some(ident), m.params, *m.body, m.loc), false)),
+      Expression::Lambda(l) => Some((self.create_fn(Some(ident), l.params, *l.body, l.loc), true)),
       _ => None,
     }
   }
 
-  fn create_fn(&mut self, name: Option<String>, args: Vec<Ident>, body: Statement, loc: SourceLocation) -> FunctionConstant {
+  fn create_fn(&mut self, ident: Option<Ident>, args: Vec<Ident>, body: Statement, loc: SourceLocation) -> FunctionConstant {
     self.function_id += 1;
 
     let mut locals = Vec::default();
@@ -845,7 +859,7 @@ impl BytecodeGenerator {
     let reflection = Reflection::new(parent_ctx.meta.file.clone(), parent_ctx.meta.source.clone());
 
     self.current_fn = Some(SmartPtr::new(Context::new_child(
-      name,
+      ident.map(|i| i.name),
       self.function_id,
       parent_ctx,
       reflection,
@@ -866,10 +880,7 @@ impl BytecodeGenerator {
         }
 
         if !this.define_local() {
-          this.error(
-            loc,
-            String::from("failed to define local who was just declared (sanity check)"),
-          )
+          this.error(loc, sanity_check!())
         }
       }
 
