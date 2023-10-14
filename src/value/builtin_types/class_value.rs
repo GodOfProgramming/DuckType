@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 #[derive(Class)]
 pub struct ClassValue {
-  pub name: String,
+  pub name: Option<String>,
   pub initializer: Option<Value>,
   pub methods: BTreeMap<String, FunctionValue>,
   pub static_members: BTreeMap<String, Value>,
@@ -14,7 +14,7 @@ pub struct ClassValue {
 impl ClassValue {
   pub fn new<N: ToString>(name: N) -> Self {
     Self {
-      name: name.to_string(),
+      name: Some(name.to_string()),
       initializer: None,
       methods: Default::default(),
       static_members: Default::default(),
@@ -82,7 +82,11 @@ impl Usertype for ClassValue {
   }
 
   fn stringify(&self) -> String {
-    self.name.clone()
+    if let Some(name) = &self.name {
+      name.clone()
+    } else {
+      "<unnamed class>".to_string()
+    }
   }
 
   fn debug_string(&self) -> String {

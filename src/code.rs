@@ -225,14 +225,14 @@ impl Debug for FunctionConstant {
 
 #[derive(Debug)]
 pub struct ClassConstant {
-  pub name: String,
+  pub name: Option<String>,
   pub initializer: Option<FunctionConstant>,
   pub methods: BTreeMap<String, FunctionConstant>,
   pub statics: BTreeMap<String, FunctionConstant>,
 }
 
 impl ClassConstant {
-  fn new(name: String) -> Self {
+  fn new(name: Option<String>) -> Self {
     Self {
       name,
       initializer: None,
@@ -264,7 +264,15 @@ impl Display for ConstantValue {
       Self::String(v) => write!(f, "{}", v),
       Self::StaticString(v) => write!(f, "{}", v),
       Self::Fn(v) => write!(f, "{}", v.name()),
-      Self::Class(v) => write!(f, "{}", v.name),
+      Self::Class(v) => write!(
+        f,
+        "{}",
+        if let Some(name) = &v.name {
+          name.as_str()
+        } else {
+          "<unnamed class>"
+        }
+      ),
     }
   }
 }

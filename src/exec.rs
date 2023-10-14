@@ -86,7 +86,6 @@ impl Vm {
           })
           .map_err(|e| self.error(opcode, e))?;
 
-        self.current_frame.ip += 1;
         self.call_value(env, opcode, callable, vec![])
       } else {
         self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
@@ -121,7 +120,6 @@ impl Vm {
             })
             .map_err(|e| self.error(opcode, e))?;
 
-          self.current_frame.ip += 1;
           self.call_value(env, opcode, callable, vec![bv])
         } else {
           self.stack_push(f(av, bv).map_err(|e| self.error(opcode, e))?);

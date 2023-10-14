@@ -108,39 +108,8 @@ impl BytecodeGenerator {
     }
 
     let var = self.declare_global(stmt.ident.clone());
-    let mut class = ClassConstant::new(stmt.ident.name.clone());
 
-    if let Some(initializer) = stmt.initializer {
-      if let Some((function, is_static)) = self.create_class_fn("<constructor>".to_string(), initializer) {
-        if is_static {
-          class.set_constructor(function);
-        } else {
-          self.error(
-            stmt.loc.clone(),
-            String::from("method was used as initializer somehow (logic error)"),
-          );
-        }
-      } else {
-        self.error(
-          stmt.loc.clone(),
-          format!("unable to create initializer function for class {}", stmt.ident.name,),
-        );
-      }
-    }
-
-    for (method_name, method) in stmt.methods {
-      if let Some((function, is_static)) = self.create_class_fn(method_name.name.clone(), method) {
-        if is_static {
-          class.set_static(method_name.name, function);
-        } else {
-          class.set_method(method_name.name, function);
-        }
-      } else {
-        self.error(stmt.loc.clone(), format!("unable to create method {}", method_name.name));
-      }
-    }
-
-    self.emit_const(ConstantValue::Class(class), stmt.loc.clone());
+    self.emit_expr(stmt.body);
 
     self.define_class(var, stmt.loc);
   }
@@ -202,7 +171,7 @@ impl BytecodeGenerator {
   }
 
   fn let_stmt(&mut self, stmt: LetStatement) {
-    let is_global = stmt.ident.is_global();
+    let is_global = stmt.ident.global;
     if let Some(var) = self.declare_variable(stmt.ident.clone(), stmt.loc.clone()) {
       if let Some(value) = stmt.value {
         self.emit_expr(value);
@@ -259,7 +228,7 @@ impl BytecodeGenerator {
     self.emit(Opcode::Req, stmt.loc.clone());
 
     if let Some(var) = stmt.ident {
-      let is_global = var.is_global();
+      let is_global = var.global;
       if let Some(var) = self.declare_variable(var, stmt.loc.clone()) {
         self.define_variable(is_global, var, stmt.loc.clone());
       }
@@ -464,6 +433,41 @@ impl BytecodeGenerator {
     }
   }
 
+  fn class_expr(&mut self, name: Option<String>, expr: ClassExpression) {
+    let mut class = ClassConstant::new(name.clone());
+
+    if let Some(initializer) = expr.initializer {
+      if let Some((function, is_static)) = self.create_class_fn("<constructor>".to_string(), *initializer) {
+        if is_static {
+          class.set_constructor(function);
+        } else {
+          self.error(
+            expr.loc.clone(),
+            String::from("method was used as initializer somehow (logic error)"),
+          );
+        }
+      } else {
+        self.error(expr.loc.clone(), format!("unable to create initializer function for class"));
+      }
+    }
+
+    for (method_name, method) in expr.methods {
+      if let Some((function, is_static)) = self.create_class_fn(method_name.name.clone(), method) {
+        if is_static {
+          class.set_static(method_name.name, function);
+        } else {
+          class.set_method(method_name.name, function);
+        }
+      } else {
+        self.error(expr.loc.clone(), format!("unable to create method {}", method_name.name));
+      }
+    }
+
+    self.emit_const(ConstantValue::Class(class), expr.loc.clone());
+  }
+
+  fn mod_expr(&mut self, expr: ModExpression) {}
+
   fn lambda_expr(&mut self, expr: LambdaExpression) {
     self.emit_fn(None, expr.params, *expr.body, expr.loc);
   }
@@ -578,6 +582,8 @@ impl BytecodeGenerator {
       Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
       Expression::Struct(expr) => self.struct_expr(expr),
+      Expression::Class(expr) => self.class_expr(None, expr),
+      Expression::Mod(expr) => self.mod_expr(expr),
       Expression::Lambda(expr) => self.lambda_expr(expr),
       Expression::Closure(expr) => self.closure_expr(expr),
       Expression::Method(expr) => self.method_expr(expr),
@@ -686,7 +692,7 @@ impl BytecodeGenerator {
    * Declare a variable to exist, but do not emit any instruction for assignment
    */
   fn declare_variable(&mut self, ident: Ident, loc: SourceLocation) -> Option<usize> {
-    if ident.is_global() {
+    if ident.global {
       Some(self.declare_global(ident))
     } else if self.declare_local(ident, loc) {
       Some(0)
@@ -850,7 +856,7 @@ impl BytecodeGenerator {
 
       for arg in args {
         let loc = loc.clone();
-        if arg.is_global() {
+        if arg.global {
           this.error(loc.clone(), String::from("parameter cannot be a global variable"));
           continue;
         }

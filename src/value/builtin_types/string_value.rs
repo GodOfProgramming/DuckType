@@ -26,7 +26,7 @@ impl StringValue {
     }
   }
 
-  fn __add__(&self, other: &Self) -> Self {
+  fn __add__(&self, other: Value) -> Self {
     Self {
       str: format!("{}{}", self, other),
     }
@@ -36,12 +36,8 @@ impl StringValue {
     self.str == other.str
   }
 
-  fn index(&self, index: i32) -> Value {
+  fn __index__(&self, index: i32) -> Value {
     self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default()
-  }
-
-  fn eq(&self, other: &Self) -> bool {
-    self.str == other.str
   }
 }
 

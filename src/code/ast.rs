@@ -202,87 +202,13 @@ impl AstGenerator {
   fn class_stmt(&mut self) {
     if let Some(class_loc) = self.meta_at::<0>() {
       if let Some(Token::Identifier(class_name)) = self.current() {
-        self.advance();
-
-        if !self.consume(Token::LeftBrace, "expected '{' after class name") {
-          return;
+        if let Some(expr) = self.class_expr() {
+          self.statements.push(Statement::from(ClassStatement::new(
+            Ident::new_global(class_name),
+            expr,
+            class_loc,
+          )));
         }
-
-        let mut initializer = None;
-        let mut class_members = Vec::default();
-        let mut declared_functions = BTreeSet::default();
-
-        while let Some(token) = self.current() {
-          let class_loc = class_loc.clone();
-          match token {
-            Token::New => {
-              self.advance();
-              if initializer.is_none() {
-                if self.consume(Token::LeftParen, "expected '(' after 'new'") {
-                  initializer = self.lambda_expr(SelfRules::Require, Token::RightParen, |params, mut body| {
-                    body
-                      .statements
-                      .push(Statement::from(DefaultConstructorRet::new(class_loc.clone())));
-                    Some(Expression::from(LambdaExpression::new(
-                      params.list,
-                      Statement::from(body),
-                      class_loc,
-                    )))
-                  });
-                }
-              } else {
-                self.error::<0>(String::from("duplicate initializer found"));
-              }
-            }
-            Token::Fn => {
-              self.advance();
-              if let Some(fn_name) = self.current() {
-                self.advance();
-                if self.consume(Token::LeftParen, "expected '(' after identifier") {
-                  if let Some(params) = self.parse_parameters(Token::RightParen) {
-                    if let Some(ident) = self.fn_ident(fn_name, &params) {
-                      if !declared_functions.contains(&ident.name) {
-                        if let Some(function) = self.parse_lambda(params, |params, body| {
-                          declared_functions.insert(ident.name.clone());
-                          if params.found_self {
-                            Some(Expression::from(MethodExpression::new(
-                              ident.name.clone(),
-                              params.list,
-                              Statement::from(body),
-                              class_loc,
-                            )))
-                          } else {
-                            Some(Expression::from(LambdaExpression::new(
-                              params.list,
-                              Statement::from(body),
-                              class_loc,
-                            )))
-                          }
-                        }) {
-                          class_members.push((Ident::new(ident), function));
-                        }
-                      } else {
-                        self.error::<0>(String::from("duplicate method definition"));
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            _ => break,
-          }
-        }
-
-        if !self.consume(Token::RightBrace, "expected '}' after class body") {
-          return;
-        }
-
-        self.statements.push(Statement::from(ClassStatement::new(
-          Ident::new(class_name),
-          initializer,
-          class_members,
-          class_loc,
-        )))
       } else {
         self.error::<0>(String::from("expected an identifier"));
       }
@@ -497,7 +423,23 @@ impl AstGenerator {
     }
   }
 
-  fn mod_stmt(&mut self) {}
+  fn mod_stmt(&mut self) {
+    if let Some(mod_loc) = self.meta_at::<0>() {
+      if let Some(Token::Identifier(mod_name)) = self.current() {
+        self.advance();
+
+        if !self.consume(Token::LeftBrace, "expected '{' after mod name") {
+          return;
+        }
+
+        // let mut members = Vec::default();
+
+        if !self.consume(Token::RightBrace, "expected '}' after mod body") {
+          return;
+        }
+      }
+    }
+  }
 
   fn print_stmt(&mut self) {
     if let Some(loc) = self.meta_at::<1>() {
@@ -804,6 +746,94 @@ impl AstGenerator {
     if self.consume(Token::RightParen, "expect ')' after arguments") {
       Some(Expression::from(CallExpression::new(expr, args, paren_meta)))
     } else {
+      None
+    }
+  }
+
+  fn class_expr(&mut self) -> Option<Expression> {
+    if let Some(class_loc) = self.meta_at::<0>() {
+      self.advance();
+
+      if !self.consume(Token::LeftBrace, "expected '{' after class name") {
+        return None;
+      }
+
+      let mut initializer = None;
+      let mut class_members = Vec::default();
+      let mut declared_functions = BTreeSet::default();
+
+      while let Some(token) = self.current() {
+        if let Some(member_loc) = self.meta_at::<0>() {
+          match token {
+            Token::New => {
+              self.advance();
+              if initializer.is_none() {
+                if self.consume(Token::LeftParen, "expected '(' after 'new'") {
+                  initializer = self.lambda_expr(SelfRules::Require, Token::RightParen, |params, mut body| {
+                    body
+                      .statements
+                      .push(Statement::from(DefaultConstructorRet::new(member_loc.clone())));
+                    Some(Expression::from(LambdaExpression::new(
+                      params.list,
+                      Statement::from(body),
+                      member_loc,
+                    )))
+                  });
+                }
+              } else {
+                self.error::<0>(String::from("duplicate initializer found"));
+              }
+            }
+            Token::Fn => {
+              self.advance();
+              if let Some(fn_name) = self.current() {
+                self.advance();
+                if self.consume(Token::LeftParen, "expected '(' after identifier") {
+                  if let Some(params) = self.parse_parameters(Token::RightParen) {
+                    if let Some(ident) = self.fn_ident(fn_name, &params) {
+                      if !declared_functions.contains(&ident.name) {
+                        if let Some(function) = self.parse_lambda(params, |params, body| {
+                          declared_functions.insert(ident.name.clone());
+                          if params.found_self {
+                            Some(Expression::from(MethodExpression::new(
+                              ident.name.clone(),
+                              params.list,
+                              Statement::from(body),
+                              member_loc,
+                            )))
+                          } else {
+                            Some(Expression::from(LambdaExpression::new(
+                              params.list,
+                              Statement::from(body),
+                              member_loc,
+                            )))
+                          }
+                        }) {
+                          class_members.push((ident, function));
+                        }
+                      } else {
+                        self.error::<0>("duplicate method definition");
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            Token::RightBrace => break,
+            t => self.error::<0>(format!("unexpected token in class {t}")),
+          }
+        } else {
+          self.error::<0>("no meta found at location");
+        }
+      }
+
+      if !self.consume(Token::RightBrace, "expected '}' after class body") {
+        return None;
+      }
+
+      Some(Expression::from(ClassExpression::new(initializer, class_members, class_loc)))
+    } else {
+      self.error::<0>("no meta found at location");
       None
     }
   }
@@ -1164,20 +1194,20 @@ impl AstGenerator {
     })
   }
 
-  fn error<const I: usize>(&mut self, msg: String) {
+  fn error<const I: usize>(&mut self, msg: impl AsRef<str> + Into<String>) {
     if let Some(meta) = self.meta_at::<I>() {
       if cfg!(debug_assertions) {
-        println!("{} ({}, {}): {}", meta.file, meta.line, meta.column, msg);
+        println!("{} ({}, {}): {}", meta.file, meta.line, meta.column, msg.as_ref());
       }
       self.errors.push(RuntimeError {
-        msg,
+        msg: msg.into(),
         file: (**meta.file).clone(),
         line: meta.line,
         column: meta.column,
       });
     } else {
       self.errors.push(RuntimeError {
-        msg: format!("could not find location of token for msg '{}'", msg),
+        msg: format!("could not find location of token for msg '{}'", msg.as_ref()),
         file: String::default(),
         line: 0,
         column: 0,
@@ -1610,15 +1640,23 @@ impl AstGenerator {
 #[derive(Debug, Clone)]
 pub struct Ident {
   pub name: String,
+  pub global: bool,
 }
 
 impl Ident {
-  pub fn new<N: ToString>(name: N) -> Self {
-    Self { name: name.to_string() }
+  pub fn new(name: impl Into<String>) -> Self {
+    let name = name.into();
+    Self {
+      global: matches!(name.chars().next(), Some('$')),
+      name: name,
+    }
   }
 
-  pub fn is_global(&self) -> bool {
-    matches!(self.name.chars().next(), Some('$'))
+  pub fn new_global(name: impl Into<String>) -> Self {
+    Self {
+      name: name.into(),
+      global: true,
+    }
   }
 }
 
@@ -1674,37 +1712,7 @@ impl Statement {
       }
       Statement::Break(_) => (),
       Statement::Cont(_) => (),
-      Statement::Class(c) => {
-        if let Some(init) = &c.initializer {
-          html! {
-            div(class="children") {
-              div(class="vertically-centered") {
-                div(class="bubble") : "new";
-                |tmpl| init.dump(tmpl);
-              }
-              @ for (ident, method) in c.methods.iter() {
-                div(class="vertically-centered") {
-                  div(class="bubble") : format_args!("fn {}", ident.to_string());
-                  |tmpl| method.dump(tmpl);
-                }
-              }
-            }
-          }
-          .render(tmpl);
-        } else {
-          html! {
-            div(class="children") {
-              @ for (ident, method) in c.methods.iter() {
-                div(class="vertically-centered") {
-                  div(class="bubble") : format_args!("fn {}", ident.to_string());
-                  |tmpl| method.dump(tmpl);
-                }
-              }
-            }
-          }
-          .render(tmpl);
-        }
-      }
+      Statement::Class(c) => c.body.dump(tmpl),
       Statement::DefaultConstructorRet(_) => (),
       Statement::Fn(_) => (),
       Statement::For(_) => (),
@@ -1913,19 +1921,13 @@ impl ContStatement {
 #[derive(Debug)]
 pub struct ClassStatement {
   pub ident: Ident,
-  pub initializer: Option<Expression>,
-  pub methods: Vec<(Ident, Expression)>,
+  pub body: Expression,
   pub loc: SourceLocation,
 }
 
 impl ClassStatement {
-  fn new(ident: Ident, initializer: Option<Expression>, methods: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
-    Self {
-      ident,
-      initializer,
-      methods,
-      loc,
-    }
+  fn new(ident: Ident, body: Expression, loc: SourceLocation) -> Self {
+    Self { ident, body, loc }
   }
 }
 
@@ -2151,6 +2153,8 @@ pub enum Expression {
   List(ListExpression),
   Index(IndexExpression),
   Struct(StructExpression),
+  Class(ClassExpression),
+  Mod(ModExpression),
   MemberAccess(MemberAccessExpression),
   MemberAssign(MemberAssignExpression),
   Lambda(LambdaExpression),
@@ -2179,6 +2183,38 @@ impl Expression {
       Expression::List(_) => (),
       Expression::Index(_) => (),
       Expression::Struct(_) => (),
+      Expression::Class(c) => {
+        if let Some(init) = &c.initializer {
+          html! {
+            div(class="children") {
+              div(class="vertically-centered") {
+                div(class="bubble") : "new";
+                |tmpl| init.dump(tmpl);
+              }
+              @ for (ident, method) in c.methods.iter() {
+                div(class="vertically-centered") {
+                  div(class="bubble") : format_args!("fn {}", ident.to_string());
+                  |tmpl| method.dump(tmpl);
+                }
+              }
+            }
+          }
+          .render(tmpl);
+        } else {
+          html! {
+            div(class="children") {
+              @ for (ident, method) in c.methods.iter() {
+                div(class="vertically-centered") {
+                  div(class="bubble") : format_args!("fn {}", ident.to_string());
+                  |tmpl| method.dump(tmpl);
+                }
+              }
+            }
+          }
+          .render(tmpl);
+        }
+      }
+      Expression::Mod(_) => (),
       Expression::MemberAccess(_) => (),
       Expression::MemberAssign(_) => (),
       Expression::Lambda(l) => l.body.dump(tmpl),
@@ -2205,6 +2241,8 @@ impl Display for Expression {
       Self::List(_) => write!(f, "list"),
       Self::Index(_) => write!(f, "index"),
       Self::Struct(_) => write!(f, "struct"),
+      Self::Class(_) => write!(f, "class"),
+      Self::Mod(_) => write!(f, "mod"),
       Self::Lambda(_) => write!(f, "lambda"),
       Self::Closure(_) => write!(f, "closure"),
       Self::Method(_) => write!(f, "method"),
@@ -2281,6 +2319,18 @@ impl From<IndexExpression> for Expression {
 impl From<StructExpression> for Expression {
   fn from(expr: StructExpression) -> Self {
     Self::Struct(expr)
+  }
+}
+
+impl From<ClassExpression> for Expression {
+  fn from(expr: ClassExpression) -> Self {
+    Self::Class(expr)
+  }
+}
+
+impl From<ModExpression> for Expression {
+  fn from(expr: ModExpression) -> Self {
+    Self::Mod(expr)
   }
 }
 
@@ -2575,6 +2625,32 @@ pub struct StructExpression {
 impl StructExpression {
   fn new(members: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
     Self { members, loc }
+  }
+}
+
+#[derive(Debug)]
+pub struct ClassExpression {
+  pub initializer: Option<Box<Expression>>,
+  pub methods: Vec<(Ident, Expression)>,
+  pub loc: SourceLocation,
+}
+
+impl ClassExpression {
+  fn new(initializer: Option<Expression>, methods: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
+    Self {
+      initializer: initializer.map(Box::new),
+      methods,
+      loc,
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct ModExpression {}
+
+impl ModExpression {
+  fn new() -> Self {
+    Self {}
   }
 }
 
