@@ -1,5 +1,7 @@
 req "lib/sspec/sspec.ss";
 
+use SSpec.describe;
+
 class Number {
   new(self, n) {
     self.n = n;

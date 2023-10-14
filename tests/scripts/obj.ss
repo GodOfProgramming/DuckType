@@ -1,5 +1,7 @@
 req "lib/sspec/sspec.ss";
 
+use SSpec.describe;
+
 use std.Object;
 
 describe("empty structs", |t| {

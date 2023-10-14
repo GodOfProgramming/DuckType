@@ -8,7 +8,7 @@ pub struct ModuleValue {
 }
 
 impl ModuleValue {
-  pub fn new() -> Self {
+  pub(crate) fn new() -> Self {
     Self {
       members: Default::default(),
       locked: false,
@@ -35,5 +35,22 @@ impl ClassFields for ModuleValue {
 impl ModuleValue {
   fn __lock__(&mut self) {
     self.locked = true;
+  }
+}
+
+pub struct LockedModule(ModuleValue);
+
+impl LockedModule {
+  pub fn initialize(f: impl FnOnce(&mut ModuleValue)) -> ModuleValue {
+    let mut module = ModuleValue::new();
+    f(&mut module);
+    module.__lock__();
+    module
+  }
+}
+
+impl Into<Value> for LockedModule {
+  fn into(self) -> Value {
+    self.0.into()
   }
 }

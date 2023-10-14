@@ -717,7 +717,9 @@ impl Vm {
             #[cfg(debug_assertions)]
             #[cfg(feature = "disassemble")]
             {
+              println!("!!!!! ENTERING {} !!!!!", found_file.display());
               new_ctx.disassemble();
+              println!("!!!!! LEAVING  {} !!!!!", found_file.display());
             }
 
             self.new_frame(new_ctx);

@@ -1,22 +1,5 @@
-mod Foo {
-  class Bar {
-    new(self, value) {
-      self.value = value;
-    }
+use std.Object;
 
-    fn display(self) {
-      print(self.value);
-    }
-  }
+print Object.fields(struct { foo: nil });
 
-  mod Baz {
-    fn foobarbaz() {
-      print("foobarbaz");
-    }
-  }
-}
-
-let bar = Foo.Bar("foobar");
-bar.display();
-
-Foo.Baz.foobarbaz();
+std.Object.whee = "foo";

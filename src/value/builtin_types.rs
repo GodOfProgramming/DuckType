@@ -41,7 +41,7 @@ pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
 use macros::{methods, Class};
 pub use method_value::MethodValue;
-pub use module_value::ModuleValue;
+pub use module_value::{LockedModule, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
 use std::{collections::BTreeMap, convert::Infallible, error::Error, fmt::Debug};
 pub use string_value::StringValue;

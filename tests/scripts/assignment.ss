@@ -1,5 +1,7 @@
 req "lib/sspec/sspec.ss";
 
+use SSpec.describe;
+
 let $VALUE = "new value";
 
 describe("chained assignment", |t| {

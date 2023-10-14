@@ -1,5 +1,7 @@
 req "lib/sspec/sspec.ss";
 
+use SSpec.describe;
+
 let $COUNTER = 0;
 
 class SomeClass {

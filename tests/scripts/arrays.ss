@@ -1,5 +1,7 @@
 req "lib/sspec/sspec.ss";
 
+use SSpec.describe;
+
 describe("arrays.size_0", |t| {
   let arr = [];
   t.expect(arr.len()).to_be(0);
