@@ -11,7 +11,8 @@ class Number {
 }
 
 fn generator() {
-  ret {x: Number(0)} |offset| {
+  let x = Number(0);
+  ret [x] |offset| {
     ret x.add_and_store(offset + 1);
   };
 }

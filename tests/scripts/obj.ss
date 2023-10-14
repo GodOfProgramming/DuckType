@@ -4,7 +4,7 @@ use std.Object;
 
 describe("empty structs", |t| {
   print t;
-  let obj = {};
+  let obj = struct {};
   print obj;
   let fields = Object.fields(obj);
   print fields;
@@ -13,7 +13,7 @@ describe("empty structs", |t| {
 
 describe("struct fields", |t| {
   let num = 1;
-  let obj = { num, str: "some string" };
+  let obj = struct { num, str: "some string" };
   obj.foo = "bar";
   let fields = Object.fields(obj);
   t.expect(fields.len()).to_be(3);
@@ -21,15 +21,15 @@ describe("struct fields", |t| {
   t.expect(obj.str).to_be("some string");
   t.expect(obj.foo).to_be("bar");
 
-  let foo = {
+  let foo = struct {
     this: "this"
   };
 
-  let bar = {
+  let bar = struct {
     that: "that",
   };
 
-  let foobar = { foo, bar, baz: {  foobarbaz: "foobarbaz" } };
+  let foobar = struct { foo, bar, baz: struct {  foobarbaz: "foobarbaz" } };
 
   t.expect(foo.this).to_be("this");
   t.expect(bar.that).to_be("that");
