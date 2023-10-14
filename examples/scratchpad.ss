@@ -1,5 +1,3 @@
-use std.Object;
+let file = io.open("Cargo.toml");
 
-print Object.fields(struct { foo: nil });
-
-std.Object.whee = "foo";
+print(file.read());

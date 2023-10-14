@@ -35,7 +35,7 @@ impl MethodValue {
     format!("method {}", self.function.__str__())
   }
 
-  fn debug_string(&self) -> String {
+  fn __dbg__(&self) -> String {
     format!("<{}>", self.__str__())
   }
 }

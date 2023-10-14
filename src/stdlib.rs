@@ -1,17 +1,19 @@
+mod libconsole;
+mod libenv;
+mod libio;
+mod libps;
+mod libstring;
+mod libtime;
+
 use crate::prelude::*;
 use enum_iterator::{all, Sequence};
 use libconsole::LibConsole;
 use libenv::LibEnv;
+use libio::LibIo;
 use libps::LibPs;
 use libstring::LibString;
 use libtime::LibTime;
 use std::collections::BTreeMap;
-
-mod libconsole;
-mod libenv;
-mod libps;
-mod libstring;
-mod libtime;
 
 pub mod prelude {
   pub use super::{Lib, Library};
@@ -25,6 +27,7 @@ pub enum Lib {
   String,
   Console,
   Ps,
+  Io,
 }
 
 pub enum Library {
@@ -69,6 +72,7 @@ fn load_lib(args: &[String], lib: &Lib) -> (&'static str, Value) {
     Lib::String => ("str", LibString::load()),
     Lib::Console => ("console", LibConsole::load()),
     Lib::Ps => ("ps", LibPs::load()),
+    Lib::Io => ("io", LibIo::load()),
   }
 }
 

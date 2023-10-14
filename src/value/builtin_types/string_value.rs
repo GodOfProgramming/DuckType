@@ -11,32 +11,32 @@ pub struct StringValue {
 
 #[methods]
 impl StringValue {
-  fn len(&self) -> i32 {
-    self.str.len() as i32
+  fn len(&self) -> ValueResult<i32> {
+    Ok(self.str.len() as i32)
   }
 
-  fn clone(&self) -> Self {
-    Self { str: self.str.clone() }
+  fn clone(&self) -> ValueResult<Self> {
+    Ok(Self { str: self.str.clone() })
   }
 
-  fn reverse(&self) -> Self {
-    Self {
+  fn reverse(&self) -> ValueResult<Self> {
+    Ok(Self {
       str: self.str.chars().rev().collect::<String>(),
-    }
+    })
   }
 
-  fn __add__(&self, other: Value) -> Self {
-    Self {
+  fn __add__(&self, other: Value) -> ValueResult<Self> {
+    Ok(Self {
       str: format!("{}{}", self, other),
-    }
+    })
   }
 
-  fn __eq__(&self, other: &Self) -> bool {
-    self.str == other.str
+  fn __eq__(&self, other: &Self) -> ValueResult<bool> {
+    Ok(self.str == other.str)
   }
 
-  fn __index__(&self, index: i32) -> Value {
-    self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default()
+  fn __index__(&self, index: i32) -> ValueResult {
+    Ok(self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default())
   }
 
   fn __str__(&self) -> String {

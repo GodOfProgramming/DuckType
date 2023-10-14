@@ -714,7 +714,6 @@ impl Vm {
           Ok(data) => {
             let new_ctx = Compiler::compile(&file, &data)?;
 
-            #[cfg(debug_assertions)]
             #[cfg(feature = "disassemble")]
             {
               println!("!!!!! ENTERING {} !!!!!", found_file.display());

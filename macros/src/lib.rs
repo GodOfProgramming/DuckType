@@ -171,7 +171,7 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
               if let Some(mut this) = args.list.pop() {
                 if let Some(this) = this.cast_to_mut::<#me>() {
                   let mut args = args.list.into_iter();
-                  Ok(Value::from(#me::#name(this, #args)))
+                  Ok(Value::from(#me::#name(this, #args)?))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
                 }
@@ -190,7 +190,7 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
               if let Some(this) = args.list.pop() {
                 if let Some(this) = this.cast_to::<#me>() {
                   let mut args = args.list.into_iter();
-                  Ok(Value::from(#me::#name(this, #args)))
+                  Ok(Value::from(#me::#name(this, #args)?))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
                 }
@@ -233,7 +233,7 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
       Value::native(|_, _, args| {
         if args.list.len() == #nargs {
           let mut args = args.list.into_iter();
-          Ok(Value::from(#me::#name(#args)))
+          Ok(Value::from(#me::#name(#args)?))
         } else {
           Err(ValueError::ArgumentError(args.list.len(), #nargs))
         }

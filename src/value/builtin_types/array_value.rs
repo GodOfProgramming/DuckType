@@ -22,20 +22,21 @@ impl ArrayValue {
 
 #[methods]
 impl ArrayValue {
-  fn new(args: &Vec<Value>) -> Self {
-    Self::new_from_vec(args)
+  fn new(args: &Vec<Value>) -> ValueResult<Self> {
+    Ok(Self::new_from_vec(args))
   }
 
-  fn __index__(&self, index: i32) -> Value {
-    self.list.get(index as usize).cloned().unwrap_or_default()
-  }
-
-  fn push(&mut self, value: Value) {
+  fn push(&mut self, value: Value) -> ValueResult<()> {
     self.list.push(value);
+    Ok(())
   }
 
-  fn len(&self) -> i32 {
-    self.list.len() as i32
+  fn len(&self) -> ValueResult<i32> {
+    Ok(self.list.len() as i32)
+  }
+
+  fn __index__(&self, index: i32) -> ValueResult {
+    Ok(self.list.get(index as usize).cloned().unwrap_or_default())
   }
 
   fn __str__(&self) -> String {
