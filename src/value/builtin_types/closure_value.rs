@@ -1,8 +1,7 @@
 use crate::prelude::*;
-use macros::{class_body, Class};
 use ptr::SmartPtr;
 
-#[derive(Clone, Class)]
+#[derive(Clone, Usertype, Class)]
 pub struct ClosureValue {
   captures: Vec<Value>,
   function: FunctionValue,
@@ -43,17 +42,13 @@ impl ClosureValue {
   }
 }
 
-#[class_body]
-impl ClosureValue {}
-
-impl Usertype for ClosureValue {
-  const ID: &'static str = "Closure";
-
-  fn stringify(&self) -> String {
-    format!("closure {}", self.function.stringify())
+#[methods]
+impl ClosureValue {
+  fn __str__(&self) -> String {
+    format!("closure {}", self.function.__str__())
   }
 
-  fn debug_string(&self) -> String {
-    format!("<{}>", self.stringify())
+  fn __dbg__(&self) -> String {
+    format!("<{}>", self.__str__())
   }
 }

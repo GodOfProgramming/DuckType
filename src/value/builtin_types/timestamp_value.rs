@@ -1,9 +1,7 @@
-use macros::{class_body, Class};
-
 use crate::prelude::*;
 use std::{ops::Deref, time::Instant};
 
-#[derive(Class)]
+#[derive(Usertype, Class)]
 pub struct TimestampValue {
   timestamp: Instant,
 }
@@ -16,17 +14,13 @@ impl TimestampValue {
   }
 }
 
-#[class_body]
+#[methods]
 impl TimestampValue {}
 
 impl Default for TimestampValue {
   fn default() -> Self {
     Self::new()
   }
-}
-
-impl Usertype for TimestampValue {
-  const ID: &'static str = "Timestamp";
 }
 
 impl Deref for TimestampValue {

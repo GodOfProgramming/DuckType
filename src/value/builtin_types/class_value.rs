@@ -1,11 +1,9 @@
-use macros::{class_body, Class};
-
 use crate::{code::ClassConstant, prelude::*};
 use std::collections::BTreeMap;
 
 #[derive(Class)]
 pub struct ClassValue {
-  pub name: String,
+  pub name: Option<String>,
   pub initializer: Option<Value>,
   pub methods: BTreeMap<String, FunctionValue>,
   pub static_members: BTreeMap<String, Value>,
@@ -14,7 +12,7 @@ pub struct ClassValue {
 impl ClassValue {
   pub fn new<N: ToString>(name: N) -> Self {
     Self {
-      name: name.to_string(),
+      name: Some(name.to_string()),
       initializer: None,
       methods: Default::default(),
       static_members: Default::default(),
@@ -66,8 +64,20 @@ impl ClassValue {
   }
 }
 
-#[class_body]
-impl ClassValue {}
+#[methods]
+impl ClassValue {
+  fn __str__(&self) -> String {
+    if let Some(name) = &self.name {
+      name.clone()
+    } else {
+      "<unnamed class>".to_string()
+    }
+  }
+
+  fn __dbg__(&self) -> String {
+    format!("class {}", self.__str__())
+  }
+}
 
 impl Usertype for ClassValue {
   const ID: &'static str = "Class";
@@ -79,14 +89,6 @@ impl Usertype for ClassValue {
   fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
     self.set_static(field, value);
     Ok(())
-  }
-
-  fn stringify(&self) -> String {
-    self.name.clone()
-  }
-
-  fn debug_string(&self) -> String {
-    format!("class {}", self.stringify())
   }
 }
 

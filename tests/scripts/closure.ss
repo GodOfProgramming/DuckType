@@ -1,5 +1,7 @@
 req "lib/sspec/sspec.ss";
 
+use sspec.describe;
+
 class Number {
   new(self, n) {
     self.n = n;
@@ -11,7 +13,8 @@ class Number {
 }
 
 fn generator() {
-  ret {x: Number(0)} |offset| {
+  let x = Number(0);
+  ret [x] |offset| {
     ret x.add_and_store(offset + 1);
   };
 }

@@ -22,18 +22,28 @@ impl Parse for ModuleAttr {
   }
 }
 
-#[proc_macro_derive(Class, attributes(field, module))]
+#[proc_macro_derive(Usertype, attributes(__str__, __dbg__))]
+pub fn derive_usertype(input: TokenStream) -> TokenStream {
+  let struct_def = parse_macro_input!(input as ItemStruct);
+
+  let name = struct_def.ident;
+  let name_str = name.to_string();
+  let in_script_ident = Literal::string(&name_str);
+
+  quote! {
+    impl Usertype for #name {
+      const ID: &'static str = #in_script_ident;
+    }
+  }
+  .into()
+}
+
+#[proc_macro_derive(Class, attributes(field))]
 pub fn derive_class(input: TokenStream) -> TokenStream {
   let struct_def = parse_macro_input!(input as ItemStruct);
-  let module_attr = struct_def.attrs.iter().find(|attr| attr.path.is_ident("module"));
 
   let name = struct_def.ident;
   let mut idents = Vec::new();
-
-  let in_script_ident = match module_attr.map(|m| TokenStream::from(m.tokens.clone())) {
-    Some(tokens) => parse_macro_input!(tokens as ModuleAttr).arg,
-    None => Literal::string(&name.to_string()),
-  };
 
   if let Fields::Named(fields) = &struct_def.fields {
     for field in &fields.named {
@@ -51,11 +61,7 @@ pub fn derive_class(input: TokenStream) -> TokenStream {
     .collect::<Vec<Literal>>();
   quote! {
     #[automatically_derived]
-    impl Class for #name {
-      fn id(&self) -> &'static str {
-        #in_script_ident
-      }
-
+    impl ClassFields for #name {
       fn get_member(&self, field: &str) -> Option<Value> {
         match field {
           #(#ident_strs => Some(Value::from(&self.#idents)),)*
@@ -76,7 +82,7 @@ pub fn derive_class(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
   let struct_impl = parse_macro_input!(input as ItemImpl);
 
   let me = struct_impl.self_ty.clone();
@@ -84,6 +90,10 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
 
   let mut methods = Vec::new();
   let mut statics = Vec::new();
+
+  let mut display_fn = None;
+  let mut debug_fn = None;
+  let mut lock_fn = None;
 
   for item in &struct_impl.items {
     struct Method {
@@ -99,21 +109,29 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
 
     if let ImplItem::Method(method) = item {
       let name = method.sig.ident.clone();
-      let nargs = method
-        .sig
-        .inputs
-        .iter()
-        .filter(|input| matches!(input, FnArg::Typed(_)))
-        .count();
+      let name_str = name.to_string();
+      match name_str.as_str() {
+        "__str__" => display_fn = Some(method),
+        "__dbg__" => debug_fn = Some(method),
+        "__lock__" => lock_fn = Some(method),
+        _ => {
+          let nargs = method
+            .sig
+            .inputs
+            .iter()
+            .filter(|input| matches!(input, FnArg::Typed(_)))
+            .count();
 
-      if let Some(FnArg::Receiver(this)) = method.sig.inputs.iter().next() {
-        methods.push(Method {
-          name,
-          receiver: this.clone(),
-          nargs,
-        });
-      } else {
-        statics.push(Static { name, nargs });
+          if let Some(FnArg::Receiver(this)) = method.sig.inputs.iter().next() {
+            methods.push(Method {
+              name,
+              receiver: this.clone(),
+              nargs,
+            });
+          } else {
+            statics.push(Static { name, nargs });
+          }
+        }
       }
     }
   }
@@ -153,7 +171,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
               if let Some(mut this) = args.list.pop() {
                 if let Some(this) = this.cast_to_mut::<#me>() {
                   let mut args = args.list.into_iter();
-                  Ok(Value::from(#me::#name(this, #args)))
+                  Ok(Value::from(#me::#name(this, #args)?))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
                 }
@@ -172,7 +190,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
               if let Some(this) = args.list.pop() {
                 if let Some(this) = this.cast_to::<#me>() {
                   let mut args = args.list.into_iter();
-                  Ok(Value::from(#me::#name(this, #args)))
+                  Ok(Value::from(#me::#name(this, #args)?))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
                 }
@@ -215,7 +233,7 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
       Value::native(|_, _, args| {
         if args.list.len() == #nargs {
           let mut args = args.list.into_iter();
-          Ok(Value::from(#me::#name(#args)))
+          Ok(Value::from(#me::#name(#args)?))
         } else {
           Err(ValueError::ArgumentError(args.list.len(), #nargs))
         }
@@ -223,12 +241,64 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
     });
   }
 
+  let lock_impl = if let Some(lock_fn) = lock_fn {
+    quote! {
+      impl LockableValue for #me {
+        #lock_fn
+      }
+    }
+  } else {
+    quote! {
+      impl LockableValue for #me {}
+    }
+  };
+
+  let debug_impl = if let Some(debug_fn) = debug_fn {
+    quote! {
+      impl DebugValue for #me {
+        #debug_fn
+      }
+    }
+  } else if display_fn.is_some() {
+    quote! {
+      impl DebugValue for #me {
+        fn __dbg__(&self) -> String {
+          self.__str__()
+        }
+      }
+    }
+  } else {
+    quote! {
+      impl DebugValue for #me {
+        fn __dbg__(&self) -> String {
+          #me_str.to_string()
+        }
+      }
+    }
+  };
+
+  let display_impl = if let Some(display_fn) = display_fn {
+    quote! {
+      impl DisplayValue for #me {
+        #display_fn
+      }
+    }
+  } else {
+    quote! {
+      impl DisplayValue for #me {
+        fn __str__(&self) -> String {
+          #me_str.to_string()
+        }
+      }
+    }
+  };
+
   quote! {
     #struct_impl
 
     #[automatically_derived]
-    impl ClassBody for #me {
-      fn get_method(&self, this: &Value, name: &str) -> Option<Value> {
+    impl ClassMethods for #me {
+      fn get_method(&self, this: &Value, field: &str) -> Option<Value> {
 
         pub fn try_arg_cast<T>(this: Value, fn_name: &'static str, pos: usize) -> ValueResult<T>
         where
@@ -237,13 +307,19 @@ pub fn class_body(_args: TokenStream, input: TokenStream) -> TokenStream {
           T::maybe_from(this).ok_or_else(|| ValueError::InvalidArgument(fn_name, pos))
         }
 
-        match name {
+        match field {
            #(#method_strs => Some(#method_lambda_bodies),)*
            #(#static_strs => Some(#static_lambda_bodies),)*
           _ => None,
         }
       }
     }
+
+    #display_impl
+
+    #debug_impl
+
+    #lock_impl
   }
   .into()
 }

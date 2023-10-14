@@ -6,7 +6,7 @@ fn user_tests() {
 
 #[cfg(test)]
 mod tests {
-  use macros::{class_body, Class};
+  use macros::{methods, Class};
   use std::{error::Error, fmt::Debug};
 
   struct Vm;
@@ -141,7 +141,6 @@ mod tests {
   }
 
   #[derive(Default, Class)]
-  #[module("std.Foo")]
   struct Foo {
     #[field]
     foo: i32,
@@ -150,7 +149,7 @@ mod tests {
     foo2: f32,
   }
 
-  #[class_body]
+  #[methods]
   impl Foo {
     fn foo(x: i32) -> Result<i32, ValueError> {
       Ok(x)

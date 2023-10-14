@@ -1,4 +1,4 @@
-use macros::{class_body, Class};
+use macros::{methods, Class};
 use std::{error::Error, fmt::Debug};
 
 struct Vm;
@@ -136,7 +136,7 @@ impl Foo {
   }
 }
 
-#[class_body]
+#[methods]
 impl Foo {
   fn foo(x: i32) -> Result<i32, ValueError> {
     Ok(x)

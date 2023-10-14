@@ -2,12 +2,10 @@ use crate::{code::ConstantValue, prelude::*};
 use static_assertions::assert_eq_size;
 use std::{
   cmp::Ordering,
-  error::Error,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
   mem,
-  ops::{Add, Deref, Div, Mul, Neg, Not, Rem, Sub},
+  ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
 };
-use sysinfo::User;
 pub use tags::*;
 
 pub(crate) mod builtin_types;
@@ -230,6 +228,24 @@ impl Value {
 
   pub fn as_class_mut(&mut self) -> Option<&mut ClassValue> {
     self.cast_to_mut::<ClassValue>()
+  }
+
+  // module
+
+  pub fn new_module() -> Self {
+    Self::from(ModuleValue::new())
+  }
+
+  pub fn is_module(&self) -> bool {
+    self.is::<ModuleValue>()
+  }
+
+  pub fn as_module(&self) -> Option<&ModuleValue> {
+    self.cast_to::<ModuleValue>()
+  }
+
+  pub fn as_module_mut(&mut self) -> Option<&mut ModuleValue> {
+    self.cast_to_mut::<ModuleValue>()
   }
 
   // instance
@@ -479,12 +495,16 @@ impl Value {
     }
   }
 
-  pub fn stringify(&self) -> String {
-    (self.vtable().stringify)(self.pointer())
+  pub fn display_string(&self) -> String {
+    (self.vtable().display_string)(self.pointer())
   }
 
   pub fn debug_string(&self) -> String {
     (self.vtable().debug_string)(self.pointer())
+  }
+
+  pub fn lock(&mut self) {
+    (self.vtable().lock)(self.pointer_mut())
   }
 
   // utility
@@ -625,8 +645,14 @@ impl From<f64> for Value {
 
 impl From<i32> for Value {
   fn from(item: i32) -> Self {
+    Self::from(&item)
+  }
+}
+
+impl From<&i32> for Value {
+  fn from(value: &i32) -> Self {
     Self {
-      bits: unsafe { mem::transmute::<i64, u64>(item as i64) } | I32_TAG,
+      bits: unsafe { mem::transmute::<i64, u64>(*value as i64) } | I32_TAG,
     }
   }
 }
@@ -700,6 +726,18 @@ impl From<Nil> for Value {
   }
 }
 
+impl TryFrom<Value> for i32 {
+  type Error = ValueError;
+
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
+    match value.tag() {
+      Tag::I32 => Ok(value.as_i32_unchecked()),
+      Tag::F64 => Ok(value.as_f64_unchecked() as i32),
+      _ => Err(ValueError::CoercionError(value, "i32")),
+    }
+  }
+}
+
 impl<T> From<T> for Value
 where
   T: Usertype,
@@ -736,7 +774,7 @@ impl Display for Value {
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
       Tag::NativeFn => write!(f, "{:p}", &self.as_native_fn_unchecked()),
       Tag::NativeClass => write!(f, "{:p}", self.as_native_class_unchecked().name()),
-      Tag::Pointer => write!(f, "{}", self.stringify()),
+      Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
     }
   }
@@ -744,6 +782,8 @@ impl Display for Value {
 
 impl Debug for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    const PTR_WIDTH: usize = mem::size_of::<usize>() * 2;
+    const PTR_DISPLAY_WIDTH: usize = PTR_WIDTH + 2;
     match self.tag() {
       Tag::F64 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_f64_unchecked(), self.raw_value()),
       Tag::I32 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_i32_unchecked(), self.raw_value()),
@@ -751,19 +791,25 @@ impl Debug for Value {
       Tag::Char => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_char_unchecked(), self.raw_value()),
       Tag::NativeFn => write!(
         f,
-        "{:?} {:p} (0x{:x})",
+        "<@{addr:<width$} {:?}>",
         self.tag(),
-        &self.as_native_fn_unchecked(),
-        self.raw_value()
+        addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
+        width = PTR_DISPLAY_WIDTH,
       ),
-      Tag::NativeClass => write!(f, "{:?} (0x{:x})", self.tag(), self.raw_value()),
+      Tag::NativeClass => write!(
+        f,
+        "<@{addr:<width$} {:?}>",
+        self.tag(),
+        addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
+        width = PTR_DISPLAY_WIDTH,
+      ),
       Tag::Pointer => write!(
         f,
-        "{:?} {} (0x{:x}) {}",
-        self.tag(),
+        "<@{addr:<width$} {} : {} >",
+        self.type_id(),
         self.debug_string(),
-        self.raw_value(),
-        self.type_name()
+        addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
+        width = PTR_DISPLAY_WIDTH,
       ),
       Tag::Nil => write!(f, "nil"),
     }
@@ -1049,8 +1095,9 @@ impl Not for Value {
 pub struct VTable {
   lookup: fn(&Value, &str) -> ValueResult<Value>,
   assign: fn(MutVoid, &str, Value) -> ValueResult<()>,
-  stringify: fn(ConstVoid) -> String,
+  display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
+  lock: fn(MutVoid),
   dealloc: fn(MutVoid),
   type_id: fn() -> &'static str,
   type_name: fn() -> String,
@@ -1061,8 +1108,9 @@ impl VTable {
     Self {
       lookup: |this, name| <T as Usertype>::get(Self::cast(this.pointer()), this, name),
       assign: |this, name, value| <T as Usertype>::set(Self::cast_mut(this), name, value),
-      stringify: |this| <T as Usertype>::stringify(Self::cast(this)),
-      debug_string: |this| <T as Usertype>::debug_string(Self::cast(this)),
+      display_string: |this| <T as DisplayValue>::__str__(Self::cast(this)),
+      debug_string: |this| <T as DebugValue>::__dbg__(Self::cast(this)),
+      lock: |this| <T as LockableValue>::__lock__(Self::cast_mut(this)),
       dealloc: |this| consume(this as *mut T),
       type_id: || <T as Usertype>::ID,
       type_name: || std::any::type_name::<T>().to_string(),

@@ -1,17 +1,19 @@
+mod libconsole;
+mod libenv;
+mod libio;
+mod libps;
+mod libstring;
+mod libtime;
+
 use crate::prelude::*;
 use enum_iterator::{all, Sequence};
 use libconsole::LibConsole;
 use libenv::LibEnv;
+use libio::LibIo;
 use libps::LibPs;
 use libstring::LibString;
 use libtime::LibTime;
 use std::collections::BTreeMap;
-
-mod libconsole;
-mod libenv;
-mod libps;
-mod libstring;
-mod libtime;
 
 pub mod prelude {
   pub use super::{Lib, Library};
@@ -25,6 +27,7 @@ pub enum Lib {
   String,
   Console,
   Ps,
+  Io,
 }
 
 pub enum Library {
@@ -69,43 +72,46 @@ fn load_lib(args: &[String], lib: &Lib) -> (&'static str, Value) {
     Lib::String => ("str", LibString::load()),
     Lib::Console => ("console", LibConsole::load()),
     Lib::Ps => ("ps", LibPs::load()),
+    Lib::Io => ("io", LibIo::load()),
   }
 }
 
 fn load_std() -> Value {
-  let mut lib = StructValue::default();
+  LockedModule::initialize(|lib| {
+    lib
+      .set(
+        "debug",
+        Value::native(|_vm, _env, args| Ok(Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil))))),
+      )
+      .ok();
 
-  lib.set(
-    "debug",
-    Value::native(|_vm, _env, args| Ok(Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil))))),
-  );
+    // Structs
+    {
+      let object_module = LockedModule::initialize(|object_module| {
+        object_module
+          .set(
+            "fields",
+            Value::native(|_vm, _env, args| {
+              let mut args = args.list.into_iter();
+              let mut fields = Vec::default();
 
-  // Structs
-  {
-    let mut object = ClassValue::new("Object");
+              if let Some(obj) = args.next() {
+                let get_fields = |s: &StructValue| s.members.keys().cloned().map(Value::from).collect::<Vec<Value>>();
 
-    object.set_static(
-      "fields",
-      Value::native(|_vm, _env, args| {
-        let mut args = args.list.into_iter();
-        let mut fields = Vec::default();
+                if let Some(i) = obj.as_instance() {
+                  fields.extend(get_fields(&i.data))
+                } else if let Some(s) = obj.as_struct() {
+                  fields.extend(get_fields(s))
+                }
+              }
 
-        if let Some(obj) = args.next() {
-          let get_fields = |s: &StructValue| s.members.keys().cloned().map(Value::from).collect::<Vec<Value>>();
-
-          if let Some(i) = obj.as_instance() {
-            fields.extend(get_fields(&i.data))
-          } else if let Some(s) = obj.as_struct() {
-            fields.extend(get_fields(s))
-          }
-        }
-
-        Ok(Value::from(fields))
-      }),
-    );
-
-    lib.set("Object", Value::from(object));
-  }
-
-  Value::from(lib)
+              Ok(Value::from(fields))
+            }),
+          )
+          .ok();
+      });
+      lib.set("Object", Value::from(object_module)).ok();
+    }
+  })
+  .into()
 }

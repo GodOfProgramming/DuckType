@@ -1,8 +1,7 @@
 use crate::{code::FunctionConstant, prelude::*};
-use macros::{class_body, Class};
 use ptr::SmartPtr;
 
-#[derive(Clone, Class)]
+#[derive(Clone, Usertype, Class)]
 pub struct FunctionValue {
   pub airity: usize,
   locals: usize,
@@ -41,18 +40,14 @@ impl FunctionValue {
   }
 }
 
-#[class_body]
-impl FunctionValue {}
-
-impl Usertype for FunctionValue {
-  const ID: &'static str = "Function";
-
-  fn stringify(&self) -> String {
+#[methods]
+impl FunctionValue {
+  fn __str__(&self) -> String {
     format!("fn {}", self.ctx.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>"))
   }
 
-  fn debug_string(&self) -> String {
-    format!("<{}>", self.stringify())
+  fn __dbg__(&self) -> String {
+    format!("<{}>", self.__str__())
   }
 }
 

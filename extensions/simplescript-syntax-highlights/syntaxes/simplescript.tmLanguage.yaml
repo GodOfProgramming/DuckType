@@ -22,7 +22,7 @@ repository:
       - name: "keyword.operator"
         match: "\\b(and|or)\\b|\\+|\\-|\\/|\\*"
       - name: "keyword.declaration"
-        match: "\\b(let|class|fn|req|new|use)\\b"
+        match: "\\b(let|class|struct|mod|fn|req|new|use)\\b"
       - name: "storage.type"
         match: "\\b(error|bool|number|string|list)\\b"
       - name: "support.function.builtin"
@@ -51,11 +51,13 @@ repository:
     patterns:
       - name: "entity.name.type.class"
         match: "(?<=class)\\s+${ IDENT }"
+      - name: "entity.name.type.module"
+        match: "(?<=mod)\\s+${ IDENT }"
       - name: "entity.name.type"
         match: "\\b([A-Z]\\w*)\\b"
   function:
     name: "entity.name.function"
-    match: "(?<=fn)\\s+${ IDENT }"
+    match: "((?<=fn)\\s+${ IDENT })|(${ IDENT }(?>\\())"
   strings:
     patterns:
       - name: "string.quoted.double"

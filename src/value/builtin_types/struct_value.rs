@@ -1,11 +1,10 @@
 use crate::prelude::*;
-use macros::{class_body, Class};
 use std::{
   collections::BTreeMap,
   fmt::{Display, Formatter, Result as FmtResult},
 };
 
-#[derive(Default)]
+#[derive(Usertype, Default)]
 pub struct StructValue {
   pub members: BTreeMap<String, Value>,
 }
@@ -20,22 +19,7 @@ impl StructValue {
   }
 }
 
-#[class_body]
-impl StructValue {}
-
-impl Usertype for StructValue {
-  const ID: &'static str = "Struct";
-
-  fn stringify(&self) -> String {
-    self.to_string()
-  }
-}
-
-impl Class for StructValue {
-  fn id(&self) -> &'static str {
-    "StructValue"
-  }
-
+impl ClassFields for StructValue {
   fn get_member(&self, field: &str) -> Option<Value> {
     self.members.get(field).cloned()
   }
@@ -43,6 +27,13 @@ impl Class for StructValue {
   fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()> {
     self.set(field, value);
     Ok(())
+  }
+}
+
+#[methods]
+impl StructValue {
+  fn __str__(&self) -> String {
+    format!("{}", self)
   }
 }
 

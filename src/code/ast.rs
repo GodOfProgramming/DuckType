@@ -122,6 +122,10 @@ impl AstGenerator {
         self.advance();
         self.match_stmt();
       }
+      Token::Mod => {
+        self.advance();
+        self.mod_stmt();
+      }
       Token::Print => {
         self.advance();
         self.print_stmt();
@@ -153,14 +157,11 @@ impl AstGenerator {
   /* Statements */
 
   fn block_stmt(&mut self) {
-    if let Some(block_loc) = self.meta_at::<1>() {
-      if let Some(block) = self.block(block_loc) {
+    self.meta_at::<1>().unwrap_and(|block_loc| {
+      self.block(block_loc).unwrap_and(|block| {
         self.statements.push(Statement::from(block));
-      }
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
-    }
+      });
+    });
   }
 
   fn break_stmt(&mut self) {
@@ -173,12 +174,9 @@ impl AstGenerator {
       return;
     }
 
-    if let Some(loc) = self.meta_at::<2>() {
+    self.meta_at::<2>().unwrap_and(|loc| {
       self.statements.push(Statement::from(BreakStatement::new(loc)));
-    } else {
-      // sanity check
-      self.error::<1>(String::from("could not find original token"));
-    }
+    });
   }
 
   fn cont_stmt(&mut self) {
@@ -191,105 +189,25 @@ impl AstGenerator {
       return;
     }
 
-    if let Some(loc) = self.meta_at::<2>() {
+    self.meta_at::<2>().unwrap_and(|loc| {
       self.statements.push(Statement::from(ContStatement::new(loc)));
-    } else {
-      // sanity check
-      self.error::<1>(String::from("could not find original token"));
-    }
+    });
   }
 
   fn class_stmt(&mut self) {
-    if let Some(class_loc) = self.meta_at::<0>() {
+    self.meta_at::<0>().unwrap_and(|class_loc| {
       if let Some(Token::Identifier(class_name)) = self.current() {
+        let ident = Ident::new_global(class_name);
         self.advance();
-
-        if !self.consume(Token::LeftBrace, "expected '{' after class name") {
-          return;
-        }
-
-        let mut initializer = None;
-        let mut class_members = Vec::default();
-        let mut declared_functions = BTreeSet::default();
-
-        while let Some(token) = self.current() {
-          let class_loc = class_loc.clone();
-          match token {
-            Token::New => {
-              self.advance();
-              if initializer.is_none() {
-                if self.consume(Token::LeftParen, "expected '(' after 'new'") {
-                  initializer = self.lambda_expr(SelfRules::Require, Token::RightParen, |params, mut body| {
-                    body
-                      .statements
-                      .push(Statement::from(DefaultConstructorRet::new(class_loc.clone())));
-                    Some(Expression::from(LambdaExpression::new(
-                      params.list,
-                      Statement::from(body),
-                      class_loc,
-                    )))
-                  });
-                }
-              } else {
-                self.error::<0>(String::from("duplicate initializer found"));
-              }
-            }
-            Token::Fn => {
-              self.advance();
-              if let Some(fn_name) = self.current() {
-                self.advance();
-                if self.consume(Token::LeftParen, "expected '(' after identifier") {
-                  if let Some(params) = self.parse_parameters(Token::RightParen) {
-                    if let Some(ident) = self.fn_ident(fn_name, &params) {
-                      if !declared_functions.contains(&ident.name) {
-                        if let Some(function) = self.parse_lambda(params, |params, body| {
-                          declared_functions.insert(ident.name.clone());
-                          if params.found_self {
-                            Some(Expression::from(MethodExpression::new(
-                              ident.name.clone(),
-                              params.list,
-                              Statement::from(body),
-                              class_loc,
-                            )))
-                          } else {
-                            Some(Expression::from(LambdaExpression::new(
-                              params.list,
-                              Statement::from(body),
-                              class_loc,
-                            )))
-                          }
-                        }) {
-                          class_members.push((Ident::new(ident), function));
-                        }
-                      } else {
-                        self.error::<0>(String::from("duplicate method definition"));
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            _ => break,
-          }
-        }
-
-        if !self.consume(Token::RightBrace, "expected '}' after class body") {
-          return;
-        }
-
-        self.statements.push(Statement::from(ClassStatement::new(
-          Ident::new(class_name),
-          initializer,
-          class_members,
-          class_loc,
-        )))
+        self.class_expr(Some(ident.clone())).unwrap_and(|expr| {
+          self
+            .statements
+            .push(Statement::from(ClassStatement::new(ident, expr, class_loc)));
+        });
       } else {
         self.error::<0>(String::from("expected an identifier"));
       }
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
-    }
+    });
   }
 
   fn fn_stmt(&mut self) {
@@ -299,8 +217,8 @@ impl AstGenerator {
   }
 
   fn for_stmt(&mut self) {
-    if let Some(for_loc) = self.meta_at::<1>() {
-      if let Some(initializer_loc) = self.meta_at::<0>() {
+    self.meta_at::<1>().unwrap_and(|for_loc| {
+      self.meta_at::<0>().unwrap_and(|initializer_loc| {
         let initializer = if self.advance_if_matches(Token::Let) {
           if let Some(declaration) = self.declaration() {
             Statement::from(declaration)
@@ -326,7 +244,7 @@ impl AstGenerator {
             if self.consume(Token::LeftBrace, "expected '{' after increment") {
               let prev = self.in_loop;
               self.in_loop = true;
-              if let Some(block_loc) = self.meta_at::<1>() {
+              self.meta_at::<1>().unwrap_and(|block_loc| {
                 if let Some(block) = self.block(block_loc) {
                   self.statements.push(Statement::from(ForStatement::new(
                     initializer,
@@ -336,10 +254,7 @@ impl AstGenerator {
                     for_loc,
                   )));
                 }
-              } else {
-                // sanity check
-                self.error::<0>(String::from("could not find original token"));
-              }
+              });
               self.in_loop = prev;
             }
           } else {
@@ -348,11 +263,8 @@ impl AstGenerator {
         } else {
           self.error::<0>(String::from("expected comparison after initializer"));
         }
-      }
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
-    }
+      });
+    });
   }
 
   fn if_stmt(&mut self) {
@@ -495,6 +407,20 @@ impl AstGenerator {
           .push(Statement::from(MatchStatement::new(expr, branches, default, loc)))
       }
     }
+  }
+
+  fn mod_stmt(&mut self) {
+    self.meta_at::<0>().unwrap_and(|mod_loc| {
+      if let Some(Token::Identifier(mod_name)) = self.current() {
+        let ident = Ident::new(mod_name);
+        self.advance();
+        self.mod_expr(Some(ident.clone())).unwrap_and(|expr| {
+          self.statements.push(Statement::from(ModStatement::new(ident, expr, mod_loc)));
+        });
+      } else {
+        self.error::<1>("expected ident after mod");
+      }
+    });
   }
 
   fn print_stmt(&mut self) {
@@ -806,6 +732,98 @@ impl AstGenerator {
     }
   }
 
+  fn class_expr(&mut self, name: Option<Ident>) -> Option<Expression> {
+    if let Some(class_loc) = self.meta_at::<0>() {
+      // needed here because infix advances to '{' after seeing "class"
+      if !self.consume(Token::LeftBrace, "expected '{' to begin class body") {
+        return None;
+      }
+
+      let mut initializer = None;
+      let mut class_members = Vec::default();
+      let mut declared_functions = BTreeSet::default();
+
+      while let Some(token) = self.current() {
+        if let Some(member_loc) = self.meta_at::<0>() {
+          match token {
+            Token::New => {
+              self.advance();
+              if initializer.is_none() {
+                if self.consume(Token::LeftParen, "expected '(' after 'new'") {
+                  initializer = self.lambda_expr(SelfRules::Require, Token::RightParen, |_this, params, mut body| {
+                    body
+                      .statements
+                      .push(Statement::from(DefaultConstructorRet::new(member_loc.clone())));
+                    Some(Expression::from(LambdaExpression::new(
+                      params.list,
+                      Statement::from(body),
+                      member_loc,
+                    )))
+                  });
+                }
+              } else {
+                self.error::<0>(String::from("duplicate initializer found"));
+              }
+            }
+            Token::Fn => {
+              self.advance();
+              if let Some(fn_name) = self.current() {
+                self.advance();
+                if self.consume(Token::LeftParen, "expected '(' after identifier") {
+                  if let Some(params) = self.parse_parameters(Token::RightParen) {
+                    if let Some(ident) = self.fn_ident(fn_name, &params) {
+                      if !declared_functions.contains(&ident.name) {
+                        if let Some(function) = self.parse_lambda(params, |_this, params, body| {
+                          declared_functions.insert(ident.name.clone());
+                          if params.found_self {
+                            Some(Expression::from(MethodExpression::new(
+                              ident.clone(),
+                              params.list,
+                              Statement::from(body),
+                              member_loc,
+                            )))
+                          } else {
+                            Some(Expression::from(LambdaExpression::new(
+                              params.list,
+                              Statement::from(body),
+                              member_loc,
+                            )))
+                          }
+                        }) {
+                          class_members.push((ident, function));
+                        }
+                      } else {
+                        self.error::<0>("duplicate method definition");
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            Token::RightBrace => break,
+            t => self.error::<0>(format!("unexpected token in class {t}")),
+          }
+        } else {
+          self.error::<0>("no meta found at location");
+        }
+      }
+
+      if !self.consume(Token::RightBrace, "expected '}' after class body") {
+        return None;
+      }
+
+      Some(Expression::from(ClassExpression::new(
+        name,
+        initializer,
+        class_members,
+        class_loc,
+      )))
+    } else {
+      self.error::<0>("no meta found at location");
+      None
+    }
+  }
+
   fn list_expr(&mut self) -> Option<Expression> {
     let bracket_meta = self.meta_at::<1>()?;
     let mut items = Vec::default();
@@ -822,7 +840,12 @@ impl AstGenerator {
     }
 
     if self.consume(Token::RightBracket, "expect ']' after arguments") {
-      Some(Expression::from(ListExpression::new(items, bracket_meta)))
+      let list = ListExpression::new(items, bracket_meta);
+      if self.advance_if_matches(Token::Pipe) {
+        self.closure_expr(Token::Pipe, list)
+      } else {
+        Some(Expression::from(list))
+      }
     } else {
       None
     }
@@ -935,44 +958,136 @@ impl AstGenerator {
     }
   }
 
-  fn struct_expr(&mut self) -> Option<Expression> {
-    let struct_meta = self.meta_at::<1>()?;
-    let mut members = Vec::default();
-
-    while let Some(token) = self.current() {
-      let struct_meta = struct_meta.clone();
-      if token == Token::RightBrace {
-        break;
-      }
-
-      if let Token::Identifier(ident) = token {
-        self.advance();
-        if self.advance_if_matches(Token::Comma) || self.check_peek_after::<0>(Token::RightBrace) {
-          members.push((
-            Ident::new(ident.clone()),
-            Expression::from(IdentExpression::new(Ident::new(ident), struct_meta)),
-          ))
-        } else if self.consume(Token::Colon, "expected ':' after identifier") {
-          let value = self.expression()?;
-          members.push((Ident::new(ident), value));
-          self.advance_if_matches(Token::Comma);
-        } else {
-          return None;
-        }
-      } else {
-        self.error::<0>(String::from("expected identifier"));
+  fn mod_expr(&mut self, name: Option<Ident>) -> Option<Expression> {
+    if let Some(mod_loc) = self.meta_at::<0>() {
+      if !self.consume(Token::LeftBrace, "expected '{' after mod name") {
         return None;
       }
-    }
 
-    if self.consume(Token::RightBrace, "expected '}' after struct") {
-      if self.advance_if_matches(Token::Pipe) {
-        self.closure_expr(Token::Pipe, StructExpression::new(members, struct_meta))
-      } else {
-        Some(Expression::from(StructExpression::new(members, struct_meta)))
+      let mut module_items = Vec::default();
+      let mut declared_items = BTreeSet::default();
+
+      while let Some(token) = self.current() {
+        if let Some(member_loc) = self.meta_at::<0>() {
+          match token {
+            Token::Mod => {
+              self.advance();
+              if let Some(Token::Identifier(ident)) = self.current() {
+                declared_items.insert(ident.clone());
+                self.advance();
+                let ident = Ident::new(ident);
+                if let Some(module) = self.mod_expr(Some(ident.clone())) {
+                  module_items.push((ident, module));
+                }
+              } else {
+                self.error::<0>("class name is invalid");
+              }
+            }
+            Token::Class => {
+              self.advance();
+              if let Some(Token::Identifier(ident)) = self.current() {
+                declared_items.insert(ident.clone());
+                self.advance();
+                let ident = Ident::new(ident);
+                if let Some(class) = self.class_expr(Some(ident.clone())) {
+                  module_items.push((ident, class));
+                }
+              } else {
+                self.error::<0>("class name is invalid");
+              }
+            }
+            Token::Fn => {
+              self.advance();
+              if let Some(fn_name) = self.current() {
+                self.advance();
+                if self.consume(Token::LeftParen, "expected '(' after identifier") {
+                  if let Some(params) = self.parse_parameters(Token::RightParen) {
+                    if let Some(ident) = self.fn_ident(fn_name, &params) {
+                      if !declared_items.contains(&ident.name) {
+                        if let Some(function) = self.parse_lambda(params, |this, params, body| {
+                          declared_items.insert(ident.name.clone());
+                          if params.found_self {
+                            this.error::<0>("cannot use self in module function");
+                            None
+                          } else {
+                            Some(Expression::from(LambdaExpression::new(
+                              params.list,
+                              Statement::from(body),
+                              member_loc,
+                            )))
+                          }
+                        }) {
+                          module_items.push((ident, function));
+                        }
+                      } else {
+                        self.error::<0>("duplicate method definition");
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            Token::RightBrace => break,
+            t => self.error::<0>(format!("unexpected token in class {t}")),
+          }
+        } else {
+          self.error::<0>("no meta found at location");
+        }
       }
+
+      if !self.consume(Token::RightBrace, "expected '}' after class body") {
+        return None;
+      }
+
+      Some(Expression::from(ModExpression::new(name, module_items, mod_loc)))
     } else {
-      self.error::<1>(String::from("expected token"));
+      self.error::<0>("no meta found at location");
+      None
+    }
+  }
+
+  fn struct_expr(&mut self) -> Option<Expression> {
+    if let Some(struct_meta) = self.meta_at::<1>() {
+      // needed here because infix advances to '{' after seeing "struct"
+      if !self.consume(Token::LeftBrace, "expected '{' to begin struct body") {
+        return None;
+      }
+
+      let mut members = Vec::default();
+
+      while let Some(token) = self.current() {
+        let struct_meta = struct_meta.clone();
+        if token == Token::RightBrace {
+          break;
+        }
+
+        if let Token::Identifier(ident) = token {
+          self.advance();
+          if self.advance_if_matches(Token::Comma) || self.check_peek_after::<0>(Token::RightBrace) {
+            members.push((
+              Ident::new(ident.clone()),
+              Expression::from(IdentExpression::new(Ident::new(ident), struct_meta)),
+            ))
+          } else if self.consume(Token::Colon, "expected ':' after identifier") {
+            let value = self.expression()?;
+            members.push((Ident::new(ident), value));
+            self.advance_if_matches(Token::Comma);
+          } else {
+            return None;
+          }
+        } else {
+          self.error::<0>("expected identifier");
+          return None;
+        }
+      }
+
+      if !self.consume(Token::RightBrace, "expected '}' after struct") {
+        return None;
+      }
+
+      Some(Expression::from(StructExpression::new(members, struct_meta)))
+    } else {
+      self.error::<1>("cannot find meta");
       None
     }
   }
@@ -980,7 +1095,7 @@ impl AstGenerator {
   fn anon_fn_expr(&mut self) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
-    self.lambda_expr(SelfRules::Disallow, Token::Pipe, |params, body| {
+    self.lambda_expr(SelfRules::Disallow, Token::Pipe, |_this, params, body| {
       Some(Expression::from(LambdaExpression::new(
         params.list,
         Statement::from(body),
@@ -989,12 +1104,23 @@ impl AstGenerator {
     })
   }
 
-  fn closure_expr(&mut self, param_term: Token, captures: StructExpression) -> Option<Expression> {
+  fn closure_expr(&mut self, param_term: Token, captures: ListExpression) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
-    self.lambda_expr(SelfRules::Disallow, param_term, |params, body| {
+    let mut vetted_captures = Vec::new();
+    for capture in captures.items {
+      match capture {
+        Expression::Ident(expr) => vetted_captures.push(expr),
+        _ => {
+          self.error::<0>("invalid lambda capture");
+          return None;
+        }
+      }
+    }
+
+    self.lambda_expr(SelfRules::Disallow, param_term, |_this, params, body| {
       Some(Expression::from(ClosureExpression::new(
-        captures,
+        vetted_captures,
         params.list,
         Statement::from(body),
         loc,
@@ -1004,7 +1130,7 @@ impl AstGenerator {
 
   fn lambda_expr<F>(&mut self, self_rules: SelfRules, param_term: Token, f: F) -> Option<Expression>
   where
-    F: FnOnce(Params, BlockStatement) -> Option<Expression>,
+    F: FnOnce(&mut Self, Params, BlockStatement) -> Option<Expression>,
   {
     let params = self.parse_parameters(param_term)?;
 
@@ -1023,7 +1149,7 @@ impl AstGenerator {
 
   fn parse_lambda<F>(&mut self, params: Params, f: F) -> Option<Expression>
   where
-    F: FnOnce(Params, BlockStatement) -> Option<Expression>,
+    F: FnOnce(&mut Self, Params, BlockStatement) -> Option<Expression>,
   {
     if !self.consume(Token::LeftBrace, "expected '{' after paren") {
       return None;
@@ -1031,7 +1157,7 @@ impl AstGenerator {
 
     if let Some(block_loc) = self.meta_at::<1>() {
       let body = self.block(block_loc)?;
-      f(params, body)
+      f(self, params, body)
     } else {
       // sanity check
       self.error::<0>(String::from("could not find original token"));
@@ -1162,20 +1288,20 @@ impl AstGenerator {
     })
   }
 
-  fn error<const I: usize>(&mut self, msg: String) {
+  fn error<const I: usize>(&mut self, msg: impl AsRef<str> + Into<String>) {
     if let Some(meta) = self.meta_at::<I>() {
       if cfg!(debug_assertions) {
-        println!("{} ({}, {}): {}", meta.file, meta.line, meta.column, msg);
+        println!("{} ({}, {}): {}", meta.file, meta.line, meta.column, msg.as_ref());
       }
       self.errors.push(RuntimeError {
-        msg,
+        msg: msg.into(),
         file: (**meta.file).clone(),
         line: meta.line,
         column: meta.column,
       });
     } else {
       self.errors.push(RuntimeError {
-        msg: format!("could not find location of token for msg '{}'", msg),
+        msg: format!("could not find location of token for msg '{}'", msg.as_ref()),
         file: String::default(),
         line: 0,
         column: 0,
@@ -1338,7 +1464,7 @@ impl AstGenerator {
   }
 
   fn declaration(&mut self) -> Option<LetStatement> {
-    if let Some(let_loc) = self.meta_at::<1>() {
+    self.meta_at::<1>().and_then(|let_loc| {
       if let Some(Token::Identifier(ident)) = self.current() {
         let ident = Ident::new(ident);
         self.advance();
@@ -1354,11 +1480,7 @@ impl AstGenerator {
         self.error::<0>(String::from("expected variable name"));
         None
       }
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
-      None
-    }
+    })
   }
 
   fn parse_precedence(&mut self, root_token_precedence: Precedence) -> Option<Expression> {
@@ -1404,12 +1526,10 @@ impl AstGenerator {
               self.advance();
               expr = infix(self, expr)?;
             }
-
-            // TODO if weird results start happening, this could be the cause
-            // allows for structs to be made and braces to still work for scoping purposes
-            //   self.error::<0>(format!("no infix rule for {:?}", curr));
-            //   return None;
-            None => break,
+            None => {
+              self.error::<0>(format!("no infix rule for {:?}", curr));
+              return None;
+            }
           }
         } else {
           break;
@@ -1427,7 +1547,7 @@ impl AstGenerator {
     match token {
       Token::LeftParen => ParseRule::new(Some(Self::group_expr), Some(Self::call_expr), Precedence::Call),
       Token::RightParen => ParseRule::new(None, None, Precedence::None),
-      Token::LeftBrace => ParseRule::new(Some(Self::struct_expr), None, Precedence::Primary),
+      Token::LeftBrace => ParseRule::new(None, None, Precedence::None),
       Token::RightBrace => ParseRule::new(None, None, Precedence::None),
       Token::LeftBracket => ParseRule::new(Some(Self::list_expr), Some(Self::index_expr), Precedence::Call),
       Token::RightBracket => ParseRule::new(None, None, Precedence::None),
@@ -1462,7 +1582,7 @@ impl AstGenerator {
       Token::Number(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::And => ParseRule::new(None, Some(Self::and_expr), Precedence::And),
       Token::Break => ParseRule::new(None, None, Precedence::None),
-      Token::Class => ParseRule::new(None, None, Precedence::None),
+      Token::Class => ParseRule::new(Some(|this| Self::class_expr(this, None)), None, Precedence::Primary),
       Token::Cont => ParseRule::new(None, None, Precedence::None),
       Token::Else => ParseRule::new(None, None, Precedence::None),
       Token::False => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
@@ -1472,12 +1592,14 @@ impl AstGenerator {
       Token::Let => ParseRule::new(None, None, Precedence::None),
       Token::Loop => ParseRule::new(None, None, Precedence::None),
       Token::Match => ParseRule::new(None, None, Precedence::None),
+      Token::Mod => ParseRule::new(None, None, Precedence::None),
       Token::New => ParseRule::new(None, None, Precedence::None),
       Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::Or => ParseRule::new(None, Some(Self::or_expr), Precedence::Or),
       Token::Print => ParseRule::new(None, None, Precedence::None),
       Token::Req => ParseRule::new(None, None, Precedence::None),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
+      Token::Struct => ParseRule::new(Some(Self::struct_expr), None, Precedence::Primary),
       Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::Use => ParseRule::new(None, None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
@@ -1607,15 +1729,23 @@ impl AstGenerator {
 #[derive(Debug, Clone)]
 pub struct Ident {
   pub name: String,
+  pub global: bool,
 }
 
 impl Ident {
-  pub fn new<N: ToString>(name: N) -> Self {
-    Self { name: name.to_string() }
+  pub fn new(name: impl Into<String>) -> Self {
+    let name = name.into();
+    Self {
+      global: matches!(name.chars().next(), Some('$')),
+      name: name,
+    }
   }
 
-  pub fn is_global(&self) -> bool {
-    matches!(self.name.chars().next(), Some('$'))
+  pub fn new_global(name: impl Into<String>) -> Self {
+    Self {
+      name: name.into(),
+      global: true,
+    }
   }
 }
 
@@ -1638,6 +1768,7 @@ pub enum Statement {
   Let(LetStatement),
   Loop(LoopStatement),
   Match(MatchStatement),
+  Mod(ModStatement),
   Print(PrintStatement),
   Req(ReqStatement),
   Ret(RetStatement),
@@ -1671,37 +1802,7 @@ impl Statement {
       }
       Statement::Break(_) => (),
       Statement::Cont(_) => (),
-      Statement::Class(c) => {
-        if let Some(init) = &c.initializer {
-          html! {
-            div(class="children") {
-              div(class="vertically-centered") {
-                div(class="bubble") : "new";
-                |tmpl| init.dump(tmpl);
-              }
-              @ for (ident, method) in c.methods.iter() {
-                div(class="vertically-centered") {
-                  div(class="bubble") : format_args!("fn {}", ident.to_string());
-                  |tmpl| method.dump(tmpl);
-                }
-              }
-            }
-          }
-          .render(tmpl);
-        } else {
-          html! {
-            div(class="children") {
-              @ for (ident, method) in c.methods.iter() {
-                div(class="vertically-centered") {
-                  div(class="bubble") : format_args!("fn {}", ident.to_string());
-                  |tmpl| method.dump(tmpl);
-                }
-              }
-            }
-          }
-          .render(tmpl);
-        }
-      }
+      Statement::Class(c) => c.body.dump(tmpl),
       Statement::DefaultConstructorRet(_) => (),
       Statement::Fn(_) => (),
       Statement::For(_) => (),
@@ -1724,6 +1825,7 @@ impl Statement {
       }
       Statement::Loop(_) => (),
       Statement::Match(_) => (),
+      Statement::Mod(m) => m.body.dump(tmpl),
       Statement::Print(_) => (),
       Statement::Req(_) => (),
       Statement::Ret(_) => (),
@@ -1754,6 +1856,7 @@ impl Display for Statement {
       Self::Let(_) => write!(f, "let"),
       Self::Loop(_) => write!(f, "loop"),
       Self::Match(_) => write!(f, "match"),
+      Self::Mod(_) => write!(f, "mod"),
       Self::Print(_) => write!(f, "print"),
       Self::Req(_) => write!(f, "req"),
       Self::Ret(_) => write!(f, "ret"),
@@ -1837,6 +1940,12 @@ impl From<MatchStatement> for Statement {
   }
 }
 
+impl From<ModStatement> for Statement {
+  fn from(stmt: ModStatement) -> Self {
+    Self::Mod(stmt)
+  }
+}
+
 impl From<PrintStatement> for Statement {
   fn from(stmt: PrintStatement) -> Self {
     Self::Print(stmt)
@@ -1910,19 +2019,13 @@ impl ContStatement {
 #[derive(Debug)]
 pub struct ClassStatement {
   pub ident: Ident,
-  pub initializer: Option<Expression>,
-  pub methods: Vec<(Ident, Expression)>,
+  pub body: Expression,
   pub loc: SourceLocation,
 }
 
 impl ClassStatement {
-  fn new(ident: Ident, initializer: Option<Expression>, methods: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
-    Self {
-      ident,
-      initializer,
-      methods,
-      loc,
-    }
+  fn new(ident: Ident, body: Expression, loc: SourceLocation) -> Self {
+    Self { ident, body, loc }
   }
 }
 
@@ -2059,6 +2162,19 @@ impl MatchStatement {
 }
 
 #[derive(Debug)]
+pub struct ModStatement {
+  pub ident: Ident,
+  pub body: Expression,
+  pub loc: SourceLocation,
+}
+
+impl ModStatement {
+  fn new(ident: Ident, body: Expression, loc: SourceLocation) -> Self {
+    Self { ident, body, loc }
+  }
+}
+
+#[derive(Debug)]
 pub struct PrintStatement {
   pub expr: Expression,
   pub loc: SourceLocation,
@@ -2148,6 +2264,8 @@ pub enum Expression {
   List(ListExpression),
   Index(IndexExpression),
   Struct(StructExpression),
+  Class(ClassExpression),
+  Mod(ModExpression),
   MemberAccess(MemberAccessExpression),
   MemberAssign(MemberAssignExpression),
   Lambda(LambdaExpression),
@@ -2176,6 +2294,38 @@ impl Expression {
       Expression::List(_) => (),
       Expression::Index(_) => (),
       Expression::Struct(_) => (),
+      Expression::Class(c) => {
+        if let Some(init) = &c.initializer {
+          html! {
+            div(class="children") {
+              div(class="vertically-centered") {
+                div(class="bubble") : "new";
+                |tmpl| init.dump(tmpl);
+              }
+              @ for (ident, method) in c.methods.iter() {
+                div(class="vertically-centered") {
+                  div(class="bubble") : format_args!("fn {}", ident.to_string());
+                  |tmpl| method.dump(tmpl);
+                }
+              }
+            }
+          }
+          .render(tmpl);
+        } else {
+          html! {
+            div(class="children") {
+              @ for (ident, method) in c.methods.iter() {
+                div(class="vertically-centered") {
+                  div(class="bubble") : format_args!("fn {}", ident.to_string());
+                  |tmpl| method.dump(tmpl);
+                }
+              }
+            }
+          }
+          .render(tmpl);
+        }
+      }
+      Expression::Mod(_) => (),
       Expression::MemberAccess(_) => (),
       Expression::MemberAssign(_) => (),
       Expression::Lambda(l) => l.body.dump(tmpl),
@@ -2202,6 +2352,8 @@ impl Display for Expression {
       Self::List(_) => write!(f, "list"),
       Self::Index(_) => write!(f, "index"),
       Self::Struct(_) => write!(f, "struct"),
+      Self::Class(_) => write!(f, "class"),
+      Self::Mod(_) => write!(f, "mod"),
       Self::Lambda(_) => write!(f, "lambda"),
       Self::Closure(_) => write!(f, "closure"),
       Self::Method(_) => write!(f, "method"),
@@ -2278,6 +2430,18 @@ impl From<IndexExpression> for Expression {
 impl From<StructExpression> for Expression {
   fn from(expr: StructExpression) -> Self {
     Self::Struct(expr)
+  }
+}
+
+impl From<ClassExpression> for Expression {
+  fn from(expr: ClassExpression) -> Self {
+    Self::Class(expr)
+  }
+}
+
+impl From<ModExpression> for Expression {
+  fn from(expr: ModExpression) -> Self {
+    Self::Mod(expr)
   }
 }
 
@@ -2576,6 +2740,38 @@ impl StructExpression {
 }
 
 #[derive(Debug)]
+pub struct ClassExpression {
+  pub name: Option<Ident>,
+  pub initializer: Option<Box<Expression>>,
+  pub methods: Vec<(Ident, Expression)>,
+  pub loc: SourceLocation,
+}
+
+impl ClassExpression {
+  fn new(name: Option<Ident>, initializer: Option<Expression>, methods: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
+    Self {
+      name,
+      initializer: initializer.map(Box::new),
+      methods,
+      loc,
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct ModExpression {
+  pub name: Option<Ident>,
+  pub items: Vec<(Ident, Expression)>,
+  pub loc: SourceLocation,
+}
+
+impl ModExpression {
+  fn new(name: Option<Ident>, items: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
+    Self { name, items, loc }
+  }
+}
+
+#[derive(Debug)]
 pub struct LambdaExpression {
   pub params: Vec<Ident>,
   pub body: Box<Statement>,
@@ -2604,14 +2800,14 @@ impl From<ClosureExpression> for LambdaExpression {
 
 #[derive(Debug)]
 pub struct ClosureExpression {
-  pub captures: StructExpression,
+  pub captures: Vec<IdentExpression>,
   pub params: Vec<Ident>,
   pub body: Box<Statement>,
   pub loc: SourceLocation,
 }
 
 impl ClosureExpression {
-  fn new(captures: StructExpression, params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
+  fn new(captures: Vec<IdentExpression>, params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
     Self {
       captures,
       params,
@@ -2623,14 +2819,14 @@ impl ClosureExpression {
 
 #[derive(Debug)]
 pub struct MethodExpression {
-  pub name: String,
+  pub name: Ident,
   pub params: Vec<Ident>,
   pub body: Box<Statement>,
   pub loc: SourceLocation,
 }
 
 impl MethodExpression {
-  fn new(name: String, params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
+  fn new(name: Ident, params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
     Self {
       name,
       params,
@@ -2717,4 +2913,16 @@ enum SelfRules {
   Disallow,
   Allow,
   Require,
+}
+
+trait UnwrapAnd<T> {
+  fn unwrap_and(self, f: impl FnOnce(T));
+}
+
+impl<T> UnwrapAnd<T> for Option<T> {
+  fn unwrap_and(self, f: impl FnOnce(T)) {
+    if let Some(inner) = self {
+      f(inner);
+    }
+  }
 }

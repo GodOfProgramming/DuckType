@@ -86,7 +86,6 @@ impl Vm {
           })
           .map_err(|e| self.error(opcode, e))?;
 
-        self.current_frame.ip += 1;
         self.call_value(env, opcode, callable, vec![])
       } else {
         self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
@@ -121,7 +120,6 @@ impl Vm {
             })
             .map_err(|e| self.error(opcode, e))?;
 
-          self.current_frame.ip += 1;
           self.call_value(env, opcode, callable, vec![bv])
         } else {
           self.stack_push(f(av, bv).map_err(|e| self.error(opcode, e))?);
@@ -249,6 +247,8 @@ impl Vm {
           Opcode::CreateList(num_items) => self.exec_create_list(num_items),
           Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
           Opcode::CreateStruct => self.exec_create_struct(),
+          Opcode::CreateModule => self.exec_create_module(),
+          Opcode::Lock => self.exec_lock()?,
           Opcode::Yield => {
             self.current_frame.ip += 1;
 
@@ -303,12 +303,10 @@ impl Vm {
 
   /* Operations */
 
-  #[inline]
   fn exec_noop(&self) -> ExecResult {
     Err(self.error(&Opcode::NoOp, String::from("executed noop opcode, should not happen")))
   }
 
-  #[inline]
   fn exec_const(&mut self, opcode: &Opcode, index: usize) -> ExecResult {
     if let Some(c) = self.current_frame.ctx.const_at(index) {
       self.stack_push(Value::from_constant(c));
@@ -319,32 +317,26 @@ impl Vm {
     Ok(())
   }
 
-  #[inline]
   fn exec_nil(&mut self) {
     self.stack_push(Value::nil);
   }
 
-  #[inline]
   fn exec_true(&mut self) {
     self.stack_push(Value::from(true));
   }
 
-  #[inline]
   fn exec_false(&mut self) {
     self.stack_push(Value::from(false));
   }
 
-  #[inline]
   fn exec_pop(&mut self) {
     self.stack_pop();
   }
 
-  #[inline]
   fn exec_pop_n(&mut self, count: usize) {
     self.stack_pop_n(count);
   }
 
-  #[inline]
   fn exec_lookup_local(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(local) = self.stack_index(location) {
       self.stack_push(local);
@@ -354,7 +346,6 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_assign_local(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_peek() {
       self.stack_assign(location, value);
@@ -364,7 +355,6 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_lookup_global(&mut self, env: &Env, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(global) = env.lookup(&name) {
@@ -376,7 +366,6 @@ impl Vm {
     })
   }
 
-  #[inline]
   fn exec_force_assign_global(&mut self, env: &mut Env, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       // used with functions & classes only, so pop
@@ -389,7 +378,6 @@ impl Vm {
     })
   }
 
-  #[inline]
   fn exec_define_global(&mut self, env: &mut Env, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(v) = this.stack_peek() {
@@ -404,7 +392,6 @@ impl Vm {
     })
   }
 
-  #[inline]
   fn exec_assign_global(&mut self, env: &mut Env, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(v) = this.stack_peek() {
@@ -419,7 +406,6 @@ impl Vm {
     })
   }
 
-  #[inline]
   fn exec_initialize_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_peek() {
@@ -429,8 +415,9 @@ impl Vm {
               obj.set(name, value);
               Ok(())
             } else if let Some(obj) = obj.as_instance_mut() {
-              obj.set(name, value);
-              Ok(())
+              obj.set(name, value).map_err(|e| self.error(opcode, e))
+            } else if let Some(obj) = obj.as_module_mut() {
+              obj.set(name, value).map_err(|e| self.error(opcode, e))
             } else {
               Err(self.error(opcode, String::from("invalid type for member initialization")))
             }
@@ -448,7 +435,6 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_assign_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_pop() {
@@ -471,7 +457,6 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_lookup_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(obj) = self.stack_pop() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
@@ -489,7 +474,6 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_peek_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     if let Some(value) = self.stack_peek() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
@@ -516,42 +500,34 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult {
     self.binary_op(env, opcode, |a, b| Ok(Value::from(f(a, b))))
   }
 
-  #[inline]
   fn exec_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_bool(env, opcode, |a, b| a == b)
   }
 
-  #[inline]
   fn exec_not_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_bool(env, opcode, |a, b| a != b)
   }
 
-  #[inline]
   fn exec_greater(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_bool(env, opcode, |a, b| a > b)
   }
 
-  #[inline]
   fn exec_greater_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_bool(env, opcode, |a, b| a >= b)
   }
 
-  #[inline]
   fn exec_less(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_bool(env, opcode, |a, b| a < b)
   }
 
-  #[inline]
   fn exec_less_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_bool(env, opcode, |a, b| a <= b)
   }
 
-  #[inline]
   fn exec_check(&mut self, opcode: &Opcode) -> ExecResult {
     match self.stack_pop() {
       Some(a) => match self.stack_peek() {
@@ -565,38 +541,32 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_arith<F: FnOnce(Value, Value) -> ValueResult>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult {
     self.binary_op(env, opcode, |a, b| f(a, b))
   }
 
-  #[inline]
   fn exec_add(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_arith(env, opcode, |a, b| a + b)
   }
 
-  #[inline]
   fn exec_sub(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_arith(env, opcode, |a, b| a - b)
   }
 
-  #[inline]
   fn exec_mul(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_arith(env, opcode, |a, b| a * b)
   }
 
-  #[inline]
   fn exec_div(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_arith(env, opcode, |a, b| a / b)
   }
 
-  #[inline]
   fn exec_rem(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.exec_arith(env, opcode, |a, b| a % b)
   }
 
   /// when f evaluates to true, short circuit
-  #[inline]
+
   fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, opcode: &Opcode, offset: usize, f: F) -> ExecBoolResult {
     match self.stack_peek() {
       Some(v) => {
@@ -612,27 +582,22 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_or(&mut self, opcode: &Opcode, offset: usize) -> ExecBoolResult {
     self.exec_logical(opcode, offset, |v| v.truthy())
   }
 
-  #[inline]
   fn exec_and(&mut self, opcode: &Opcode, offset: usize) -> ExecBoolResult {
     self.exec_logical(opcode, offset, |v| v.falsy())
   }
 
-  #[inline]
   fn exec_not(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.unary_op(env, opcode, |v| Ok(!v))
   }
 
-  #[inline]
   fn exec_negate(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     self.unary_op(env, opcode, |v| -v)
   }
 
-  #[inline]
   fn exec_print(&mut self, opcode: &Opcode) -> ExecResult {
     if let Some(v) = self.stack_pop() {
       println!("{}", v);
@@ -642,7 +607,6 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_jump_if_false(&mut self, opcode: &Opcode, offset: usize) -> ExecBoolResult {
     match self.stack_pop() {
       Some(v) => {
@@ -657,7 +621,6 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_call(&mut self, env: &mut Env, opcode: &Opcode, airity: usize) -> ExecResult {
     let args = self.stack_drain_from(airity);
     if let Some(callable) = self.stack_pop() {
@@ -667,7 +630,6 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_req(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       let mut attempts = Vec::with_capacity(10);
@@ -752,10 +714,11 @@ impl Vm {
           Ok(data) => {
             let new_ctx = Compiler::compile(&file, &data)?;
 
-            #[cfg(debug_assertions)]
             #[cfg(feature = "disassemble")]
             {
+              println!("!!!!! ENTERING {} !!!!!", found_file.display());
               new_ctx.disassemble();
+              println!("!!!!! LEAVING  {} !!!!!", found_file.display());
             }
 
             self.new_frame(new_ctx);
@@ -774,13 +737,11 @@ impl Vm {
     }
   }
 
-  #[inline]
   fn exec_create_list(&mut self, num_items: usize) {
     let list = self.stack_drain_from(num_items);
     self.stack_push(Value::from(list));
   }
 
-  #[inline]
   fn exec_create_closure(&mut self, opcode: &Opcode) -> ExecResult {
     match self.stack_pop() {
       Some(function) => match self.stack_pop() {
@@ -801,9 +762,22 @@ impl Vm {
       None => Err(self.error(opcode, "no item on the stack to pop for closure function")),
     }
   }
-  #[inline]
+
   fn exec_create_struct(&mut self) {
     self.stack_push(Value::new_struct());
+  }
+
+  fn exec_create_module(&mut self) {
+    self.stack_push(Value::new_module());
+  }
+
+  fn exec_lock(&mut self) -> ExecResult {
+    if let Some(mut value) = self.stack_peek() {
+      value.lock();
+      Ok(())
+    } else {
+      Err(self.error(&Opcode::Lock, "no item on the stack to lock"))
+    }
   }
 
   /* Utility Functions */

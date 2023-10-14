@@ -1,5 +1,7 @@
 req "lib/sspec/sspec.ss";
 
+use sspec.describe;
+
 $SSPEC_VERBOSE = true;
 
 describe("pemdas", |t| {

@@ -1,59 +1,50 @@
 use crate::prelude::*;
-use macros::{class_body, Class};
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
 };
 
-#[derive(Default, Class)]
+#[derive(Default, Usertype, Class)]
 pub struct StringValue {
   str: String,
 }
 
-#[class_body]
+#[methods]
 impl StringValue {
-  fn len(&self) -> i32 {
-    self.str.len() as i32
+  fn len(&self) -> ValueResult<i32> {
+    Ok(self.str.len() as i32)
   }
 
-  fn clone(&self) -> Self {
-    Self { str: self.str.clone() }
+  fn clone(&self) -> ValueResult<Self> {
+    Ok(Self { str: self.str.clone() })
   }
 
-  fn reverse(&self) -> Self {
-    Self {
+  fn reverse(&self) -> ValueResult<Self> {
+    Ok(Self {
       str: self.str.chars().rev().collect::<String>(),
-    }
+    })
   }
 
-  fn __add__(&self, other: &Self) -> Self {
-    Self {
+  fn __add__(&self, other: Value) -> ValueResult<Self> {
+    Ok(Self {
       str: format!("{}{}", self, other),
-    }
+    })
   }
 
-  fn __eq__(&self, other: &Self) -> bool {
-    self.str == other.str
+  fn __eq__(&self, other: &Self) -> ValueResult<bool> {
+    Ok(self.str == other.str)
   }
 
-  fn index(&self, index: i32) -> Value {
-    self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default()
+  fn __index__(&self, index: i32) -> ValueResult {
+    Ok(self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default())
   }
 
-  fn eq(&self, other: &Self) -> bool {
-    self.str == other.str
-  }
-}
-
-impl Usertype for StringValue {
-  const ID: &'static str = "String";
-
-  fn stringify(&self) -> String {
+  fn __str__(&self) -> String {
     self.deref().clone()
   }
 
-  fn debug_string(&self) -> String {
-    format!("\"{}\"", self.stringify())
+  fn __dbg__(&self) -> String {
+    format!("\"{}\"", self.__str__())
   }
 }
 
