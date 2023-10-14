@@ -202,12 +202,12 @@ impl AstGenerator {
   fn class_stmt(&mut self) {
     if let Some(class_loc) = self.meta_at::<0>() {
       if let Some(Token::Identifier(class_name)) = self.current() {
-        if let Some(expr) = self.class_expr() {
-          self.statements.push(Statement::from(ClassStatement::new(
-            Ident::new_global(class_name),
-            expr,
-            class_loc,
-          )));
+        let ident = Ident::new_global(class_name);
+        self.advance();
+        if let Some(expr) = self.class_expr(Some(ident.clone())) {
+          self
+            .statements
+            .push(Statement::from(ClassStatement::new(ident, expr, class_loc)));
         }
       } else {
         self.error::<0>(String::from("expected an identifier"));
@@ -750,10 +750,8 @@ impl AstGenerator {
     }
   }
 
-  fn class_expr(&mut self) -> Option<Expression> {
+  fn class_expr(&mut self, name: Option<Ident>) -> Option<Expression> {
     if let Some(class_loc) = self.meta_at::<0>() {
-      self.advance();
-
       if !self.consume(Token::LeftBrace, "expected '{' after class name") {
         return None;
       }
@@ -831,7 +829,12 @@ impl AstGenerator {
         return None;
       }
 
-      Some(Expression::from(ClassExpression::new(initializer, class_members, class_loc)))
+      Some(Expression::from(ClassExpression::new(
+        name,
+        initializer,
+        class_members,
+        class_loc,
+      )))
     } else {
       self.error::<0>("no meta found at location");
       None
@@ -1494,7 +1497,7 @@ impl AstGenerator {
       Token::Number(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::And => ParseRule::new(None, Some(Self::and_expr), Precedence::And),
       Token::Break => ParseRule::new(None, None, Precedence::None),
-      Token::Class => ParseRule::new(None, None, Precedence::None),
+      Token::Class => ParseRule::new(Some(|this| Self::class_expr(this, None)), None, Precedence::Primary),
       Token::Cont => ParseRule::new(None, None, Precedence::None),
       Token::Else => ParseRule::new(None, None, Precedence::None),
       Token::False => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
@@ -2630,14 +2633,16 @@ impl StructExpression {
 
 #[derive(Debug)]
 pub struct ClassExpression {
+  pub name: Option<Ident>,
   pub initializer: Option<Box<Expression>>,
   pub methods: Vec<(Ident, Expression)>,
   pub loc: SourceLocation,
 }
 
 impl ClassExpression {
-  fn new(initializer: Option<Expression>, methods: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
+  fn new(name: Option<Ident>, initializer: Option<Expression>, methods: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
     Self {
+      name,
       initializer: initializer.map(Box::new),
       methods,
       loc,
