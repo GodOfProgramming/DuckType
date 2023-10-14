@@ -19,13 +19,6 @@ impl StructValue {
   }
 }
 
-#[methods]
-impl StructValue {
-  fn __str__(&self) -> String {
-    format!("{}", self)
-  }
-}
-
 impl ClassFields for StructValue {
   fn get_member(&self, field: &str) -> Option<Value> {
     self.members.get(field).cloned()
@@ -34,6 +27,13 @@ impl ClassFields for StructValue {
   fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()> {
     self.set(field, value);
     Ok(())
+  }
+}
+
+#[methods]
+impl StructValue {
+  fn __str__(&self) -> String {
+    format!("{}", self)
   }
 }
 

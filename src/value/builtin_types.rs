@@ -53,7 +53,7 @@ pub struct Nil;
 
 pub trait Usertype
 where
-  Self: ClassFields + ClassMethods + DisplayValue + DebugValue + Sized + 'static,
+  Self: ClassFields + ClassMethods + DisplayValue + DebugValue + LockableValue + Sized + 'static,
 {
   const ID: &'static str;
   const VTABLE: VTable = VTable::new::<Self>();
@@ -78,6 +78,10 @@ pub trait ClassFields {
 
 pub trait ClassMethods {
   fn get_method(&self, this: &Value, field: &str) -> Option<Value>;
+}
+
+pub trait LockableValue {
+  fn __lock__(&mut self) {}
 }
 
 pub trait DisplayValue {
@@ -224,6 +228,8 @@ pub enum ValueError {
   /// value
   #[error("Tried to lookup a member on a primitive '{0}'")]
   InvalidLookup(Value),
+  #[error("Cannot modify immutable object '{0}'")]
+  Immutable(String),
   /// meant to be a placeholder for me being lazy
   #[error("{0}")]
   Todo(String),

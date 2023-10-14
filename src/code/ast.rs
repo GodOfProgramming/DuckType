@@ -970,6 +970,19 @@ impl AstGenerator {
       while let Some(token) = self.current() {
         if let Some(member_loc) = self.meta_at::<0>() {
           match token {
+            Token::Mod => {
+              self.advance();
+              if let Some(Token::Identifier(ident)) = self.current() {
+                declared_items.insert(ident.clone());
+                self.advance();
+                let ident = Ident::new(ident);
+                if let Some(module) = self.mod_expr(Some(ident.clone())) {
+                  module_items.push((ident, module));
+                }
+              } else {
+                self.error::<0>("class name is invalid");
+              }
+            }
             Token::Class => {
               self.advance();
               if let Some(Token::Identifier(ident)) = self.current() {

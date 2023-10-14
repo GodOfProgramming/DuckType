@@ -93,6 +93,7 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
 
   let mut display_fn = None;
   let mut debug_fn = None;
+  let mut lock_fn = None;
 
   for item in &struct_impl.items {
     struct Method {
@@ -112,6 +113,7 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
       match name_str.as_str() {
         "__str__" => display_fn = Some(method),
         "__dbg__" => debug_fn = Some(method),
+        "__lock__" => lock_fn = Some(method),
         _ => {
           let nargs = method
             .sig
@@ -239,6 +241,18 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
     });
   }
 
+  let lock_impl = if let Some(lock_fn) = lock_fn {
+    quote! {
+      impl LockableValue for #me {
+        #lock_fn
+      }
+    }
+  } else {
+    quote! {
+      impl LockableValue for #me {}
+    }
+  };
+
   let debug_impl = if let Some(debug_fn) = debug_fn {
     quote! {
       impl DebugValue for #me {
@@ -304,6 +318,8 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
     #display_impl
 
     #debug_impl
+
+    #lock_impl
   }
   .into()
 }

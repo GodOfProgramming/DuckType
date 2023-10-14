@@ -503,6 +503,10 @@ impl Value {
     (self.vtable().debug_string)(self.pointer())
   }
 
+  pub fn lock(&mut self) {
+    (self.vtable().lock)(self.pointer_mut())
+  }
+
   // utility
 
   /// Executes f only if self is nil, otherwise returns self
@@ -1093,6 +1097,7 @@ pub struct VTable {
   assign: fn(MutVoid, &str, Value) -> ValueResult<()>,
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
+  lock: fn(MutVoid),
   dealloc: fn(MutVoid),
   type_id: fn() -> &'static str,
   type_name: fn() -> String,
@@ -1105,6 +1110,7 @@ impl VTable {
       assign: |this, name, value| <T as Usertype>::set(Self::cast_mut(this), name, value),
       display_string: |this| <T as DisplayValue>::__str__(Self::cast(this)),
       debug_string: |this| <T as DebugValue>::__dbg__(Self::cast(this)),
+      lock: |this| <T as LockableValue>::__lock__(Self::cast_mut(this)),
       dealloc: |this| consume(this as *mut T),
       type_id: || <T as Usertype>::ID,
       type_name: || std::any::type_name::<T>().to_string(),

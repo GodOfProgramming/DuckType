@@ -116,6 +116,8 @@ pub enum Opcode {
   CreateStruct,
   /** Create a new module */
   CreateModule,
+  /** Locks a value making it immutable: REQUIRES THE UNDERLYING TYPE TO IMPLEMENT SAID FUNCTIONALITY WHEN __lock__() is invoked */
+  Lock,
   /** Yield at the current location */
   Yield,
 }
