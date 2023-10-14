@@ -10,7 +10,7 @@ mod test;
 
 macro_rules! sanity_check {
   () => {
-    format!("{} ({}): sanity check", file!(), line!());
+    format!("{} ({}): sanity check", file!(), line!())
   };
 }
 

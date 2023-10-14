@@ -138,7 +138,7 @@ impl NativeClass {
     self.statics.get(name).cloned().unwrap_or_default()
   }
 
-  pub(crate) fn construct(&self, this_class: Value, vm: &mut Vm, env: &mut Env, mut args: Args) -> ValueResult {
+  pub(crate) fn construct(&self, this_class: Value, vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult {
     let this = Value::from(InstanceValue::new(Default::default(), this_class));
     if let Some(constructor) = self.constructor {
       constructor(vm, env, args)
@@ -193,7 +193,7 @@ impl Primitive {}
 impl TryFrom<Value> for Primitive {
   type Error = Box<dyn Error>;
 
-  fn try_from(value: Value) -> Result<Self, Self::Error> {
+  fn try_from(_value: Value) -> Result<Self, Self::Error> {
     unimplemented!()
   }
 }

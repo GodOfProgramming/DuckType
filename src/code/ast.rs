@@ -4,7 +4,6 @@ use std::{
   collections::BTreeSet,
   fmt::{Display, Formatter, Result as FmtResult},
   mem,
-  path::Path,
 };
 
 #[cfg(feature = "visit-ast")]
@@ -37,7 +36,10 @@ impl Ast {
       }
     };
     std::fs::write(
-      format!("assets/{}.html", Path::new(file).file_name().unwrap().to_string_lossy()),
+      format!(
+        "assets/{}.html",
+        std::path::Path::new(file).file_name().unwrap().to_string_lossy()
+      ),
       format!("{}", out),
     )
     .unwrap();
@@ -1484,17 +1486,11 @@ impl AstGenerator {
   }
 
   fn parse_precedence(&mut self, root_token_precedence: Precedence) -> Option<Expression> {
-    let indents = self.index;
-    let indent = format!("{:indents$}", " ", indents = indents);
-    #[cfg(feature = "print-precedence")]
-    println!("{indent}root: {:?}", root_token_precedence);
     self.advance();
 
     if let Some(prev) = self.previous() {
       let mut expr: Expression;
       let prev_token_rule = Self::rule_for(&prev);
-      #[cfg(feature = "print-precedence")]
-      println!("{indent}first: {:?} | {}", prev_token_rule.precedence, prev);
 
       let prefix_rule = prev_token_rule.prefix.or_else(|| {
         self.error::<1>(String::from("expected an expression"));
@@ -1508,18 +1504,6 @@ impl AstGenerator {
 
       while let Some(curr) = self.current() {
         let current_token_rule = Self::rule_for(&curr);
-        #[cfg(feature = "print-precedence")]
-        {
-          println!("{indent}{}", self.peek_range::<5>());
-          println!("{indent}current: {:?} | {}", current_token_rule.precedence, curr);
-          println!(
-            "{indent}{:?} <= {:?}: {}",
-            root_token_precedence,
-            current_token_rule.precedence,
-            root_token_precedence <= current_token_rule.precedence
-          );
-          println!();
-        }
         if root_token_precedence <= current_token_rule.precedence {
           match current_token_rule.infix {
             Some(infix) => {
@@ -1707,22 +1691,6 @@ impl AstGenerator {
       }
       .to_string(),
     }))
-  }
-
-  fn peek_range<const I: usize>(&self) -> String {
-    let min_pos = self.index.saturating_sub(I);
-    let max_pos = self.index + I;
-    let mut v = Vec::new();
-    for i in min_pos..max_pos {
-      if let Some(t) = self.tokens.get(i) {
-        if i == self.index {
-          v.push(format!("*{}*", t.to_string()));
-        } else {
-          v.push(t.to_string());
-        }
-      }
-    }
-    v.join("|")
   }
 }
 
@@ -2911,7 +2879,6 @@ impl From<Vec<Ident>> for Params {
 #[derive(PartialEq, Eq)]
 enum SelfRules {
   Disallow,
-  Allow,
   Require,
 }
 
