@@ -21,12 +21,12 @@ impl ModuleValue {
   }
 }
 
-impl ClassFields for ModuleValue {
-  fn get_member(&self, field: &str) -> Option<Value> {
+impl UsertypeFields for ModuleValue {
+  fn get_field(&self, field: &str) -> Option<Value> {
     self.members.get(field).cloned()
   }
 
-  fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()> {
+  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
     if self.locked {
       Err(ValueError::Immutable(self.__str__()))
     } else {

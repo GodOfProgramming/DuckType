@@ -6,7 +6,7 @@ pub type NativeFn = for<'a, 'b> fn(&'a mut Vm, &'b mut Env, Args) -> ValueResult
 
 type NativeClosureType = dyn FnMut(&mut Vm, &mut Env, Args) -> ValueResult;
 
-#[derive(Usertype, Class)]
+#[derive(Usertype, Fields)]
 #[uuid("3c90ac96-ba86-4ceb-9b9a-591af85ca17b")]
 pub struct NativeClosureValue {
   pub name: String,
@@ -66,7 +66,7 @@ impl Display for NativeCallable {
   }
 }
 
-#[derive(Usertype, Class)]
+#[derive(Usertype, Fields)]
 #[uuid("846eb503-820d-446a-9b54-7a274d85cd32")]
 pub struct NativeMethodValue {
   pub this: Value,

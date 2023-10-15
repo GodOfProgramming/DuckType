@@ -39,8 +39,8 @@ pub fn derive_usertype(input: TokenStream) -> TokenStream {
   user_types::derive_usertype(struct_def, uuid_attr).into()
 }
 
-#[proc_macro_derive(Class, attributes(field))]
-pub fn derive_class(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(Fields, attributes(field))]
+pub fn derive_fields(input: TokenStream) -> TokenStream {
   let struct_def = parse_macro_input!(input as ItemStruct);
   user_types::derive_class(struct_def).into()
 }

@@ -5,7 +5,7 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
-#[derive(Default, Usertype, Class)]
+#[derive(Default, Usertype, Fields)]
 #[uuid("8b881e80-c828-4563-b7ad-d4b8f1bffbfa")]
 pub struct ArrayValue {
   list: Vec<Value>,

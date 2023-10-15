@@ -4,7 +4,7 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
-#[derive(Default, Usertype, Class)]
+#[derive(Default, Usertype, Fields)]
 #[uuid("71d35fbb-2091-40c3-ae3c-5b62b259e8a4")]
 pub struct StringValue {
   str: String,

@@ -1,6 +1,5 @@
 use crate::prelude::*;
-
-use macros::{methods, Class};
+use macros::{methods, Fields};
 use tfix::prelude::*;
 
 #[derive(Default)]
@@ -12,7 +11,7 @@ impl TestFixture for ValueTest {
   }
 }
 
-#[derive(Default, Usertype, Class)]
+#[derive(Default, Usertype, Fields)]
 #[uuid("9ae5ec94-64f1-4294-8a16-77f753865a82")]
 struct ImplementedObject {
   field: i32,
@@ -27,7 +26,7 @@ impl ImplementedObject {
 #[methods]
 impl ImplementedObject {}
 
-#[derive(Default, Usertype, Class)]
+#[derive(Default, Usertype, Fields)]
 #[uuid("dc03970c-c5c2-451e-b4b1-3f62e99a042c")]
 struct UnimplementedObject {}
 
@@ -63,9 +62,9 @@ mod unit_tests {
   fn structs_supported(_: &mut ValueTest) {
     let mut v = StructValue::new();
     v.set("foo", 123.into());
-    assert_eq!(v.get_member("foo").unwrap(), 123.into());
+    assert_eq!(v.get_field("foo").unwrap(), 123.into());
     v.set("field", ImplementedObject::default().into());
-    assert!(v.get_member("field").unwrap().is::<ImplementedObject>());
+    assert!(v.get_field("field").unwrap().is::<ImplementedObject>());
   }
 
   #[test]

@@ -1,4 +1,4 @@
-use macros::{methods, Class};
+use macros::{methods, Fields};
 use simple_script::prelude::*;
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
@@ -30,7 +30,7 @@ impl TestFixture for ScriptTest {
   }
 }
 
-#[derive(Usertype, Class)]
+#[derive(Usertype, Fields)]
 #[uuid("8d77f7e3-ccad-4214-a7d1-98f283b7a624")]
 struct Leaker {
   b: &'static mut bool,

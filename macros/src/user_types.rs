@@ -55,15 +55,15 @@ pub(crate) fn derive_class(struct_def: ItemStruct) -> TokenStream {
     .collect::<Vec<Literal>>();
   quote! {
     #[automatically_derived]
-    impl ClassFields for #name {
-      fn get_member(&self, field: &str) -> Option<Value> {
+    impl UsertypeFields for #name {
+      fn get_field(&self, field: &str) -> Option<Value> {
         match field {
           #(#ident_strs => Some(Value::from(&self.#idents)),)*
           _ => None,
         }
       }
 
-      fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()> {
+      fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
         match field {
           #(#ident_strs => self.#idents = value.try_into()?,)*
           _ => Err(ValueError::InvalidAssignment(field.to_string()))?,
@@ -289,7 +289,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     #struct_impl
 
     #[automatically_derived]
-    impl ClassMethods for #me {
+    impl UsertypeMethods for #me {
       fn get_method(&self, this: &Value, field: &str) -> Option<Value> {
 
         #try_cast_arg

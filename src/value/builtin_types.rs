@@ -37,7 +37,7 @@ pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
 pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
-use macros::{methods, Class};
+use macros::{methods, Fields};
 pub use method_value::MethodValue;
 pub use module_value::{LockedModule, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
@@ -52,30 +52,30 @@ pub struct Nil;
 
 pub trait Usertype
 where
-  Self: ClassFields + ClassMethods + DisplayValue + DebugValue + LockableValue + Sized + 'static,
+  Self: UsertypeFields + UsertypeMethods + DisplayValue + DebugValue + LockableValue + Sized + 'static,
 {
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
 
   fn get(&self, this: &Value, field: &str) -> ValueResult<Value> {
     Ok(
-      <Self as ClassFields>::get_member(self, field)
-        .or_else(|| <Self as ClassMethods>::get_method(self, this, field))
+      <Self as UsertypeFields>::get_field(self, field)
+        .or_else(|| <Self as UsertypeMethods>::get_method(self, this, field))
         .unwrap_or_default(),
     )
   }
 
   fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
-    <Self as ClassFields>::set_member(self, field, value)
+    <Self as UsertypeFields>::set_field(self, field, value)
   }
 }
 
-pub trait ClassFields {
-  fn get_member(&self, field: &str) -> Option<Value>;
-  fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()>;
+pub trait UsertypeFields {
+  fn get_field(&self, field: &str) -> Option<Value>;
+  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()>;
 }
 
-pub trait ClassMethods {
+pub trait UsertypeMethods {
   fn get_method(&self, this: &Value, field: &str) -> Option<Value>;
 }
 
@@ -127,7 +127,7 @@ impl<T: Into<Value> + Clone, const I: usize> From<[T; I]> for Args {
 }
 
 /// Intentionally empty
-#[derive(Usertype, Class)]
+#[derive(Usertype, Fields)]
 #[uuid("6d9d039a-9803-41ff-8e84-a0ea830e2380")]
 pub struct Primitive {}
 

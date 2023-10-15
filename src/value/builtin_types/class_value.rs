@@ -65,12 +65,12 @@ impl ClassValue {
   }
 }
 
-impl ClassFields for ClassValue {
-  fn get_member(&self, field: &str) -> Option<Value> {
+impl UsertypeFields for ClassValue {
+  fn get_field(&self, field: &str) -> Option<Value> {
     Some(self.get_static(field).unwrap_or_default())
   }
 
-  fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()> {
+  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
     self.set_static(field, value);
     Ok(())
   }
