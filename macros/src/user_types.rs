@@ -8,7 +8,13 @@ pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal
   let name = struct_def.ident;
 
   let uuid_value = match uuid_value {
-    Some(uuid_value) => uuid_value,
+    Some(uuid_value) => {
+      if uuid_value.to_string() == "\"random\"" {
+        Literal::string(&uuid::Uuid::new_v4().to_string())
+      } else {
+        uuid_value
+      }
+    }
     None => {
       let envvar = format!("{}_UUID", name);
       match env::var(&envvar) {

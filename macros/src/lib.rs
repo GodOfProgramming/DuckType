@@ -8,23 +8,18 @@ use quote::ToTokens;
 use syn::{
   parenthesized,
   parse::{Parse, ParseStream},
-  parse_macro_input,
-  token::Paren,
-  Item, ItemImpl, ItemStruct,
+  parse_macro_input, Item, ItemImpl, ItemStruct,
 };
 
 struct UuidAttr {
-  #[allow(unused)]
-  paren_token: Paren,
-  arg: Literal,
+  uuid: Literal,
 }
 
 impl Parse for UuidAttr {
   fn parse(input: ParseStream) -> syn::Result<Self> {
     let content;
-    let paren_token = parenthesized!(content in input);
-    let arg = content.parse()?;
-    Ok(Self { paren_token, arg })
+    parenthesized!(content in input);
+    Ok(Self { uuid: content.parse()? })
   }
 }
 
@@ -36,7 +31,7 @@ pub fn derive_usertype(input: TokenStream) -> TokenStream {
     Some(uuid_attr) => {
       let tokens = TokenStream::from(uuid_attr.tokens.clone());
       let uuid_value = parse_macro_input!(tokens as UuidAttr);
-      Some(uuid_value.arg)
+      Some(uuid_value.uuid)
     }
     None => None,
   };
@@ -69,6 +64,7 @@ pub fn native(_args: TokenStream, input: TokenStream) -> TokenStream {
   .into()
 }
 
+#[allow(unused)]
 fn message(location: impl ToTokens, msg: impl Into<String>) -> proc_macro2::TokenStream {
   return syn::Error::new_spanned(location, msg.into()).to_compile_error();
 }
