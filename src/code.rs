@@ -120,6 +120,8 @@ pub enum Opcode {
   Lock,
   /** Yield at the current location */
   Yield,
+  /** Halt the VM when this instruction is reached and enter repl mode */
+  Breakpoint,
 }
 
 #[derive(Default)]
@@ -308,6 +310,10 @@ impl Context {
       strings: Default::default(),
       meta: reflection,
     }
+  }
+
+  pub(crate) fn name(&self) -> String {
+    self.name.clone().unwrap_or_else(|| String::from("<unnamed>"))
   }
 
   fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
@@ -668,8 +674,8 @@ impl Env {
     self.vars.insert(name.to_string(), value).is_some()
   }
 
-  pub fn lookup<T: ToString>(&self, name: T) -> Option<Value> {
-    self.vars.get(&name.to_string()).cloned()
+  pub fn lookup<T: AsRef<str>>(&self, name: T) -> Option<Value> {
+    self.vars.get(name.as_ref()).cloned()
   }
 }
 
@@ -685,7 +691,7 @@ impl Reflection {
     Reflection {
       file,
       source,
-      opcode_info: Vec::default(),
+      opcode_info: Default::default(),
     }
   }
 

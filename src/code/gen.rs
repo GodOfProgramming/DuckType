@@ -308,6 +308,10 @@ impl BytecodeGenerator {
     self.emit(Opcode::Yield, stmt.loc);
   }
 
+  fn breakpoint_stmt(&mut self, loc: SourceLocation) {
+    self.emit(Opcode::Breakpoint, loc)
+  }
+
   fn expr_stmt(&mut self, stmt: ExpressionStatement) {
     self.emit_expr(stmt.expr);
     self.emit(Opcode::Pop, stmt.loc);
@@ -587,6 +591,7 @@ impl BytecodeGenerator {
       Statement::Use(stmt) => self.use_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
       Statement::Yield(stmt) => self.yield_stmt(stmt),
+      Statement::Breakpoint(loc) => self.breakpoint_stmt(loc),
       Statement::Expression(stmt) => self.expr_stmt(stmt),
     }
   }

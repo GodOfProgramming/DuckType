@@ -1,3 +1,12 @@
-req "examples/ss_module/target/debug/ss_module";
+let $GLOBAL = true;
+fn impossible_condition() {
+  ret $GLOBAL;
+}
 
-ExampleModule.test_function();
+if impossible_condition() {
+  __breakpoint__;
+}
+
+if impossible_condition() {
+  print($oh_no_an_undefined_variable);
+}

@@ -1,34 +1,32 @@
 use simple_script::prelude::*;
-use std::{env, fs, path::Path, process};
+use std::{env, error::Error, fs, path::Path, process};
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
   let mut exit_code = 0;
 
   let mut args = env::args().into_iter().skip(1);
   let file = args.next();
+  let args = args.collect::<Vec<String>>();
 
   let vm = Vm::new();
+  let env = Env::initialize(&args, Library::All);
 
   if let Some(file) = file {
-    if !run_file(vm, file, &args.collect::<Vec<String>>()) {
+    if !run_file(vm, file, env) {
       exit_code = 1;
     }
-  } else {
-    run_cli(vm)
   }
 
   process::exit(exit_code);
 }
 
-fn run_file<T: ToString>(mut vm: Vm, file: T, args: &[String]) -> bool {
+fn run_file<T: ToString>(mut vm: Vm, file: T, mut env: Env) -> bool {
   let file = file.to_string();
   let p = Path::new(&file);
   if p.exists() {
     match fs::read_to_string(p) {
       Ok(contents) => match vm.load(&file, &contents) {
         Ok(ctx) => {
-          let mut env = Env::initialize(args, Library::All);
-
           let mut yield_result = None;
 
           loop {
@@ -86,8 +84,4 @@ fn run_file<T: ToString>(mut vm: Vm, file: T, args: &[String]) -> bool {
   }
 
   true
-}
-
-fn run_cli(_runner: Vm) {
-  let _quit = false;
 }

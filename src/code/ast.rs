@@ -1,13 +1,15 @@
-use super::*;
-use lex::{NumberToken, Token};
+use super::{
+  lex::{NumberToken, Token},
+  ConstantValue, SourceLocation,
+};
+use crate::{prelude::*, UnwrapAnd};
+#[cfg(feature = "visit-ast")]
+use horrorshow::{helper::doctype, html, prelude::*};
 use std::{
   collections::BTreeSet,
   fmt::{Display, Formatter, Result as FmtResult},
   mem,
 };
-
-#[cfg(feature = "visit-ast")]
-use horrorshow::{helper::doctype, html, prelude::*};
 
 pub struct Ast {
   pub statements: Vec<Statement>,
@@ -151,6 +153,10 @@ impl AstGenerator {
       Token::Yield => {
         self.advance();
         self.yield_stmt();
+      }
+      Token::Breakpoint => {
+        self.advance();
+        self.breakpoint_stmt();
       }
       _ => self.expression_stmt(),
     }
@@ -426,21 +432,18 @@ impl AstGenerator {
   }
 
   fn print_stmt(&mut self) {
-    if let Some(loc) = self.meta_at::<1>() {
+    self.meta_at::<1>().unwrap_and(|loc| {
       if let Some(expr) = self.expression() {
         if !self.consume(Token::Semicolon, "expected ';' after value") {
           return;
         }
         self.statements.push(Statement::from(PrintStatement::new(expr, loc)));
       }
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
-    }
+    });
   }
 
   fn ret_stmt(&mut self) {
-    if let Some(loc) = self.meta_at::<1>() {
+    self.meta_at::<1>().unwrap_and(|loc| {
       if let Some(current) = self.current() {
         let expr = if current == Token::Semicolon {
           None
@@ -456,22 +459,22 @@ impl AstGenerator {
 
         self.statements.push(Statement::from(RetStatement::new(expr, loc)));
       }
-    }
+    });
   }
 
   fn use_stmt(&mut self) {
-    if let Some(loc) = self.meta_at::<0>() {
+    self.meta_at::<0>().unwrap_and(|loc| {
       let path = self.resolve();
       if path.is_empty() {
         self.error::<1>(String::from("use must have a type following it"));
       } else if self.consume(Token::Semicolon, "expecte ';' after use") {
         self.statements.push(Statement::from(UseStatement::new(path, loc)));
       }
-    }
+    });
   }
 
   fn while_stmt(&mut self) {
-    if let Some(expr) = self.expression() {
+    self.expression().unwrap_and(|expr| {
       if !self.consume(Token::LeftBrace, "expected '{' after expression") {
         return;
       }
@@ -479,26 +482,32 @@ impl AstGenerator {
       let prev = self.in_loop;
       self.in_loop = true;
 
-      if let Some(loc) = self.meta_at::<1>() {
+      self.meta_at::<1>().unwrap_and(|loc| {
         if let Some(block) = self.block(loc.clone()) {
           self
             .statements
             .push(Statement::from(WhileStatement::new(expr, Statement::from(block), loc)));
         }
-      } else {
-        // sanity check
-        self.error::<0>(String::from("could not find original token"));
-      }
+      });
 
       self.in_loop = prev;
-    }
+    });
   }
 
   fn yield_stmt(&mut self) {
-    if let Some(loc) = self.meta_at::<0>() {
+    self.meta_at::<0>().unwrap_and(|loc| {
       if self.consume(Token::Semicolon, "expected ';' after yield") {
         self.statements.push(Statement::from(YieldStatement::new(loc)));
       }
+    });
+  }
+
+  fn breakpoint_stmt(&mut self) {
+    self
+      .meta_at::<0>()
+      .unwrap_and(|meta| self.statements.push(Statement::Breakpoint(meta)));
+    if !self.consume(Token::Semicolon, "expected ';' after value") {
+      return;
     }
   }
 
@@ -1588,6 +1597,7 @@ impl AstGenerator {
       Token::Use => ParseRule::new(None, None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
       Token::Yield => ParseRule::new(None, None, Precedence::None),
+      Token::Breakpoint => ParseRule::new(None, None, Precedence::None),
     }
   }
 
@@ -1744,6 +1754,7 @@ pub enum Statement {
   While(WhileStatement),
   Yield(YieldStatement),
   Expression(ExpressionStatement),
+  Breakpoint(SourceLocation),
 }
 
 impl Statement {
@@ -1805,6 +1816,7 @@ impl Statement {
       }
       Statement::While(_) => (),
       Statement::Yield(_) => (),
+      Statement::Breakpoint(_) => (),
       Statement::Expression(e) => e.expr.dump(tmpl),
     }
   }
@@ -1831,6 +1843,7 @@ impl Display for Statement {
       Self::While(_) => write!(f, "while"),
       Self::Use(_) => write!(f, "use"),
       Self::Yield(_) => write!(f, "yield"),
+      Self::Breakpoint(_) => write!(f, "__breakpoint__"),
       Self::Expression(_) => write!(f, "expression"),
     }
   }
@@ -2880,16 +2893,4 @@ impl From<Vec<Ident>> for Params {
 enum SelfRules {
   Disallow,
   Require,
-}
-
-trait UnwrapAnd<T> {
-  fn unwrap_and(self, f: impl FnOnce(T));
-}
-
-impl<T> UnwrapAnd<T> for Option<T> {
-  fn unwrap_and(self, f: impl FnOnce(T)) {
-    if let Some(inner) = self {
-      f(inner);
-    }
-  }
 }
