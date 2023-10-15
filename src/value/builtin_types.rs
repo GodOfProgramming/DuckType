@@ -80,7 +80,9 @@ pub trait UsertypeFields {
 }
 
 pub trait UsertypeMethods {
-  fn __new__(args: Args) -> ValueResult;
+  fn __new__(vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult {
+    Err(ValueError::UndefinedInitializer)
+  }
   fn get_method(&self, this: &Value, field: &str) -> ValueResult<Option<Value>>;
 }
 
@@ -182,9 +184,15 @@ pub enum ValueError {
   /// ident
   #[error("Tried to access undefined member '{0}'")]
   UndefinedMember(String),
+
   /// message
   #[error("{0}")]
   RuntimeError(String),
+
+  /// Default return value for usertype initializers
+  #[error("Undefined initializer reached")]
+  UndefinedInitializer,
+
   /// meant to be a placeholder for me being lazy
   #[error("{0}")]
   Todo(String),

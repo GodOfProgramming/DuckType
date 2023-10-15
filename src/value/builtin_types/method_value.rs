@@ -32,10 +32,6 @@ impl MethodValue {
 
 #[methods]
 impl MethodValue {
-  fn __new__() -> ValueResult {
-    Err(ValueError::Infallible)
-  }
-
   fn __str__(&self) -> String {
     format!("method {}", self.function.__str__())
   }

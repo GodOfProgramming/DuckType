@@ -208,26 +208,22 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
 
   let try_cast_arg = common::try_cast_arg_fn_tokens();
 
-  let constructor_impl = if let Some(constructor) = constructor {
-    let nargs = count_args(constructor);
-    let name = &constructor.sig.ident;
-    let name_str = Literal::string(&name.to_string());
-    let args = make_arg_list(nargs, name_str);
-    quote! {
-      fn __new__(args: Args) -> ValueResult {
-        #constructor
-        #try_cast_arg
-        let mut args = args.list.into_iter();
-        Ok(Value::from(#name(#args)?))
+  let constructor_impl = constructor
+    .map(|constructor| {
+      let nargs = count_args(constructor);
+      let name = &constructor.sig.ident;
+      let name_str = Literal::string(&name.to_string());
+      let args = make_arg_list(nargs, name_str);
+      quote! {
+        fn __new__(vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult {
+          #constructor
+          #try_cast_arg
+          let mut args = args.list.into_iter();
+          Ok(Value::from(#name(#args)?))
+        }
       }
-    }
-  } else {
-    quote! {
-      fn __new__(_args: Args) -> ValueResult {
-        Ok(Value::from(Self::default()))
-      }
-    }
-  };
+    })
+    .unwrap_or_default();
 
   let lock_impl = if let Some(lock_fn) = lock_fn {
     quote! {

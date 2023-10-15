@@ -78,10 +78,6 @@ impl UsertypeFields for ClassValue {
 
 #[methods]
 impl ClassValue {
-  fn __new__() -> ValueResult {
-    Err(ValueError::Infallible)
-  }
-
   fn __str__(&self) -> String {
     if let Some(name) = &self.name {
       name.clone()

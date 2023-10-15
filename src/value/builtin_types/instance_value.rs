@@ -24,10 +24,6 @@ impl UsertypeFields for InstanceValue {
 }
 
 impl UsertypeMethods for InstanceValue {
-  fn __new__(_args: Args) -> ValueResult {
-    Err(ValueError::Infallible)
-  }
-
   fn get_method(&self, this: &Value, name: &str) -> ValueResult<Option<Value>> {
     if let Some(class) = self.class.as_class() {
       Ok(class.get_method(this, name))

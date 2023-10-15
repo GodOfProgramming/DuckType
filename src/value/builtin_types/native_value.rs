@@ -32,10 +32,6 @@ impl NativeClosureValue {
 
 #[methods]
 impl NativeClosureValue {
-  fn __new__() -> ValueResult {
-    Err(ValueError::Infallible)
-  }
-
   fn __str__(&self) -> String {
     format!("{}", self)
   }
@@ -99,10 +95,6 @@ impl NativeMethodValue {
 
 #[methods]
 impl NativeMethodValue {
-  fn __new__() -> ValueResult {
-    Err(ValueError::Infallible)
-  }
-
   fn __str__(&self) -> String {
     format!("{}", self)
   }

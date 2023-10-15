@@ -22,5 +22,9 @@ mod example_module {
   }
 
   #[methods]
-  impl Foo {}
+  impl Foo {
+    fn __new__() -> ValueResult<Foo> {
+      Ok(Foo::default())
+    }
+  }
 }
