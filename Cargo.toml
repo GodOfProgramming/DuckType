@@ -7,15 +7,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+dlopen2 = "*"
 enum-iterator = "*"
-static_assertions = "*"
-sysinfo = "*"
 horrorshow = "*"
+inter-struct = "*"
 itertools = "*"
 memoffset = "*"
+rustyline = "12.0.0"
+static_assertions = "*"
+sysinfo = "*"
 thiserror = "*"
-inter-struct = "*"
-dlopen2 = "*"
 
 ptr = { path = "lib/ptr" }
 tfix = { path = "lib/tfix" }

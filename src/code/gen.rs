@@ -3,7 +3,7 @@ use crate::prelude::*;
 use ptr::SmartPtr;
 use std::collections::BTreeMap;
 
-use super::{ClassConstant, ConstantValue, FunctionConstant};
+use super::{ClassConstant, ConstantValue, FunctionConstant, Local};
 
 #[cfg(test)]
 mod test;
@@ -12,12 +12,6 @@ macro_rules! sanity_check {
   () => {
     format!("{} ({}): sanity check", file!(), line!())
   };
-}
-
-struct Local {
-  name: String,
-  depth: usize,
-  initialized: bool,
 }
 
 #[derive(PartialEq)]
@@ -35,7 +29,6 @@ pub struct BytecodeGenerator {
   ctx: SmartPtr<Context>,
 
   identifiers: BTreeMap<String, usize>,
-  locals: Vec<Local>,
 
   function_id: usize,
   current_fn: Option<SmartPtr<Context>>,
@@ -55,7 +48,6 @@ impl BytecodeGenerator {
       ctx,
 
       identifiers: Default::default(),
-      locals: Default::default(),
 
       function_id: Default::default(),
       current_fn: Default::default(),
@@ -306,6 +298,10 @@ impl BytecodeGenerator {
 
   fn yield_stmt(&mut self, stmt: YieldStatement) {
     self.emit(Opcode::Yield, stmt.loc);
+  }
+
+  fn breakpoint_stmt(&mut self, loc: SourceLocation) {
+    self.emit(Opcode::Breakpoint, loc)
   }
 
   fn expr_stmt(&mut self, stmt: ExpressionStatement) {
@@ -587,6 +583,7 @@ impl BytecodeGenerator {
       Statement::Use(stmt) => self.use_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
       Statement::Yield(stmt) => self.yield_stmt(stmt),
+      Statement::Breakpoint(loc) => self.breakpoint_stmt(loc),
       Statement::Expression(stmt) => self.expr_stmt(stmt),
     }
   }
@@ -750,9 +747,10 @@ impl BytecodeGenerator {
    * Otherwise returns false
    */
   fn declare_local(&mut self, ident: Ident, loc: SourceLocation) -> bool {
-    for local in self.locals.iter().rev() {
+    let scope_depth = self.scope_depth;
+    for local in self.current_ctx().locals.iter().rev() {
       // declared already in parent scope, break to redeclare in current scope
-      if local.initialized && local.depth < self.scope_depth {
+      if local.initialized && local.depth < scope_depth {
         break;
       }
 
@@ -762,9 +760,9 @@ impl BytecodeGenerator {
       }
     }
 
-    self.locals.push(Local {
+    self.current_ctx().locals.push(Local {
       name: ident.name,
-      depth: self.scope_depth,
+      depth: scope_depth,
       initialized: false,
     });
 
@@ -776,7 +774,7 @@ impl BytecodeGenerator {
   }
 
   fn define_local(&mut self) -> bool {
-    if let Some(local) = self.locals.last_mut() {
+    if let Some(local) = self.current_ctx().locals.last_mut() {
       local.initialized = true;
       true
     } else {
@@ -810,15 +808,17 @@ impl BytecodeGenerator {
   }
 
   fn resolve_ident(&mut self, ident: &Ident, loc: SourceLocation) -> Option<Lookup> {
-    if !self.locals.is_empty() {
-      let mut index = self.locals.len() - 1;
+    let ctx = self.current_ctx();
+    if !ctx.locals.is_empty() {
+      let mut index = ctx.locals.len() - 1;
 
-      for local in self.locals.iter().rev() {
+      for local in ctx.locals.iter().rev() {
         if ident.name == local.name {
           if !local.initialized {
             self.error(loc, String::from("tried to use an undeclared identifier"));
             return None;
           } else {
+            self.current_ctx().map_local(ident.name.clone(), index);
             return Some(Lookup {
               index,
               kind: LookupKind::Local,
@@ -839,25 +839,13 @@ impl BytecodeGenerator {
   }
 
   fn reduce_locals_to_depth(&mut self, depth: usize, loc: SourceLocation) {
-    let count = self.num_locals_in_depth(depth);
-
-    self.locals.truncate(self.locals.len().saturating_sub(count));
+    let ctx = self.current_ctx();
+    let count = ctx.num_locals_in_depth(depth);
+    ctx.locals.truncate(ctx.locals.len().saturating_sub(count));
 
     if count > 0 {
       self.emit(Opcode::PopN(count), loc);
     }
-  }
-
-  fn num_locals_in_depth(&self, depth: usize) -> usize {
-    let mut count = 0;
-    for local in self.locals.iter().rev() {
-      if local.depth > depth {
-        count += 1;
-      } else {
-        break;
-      }
-    }
-    count
   }
 
   fn create_class_fn(&mut self, ident: Ident, expr: Expression) -> Option<(FunctionConstant, bool)> {
@@ -871,13 +859,14 @@ impl BytecodeGenerator {
   fn create_fn(&mut self, ident: Option<Ident>, args: Vec<Ident>, body: Statement, loc: SourceLocation) -> FunctionConstant {
     self.function_id += 1;
 
-    let mut locals = Vec::default();
-    std::mem::swap(&mut locals, &mut self.locals);
-
     let parent_ctx = self.current_ctx_ptr();
     let prev_fn = self.current_fn.take();
 
-    let reflection = Reflection::new(parent_ctx.meta.file.clone(), parent_ctx.meta.source.clone());
+    let reflection = if let Some(meta) = &parent_ctx.meta {
+      Some(Reflection::new(meta.file.clone(), meta.source.clone()))
+    } else {
+      None
+    };
 
     self.current_fn = Some(SmartPtr::new(Context::new_child(
       ident.map(|i| i.name),
@@ -907,19 +896,19 @@ impl BytecodeGenerator {
 
       this.emit_stmt(body);
 
-      let ctx = this.current_fn.take().unwrap();
+      let this_fn_ctx = this.current_fn.take().unwrap();
 
-      let num_locals = this.num_locals_in_depth(this.scope_depth);
+      let num_locals = this_fn_ctx.num_locals_in_depth(this.scope_depth);
+
       if num_locals != 0 {
         this.emit(Opcode::PopN(num_locals), loc);
       }
 
-      let local_count = this.locals.len();
+      let local_count = this_fn_ctx.locals.len();
       // restore here so const is emitted to correct place
       this.current_fn = prev_fn;
-      this.locals = locals;
 
-      FunctionConstant::new(airity, local_count, ctx)
+      FunctionConstant::new(airity, local_count, this_fn_ctx)
     })
   }
 

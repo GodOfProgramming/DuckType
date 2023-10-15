@@ -1,3 +1,7 @@
-req "examples/ss_module/target/debug/ss_module";
+fn impossible_condition() {
+  ret true;
+}
 
-ExampleModule.test_function();
+if impossible_condition() {
+  __breakpoint__;
+}

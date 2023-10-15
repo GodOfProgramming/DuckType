@@ -18,13 +18,11 @@ repository:
   keywords:
     patterns:
       - name: "keyword.control"
-        match: "\\b(break|cont|else|for|if|loop|match|ret|while|yield)\\b"
+        match: "\\b(break|cont|else|for|if|loop|match|ret|while|yield|__breakpoint__)\\b"
       - name: "keyword.operator"
         match: "\\b(and|or)\\b|\\+|\\-|\\/|\\*"
       - name: "keyword.declaration"
         match: "\\b(let|class|struct|mod|fn|req|new|use)\\b"
-      - name: "storage.type"
-        match: "\\b(error|bool|number|string|list)\\b"
       - name: "support.function.builtin"
         match: "\\b(print)\\b"
       - name: "constant.language.null"

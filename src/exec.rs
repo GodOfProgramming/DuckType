@@ -5,6 +5,7 @@ use crate::{
 };
 use dlopen2::wrapper::{Container, WrapperApi};
 use ptr::SmartPtr;
+use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
   collections::BTreeMap,
   env, fs,
@@ -49,8 +50,46 @@ impl Vm {
     Self::default()
   }
 
+  pub fn repl(&mut self, env: &mut Env) -> Result<(), Box<dyn std::error::Error>> {
+    const FILE: &'static str = "<repl>";
+
+    let mut rl = DefaultEditor::new()?;
+
+    let mut line_number = 1usize;
+
+    let ctx = SmartPtr::new(Context::new(Some(FILE), None));
+
+    loop {
+      let prompt = format!("{}:{}: ", ctx.name(), line_number);
+      match rl.readline(&prompt) {
+        Ok(line) => match Compiler::compile(FILE, &line, Some(ctx.clone())) {
+          Ok(ctx) => {
+            self.current_frame.ctx = ctx;
+            self.stack_frames = Default::default();
+            self.opened_files = vec![(0, PathBuf::from(FILE.to_string()))];
+            match self.execute(env) {
+              Ok(ret) => {
+                line_number += 1;
+                match ret {
+                  Return::Value(v) => println!("=> {}", v),
+                  Return::Yield(_) => return Ok(()),
+                }
+              }
+              Err(e) => println!("{:?}", e),
+            }
+          }
+          Err(e) => println!("{:?}", e),
+        },
+        Err(ReadlineError::Interrupted) => {
+          println!("Use ps.exit() instead of CTRL-C");
+        }
+        Err(e) => Err(e)?,
+      }
+    }
+  }
+
   pub fn load<T: ToString>(&self, file: T, code: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    Compiler::compile(&file.to_string(), code)
+    Compiler::compile(&file.to_string(), code, None)
   }
 
   pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<Return, Vec<RuntimeError>> {
@@ -61,7 +100,6 @@ impl Vm {
   }
 
   pub fn run<T: ToString>(&mut self, file: T, ctx: SmartPtr<Context>, env: &mut Env) -> Result<Return, Vec<RuntimeError>> {
-    #[cfg(debug_assertions)]
     #[cfg(feature = "disassemble")]
     {
       ctx.disassemble();
@@ -272,6 +310,7 @@ impl Vm {
 
             return Ok(Return::Yield(Yield::new(current_frame, stack_frames, opened_files)));
           }
+          Opcode::Breakpoint => {}
         }
 
         self.current_frame.ip += 1;
@@ -714,7 +753,7 @@ impl Vm {
           }
           _ => match fs::read_to_string(&found_file) {
             Ok(data) => {
-              let new_ctx = Compiler::compile(&file, &data)?;
+              let new_ctx = Compiler::compile(&file, &data, None)?;
 
               #[cfg(feature = "disassemble")]
               {
@@ -908,12 +947,21 @@ impl Vm {
 
   #[cold]
   fn error_at<F: FnOnce(OpCodeReflection) -> RuntimeError>(&self, f: F) -> RuntimeError {
-    if let Some(opcode_ref) = self.current_frame.ctx.meta.get(self.current_frame.ip) {
-      f(opcode_ref)
+    if let Some(meta) = &self.current_frame.ctx.meta {
+      if let Some(opcode_ref) = meta.get(self.current_frame.ip) {
+        f(opcode_ref)
+      } else {
+        RuntimeError {
+          msg: format!("could not fetch info for instruction {:04X}", self.current_frame.ip),
+          file: meta.file.access().clone(),
+          line: 0,
+          column: 0,
+        }
+      }
     } else {
       RuntimeError {
         msg: format!("could not fetch info for instruction {:04X}", self.current_frame.ip),
-        file: self.current_frame.ctx.meta.file.access().clone(),
+        file: String::from("<unknown file>"),
         line: 0,
         column: 0,
       }
