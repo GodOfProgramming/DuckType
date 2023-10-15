@@ -60,7 +60,8 @@ impl Vm {
           Ok(words) => match Cli::try_parse_from(words) {
             Ok(cli) => match cli.exec(self, env) {
               Ok(output) => {
-                output.response.unwrap_and(|response| println!("{}", response));
+                rl.add_history_entry(line).ok();
+                output.response.unwrap_and(|response| println!("=> {}", response));
                 if output.quit {
                   return Ok(());
                 }
@@ -302,7 +303,6 @@ impl Vm {
             return Ok(Return::Yield(Yield::new(current_frame, stack_frames, opened_files)));
           }
           Opcode::Breakpoint => {
-            self.current_frame.ip += 1;
             self.ssdb(env).ok();
           }
         }

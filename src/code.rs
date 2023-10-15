@@ -674,8 +674,8 @@ impl Env {
     self.vars.insert(name.to_string(), value).is_some()
   }
 
-  pub fn lookup<T: ToString>(&self, name: T) -> Option<Value> {
-    self.vars.get(&name.to_string()).cloned()
+  pub fn lookup<T: AsRef<str>>(&self, name: T) -> Option<Value> {
+    self.vars.get(name.as_ref()).cloned()
   }
 }
 

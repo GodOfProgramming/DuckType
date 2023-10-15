@@ -12,7 +12,7 @@ macro_rules! here {
   };
 }
 
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 #[allow(unused)]
 #[cfg(debug_assertions)]
 pub(crate) use here;
@@ -77,7 +77,7 @@ pub struct Cli {
 }
 
 impl Cli {
-  pub fn exec(&self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+  pub fn exec(self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
     self.command.exec(vm, env)
   }
 }
@@ -107,7 +107,7 @@ pub enum Command {
 }
 
 impl Command {
-  pub fn exec(&self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+  pub fn exec(self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
     match self {
       Command::Quit => Ok(CommandOutput::new(None, true)),
       Command::Env { command } => command.exec(vm, env),
@@ -122,19 +122,63 @@ pub enum EnvCmd {
     #[arg()]
     name: String,
   },
+  Set {
+    #[arg()]
+    name: String,
+
+    #[command(subcommand)]
+    value: ValueCommand,
+  },
 }
 
 impl EnvCmd {
-  fn exec(&self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+  fn exec(self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
     let output = match self {
-      EnvCmd::Get { name } => Some(if let Some(value) = env.lookup(name) {
-        format!("{}", value)
+      EnvCmd::Get { name } => Some(if let Some(value) = env.lookup(&name) {
+        format!("{:?}", value)
       } else {
         format!("no item in the env with the name '{}'", name)
       }),
+      EnvCmd::Set { name, value } => {
+        env.assign(
+          name,
+          match value {
+            ValueCommand::Bool { value } => value.into(),
+            ValueCommand::I32 { value } => value.into(),
+            ValueCommand::F64 { value } => value.into(),
+            ValueCommand::Char { value } => value.into(),
+            ValueCommand::String { value } => value.into(),
+          },
+        );
+        None
+      }
     };
     Ok(CommandOutput::new(output, false))
   }
+}
+
+#[derive(Subcommand)]
+pub enum ValueCommand {
+  Bool {
+    #[arg(action = ArgAction::Set)]
+    value: bool,
+  },
+  I32 {
+    #[arg()]
+    value: i32,
+  },
+  F64 {
+    #[arg()]
+    value: f64,
+  },
+  Char {
+    #[arg()]
+    value: char,
+  },
+  String {
+    #[arg()]
+    value: String,
+  },
 }
 
 #[derive(Subcommand)]
@@ -156,7 +200,7 @@ impl StackCmd {
       StackCmd::Index { index } => Some(if let Some(value) = vm.stack_index(*index) {
         format!("{}", value)
       } else {
-        format!("=> invalid stack index {}", index)
+        format!("invalid stack index {}", index)
       }),
     };
     Ok(CommandOutput::new(output, false))
