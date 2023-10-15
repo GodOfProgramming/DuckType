@@ -80,7 +80,7 @@ pub trait UsertypeFields {
 }
 
 pub trait UsertypeMethods {
-  fn __new__(vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult {
+  fn __new__(_vm: &mut Vm, _env: &mut Env, _args: Args) -> ValueResult {
     Err(ValueError::UndefinedInitializer)
   }
   fn get_method(&self, this: &Value, field: &str) -> ValueResult<Option<Value>>;

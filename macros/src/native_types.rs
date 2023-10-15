@@ -1,4 +1,4 @@
-use crate::{common, user_types};
+use crate::common;
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{quote, TokenStreamExt};
 use syn::{token::Comma, FnArg, Item, ItemFn, ItemMod, ItemStruct};
@@ -51,10 +51,6 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
 struct NativeStruct {
   name: Ident,
   item: ItemStruct,
-}
-
-struct NativeImpl {
-  tokens: TokenStream,
 }
 
 struct ModuleDef {
