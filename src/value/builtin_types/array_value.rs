@@ -23,8 +23,8 @@ impl ArrayValue {
 
 #[methods]
 impl ArrayValue {
-  fn new(args: &Vec<Value>) -> ValueResult<Self> {
-    Ok(Self::new_from_vec(args))
+  fn __new__(args: &Vec<Value>) -> ValueResult<ArrayValue> {
+    Ok(ArrayValue::new_from_vec(args))
   }
 
   fn push(&mut self, value: Value) -> ValueResult<()> {

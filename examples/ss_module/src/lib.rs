@@ -13,4 +13,14 @@ mod example_module {
     *item = StringValue::default();
     Ok(old.into())
   }
+
+  #[derive(Default, Usertype, Fields)]
+  #[uuid("random")]
+  struct Foo {
+    #[field]
+    value: i32,
+  }
+
+  #[methods]
+  impl Foo {}
 }

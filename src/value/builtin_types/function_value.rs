@@ -43,6 +43,10 @@ impl FunctionValue {
 
 #[methods]
 impl FunctionValue {
+  fn __new__() -> ValueResult {
+    Err(ValueError::Infallible)
+  }
+
   fn __str__(&self) -> String {
     format!("fn {}", self.ctx.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>"))
   }

@@ -150,7 +150,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::from(7.2));
+      assert_eq!(val, Value::from(value));
     });
   }
 

@@ -40,7 +40,11 @@ struct Leaker {
 }
 
 #[methods]
-impl Leaker {}
+impl Leaker {
+  fn __new__() -> ValueResult {
+    Err(ValueError::Infallible)
+  }
+}
 
 impl Drop for Leaker {
   fn drop(&mut self) {

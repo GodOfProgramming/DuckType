@@ -1,8 +1,8 @@
 use crate::common;
 use proc_macro2::{Ident, Literal, TokenStream};
-use quote::{quote, TokenStreamExt};
+use quote::{quote, ToTokens, TokenStreamExt};
 use std::env;
-use syn::{token::Comma, Fields, FnArg, ImplItem, ItemImpl, ItemStruct, Receiver};
+use syn::{token::Comma, Fields, FnArg, ImplItem, ImplItemMethod, ItemImpl, ItemStruct, Receiver};
 
 pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal>) -> TokenStream {
   let name = struct_def.ident;
@@ -35,7 +35,7 @@ pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal
   }
 }
 
-pub(crate) fn derive_class(struct_def: ItemStruct) -> TokenStream {
+pub(crate) fn derive_fields(struct_def: ItemStruct) -> TokenStream {
   let name = struct_def.ident;
   let mut idents = Vec::new();
 
@@ -56,10 +56,10 @@ pub(crate) fn derive_class(struct_def: ItemStruct) -> TokenStream {
   quote! {
     #[automatically_derived]
     impl UsertypeFields for #name {
-      fn get_field(&self, field: &str) -> Option<Value> {
+      fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
         match field {
-          #(#ident_strs => Some(Value::from(&self.#idents)),)*
-          _ => None,
+          #(#ident_strs => Ok(Some(Value::from(&self.#idents))),)*
+          _ => Ok(None),
         }
       }
 
@@ -81,6 +81,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
   let mut methods = Vec::new();
   let mut statics = Vec::new();
 
+  let mut constructor = None;
   let mut display_fn = None;
   let mut debug_fn = None;
   let mut lock_fn = None;
@@ -101,16 +102,12 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       let name = method.sig.ident.clone();
       let name_str = name.to_string();
       match name_str.as_str() {
+        "__new__" => constructor = Some(method),
         "__str__" => display_fn = Some(method),
         "__dbg__" => debug_fn = Some(method),
         "__lock__" => lock_fn = Some(method),
         _ => {
-          let nargs = method
-            .sig
-            .inputs
-            .iter()
-            .filter(|input| matches!(input, FnArg::Typed(_)))
-            .count();
+          let nargs = count_args(&method);
 
           if let Some(FnArg::Receiver(this)) = method.sig.inputs.iter().next() {
             methods.push(Method {
@@ -142,18 +139,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       let nargs = method.nargs;
       let name = method.name;
       let name_str = Literal::string(&name.to_string());
-
-      let mut args = TokenStream::default();
-      args.append_separated(
-        (0..nargs).map(|i| {
-          quote! {
-            try_arg_cast(args
-            .next()
-            .unwrap(), #name_str, #i)?
-          }
-        }),
-        Comma::default(),
-      );
+      let args = make_arg_list(nargs, &name_str);
       if method.receiver.mutability.is_some() {
         method_lambda_bodies.push(quote! {
           Value::new_native_fn_method(this.clone(), |_, _, mut args| {
@@ -206,18 +192,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     let nargs = static_method.nargs;
     let name = static_method.name;
     let name_str = Literal::string(&name.to_string());
-
-    let mut args = TokenStream::new();
-    args.append_separated(
-      (0..nargs).map(|i| {
-        quote! {
-          try_arg_cast(args
-          .next()
-          .unwrap(), #name_str, #i)?
-        }
-      }),
-      Comma::default(),
-    );
+    let args = make_arg_list(nargs, name_str);
 
     static_lambda_bodies.push(quote! {
       Value::native(|_, _, args| {
@@ -230,6 +205,29 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       })
     });
   }
+
+  let try_cast_arg = common::try_cast_arg_fn_tokens();
+
+  let constructor_impl = if let Some(constructor) = constructor {
+    let nargs = count_args(constructor);
+    let name = &constructor.sig.ident;
+    let name_str = Literal::string(&name.to_string());
+    let args = make_arg_list(nargs, name_str);
+    quote! {
+      fn __new__(args: Args) -> ValueResult {
+        #constructor
+        #try_cast_arg
+        let mut args = args.list.into_iter();
+        Ok(Value::from(#name(#args)?))
+      }
+    }
+  } else {
+    quote! {
+      fn __new__(_args: Args) -> ValueResult {
+        Ok(Value::from(Self::default()))
+      }
+    }
+  };
 
   let lock_impl = if let Some(lock_fn) = lock_fn {
     quote! {
@@ -283,21 +281,21 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     }
   };
 
-  let try_cast_arg = common::try_cast_arg_fn_tokens();
-
   quote! {
     #struct_impl
 
     #[automatically_derived]
     impl UsertypeMethods for #me {
-      fn get_method(&self, this: &Value, field: &str) -> Option<Value> {
+      #constructor_impl
+
+      fn get_method(&self, this: &Value, field: &str) -> ValueResult<Option<Value>> {
 
         #try_cast_arg
 
         match field {
-           #(#method_strs => Some(#method_lambda_bodies),)*
-           #(#static_strs => Some(#static_lambda_bodies),)*
-          _ => None,
+           #(#method_strs => Ok(Some(#method_lambda_bodies)),)*
+           #(#static_strs => Ok(Some(#static_lambda_bodies)),)*
+          _ => Ok(None),
         }
       }
     }
@@ -308,4 +306,23 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
 
     #lock_impl
   }
+}
+
+fn count_args(f: &ImplItemMethod) -> usize {
+  f.sig.inputs.iter().filter(|input| matches!(input, FnArg::Typed(_))).count()
+}
+
+fn make_arg_list(nargs: usize, name: impl ToTokens) -> TokenStream {
+  let mut args = TokenStream::default();
+  args.append_separated(
+    (0..nargs).map(|i| {
+      quote! {
+        try_arg_cast(args
+        .next()
+        .unwrap(), #name, #i)?
+      }
+    }),
+    Comma::default(),
+  );
+  args
 }

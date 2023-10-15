@@ -22,9 +22,10 @@ pub mod prelude {
 
 pub mod macro_requirements {
   pub use crate::prelude::{
-    native, Args, DebugValue, DisplayValue, Env, LockableValue, LockedModule, MaybeFrom, Usertype, UsertypeFields,
-    UsertypeMethods, Value, ValueError, ValueResult, Vm,
+    methods, native, Args, DebugValue, DisplayValue, Env, Fields, LockableValue, LockedModule, MaybeFrom, Usertype,
+    UsertypeFields, UsertypeMethods, Value, ValueError, ValueResult, Vm,
   };
+  pub use uuid;
 }
 
 pub(crate) trait UnwrapAnd<T> {

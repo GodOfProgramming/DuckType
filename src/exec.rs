@@ -728,7 +728,7 @@ impl Vm {
       if found_file.is_none() {
         if let Some(library_mod) = env.lookup("$LIBRARY") {
           if let Some(library_mod) = library_mod.as_struct() {
-            if let Some(list) = library_mod.get_field("path").map(|l| l.as_array()) {
+            if let Ok(Some(list)) = library_mod.get_field("path").map(|l| l.map(|l| l.as_array())) {
               for item in list.iter() {
                 let base = PathBuf::from(item.to_string());
                 found_file = try_to_find_file(&base, &required_file, &mut attempts);

@@ -29,25 +29,30 @@ impl LibIo {
 #[derive(Usertype, Fields)]
 #[uuid("d5548736-3896-4b0c-bcd4-84c1280d5008")]
 struct File {
-  internal: fs::File,
+  internal: Option<fs::File>,
 }
 
 impl File {
   fn new(file: fs::File) -> Self {
-    Self { internal: file }
+    Self { internal: Some(file) }
   }
 }
 
 #[methods]
 impl File {
+  fn __new__() -> ValueResult {
+    Err(ValueError::Infallible)
+  }
+
   fn read(&mut self) -> ValueResult<String> {
-    let mut out = String::new();
+    if let Some(file) = &mut self.internal {
+      let mut out = String::new();
 
-    self
-      .internal
-      .read_to_string(&mut out)
-      .map_err(|e| ValueError::Todo(e.to_string()))?;
+      file.read_to_string(&mut out).map_err(|e| ValueError::Todo(e.to_string()))?;
 
-    Ok(out)
+      Ok(out)
+    } else {
+      Err(ValueError::runtime_error("no file open for reading"))
+    }
   }
 }

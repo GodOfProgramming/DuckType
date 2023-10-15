@@ -792,7 +792,7 @@ impl Debug for Value {
       ),
       Tag::Pointer => write!(
         f,
-        "<@{addr:<width$} {} : {} >",
+        "<@{addr:<width$} {} : {}>",
         self.type_id(),
         self.debug_string(),
         addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),

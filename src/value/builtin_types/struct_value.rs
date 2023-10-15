@@ -21,8 +21,8 @@ impl StructValue {
 }
 
 impl UsertypeFields for StructValue {
-  fn get_field(&self, field: &str) -> Option<Value> {
-    self.members.get(field).cloned()
+  fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
+    Ok(self.members.get(field).cloned())
   }
 
   fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {

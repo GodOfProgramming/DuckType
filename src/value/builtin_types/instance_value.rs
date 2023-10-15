@@ -13,24 +13,27 @@ impl InstanceValue {
   }
 }
 
-impl UsertypeMethods for InstanceValue {
-  fn get_method(&self, this: &Value, name: &str) -> Option<Value> {
-    if let Some(class) = self.class.as_class() {
-      class.get_method(this, name)
-    } else {
-      None
-    }
-  }
-}
-
 impl UsertypeFields for InstanceValue {
-  fn get_field(&self, field: &str) -> Option<Value> {
+  fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
     self.data.get_field(field)
   }
 
   fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
-    self.data.set(field, value);
-    Ok(())
+    Ok(self.data.set(field, value))
+  }
+}
+
+impl UsertypeMethods for InstanceValue {
+  fn __new__(_args: Args) -> ValueResult {
+    Err(ValueError::Infallible)
+  }
+
+  fn get_method(&self, this: &Value, name: &str) -> ValueResult<Option<Value>> {
+    if let Some(class) = self.class.as_class() {
+      Ok(class.get_method(this, name))
+    } else {
+      Ok(None)
+    }
   }
 }
 

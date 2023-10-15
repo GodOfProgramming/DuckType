@@ -1,4 +1,4 @@
-use crate::common;
+use crate::{common, user_types};
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{quote, TokenStreamExt};
 use syn::{token::Comma, FnArg, Item, ItemFn, ItemMod};
@@ -48,8 +48,17 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
   }
 }
 
+struct NativeStruct {
+  tokens: TokenStream,
+}
+
+struct NativeImpl {
+  tokens: TokenStream,
+}
+
 struct ModuleDef {
   functions: Vec<NativeFn>,
+  unchanged: Vec<Item>,
 }
 
 impl TryFrom<Vec<Item>> for ModuleDef {
@@ -57,6 +66,7 @@ impl TryFrom<Vec<Item>> for ModuleDef {
 
   fn try_from(module_content: Vec<Item>) -> Result<Self, Self::Error> {
     let mut functions = Vec::new();
+    let mut unchanged = Vec::new();
     for item in module_content {
       match item {
         Item::Fn(item_fn) => {
@@ -64,17 +74,11 @@ impl TryFrom<Vec<Item>> for ModuleDef {
           let native_fn = native_fn(&item_fn);
           functions.push(NativeFn { name, tokens: native_fn });
         }
-        thing => {
-          return Err(
-            syn::Error::new_spanned(thing, "invalid type found in module")
-              .into_compile_error()
-              .into(),
-          );
-        }
+        thing => unchanged.push(thing),
       }
     }
 
-    Ok(Self { functions })
+    Ok(Self { functions, unchanged })
   }
 }
 
@@ -96,6 +100,7 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
   };
 
   let (fn_defs, functions) = collect_fn_defs(module_def.functions);
+  let unchanged = module_def.unchanged;
 
   quote! {
     #[no_mangle]
@@ -114,6 +119,8 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
       }
 
       #(#functions)*
+
+      #(#unchanged)*
     }
   }
 }

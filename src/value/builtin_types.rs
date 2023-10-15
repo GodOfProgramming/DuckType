@@ -57,12 +57,16 @@ where
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  fn get(&self, this: &Value, field: &str) -> ValueResult<Value> {
-    Ok(
-      <Self as UsertypeFields>::get_field(self, field)
-        .or_else(|| <Self as UsertypeMethods>::get_method(self, this, field))
-        .unwrap_or_default(),
-    )
+  fn get(&self, this: &Value, field: &str) -> ValueResult {
+    match <Self as UsertypeFields>::get_field(self, field) {
+      Ok(Some(value)) => Ok(value),
+      Ok(None) => match <Self as UsertypeMethods>::get_method(self, this, field) {
+        Ok(Some(value)) => Ok(value),
+        Ok(None) => Ok(Value::nil),
+        Err(e) => Err(e),
+      },
+      Err(e) => Err(e),
+    }
   }
 
   fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
@@ -71,16 +75,13 @@ where
 }
 
 pub trait UsertypeFields {
-  fn get_field(&self, field: &str) -> Option<Value>;
+  fn get_field(&self, field: &str) -> ValueResult<Option<Value>>;
   fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()>;
 }
 
 pub trait UsertypeMethods {
-  fn get_method(&self, this: &Value, field: &str) -> Option<Value>;
-}
-
-pub trait LockableValue {
-  fn __lock__(&mut self) {}
+  fn __new__(args: Args) -> ValueResult;
+  fn get_method(&self, this: &Value, field: &str) -> ValueResult<Option<Value>>;
 }
 
 pub trait DisplayValue {
@@ -91,6 +92,9 @@ pub trait DebugValue {
   fn __dbg__(&self) -> String;
 }
 
+pub trait LockableValue {
+  fn __lock__(&mut self) {}
+}
 #[derive(Default, Debug)]
 pub struct Args {
   pub list: Vec<Value>,
@@ -127,7 +131,7 @@ impl<T: Into<Value> + Clone, const I: usize> From<[T; I]> for Args {
 }
 
 /// Intentionally empty
-#[derive(Usertype, Fields)]
+#[derive(Default, Usertype, Fields)]
 #[uuid("6d9d039a-9803-41ff-8e84-a0ea830e2380")]
 pub struct Primitive {}
 
@@ -172,14 +176,27 @@ pub enum ValueError {
   /// value
   #[error("Tried to lookup a member on a primitive '{0}'")]
   InvalidLookup(Value),
+  /// ident
   #[error("Cannot modify immutable object '{0}'")]
   Immutable(String),
+  /// ident
+  #[error("Tried to access undefined member '{0}'")]
+  UndefinedMember(String),
+  /// message
+  #[error("{0}")]
+  RuntimeError(String),
   /// meant to be a placeholder for me being lazy
   #[error("{0}")]
   Todo(String),
 
   #[error("Infallible")]
   Infallible,
+}
+
+impl ValueError {
+  pub fn runtime_error(msg: impl Into<String>) -> Self {
+    Self::RuntimeError(msg.into())
+  }
 }
 
 impl From<Infallible> for ValueError {

@@ -468,7 +468,7 @@ impl AstGenerator {
       let path = self.resolve();
       if path.is_empty() {
         self.error::<1>(String::from("use must have a type following it"));
-      } else if self.consume(Token::Semicolon, "expecte ';' after use") {
+      } else if self.consume(Token::Semicolon, "expected ';' after use") {
         self.statements.push(Statement::from(UseStatement::new(path, loc)));
       }
     });

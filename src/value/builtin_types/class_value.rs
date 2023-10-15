@@ -66,8 +66,8 @@ impl ClassValue {
 }
 
 impl UsertypeFields for ClassValue {
-  fn get_field(&self, field: &str) -> Option<Value> {
-    Some(self.get_static(field).unwrap_or_default())
+  fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
+    Ok(self.get_static(field))
   }
 
   fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
@@ -78,6 +78,10 @@ impl UsertypeFields for ClassValue {
 
 #[methods]
 impl ClassValue {
+  fn __new__() -> ValueResult {
+    Err(ValueError::Infallible)
+  }
+
   fn __str__(&self) -> String {
     if let Some(name) = &self.name {
       name.clone()

@@ -457,8 +457,8 @@ impl BytecodeGenerator {
     }
   }
 
-  fn class_expr(&mut self, name: Option<String>, expr: ClassExpression) {
-    let mut class = ClassConstant::new(name.clone());
+  fn class_expr(&mut self, expr: ClassExpression) {
+    let mut class = ClassConstant::new(expr.name.map(|i| i.name).clone());
 
     if let Some(initializer) = expr.initializer {
       if let Some((function, is_static)) = self.create_class_fn(Ident::new("<constructor>"), *initializer) {
@@ -617,7 +617,7 @@ impl BytecodeGenerator {
       Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
       Expression::Struct(expr) => self.struct_expr(expr),
-      Expression::Class(expr) => self.class_expr(None, expr),
+      Expression::Class(expr) => self.class_expr(expr),
       Expression::Mod(expr) => self.mod_expr(expr),
       Expression::Lambda(expr) => self.lambda_expr(expr),
       Expression::Closure(expr) => self.closure_expr(expr),

@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use std::collections::BTreeMap;
 
-#[derive(Usertype)]
+#[derive(Default, Usertype)]
 #[uuid("fc79ffad-9286-4188-9905-76ae73108f9e")]
 pub struct ModuleValue {
   pub members: BTreeMap<String, Value>,
@@ -22,8 +22,14 @@ impl ModuleValue {
 }
 
 impl UsertypeFields for ModuleValue {
-  fn get_field(&self, field: &str) -> Option<Value> {
-    self.members.get(field).cloned()
+  fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
+    self
+      .members
+      .get(field)
+      .cloned()
+      .map(Ok)
+      .or_else(|| Some(Err(ValueError::UndefinedMember(field.to_string()))))
+      .transpose()
   }
 
   fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {

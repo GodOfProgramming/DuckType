@@ -3,7 +3,7 @@ use quote::quote;
 
 pub(crate) fn try_cast_arg_fn_tokens() -> TokenStream {
   quote! {
-    pub fn try_arg_cast<T>(this: Value, fn_name: &'static str, pos: usize) -> ValueResult<T>
+    fn try_arg_cast<T>(this: Value, fn_name: &'static str, pos: usize) -> ValueResult<T>
     where
       T: MaybeFrom<Value>,
     {
