@@ -3,6 +3,11 @@ use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{quote, TokenStreamExt};
 use syn::{token::Comma, FnArg, Item, ItemFn, ItemMod};
 
+struct NativeFn {
+  name: Ident,
+  tokens: TokenStream,
+}
+
 pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
   let ident = &item.sig.ident;
   let name_str = ident.to_string();
@@ -43,52 +48,54 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
   }
 }
 
+struct ModuleDef {
+  functions: Vec<NativeFn>,
+}
+
+impl TryFrom<Vec<Item>> for ModuleDef {
+  type Error = TokenStream;
+
+  fn try_from(module_content: Vec<Item>) -> Result<Self, Self::Error> {
+    let mut functions = Vec::new();
+    for item in module_content {
+      match item {
+        Item::Fn(item_fn) => {
+          let name = item_fn.sig.ident.clone();
+          let native_fn = native_fn(&item_fn);
+          functions.push(NativeFn { name, tokens: native_fn });
+        }
+        thing => {
+          return Err(
+            syn::Error::new_spanned(thing, "invalid type found in module")
+              .into_compile_error()
+              .into(),
+          );
+        }
+      }
+    }
+
+    Ok(Self { functions })
+  }
+}
+
 pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
   let mod_name = &item.ident;
   let mod_name_str = mod_name.to_string();
   let mod_name_lit = Literal::string(&mod_name_str);
 
-  struct NativeFn {
-    name: Ident,
-    tokens: TokenStream,
-  }
-
-  let mut functions = Vec::new();
-
-  if let Some((_, module_content)) = &item.content {
-    for item in module_content {
-      match item {
-        Item::Fn(item_fn) => {
-          let name = item_fn.sig.ident.clone();
-          let native_fn = native_fn(item_fn);
-          functions.push(NativeFn { name, tokens: native_fn });
-        }
-        thing => {
-          return syn::Error::new_spanned(thing, "invalid type found in module")
-            .into_compile_error()
-            .into()
-        }
-      }
+  let module_def = match item.content.map(|(_, content)| ModuleDef::try_from(content)).transpose() {
+    Ok(Some(m)) => m,
+    Ok(None) => {
+      // have mod foo;
+      // need mod foo {}
+      return syn::Error::new_spanned(mod_name, "mod impl must be implemented in the same file as it was declared")
+        .into_compile_error()
+        .into();
     }
-  } else {
-    // have mod foo;
-    // need mod foo {}
-    return syn::Error::new_spanned(item, "mod impl must be implemented in the same file as it was declared")
-      .into_compile_error()
-      .into();
-  }
+    Err(e) => return e,
+  };
 
-  let mut fn_defs = TokenStream::default();
-  fn_defs.append_all(functions.iter().map(|native_fn| {
-    let native_fn_name = &native_fn.name;
-    let native_fn_name_str = native_fn_name.to_string();
-    let native_fn_name_lit = Literal::string(&native_fn_name_str);
-    quote! {
-      module.set(#native_fn_name_lit, Value::native(#native_fn_name)).ok();
-    }
-  }));
-
-  let massaged_functions = functions.into_iter().map(|f| f.tokens).collect::<Vec<TokenStream>>();
+  let (fn_defs, functions) = collect_fn_defs(module_def.functions);
 
   quote! {
     #[no_mangle]
@@ -106,7 +113,21 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
         }));
       }
 
-      #(#massaged_functions)*
+      #(#functions)*
     }
   }
+}
+
+fn collect_fn_defs(functions: Vec<NativeFn>) -> (TokenStream, Vec<TokenStream>) {
+  let mut fn_defs = TokenStream::default();
+  fn_defs.append_all(functions.iter().map(|native_fn| {
+    let native_fn_name = &native_fn.name;
+    let native_fn_name_str = native_fn_name.to_string();
+    let native_fn_name_lit = Literal::string(&native_fn_name_str);
+    quote! {
+      module.set(#native_fn_name_lit, Value::native(#native_fn_name)).ok();
+    }
+  }));
+
+  (fn_defs, functions.into_iter().map(|f| f.tokens).collect())
 }
