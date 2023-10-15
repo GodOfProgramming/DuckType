@@ -14,7 +14,7 @@ mod tags;
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, MaybeFrom, Tag, Value};
+  pub use super::{builtin_types::*, MaybeFrom, Tag, TransformToValue, Value};
 }
 
 type ConstVoid = *const ();
@@ -1228,4 +1228,8 @@ impl Callable {
 
 fn consume<T: Usertype>(this: *mut T) {
   let _ = unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) };
+}
+
+pub trait TransformToValue {
+  fn transform(self) -> Value;
 }

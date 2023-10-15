@@ -10,8 +10,6 @@ pub(crate) mod string_value;
 pub(crate) mod struct_value;
 pub(crate) mod timestamp_value;
 
-// mod out;
-
 pub mod ops {
   pub const NOT: &str = "__not__";
   pub const NEG: &str = "__neg__";

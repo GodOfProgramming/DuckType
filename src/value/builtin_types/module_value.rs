@@ -14,6 +14,10 @@ impl ModuleValue {
       locked: false,
     }
   }
+
+  pub fn set(&mut self, field: &str, value: impl Into<Value>) -> ValueResult<()> {
+    <Self as Usertype>::set(self, field, value.into())
+  }
 }
 
 impl ClassFields for ModuleValue {

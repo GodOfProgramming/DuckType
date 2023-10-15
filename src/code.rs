@@ -658,8 +658,8 @@ impl Env {
   }
 
   /// Defines a new variable. Returns true if the variable is new, false otherwise
-  pub fn define<T: ToString>(&mut self, name: T, value: Value) -> bool {
-    self.vars.insert(name.to_string(), value).is_none()
+  pub fn define<T: ToString>(&mut self, name: T, value: impl Into<Value>) -> bool {
+    self.vars.insert(name.to_string(), value.into()).is_none()
   }
 
   pub fn is_available(&self, name: &str) -> bool {

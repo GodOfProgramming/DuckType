@@ -78,40 +78,38 @@ fn load_lib(args: &[String], lib: &Lib) -> (&'static str, Value) {
 
 fn load_std() -> Value {
   LockedModule::initialize(|lib| {
+    lib.set("debug", Value::native(debug)).ok();
+
     lib
       .set(
-        "debug",
-        Value::native(|_vm, _env, args| Ok(Value::from(format!("{:?}", args.list.first().unwrap_or(&Value::nil))))),
+        "Object",
+        LockedModule::initialize(|object_module| {
+          object_module.set("fields", Value::native(fields)).ok();
+        }),
       )
       .ok();
-
-    // Structs
-    {
-      let object_module = LockedModule::initialize(|object_module| {
-        object_module
-          .set(
-            "fields",
-            Value::native(|_vm, _env, args| {
-              let mut args = args.list.into_iter();
-              let mut fields = Vec::default();
-
-              if let Some(obj) = args.next() {
-                let get_fields = |s: &StructValue| s.members.keys().cloned().map(Value::from).collect::<Vec<Value>>();
-
-                if let Some(i) = obj.as_instance() {
-                  fields.extend(get_fields(&i.data))
-                } else if let Some(s) = obj.as_struct() {
-                  fields.extend(get_fields(s))
-                }
-              }
-
-              Ok(Value::from(fields))
-            }),
-          )
-          .ok();
-      });
-      lib.set("Object", Value::from(object_module)).ok();
-    }
   })
   .into()
+}
+
+#[native]
+fn debug(value: Value) -> ValueResult {
+  Ok(Value::from(format!("{:?}", value)))
+}
+
+#[native]
+fn fields(value: Value) -> ValueResult<Vec<Value>> {
+  fn get_fields(s: &StructValue) -> Vec<Value> {
+    s.members.keys().cloned().map(Value::from).collect::<Vec<Value>>()
+  }
+
+  let mut fields = Vec::default();
+
+  if let Some(i) = value.as_instance() {
+    fields.extend(get_fields(&i.data))
+  } else if let Some(s) = value.as_struct() {
+    fields.extend(get_fields(s))
+  }
+
+  Ok(fields)
 }

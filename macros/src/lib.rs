@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Literal};
+use proc_macro2::{Ident, Literal, TokenStream as TokenStream2};
 use quote::{quote, TokenStreamExt};
-use syn::{parse_macro_input, Fields, FnArg, ImplItem, ItemImpl, ItemStruct, Receiver};
+use syn::{parse_macro_input, token::Comma, Fields, FnArg, ImplItem, Item, ItemFn, ItemImpl, ItemMod, ItemStruct, Receiver};
 
 #[proc_macro_derive(Usertype, attributes(__str__, __dbg__))]
 pub fn derive_usertype(input: TokenStream) -> TokenStream {
@@ -134,7 +134,7 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
       let name = method.name;
       let name_str = Literal::string(&name.to_string());
 
-      let mut args = quote! {};
+      let mut args = TokenStream2::default();
       args.append_separated(
         (0..nargs).map(|i| {
           quote! {
@@ -143,7 +143,7 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
             .unwrap(), #name_str, #i)?
           }
         }),
-        quote! {,},
+        Comma::default(),
       );
       if method.receiver.mutability.is_some() {
         method_lambda_bodies.push(quote! {
@@ -198,7 +198,7 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
     let name = static_method.name;
     let name_str = Literal::string(&name.to_string());
 
-    let mut args = quote! {};
+    let mut args = TokenStream2::new();
     args.append_separated(
       (0..nargs).map(|i| {
         quote! {
@@ -207,7 +207,7 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
           .unwrap(), #name_str, #i)?
         }
       }),
-      quote! {,},
+      Comma::default(),
     );
 
     static_lambda_bodies.push(quote! {
@@ -274,6 +274,8 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
     }
   };
 
+  let try_cast_arg = try_cast_arg_fn_tokens();
+
   quote! {
     #struct_impl
 
@@ -281,12 +283,7 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
     impl ClassMethods for #me {
       fn get_method(&self, this: &Value, field: &str) -> Option<Value> {
 
-        pub fn try_arg_cast<T>(this: Value, fn_name: &'static str, pos: usize) -> ValueResult<T>
-        where
-          T: MaybeFrom<Value>,
-        {
-          T::maybe_from(this).ok_or_else(|| ValueError::InvalidArgument(fn_name, pos))
-        }
+        #try_cast_arg
 
         match field {
            #(#method_strs => Some(#method_lambda_bodies),)*
@@ -303,4 +300,133 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
     #lock_impl
   }
   .into()
+}
+
+#[proc_macro_attribute]
+pub fn native(_args: TokenStream, input: TokenStream) -> TokenStream {
+  let item: Item = parse_macro_input!(input as Item);
+  match item {
+    Item::Fn(item) => native_fn(&item).into(),
+    Item::Mod(item) => native_mod(item),
+    thing => syn::Error::new_spanned(thing, "cannot impl method for fn signature not taking self reference")
+      .into_compile_error()
+      .into(),
+  }
+}
+
+fn native_fn(item: &ItemFn) -> TokenStream2 {
+  let ident = &item.sig.ident;
+  let name_str = ident.to_string();
+  let nargs = item
+    .sig
+    .inputs
+    .iter()
+    .filter(|input| matches!(input, FnArg::Typed(_)))
+    .count();
+
+  let mut args = TokenStream2::new();
+  args.append_separated(
+    (0..nargs).map(|i| {
+      quote! {
+        try_arg_cast(args
+        .next()
+        .unwrap(), #name_str, #i)?
+      }
+    }),
+    Comma::default(),
+  );
+
+  let try_cast_arg = try_cast_arg_fn_tokens();
+
+  quote! {
+    fn #ident(_: &mut Vm, _: &mut Env, args: Args) -> ValueResult {
+      #try_cast_arg
+
+      #item
+
+      if args.list.len() == #nargs {
+        let mut args = args.list.into_iter();
+        Ok(Value::from(#ident(#args)?))
+      } else {
+        Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))
+      }
+    }
+  }
+}
+
+fn native_mod(item: ItemMod) -> TokenStream {
+  let mod_name = &item.ident;
+  let mod_name_str = mod_name.to_string();
+  let mod_name_lit = Literal::string(&mod_name_str);
+
+  struct NativeFn {
+    name: Ident,
+    tokens: TokenStream2,
+  }
+
+  let mut functions = Vec::new();
+
+  if let Some((_, module_content)) = &item.content {
+    for item in module_content {
+      match item {
+        Item::Fn(item_fn) => {
+          let name = item_fn.sig.ident.clone();
+          let native_fn = native_fn(item_fn);
+          functions.push(NativeFn { name, tokens: native_fn });
+        }
+        thing => {
+          return syn::Error::new_spanned(thing, "cannot impl method for fn signature not taking self reference")
+            .into_compile_error()
+            .into()
+        }
+      }
+    }
+  } else {
+    // have mod foo;
+    // need mod foo {}
+    return syn::Error::new_spanned(item, "mod impl must be implemented in the same file as it was declared")
+      .into_compile_error()
+      .into();
+  }
+
+  let mut fn_defs = TokenStream2::default();
+  fn_defs.append_separated(
+    functions.iter().map(|native_fn| {
+      let native_fn_name = &native_fn.name;
+      let native_fn_name_str = native_fn_name.to_string();
+      let native_fn_name_lit = Literal::string(&native_fn_name_str);
+      quote! {
+        module.set(#native_fn_name_lit, Value::native(#native_fn_name)).ok();
+      }
+    }),
+    Comma::default(),
+  );
+
+  let massaged_functions = functions.into_iter().map(|f| f.tokens).collect::<Vec<TokenStream2>>();
+
+  quote! {
+    mod #mod_name {
+      use super::*;
+
+      pub fn register_to(env: &mut Env) {
+        env.define(#mod_name_lit, LockedModule::initialize(|module| {
+           #fn_defs
+        }));
+      }
+
+      #(#massaged_functions)*
+    }
+  }
+  .into()
+}
+
+fn try_cast_arg_fn_tokens() -> TokenStream2 {
+  quote! {
+    pub fn try_arg_cast<T>(this: Value, fn_name: &'static str, pos: usize) -> ValueResult<T>
+    where
+      T: MaybeFrom<Value>,
+    {
+      T::maybe_from(this).ok_or_else(|| ValueError::InvalidArgument(fn_name, pos))
+    }
+  }
 }

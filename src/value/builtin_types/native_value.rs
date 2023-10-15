@@ -2,9 +2,7 @@ use super::Args;
 use crate::prelude::*;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-// type NativeFnTrait = FnMut(&mut Vm, &mut Env, Args) -> Value + 'static;
-
-pub type NativeFn = fn(&mut Vm, &mut Env, Args) -> ValueResult;
+pub type NativeFn = for<'a, 'b> fn(&'a mut Vm, &'b mut Env, Args) -> ValueResult;
 
 type NativeClosureType = dyn FnMut(&mut Vm, &mut Env, Args) -> ValueResult;
 
@@ -43,9 +41,6 @@ impl Display for NativeClosureValue {
     write!(f, "<native {} @{:p}>", self.name, self.callee.as_ref())
   }
 }
-
-// type NativeMethodTrait = FnMut(&mut Vm, &mut Env, Value, Args) -> Value + 'static;
-// type NativeMethodType = dyn FnMut(&mut Vm, &mut Env, Value, Args) -> Value;
 
 pub enum NativeCallable {
   NativeFn(NativeFn),
