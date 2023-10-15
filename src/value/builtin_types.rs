@@ -41,11 +41,12 @@ use macros::{methods, Class};
 pub use method_value::MethodValue;
 pub use module_value::{LockedModule, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use std::{collections::BTreeMap, convert::Infallible, error::Error, fmt::Debug};
+use std::{convert::Infallible, error::Error, fmt::Debug};
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 use thiserror::Error;
 pub use timestamp_value::TimestampValue;
+use uuid::Uuid;
 
 pub struct Nil;
 
@@ -53,7 +54,7 @@ pub trait Usertype
 where
   Self: ClassFields + ClassMethods + DisplayValue + DebugValue + LockableValue + Sized + 'static,
 {
-  const ID: &'static str;
+  const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
 
   fn get(&self, this: &Value, field: &str) -> ValueResult<Value> {
@@ -88,62 +89,6 @@ pub trait DisplayValue {
 
 pub trait DebugValue {
   fn __dbg__(&self) -> String;
-}
-
-pub struct NativeClass {
-  name: &'static str,
-  constructor: Option<NativeFn>,
-  methods: BTreeMap<String, Value>,
-  statics: BTreeMap<String, Value>,
-
-  setters: BTreeMap<String, Box<dyn Fn(&mut Value, Value)>>,
-  getters: BTreeMap<String, Box<dyn Fn(&Value) -> Value>>,
-}
-
-impl NativeClass {
-  pub fn new<T: Usertype>() -> Self {
-    Self {
-      name: T::ID,
-      constructor: None,
-      methods: BTreeMap::default(),
-      statics: BTreeMap::default(),
-      setters: BTreeMap::default(),
-      getters: BTreeMap::default(),
-    }
-  }
-
-  pub fn name(&self) -> &'static str {
-    self.name
-  }
-
-  pub fn set_for_instance(&self, instance: &mut Value, name: &str, value: Value) {
-    self.setters.get(name).map(|s| s(instance, value));
-  }
-
-  pub fn get_for_instance(&self, instance: &Value, name: &str) -> Value {
-    self
-      .getters
-      .get(name)
-      .map(|g| g(instance))
-      .unwrap_or_else(|| self.methods.get(name).cloned().unwrap_or_default())
-  }
-
-  pub fn set_static(&mut self, name: impl ToString, value: Value) {
-    self.statics.insert(name.to_string(), value);
-  }
-
-  pub fn get_static(&self, name: &str) -> Value {
-    self.statics.get(name).cloned().unwrap_or_default()
-  }
-
-  pub(crate) fn construct(&self, this_class: Value, vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult {
-    let this = Value::from(InstanceValue::new(Default::default(), this_class));
-    if let Some(constructor) = self.constructor {
-      constructor(vm, env, args)
-    } else {
-      Ok(this)
-    }
-  }
 }
 
 #[derive(Default, Debug)]
@@ -183,6 +128,7 @@ impl<T: Into<Value> + Clone, const I: usize> From<[T; I]> for Args {
 
 /// Intentionally empty
 #[derive(Usertype, Class)]
+#[uuid("6d9d039a-9803-41ff-8e84-a0ea830e2380")]
 pub struct Primitive {}
 
 #[methods]

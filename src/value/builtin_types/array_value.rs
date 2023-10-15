@@ -6,6 +6,7 @@ use std::{
 };
 
 #[derive(Default, Usertype, Class)]
+#[uuid("8b881e80-c828-4563-b7ad-d4b8f1bffbfa")]
 pub struct ArrayValue {
   list: Vec<Value>,
 }
@@ -45,12 +46,6 @@ impl ArrayValue {
 
   fn __dbg__(&self) -> String {
     format!("{:?}", self.list)
-  }
-}
-
-impl MaybeFrom<&Value> for &ArrayValue {
-  fn maybe_from(value: &Value) -> Option<Self> {
-    value.cast_to()
   }
 }
 

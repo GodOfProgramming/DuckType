@@ -2,7 +2,7 @@ use crate::prelude::*;
 use ptr::SmartPtr;
 use tfix::{fixture, TestFixture};
 
-const TEST_FILE: &str = "test";
+const TEST_FILE: &'static str = "test";
 
 struct IntegrationTest {
   script: String,

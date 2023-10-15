@@ -5,6 +5,7 @@ use std::{
 };
 
 #[derive(Default, Usertype, Class)]
+#[uuid("71d35fbb-2091-40c3-ae3c-5b62b259e8a4")]
 pub struct StringValue {
   str: String,
 }
@@ -45,12 +46,6 @@ impl StringValue {
 
   fn __dbg__(&self) -> String {
     format!("\"{}\"", self.__str__())
-  }
-}
-
-impl MaybeFrom<Value> for &'static StringValue {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.cast_to::<StringValue>()
   }
 }
 

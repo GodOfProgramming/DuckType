@@ -5,6 +5,7 @@ use std::{
 };
 
 #[derive(Usertype, Default)]
+#[uuid("1215f7a4-1b67-4387-bf00-f950bbc63743")]
 pub struct StructValue {
   pub members: BTreeMap<String, Value>,
 }

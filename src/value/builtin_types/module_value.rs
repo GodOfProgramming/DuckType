@@ -2,6 +2,7 @@ use crate::prelude::*;
 use std::collections::BTreeMap;
 
 #[derive(Usertype)]
+#[uuid("fc79ffad-9286-4188-9905-76ae73108f9e")]
 pub struct ModuleValue {
   pub members: BTreeMap<String, Value>,
   pub locked: bool,

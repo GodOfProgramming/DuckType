@@ -16,9 +16,16 @@ struct ScannerTest {
 }
 
 impl ScannerTest {
+  fn file() -> Rc<PathBuf> {
+    Rc::new(PathBuf::from("test"))
+  }
+
+  fn scanner(&self) -> Scanner {
+    Scanner::new(Self::file(), &self.tokens)
+  }
+
   fn test_scan<F: FnOnce(Vec<Token>, Vec<SourceLocation>)>(&self, f: F) {
-    let mut scanner = Scanner::new("test", &self.tokens);
-    match scanner.scan() {
+    match self.scanner().scan() {
       Ok((actual, meta)) => f(actual, meta),
       Err(errors) => {
         for error in errors {
@@ -30,14 +37,13 @@ impl ScannerTest {
   }
 
   fn test_failure<F: FnOnce(Vec<RuntimeError>)>(&self, f: F) {
-    let mut scanner = Scanner::new("test", &self.tokens);
-    match scanner.scan() {
+    match self.scanner().scan() {
       Ok((_actual, _meta)) => panic!("should not have succeeded"),
       Err(errors) => f(errors),
     }
   }
 
-  fn mk_meta(&self, file: SmartPtr<String>, line: usize, column: usize) -> SourceLocation {
+  fn mk_meta(&self, file: Rc<PathBuf>, line: usize, column: usize) -> SourceLocation {
     SourceLocation { file, line, column }
   }
 }
@@ -222,19 +228,19 @@ mod tests {
     let expected = vec![
       RuntimeError {
         msg: String::from("invalid character: '^'"),
-        file: String::from("test"),
+        file: ScannerTest::file(),
         line: 6,
         column: 8,
       },
       RuntimeError {
         msg: String::from("invalid character: '?'"),
-        file: String::from("test"),
+        file: ScannerTest::file(),
         line: 7,
         column: 9,
       },
       RuntimeError {
         msg: String::from("invalid character: '`'"),
-        file: String::from("test"),
+        file: ScannerTest::file(),
         line: 7,
         column: 10,
       },
@@ -259,7 +265,7 @@ mod tests {
 
   #[test]
   fn produces_the_correct_meta_information(t: &mut ScannerTest) {
-    let file = SmartPtr::new(String::from("test"));
+    let file = ScannerTest::file();
 
     let expected_tokens = vec![
       Token::Fn,
@@ -278,18 +284,18 @@ mod tests {
     ];
 
     let expected_meta = vec![
-      t.mk_meta(file.clone(), 1, 1),
-      t.mk_meta(file.clone(), 1, 4),
-      t.mk_meta(file.clone(), 1, 7),
-      t.mk_meta(file.clone(), 1, 8),
-      t.mk_meta(file.clone(), 1, 10),
-      t.mk_meta(file.clone(), 2, 3),
-      t.mk_meta(file.clone(), 2, 9),
-      t.mk_meta(file.clone(), 2, 10),
-      t.mk_meta(file.clone(), 3, 1),
-      t.mk_meta(file.clone(), 5, 1),
-      t.mk_meta(file.clone(), 5, 4),
-      t.mk_meta(file.clone(), 5, 5),
+      t.mk_meta(Rc::clone(&file), 1, 1),
+      t.mk_meta(Rc::clone(&file), 1, 4),
+      t.mk_meta(Rc::clone(&file), 1, 7),
+      t.mk_meta(Rc::clone(&file), 1, 8),
+      t.mk_meta(Rc::clone(&file), 1, 10),
+      t.mk_meta(Rc::clone(&file), 2, 3),
+      t.mk_meta(Rc::clone(&file), 2, 9),
+      t.mk_meta(Rc::clone(&file), 2, 10),
+      t.mk_meta(Rc::clone(&file), 3, 1),
+      t.mk_meta(Rc::clone(&file), 5, 1),
+      t.mk_meta(Rc::clone(&file), 5, 4),
+      t.mk_meta(Rc::clone(&file), 5, 5),
       t.mk_meta(file, 5, 6),
     ];
 

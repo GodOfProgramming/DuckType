@@ -1,5 +1,4 @@
 use super::*;
-use ptr::SmartPtr;
 use std::{ops::RangeInclusive, str};
 
 #[cfg(test)]
@@ -150,7 +149,7 @@ impl TryFrom<&[u8]> for Token {
 }
 
 pub struct Scanner<'src> {
-  file: SmartPtr<String>,
+  file: Rc<PathBuf>,
   src: &'src [u8],
   start_pos: usize,
   pos: usize,
@@ -160,9 +159,9 @@ pub struct Scanner<'src> {
 }
 
 impl<'src> Scanner<'src> {
-  pub fn new(file: &'src str, source: &'src str) -> Self {
+  pub fn new(file: Rc<PathBuf>, source: &'src str) -> Self {
     Scanner {
-      file: SmartPtr::new(String::from(file)),
+      file,
       src: source.as_bytes(),
       start_pos: 0,
       pos: 0,
@@ -309,7 +308,7 @@ impl<'src> Scanner<'src> {
 
         tokens.push(token);
         meta.push(SourceLocation {
-          file: self.file.clone(),
+          file: Rc::clone(&self.file),
           line: line + 1,
           column: column + 1,
         });
@@ -337,7 +336,7 @@ impl<'src> Scanner<'src> {
     if let Some(errs) = &mut self.errors {
       errs.push(RuntimeError {
         msg,
-        file: self.file.access().clone(),
+        file: Rc::clone(&self.file),
         line: self.line + 1,
         column: self.column + 1,
       });

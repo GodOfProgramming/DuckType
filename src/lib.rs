@@ -20,6 +20,13 @@ pub mod prelude {
   pub use macros::*;
 }
 
+pub mod macro_requirements {
+  pub use crate::prelude::{
+    native, Args, ClassFields, ClassMethods, DebugValue, DisplayValue, Env, LockableValue, LockedModule, MaybeFrom, Usertype,
+    Value, ValueError, ValueResult, Vm,
+  };
+}
+
 pub(crate) trait UnwrapAnd<T> {
   fn unwrap_and(self, f: impl FnOnce(T));
 }

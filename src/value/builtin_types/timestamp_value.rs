@@ -2,6 +2,7 @@ use crate::prelude::*;
 use std::{ops::Deref, time::Instant};
 
 #[derive(Usertype, Class)]
+#[uuid("fa23bba8-599b-4626-98c2-5036ecf49265")]
 pub struct TimestampValue {
   timestamp: Instant,
 }

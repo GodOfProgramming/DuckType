@@ -2,6 +2,8 @@ use crate::prelude::*;
 use std::{
   error::Error,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
+  path::PathBuf,
+  rc::Rc,
 };
 
 #[allow(unused)]
@@ -32,10 +34,10 @@ pub fn _here(file: &str, line: u32) {
   stdout().flush().unwrap();
 }
 
-#[derive(Default, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub struct RuntimeError {
   pub msg: String,
-  pub file: String,
+  pub file: Rc<PathBuf>,
   pub line: usize,
   pub column: usize,
 }
@@ -53,20 +55,20 @@ impl RuntimeError {
     err
   }
 
-  pub fn format_with_src_line(&mut self, src: String) {
+  pub fn format_with_src_line(&mut self, src: &str) {
     self.msg = format!("{}\n{}\n{}^", self.msg, src, " ".repeat(self.column - 1));
   }
 }
 
 impl Debug for RuntimeError {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    writeln!(f, "{} ({}, {}): {}", self.file, self.line, self.column, self.msg)
+    writeln!(f, "{} ({}, {}): {}", self.file.display(), self.line, self.column, self.msg)
   }
 }
 
 impl Display for RuntimeError {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    writeln!(f, "{} ({}, {}): {}", self.file, self.line, self.column, self.msg)
+    writeln!(f, "{} ({}, {}): {}", self.file.display(), self.line, self.column, self.msg)
   }
 }
 
@@ -132,7 +134,7 @@ pub enum EnvCmd {
 }
 
 impl EnvCmd {
-  fn exec(self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+  fn exec(self, _vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
     let output = match self {
       EnvCmd::Get { name } => Some(if let Some(value) = env.lookup(&name) {
         format!("{:?}", value)
@@ -191,7 +193,7 @@ pub enum StackCmd {
 }
 
 impl StackCmd {
-  fn exec(&self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+  fn exec(&self, vm: &mut Vm, _env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
     let output = match self {
       StackCmd::Display => {
         vm.stack_display();

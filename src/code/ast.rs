@@ -3,12 +3,16 @@ use super::{
   ConstantValue, SourceLocation,
 };
 use crate::{prelude::*, UnwrapAnd};
-#[cfg(feature = "visit-ast")]
-use horrorshow::{helper::doctype, html, prelude::*};
 use std::{
   collections::BTreeSet,
   fmt::{Display, Formatter, Result as FmtResult},
   mem,
+  rc::Rc,
+};
+#[cfg(feature = "visit-ast")]
+use {
+  horrorshow::{helper::doctype, html, prelude::*},
+  std::path::Path,
 };
 
 pub struct Ast {
@@ -21,7 +25,7 @@ impl Ast {
   }
 
   #[cfg(feature = "visit-ast")]
-  pub fn dump(&self, file: &str) {
+  pub fn dump(&self, file: &Path) {
     let out = html! {
       : doctype::HTML;
       head {
@@ -38,10 +42,7 @@ impl Ast {
       }
     };
     std::fs::write(
-      format!(
-        "assets/{}.html",
-        std::path::Path::new(file).file_name().unwrap().to_string_lossy()
-      ),
+      format!("assets/{}.html", file.file_name().unwrap().to_string_lossy()),
       format!("{}", out),
     )
     .unwrap();
@@ -1302,18 +1303,18 @@ impl AstGenerator {
   fn error<const I: usize>(&mut self, msg: impl AsRef<str> + Into<String>) {
     if let Some(meta) = self.meta_at::<I>() {
       if cfg!(debug_assertions) {
-        println!("{} ({}, {}): {}", meta.file, meta.line, meta.column, msg.as_ref());
+        println!("{} ({}, {}): {}", meta.file.display(), meta.line, meta.column, msg.as_ref());
       }
       self.errors.push(RuntimeError {
         msg: msg.into(),
-        file: (**meta.file).clone(),
+        file: Rc::clone(&meta.file),
         line: meta.line,
         column: meta.column,
       });
     } else {
       self.errors.push(RuntimeError {
         msg: format!("could not find location of token for msg '{}'", msg.as_ref()),
-        file: String::default(),
+        file: Default::default(),
         line: 0,
         column: 0,
       });

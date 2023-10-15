@@ -12,6 +12,7 @@ use std::{
   error::Error,
   fmt::{self, Debug, Display, Formatter, Result as FmtResult},
   path::PathBuf,
+  rc::Rc,
   str,
 };
 
@@ -128,8 +129,9 @@ pub enum Opcode {
 pub struct Compiler;
 
 impl Compiler {
-  pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    let mut scanner = Scanner::new(file, source);
+  pub fn compile(file: PathBuf, source: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+    let file = Rc::new(file);
+    let mut scanner = Scanner::new(Rc::clone(&file), source);
 
     let (tokens, meta) = scanner.scan().map_err(|errs| Self::reformat_errors(source, errs))?;
 
@@ -138,7 +140,7 @@ impl Compiler {
     if !errors.is_empty() {
       #[cfg(feature = "visit-ast")]
       {
-        ast.dump(file);
+        ast.dump(&file);
       }
 
       return Err(Self::reformat_errors(source, errors));
@@ -148,23 +150,21 @@ impl Compiler {
 
     let ast = optimizer.optimize();
 
-    let file = SmartPtr::new(String::from(file));
-    let source_ptr = SmartPtr::new(String::from(source));
-
-    let reflection = Reflection::new(file, source_ptr);
+    let source = Rc::new(source.to_string());
+    let reflection = Reflection::new(file, Rc::clone(&source));
     let ctx = SmartPtr::new(Context::new(Some("*main*"), reflection));
 
     let generator = BytecodeGenerator::new(ctx);
 
-    generator.generate(ast).map_err(|errs| Self::reformat_errors(source, errs))
+    generator.generate(ast).map_err(|errs| Self::reformat_errors(&source, errs))
   }
 
-  fn reformat_errors(source: &str, errs: Vec<RuntimeError>) -> Vec<RuntimeError> {
+  fn reformat_errors<'file>(source: &str, errs: Vec<RuntimeError>) -> Vec<RuntimeError> {
     errs
       .into_iter()
       .map(|mut e| {
         if let Some(src) = source.lines().nth(e.line - 1) {
-          e.format_with_src_line(String::from(src));
+          e.format_with_src_line(src);
         }
         e
       })
@@ -174,7 +174,7 @@ impl Compiler {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceLocation {
-  pub file: SmartPtr<String>,
+  pub file: Rc<PathBuf>,
   pub line: usize,
   pub column: usize,
 }
@@ -186,9 +186,9 @@ pub struct OpCodeInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpCodeReflection {
-  pub file: String,
-  pub source_line: String,
+pub struct OpCodeReflection<'src> {
+  pub file: Rc<PathBuf>,
+  pub source_line: &'src str,
   pub line: usize,
   pub column: usize,
 }
@@ -310,10 +310,6 @@ impl Context {
       strings: Default::default(),
       meta: reflection,
     }
-  }
-
-  pub(crate) fn name(&self) -> String {
-    self.name.clone().unwrap_or_else(|| String::from("<unnamed>"))
   }
 
   fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
@@ -681,13 +677,13 @@ impl Env {
 
 #[derive(Debug)]
 pub struct Reflection {
-  pub file: SmartPtr<String>,
-  pub source: SmartPtr<String>,
+  pub file: Rc<PathBuf>,
+  pub source: Rc<String>,
   pub opcode_info: Vec<OpCodeInfo>,
 }
 
 impl Reflection {
-  fn new(file: SmartPtr<String>, source: SmartPtr<String>) -> Self {
+  fn new(file: Rc<PathBuf>, source: Rc<String>) -> Self {
     Reflection {
       file,
       source,
@@ -699,11 +695,11 @@ impl Reflection {
     self.opcode_info.push(OpCodeInfo { line, column });
   }
 
-  pub fn get(&self, offset: usize) -> Option<OpCodeReflection> {
+  pub fn get<'src>(&'src self, offset: usize) -> Option<OpCodeReflection<'src>> {
     if let Some(info) = self.opcode_info.get(offset).cloned() {
       self.source.lines().nth(info.line - 1).map(|src| OpCodeReflection {
-        file: self.file.access().clone(),
-        source_line: String::from(src),
+        file: Rc::clone(&self.file),
+        source_line: src,
         line: info.line,
         column: info.column,
       })

@@ -1,8 +1,15 @@
 [package]
 name = "simple_script"
-version = "0.29.0"
+version = "0.30.0"
 authors = ["Jonathan Dickert <jon.p.dickert@gmail.com>"]
 edition = "2021"
+
+[workspace]
+members = [".", "macros"]
+
+[workspace.dependencies]
+uuid = { version = "1.4.1", features = ["v4", "macro-diagnostics"] }
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -19,6 +26,7 @@ shellwords = "1.1.0"
 static_assertions = "1.1.0"
 sysinfo = "0.29.10"
 thiserror = "1.0.49"
+uuid = { workspace = true }
 
 ptr = { path = "lib/ptr" }
 tfix = { path = "lib/tfix" }

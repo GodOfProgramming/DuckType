@@ -27,6 +27,7 @@ impl LibIo {
 }
 
 #[derive(Usertype, Class)]
+#[uuid("d5548736-3896-4b0c-bcd4-84c1280d5008")]
 struct File {
   internal: fs::File,
 }

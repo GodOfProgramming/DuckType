@@ -12,7 +12,8 @@ impl TestFixture for ValueTest {
   }
 }
 
-#[derive(Default, Class)]
+#[derive(Default, Usertype, Class)]
+#[uuid("9ae5ec94-64f1-4294-8a16-77f753865a82")]
 struct ImplementedObject {
   field: i32,
 }
@@ -26,19 +27,12 @@ impl ImplementedObject {
 #[methods]
 impl ImplementedObject {}
 
-impl Usertype for ImplementedObject {
-  const ID: &'static str = "ImplementedObject";
-}
-
-#[derive(Class)]
+#[derive(Default, Usertype, Class)]
+#[uuid("dc03970c-c5c2-451e-b4b1-3f62e99a042c")]
 struct UnimplementedObject {}
 
 #[methods]
 impl UnimplementedObject {}
-
-impl Usertype for UnimplementedObject {
-  const ID: &'static str = "UnimplementedObject";
-}
 
 #[fixture(ValueTest)]
 mod unit_tests {

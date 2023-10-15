@@ -2,6 +2,7 @@ use crate::code::{ast::*, Reflection, SourceLocation};
 use crate::prelude::*;
 use ptr::SmartPtr;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use super::{ClassConstant, ConstantValue, FunctionConstant};
 
@@ -930,11 +931,11 @@ impl BytecodeGenerator {
 
   fn error(&mut self, loc: SourceLocation, msg: String) {
     if cfg!(debug_assertions) {
-      println!("{} ({}, {}): {}", loc.file, loc.line, loc.column, msg);
+      println!("{} ({}, {}): {}", loc.file.display(), loc.line, loc.column, msg);
     }
     self.errors.push(RuntimeError {
       msg,
-      file: String::default(),
+      file: Rc::clone(&loc.file),
       line: loc.line,
       column: loc.column,
     });
