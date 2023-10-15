@@ -1,7 +1,8 @@
 use crate::prelude::*;
 use std::collections::BTreeMap;
 
-#[derive(Usertype)]
+#[derive(Default, Usertype)]
+#[uuid("fc79ffad-9286-4188-9905-76ae73108f9e")]
 pub struct ModuleValue {
   pub members: BTreeMap<String, Value>,
   pub locked: bool,
@@ -14,14 +15,24 @@ impl ModuleValue {
       locked: false,
     }
   }
+
+  pub fn set(&mut self, field: &str, value: impl Into<Value>) -> ValueResult<()> {
+    <Self as Usertype>::set(self, field, value.into())
+  }
 }
 
-impl ClassFields for ModuleValue {
-  fn get_member(&self, field: &str) -> Option<Value> {
-    self.members.get(field).cloned()
+impl UsertypeFields for ModuleValue {
+  fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
+    self
+      .members
+      .get(field)
+      .cloned()
+      .map(Ok)
+      .or_else(|| Some(Err(ValueError::UndefinedMember(field.to_string()))))
+      .transpose()
   }
 
-  fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()> {
+  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
     if self.locked {
       Err(ValueError::Immutable(self.__str__()))
     } else {

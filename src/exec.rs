@@ -12,6 +12,7 @@ use std::{
   collections::BTreeMap,
   env, fs,
   path::{Path, PathBuf},
+  rc::Rc,
 };
 
 #[derive(WrapperApi)]
@@ -23,8 +24,8 @@ pub mod prelude {
   pub use super::{Return, Vm};
 }
 
-type ExecResult = Result<(), Vec<RuntimeError>>;
-type ExecBoolResult = Result<bool, Vec<RuntimeError>>;
+type ExecResult<'file> = Result<(), Vec<RuntimeError>>;
+type ExecBoolResult<'file> = Result<bool, Vec<RuntimeError>>;
 
 // yield must store ip and stack and return ctx
 // or better yet, have ctx have an Option<usize> and option<Vec<Value>>
@@ -80,8 +81,8 @@ impl Vm {
     }
   }
 
-  pub fn load<T: ToString>(&self, file: T, code: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    Compiler::compile(&file.to_string(), code)
+  pub fn load(&self, file: impl Into<PathBuf>, code: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+    Compiler::compile(file.into(), code)
   }
 
   pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<Return, Vec<RuntimeError>> {
@@ -91,7 +92,7 @@ impl Vm {
     self.execute(env)
   }
 
-  pub fn run<T: ToString>(&mut self, file: T, ctx: SmartPtr<Context>, env: &mut Env) -> Result<Return, Vec<RuntimeError>> {
+  pub fn run(&mut self, file: impl Into<PathBuf>, ctx: SmartPtr<Context>, env: &mut Env) -> Result<Return, Vec<RuntimeError>> {
     #[cfg(feature = "disassemble")]
     {
       ctx.disassemble();
@@ -102,7 +103,7 @@ impl Vm {
       }
     }
 
-    self.opened_files = vec![(0, PathBuf::from(file.to_string()))];
+    self.opened_files = vec![(0, file.into())];
     self.reinitialize(ctx);
     self.execute(env)
   }
@@ -680,10 +681,10 @@ impl Vm {
     if let Some(value) = self.stack_pop() {
       let mut attempts = Vec::with_capacity(10);
 
-      let file = value.to_string();
+      let file_str = value.to_string();
       let this_file = self.opened_files.last().map(|f| f.1.clone());
 
-      let required_file = PathBuf::from(file.as_str());
+      let required_file = PathBuf::from(file_str.as_str());
 
       let mut found_file = None;
 
@@ -727,7 +728,7 @@ impl Vm {
       if found_file.is_none() {
         if let Some(library_mod) = env.lookup("$LIBRARY") {
           if let Some(library_mod) = library_mod.as_struct() {
-            if let Some(list) = library_mod.get_member("path").map(|l| l.as_array()) {
+            if let Ok(Some(list)) = library_mod.get_field("path").map(|l| l.map(|l| l.as_array())) {
               for item in list.iter() {
                 let base = PathBuf::from(item.to_string());
                 found_file = try_to_find_file(&base, &required_file, &mut attempts);
@@ -753,7 +754,7 @@ impl Vm {
           }
           _ => match fs::read_to_string(&found_file) {
             Ok(data) => {
-              let new_ctx = Compiler::compile(&file, &data)?;
+              let new_ctx = Compiler::compile(found_file.clone(), &data)?;
 
               #[cfg(feature = "disassemble")]
               {
@@ -768,7 +769,7 @@ impl Vm {
 
               Ok(())
             }
-            Err(e) => Err(self.error(opcode, format!("unable to read file '{}': {}", file, e,))),
+            Err(e) => Err(self.error(opcode, format!("unable to read file '{}': {}", file_str, e,))),
           },
         }
       } else {
@@ -920,11 +921,6 @@ impl Vm {
     } else if callable.is_class() {
       ClassValue::construct(callable, self, args.into()).map_err(|e| self.error(opcode, e))?;
       Ok(())
-    } else if let Some(c) = callable.clone().as_native_class() {
-      let args = Args::from(args);
-      let v = c.construct(callable, self, env, args).map_err(|e| self.error(opcode, e))?;
-      self.stack_push(v);
-      Ok(())
     } else {
       Err(vec![format!(
         "unable to call non callable '{}', perhaps an operator overload was undefined?",
@@ -952,7 +948,7 @@ impl Vm {
     } else {
       RuntimeError {
         msg: format!("could not fetch info for instruction {:04X}", self.current_frame.ip),
-        file: self.current_frame.ctx.meta.file.access().clone(),
+        file: Rc::clone(&self.current_frame.ctx.meta.file),
         line: 0,
         column: 0,
       }

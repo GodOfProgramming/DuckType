@@ -7,6 +7,7 @@ use std::{
   ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
 };
 pub use tags::*;
+use uuid::Uuid;
 
 pub(crate) mod builtin_types;
 mod tags;
@@ -14,7 +15,7 @@ mod tags;
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, MaybeFrom, Tag, Value};
+  pub use super::{builtin_types::*, MaybeFrom, Tag, TransformToValue, Value};
 }
 
 type ConstVoid = *const ();
@@ -415,30 +416,6 @@ impl Value {
     self.convert_mut()
   }
 
-  pub fn as_native_class(&self) -> Option<&NativeClass> {
-    if self.tag() == Tag::NativeClass {
-      Some(self.as_native_class_unchecked())
-    } else {
-      None
-    }
-  }
-
-  pub fn as_native_class_mut(&mut self) -> Option<&mut NativeClass> {
-    if self.tag() == Tag::NativeClass {
-      Some(self.as_native_class_mut_unchecked())
-    } else {
-      None
-    }
-  }
-
-  pub fn as_native_class_unchecked(&self) -> &NativeClass {
-    self.convert()
-  }
-
-  pub fn as_native_class_mut_unchecked(&mut self) -> &mut NativeClass {
-    self.convert_mut()
-  }
-
   // value pointer
 
   pub fn is_ptr(&self) -> bool {
@@ -446,7 +423,7 @@ impl Value {
   }
 
   pub fn is<T: Usertype>(&self) -> bool {
-    self.is_ptr() && self.type_id() == T::ID
+    self.is_ptr() && *self.type_id() == T::ID
   }
 
   pub fn cast_to<T: Usertype>(&self) -> Option<&'static T> {
@@ -553,7 +530,7 @@ impl Value {
   }
 
   // TypeId of the underlying type
-  fn type_id(&self) -> &'static str {
+  fn type_id(&self) -> &'static Uuid {
     (self.vtable().type_id)()
   }
 
@@ -712,15 +689,6 @@ impl From<NativeFn> for Value {
   }
 }
 
-impl From<NativeClass> for Value {
-  fn from(class: NativeClass) -> Self {
-    let allocated = Self::allocate(class);
-    Self {
-      bits: allocated as *const _ as u64 | NATIVE_CLASS_TAG,
-    }
-  }
-}
-
 impl From<Nil> for Value {
   fn from(_: Nil) -> Self {
     Self { bits: NIL_TAG }
@@ -766,6 +734,24 @@ impl MaybeFrom<Value> for &'static Vec<Value> {
   }
 }
 
+impl<T> MaybeFrom<Value> for &'static T
+where
+  T: Usertype,
+{
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.cast_to::<T>()
+  }
+}
+
+impl<T> MaybeFrom<Value> for &'static mut T
+where
+  T: Usertype,
+{
+  fn maybe_from(mut value: Value) -> Option<Self> {
+    value.cast_to_mut::<T>()
+  }
+}
+
 impl Display for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     match self.tag() {
@@ -774,7 +760,7 @@ impl Display for Value {
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
       Tag::NativeFn => write!(f, "{:p}", &self.as_native_fn_unchecked()),
-      Tag::NativeClass => write!(f, "{:p}", self.as_native_class_unchecked().name()),
+      Tag::NativeClass => write!(f, "FREE SLOT"),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
     }
@@ -806,7 +792,7 @@ impl Debug for Value {
       ),
       Tag::Pointer => write!(
         f,
-        "<@{addr:<width$} {} : {} >",
+        "<@{addr:<width$} {} : {}>",
         self.type_id(),
         self.debug_string(),
         addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
@@ -1100,7 +1086,7 @@ pub struct VTable {
   debug_string: fn(ConstVoid) -> String,
   lock: fn(MutVoid),
   dealloc: fn(MutVoid),
-  type_id: fn() -> &'static str,
+  type_id: fn() -> &'static Uuid,
   type_name: fn() -> String,
 }
 
@@ -1113,7 +1099,7 @@ impl VTable {
       debug_string: |this| <T as DebugValue>::__dbg__(Self::cast(this)),
       lock: |this| <T as LockableValue>::__lock__(Self::cast_mut(this)),
       dealloc: |this| consume(this as *mut T),
-      type_id: || <T as Usertype>::ID,
+      type_id: || &<T as Usertype>::ID,
       type_name: || std::any::type_name::<T>().to_string(),
     }
   }
@@ -1228,4 +1214,8 @@ impl Callable {
 
 fn consume<T: Usertype>(this: *mut T) {
   let _ = unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) };
+}
+
+pub trait TransformToValue {
+  fn transform(self) -> Value;
 }

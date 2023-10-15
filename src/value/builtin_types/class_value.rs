@@ -1,7 +1,8 @@
 use crate::{code::ClassConstant, prelude::*};
 use std::collections::BTreeMap;
 
-#[derive(Class)]
+#[derive(Usertype)]
+#[uuid("2034facf-835a-495c-b504-26efc0ca3f95")]
 pub struct ClassValue {
   pub name: Option<String>,
   pub initializer: Option<Value>,
@@ -64,6 +65,17 @@ impl ClassValue {
   }
 }
 
+impl UsertypeFields for ClassValue {
+  fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
+    Ok(self.get_static(field))
+  }
+
+  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
+    self.set_static(field, value);
+    Ok(())
+  }
+}
+
 #[methods]
 impl ClassValue {
   fn __str__(&self) -> String {
@@ -76,19 +88,6 @@ impl ClassValue {
 
   fn __dbg__(&self) -> String {
     format!("class {}", self.__str__())
-  }
-}
-
-impl Usertype for ClassValue {
-  const ID: &'static str = "Class";
-
-  fn get(&self, _this: &Value, field: &str) -> ValueResult<Value> {
-    Ok(self.get_static(field).unwrap_or_default())
-  }
-
-  fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
-    self.set_static(field, value);
-    Ok(())
   }
 }
 

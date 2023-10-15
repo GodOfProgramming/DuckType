@@ -5,6 +5,7 @@ use std::{
 };
 
 #[derive(Usertype, Default)]
+#[uuid("1215f7a4-1b67-4387-bf00-f950bbc63743")]
 pub struct StructValue {
   pub members: BTreeMap<String, Value>,
 }
@@ -19,12 +20,12 @@ impl StructValue {
   }
 }
 
-impl ClassFields for StructValue {
-  fn get_member(&self, field: &str) -> Option<Value> {
-    self.members.get(field).cloned()
+impl UsertypeFields for StructValue {
+  fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
+    Ok(self.members.get(field).cloned())
   }
 
-  fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()> {
+  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
     self.set(field, value);
     Ok(())
   }

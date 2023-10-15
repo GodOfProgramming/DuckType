@@ -10,8 +10,6 @@ pub(crate) mod string_value;
 pub(crate) mod struct_value;
 pub(crate) mod timestamp_value;
 
-// mod out;
-
 pub mod ops {
   pub const NOT: &str = "__not__";
   pub const NEG: &str = "__neg__";
@@ -39,49 +37,53 @@ pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
 pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
-use macros::{methods, Class};
+use macros::{methods, Fields};
 pub use method_value::MethodValue;
 pub use module_value::{LockedModule, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use std::{collections::BTreeMap, convert::Infallible, error::Error, fmt::Debug};
+use std::{convert::Infallible, error::Error, fmt::Debug};
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 use thiserror::Error;
 pub use timestamp_value::TimestampValue;
+use uuid::Uuid;
 
 pub struct Nil;
 
 pub trait Usertype
 where
-  Self: ClassFields + ClassMethods + DisplayValue + DebugValue + LockableValue + Sized + 'static,
+  Self: UsertypeFields + UsertypeMethods + DisplayValue + DebugValue + LockableValue + Sized + 'static,
 {
-  const ID: &'static str;
+  const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  fn get(&self, this: &Value, field: &str) -> ValueResult<Value> {
-    Ok(
-      <Self as ClassFields>::get_member(self, field)
-        .or_else(|| <Self as ClassMethods>::get_method(self, this, field))
-        .unwrap_or_default(),
-    )
+  fn get(&self, this: &Value, field: &str) -> ValueResult {
+    match <Self as UsertypeFields>::get_field(self, field) {
+      Ok(Some(value)) => Ok(value),
+      Ok(None) => match <Self as UsertypeMethods>::get_method(self, this, field) {
+        Ok(Some(value)) => Ok(value),
+        Ok(None) => Ok(Value::nil),
+        Err(e) => Err(e),
+      },
+      Err(e) => Err(e),
+    }
   }
 
   fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
-    <Self as ClassFields>::set_member(self, field, value)
+    <Self as UsertypeFields>::set_field(self, field, value)
   }
 }
 
-pub trait ClassFields {
-  fn get_member(&self, field: &str) -> Option<Value>;
-  fn set_member(&mut self, field: &str, value: Value) -> ValueResult<()>;
+pub trait UsertypeFields {
+  fn get_field(&self, field: &str) -> ValueResult<Option<Value>>;
+  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()>;
 }
 
-pub trait ClassMethods {
-  fn get_method(&self, this: &Value, field: &str) -> Option<Value>;
-}
-
-pub trait LockableValue {
-  fn __lock__(&mut self) {}
+pub trait UsertypeMethods {
+  fn __new__(_vm: &mut Vm, _env: &mut Env, _args: Args) -> ValueResult {
+    Err(ValueError::UndefinedInitializer)
+  }
+  fn get_method(&self, this: &Value, field: &str) -> ValueResult<Option<Value>>;
 }
 
 pub trait DisplayValue {
@@ -92,62 +94,9 @@ pub trait DebugValue {
   fn __dbg__(&self) -> String;
 }
 
-pub struct NativeClass {
-  name: &'static str,
-  constructor: Option<NativeFn>,
-  methods: BTreeMap<String, Value>,
-  statics: BTreeMap<String, Value>,
-
-  setters: BTreeMap<String, Box<dyn Fn(&mut Value, Value)>>,
-  getters: BTreeMap<String, Box<dyn Fn(&Value) -> Value>>,
+pub trait LockableValue {
+  fn __lock__(&mut self) {}
 }
-
-impl NativeClass {
-  pub fn new<T: Usertype>() -> Self {
-    Self {
-      name: T::ID,
-      constructor: None,
-      methods: BTreeMap::default(),
-      statics: BTreeMap::default(),
-      setters: BTreeMap::default(),
-      getters: BTreeMap::default(),
-    }
-  }
-
-  pub fn name(&self) -> &'static str {
-    self.name
-  }
-
-  pub fn set_for_instance(&self, instance: &mut Value, name: &str, value: Value) {
-    self.setters.get(name).map(|s| s(instance, value));
-  }
-
-  pub fn get_for_instance(&self, instance: &Value, name: &str) -> Value {
-    self
-      .getters
-      .get(name)
-      .map(|g| g(instance))
-      .unwrap_or_else(|| self.methods.get(name).cloned().unwrap_or_default())
-  }
-
-  pub fn set_static(&mut self, name: impl ToString, value: Value) {
-    self.statics.insert(name.to_string(), value);
-  }
-
-  pub fn get_static(&self, name: &str) -> Value {
-    self.statics.get(name).cloned().unwrap_or_default()
-  }
-
-  pub(crate) fn construct(&self, this_class: Value, vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult {
-    let this = Value::from(InstanceValue::new(Default::default(), this_class));
-    if let Some(constructor) = self.constructor {
-      constructor(vm, env, args)
-    } else {
-      Ok(this)
-    }
-  }
-}
-
 #[derive(Default, Debug)]
 pub struct Args {
   pub list: Vec<Value>,
@@ -184,7 +133,8 @@ impl<T: Into<Value> + Clone, const I: usize> From<[T; I]> for Args {
 }
 
 /// Intentionally empty
-#[derive(Usertype, Class)]
+#[derive(Default, Usertype, Fields)]
+#[uuid("6d9d039a-9803-41ff-8e84-a0ea830e2380")]
 pub struct Primitive {}
 
 #[methods]
@@ -228,14 +178,33 @@ pub enum ValueError {
   /// value
   #[error("Tried to lookup a member on a primitive '{0}'")]
   InvalidLookup(Value),
+  /// ident
   #[error("Cannot modify immutable object '{0}'")]
   Immutable(String),
+  /// ident
+  #[error("Tried to access undefined member '{0}'")]
+  UndefinedMember(String),
+
+  /// message
+  #[error("{0}")]
+  RuntimeError(String),
+
+  /// Default return value for usertype initializers
+  #[error("Undefined initializer reached")]
+  UndefinedInitializer,
+
   /// meant to be a placeholder for me being lazy
   #[error("{0}")]
   Todo(String),
 
   #[error("Infallible")]
   Infallible,
+}
+
+impl ValueError {
+  pub fn runtime_error(msg: impl Into<String>) -> Self {
+    Self::RuntimeError(msg.into())
+  }
 }
 
 impl From<Infallible> for ValueError {

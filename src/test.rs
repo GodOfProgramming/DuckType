@@ -2,7 +2,7 @@ use crate::prelude::*;
 use ptr::SmartPtr;
 use tfix::{fixture, TestFixture};
 
-const TEST_FILE: &str = "test";
+const TEST_FILE: &'static str = "test";
 
 struct IntegrationTest {
   script: String,
@@ -150,7 +150,7 @@ mod integration_tests {
 
     test.run(|_ctx, env, _| {
       let val = env.lookup("$foo").unwrap();
-      assert_eq!(val, Value::from(7.2));
+      assert_eq!(val, Value::from(value));
     });
   }
 

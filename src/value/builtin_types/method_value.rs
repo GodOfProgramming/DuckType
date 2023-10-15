@@ -1,7 +1,8 @@
 use crate::prelude::*;
 use ptr::SmartPtr;
 
-#[derive(Clone, Usertype, Class)]
+#[derive(Clone, Usertype, Fields)]
+#[uuid("7d8c2afc-2706-4b79-a7cf-9bdfdc10ab0c")]
 pub struct MethodValue {
   pub this: Value,
   pub function: FunctionValue,

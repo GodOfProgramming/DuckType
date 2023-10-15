@@ -5,7 +5,8 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
-#[derive(Default, Usertype, Class)]
+#[derive(Default, Usertype, Fields)]
+#[uuid("8b881e80-c828-4563-b7ad-d4b8f1bffbfa")]
 pub struct ArrayValue {
   list: Vec<Value>,
 }
@@ -22,8 +23,8 @@ impl ArrayValue {
 
 #[methods]
 impl ArrayValue {
-  fn new(args: &Vec<Value>) -> ValueResult<Self> {
-    Ok(Self::new_from_vec(args))
+  fn __new__(args: &Vec<Value>) -> ValueResult<ArrayValue> {
+    Ok(ArrayValue::new_from_vec(args))
   }
 
   fn push(&mut self, value: Value) -> ValueResult<()> {
@@ -45,12 +46,6 @@ impl ArrayValue {
 
   fn __dbg__(&self) -> String {
     format!("{:?}", self.list)
-  }
-}
-
-impl MaybeFrom<&Value> for &ArrayValue {
-  fn maybe_from(value: &Value) -> Option<Self> {
-    value.cast_to()
   }
 }
 

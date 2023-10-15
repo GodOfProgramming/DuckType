@@ -1,7 +1,8 @@
 use crate::{code::FunctionConstant, prelude::*};
 use ptr::SmartPtr;
 
-#[derive(Clone, Usertype, Class)]
+#[derive(Clone, Usertype, Fields)]
+#[uuid("4263e9fa-21fe-420c-b5a9-beca8fe3ca05")]
 pub struct FunctionValue {
   pub airity: usize,
   locals: usize,

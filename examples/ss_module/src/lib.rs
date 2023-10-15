@@ -1,18 +1,30 @@
-use simple_script::prelude::*;
+use simple_script::macro_requirements::*;
+use simple_script::prelude::StringValue;
 
-fn test_function(_: &mut Vm, _: &mut Env, _: Args) -> ValueResult {
-  println!("TESTING");
-  Ok(Value::nil)
-}
+#[native]
+mod example_module {
+  fn test_function(item: &StringValue) -> ValueResult<()> {
+    println!("{}", item);
+    Ok(())
+  }
 
-#[no_mangle]
-pub fn simple_script_load_module(vm: &mut Vm, env: &mut Env) -> ValueResult<()> {
-  env.define(
-    "ExampleModule",
-    LockedModule::initialize(|lib| {
-      lib.set("test_function", Value::native(test_function)).ok();
-    })
-    .into(),
-  );
-  Ok(())
+  fn test_clear(item: &mut StringValue) -> ValueResult {
+    let old = item.clone();
+    *item = StringValue::default();
+    Ok(old.into())
+  }
+
+  #[derive(Default, Usertype, Fields)]
+  #[uuid("random")]
+  struct Foo {
+    #[field]
+    value: i32,
+  }
+
+  #[methods]
+  impl Foo {
+    fn __new__() -> ValueResult<Foo> {
+      Ok(Foo::default())
+    }
+  }
 }
