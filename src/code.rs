@@ -128,11 +128,7 @@ pub enum Opcode {
 pub struct Compiler;
 
 impl Compiler {
-  pub fn compile(
-    file: &str,
-    source: &str,
-    root_ctx: Option<SmartPtr<Context>>,
-  ) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+  pub fn compile(file: &str, source: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
     let mut scanner = Scanner::new(file, source);
 
     let (tokens, meta) = scanner.scan().map_err(|errs| Self::reformat_errors(source, errs))?;
@@ -156,7 +152,7 @@ impl Compiler {
     let source_ptr = SmartPtr::new(String::from(source));
 
     let reflection = Reflection::new(file, source_ptr);
-    let ctx = root_ctx.unwrap_or_else(|| SmartPtr::new(Context::new(Some("*main*"), Some(reflection))));
+    let ctx = SmartPtr::new(Context::new(Some("*main*"), reflection));
 
     let generator = BytecodeGenerator::new(ctx);
 
@@ -288,19 +284,11 @@ impl Display for ConstantValue {
 }
 
 #[derive(Debug)]
-struct Local {
-  name: String,
-  depth: usize,
-  initialized: bool,
-}
-
-#[derive(Debug)]
 pub struct Context {
   pub name: Option<String>,
   pub id: usize, // the function id within the local file
 
   global: SmartPtr<Context>,
-  locals: Vec<Local>,
 
   instructions: Vec<Opcode>,
 
@@ -308,16 +296,15 @@ pub struct Context {
   // map of string to const vec location to save memory
   strings: BTreeMap<String, usize>,
 
-  pub meta: Option<Reflection>,
+  pub meta: Reflection,
 }
 
 impl Context {
-  pub(crate) fn new(name: Option<impl Into<String>>, reflection: Option<Reflection>) -> Self {
+  fn new(name: Option<impl Into<String>>, reflection: Reflection) -> Self {
     Self {
       name: name.map(|n| n.into()),
       id: Default::default(),
       global: Default::default(),
-      locals: Default::default(),
       instructions: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
@@ -329,13 +316,7 @@ impl Context {
     self.name.clone().unwrap_or_else(|| String::from("<unnamed>"))
   }
 
-  fn map_local(&mut self, name: String, index: usize) {
-    if let Some(meta) = &mut self.meta {
-      meta.locals_mapping.insert(name, index);
-    }
-  }
-
-  fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Option<Reflection>) -> Self {
+  fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
     let global = if ctx.global.valid() {
       ctx.global.clone()
     } else {
@@ -347,24 +328,11 @@ impl Context {
       name,
       id,
       global,
-      locals: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
       instructions: Default::default(),
       meta: reflection,
     }
-  }
-
-  fn num_locals_in_depth(&self, depth: usize) -> usize {
-    let mut count = 0;
-    for local in self.locals.iter().rev() {
-      if local.depth > depth {
-        count += 1;
-      } else {
-        break;
-      }
-    }
-    count
   }
 
   pub fn global_ctx(&self) -> &Context {
@@ -406,9 +374,7 @@ impl Context {
       println!("emitting {:?}", op);
     }
     self.instructions.push(op);
-    if let Some(meta) = &mut self.meta {
-      meta.add(line, column);
-    }
+    self.meta.add(line, column);
   }
 
   fn write_const(&mut self, c: ConstantValue, line: usize, column: usize) {
@@ -490,24 +456,22 @@ impl Context {
 
   pub fn display_instruction(&self, op: &Opcode, offset: usize) {
     print!("{} ", Self::address_of(offset));
-    if let Some(meta) = &self.meta {
-      if let Some(curr) = meta.get(offset) {
-        if offset > 0 {
-          if let Some(prev) = meta.get(offset - 1) {
-            if curr.line == prev.line {
-              print!("   | ");
-            } else {
-              print!("{:#04} ", curr.line);
-            }
+    if let Some(curr) = self.meta.get(offset) {
+      if offset > 0 {
+        if let Some(prev) = self.meta.get(offset - 1) {
+          if curr.line == prev.line {
+            print!("   | ");
           } else {
-            print!("?????");
+            print!("{:#04} ", curr.line);
           }
         } else {
-          print!("{:#04} ", curr.line);
+          print!("?????");
         }
       } else {
-        print!("?????");
+        print!("{:#04} ", curr.line);
       }
+    } else {
+      print!("?????");
     }
 
     match op {
@@ -720,16 +684,14 @@ pub struct Reflection {
   pub file: SmartPtr<String>,
   pub source: SmartPtr<String>,
   pub opcode_info: Vec<OpCodeInfo>,
-  pub locals_mapping: BTreeMap<String, usize>,
 }
 
 impl Reflection {
-  pub(crate) fn new(file: SmartPtr<String>, source: SmartPtr<String>) -> Self {
+  fn new(file: SmartPtr<String>, source: SmartPtr<String>) -> Self {
     Reflection {
       file,
       source,
       opcode_info: Default::default(),
-      locals_mapping: Default::default(),
     }
   }
 

@@ -1,13 +1,15 @@
-use super::*;
-use lex::{NumberToken, Token};
+use super::{
+  lex::{NumberToken, Token},
+  ConstantValue, SourceLocation,
+};
+use crate::{prelude::*, UnwrapAnd};
+#[cfg(feature = "visit-ast")]
+use horrorshow::{helper::doctype, html, prelude::*};
 use std::{
   collections::BTreeSet,
   fmt::{Display, Formatter, Result as FmtResult},
   mem,
 };
-
-#[cfg(feature = "visit-ast")]
-use horrorshow::{helper::doctype, html, prelude::*};
 
 pub struct Ast {
   pub statements: Vec<Statement>,
@@ -2891,16 +2893,4 @@ impl From<Vec<Ident>> for Params {
 enum SelfRules {
   Disallow,
   Require,
-}
-
-trait UnwrapAnd<T> {
-  fn unwrap_and(self, f: impl FnOnce(T));
-}
-
-impl<T> UnwrapAnd<T> for Option<T> {
-  fn unwrap_and(self, f: impl FnOnce(T)) {
-    if let Some(inner) = self {
-      f(inner);
-    }
-  }
 }

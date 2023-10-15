@@ -1,4 +1,8 @@
-use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use crate::prelude::*;
+use std::{
+  error::Error,
+  fmt::{Debug, Display, Formatter, Result as FmtResult},
+};
 
 #[allow(unused)]
 #[cfg(debug_assertions)]
@@ -8,6 +12,7 @@ macro_rules! here {
   };
 }
 
+use clap::{Parser, Subcommand};
 #[allow(unused)]
 #[cfg(debug_assertions)]
 pub(crate) use here;
@@ -62,5 +67,98 @@ impl Debug for RuntimeError {
 impl Display for RuntimeError {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     writeln!(f, "{} ({}, {}): {}", self.file, self.line, self.column, self.msg)
+  }
+}
+
+#[derive(Parser)]
+pub struct Cli {
+  #[command(subcommand)]
+  command: Command,
+}
+
+impl Cli {
+  pub fn exec(&self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+    self.command.exec(vm, env)
+  }
+}
+
+pub struct CommandOutput {
+  pub response: Option<String>,
+  pub quit: bool,
+}
+
+impl CommandOutput {
+  fn new(response: Option<String>, quit: bool) -> Self {
+    Self { response, quit }
+  }
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+  Quit,
+  Env {
+    #[command(subcommand)]
+    command: EnvCmd,
+  },
+  Stack {
+    #[command(subcommand)]
+    command: StackCmd,
+  },
+}
+
+impl Command {
+  pub fn exec(&self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+    match self {
+      Command::Quit => Ok(CommandOutput::new(None, true)),
+      Command::Env { command } => command.exec(vm, env),
+      Command::Stack { command } => command.exec(vm, env),
+    }
+  }
+}
+
+#[derive(Subcommand)]
+pub enum EnvCmd {
+  Get {
+    #[arg()]
+    name: String,
+  },
+}
+
+impl EnvCmd {
+  fn exec(&self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+    let output = match self {
+      EnvCmd::Get { name } => Some(if let Some(value) = env.lookup(name) {
+        format!("{}", value)
+      } else {
+        format!("no item in the env with the name '{}'", name)
+      }),
+    };
+    Ok(CommandOutput::new(output, false))
+  }
+}
+
+#[derive(Subcommand)]
+pub enum StackCmd {
+  Display,
+  Index {
+    #[arg()]
+    index: usize,
+  },
+}
+
+impl StackCmd {
+  fn exec(&self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+    let output = match self {
+      StackCmd::Display => {
+        vm.stack_display();
+        None
+      }
+      StackCmd::Index { index } => Some(if let Some(value) = vm.stack_index(*index) {
+        format!("{}", value)
+      } else {
+        format!("=> invalid stack index {}", index)
+      }),
+    };
+    Ok(CommandOutput::new(output, false))
   }
 }

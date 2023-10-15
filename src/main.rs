@@ -8,17 +8,16 @@ fn main() -> Result<(), Box<dyn Error>> {
   let file = args.next();
   let args = args.collect::<Vec<String>>();
 
-  let mut vm = Vm::new();
-  let mut env = Env::initialize(&args, Library::All);
+  let vm = Vm::new();
+  let env = Env::initialize(&args, Library::All);
 
   if let Some(file) = file {
     if !run_file(vm, file, env) {
       exit_code = 1;
     }
-    process::exit(exit_code);
-  } else {
-    vm.repl(&mut env)
   }
+
+  process::exit(exit_code);
 }
 
 fn run_file<T: ToString>(mut vm: Vm, file: T, mut env: Env) -> bool {
@@ -29,6 +28,7 @@ fn run_file<T: ToString>(mut vm: Vm, file: T, mut env: Env) -> bool {
       Ok(contents) => match vm.load(&file, &contents) {
         Ok(ctx) => {
           let mut yield_result = None;
+
           loop {
             if let Some(y) = yield_result.take() {
               match vm.resume(y, &mut env) {

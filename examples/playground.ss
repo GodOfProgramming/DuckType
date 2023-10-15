@@ -1,2 +1,3 @@
-print("hi");
-print(std.debug(struct {}));
+fn foo(x) {}
+
+print foo(1);

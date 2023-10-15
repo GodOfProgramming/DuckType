@@ -1,8 +1,10 @@
 use crate::{
   code::{Compiler, ConstantValue, Context, Env, OpCodeReflection, Opcode, StackFrame, Yield},
-  dbg::RuntimeError,
+  dbg::{Cli, RuntimeError},
   value::prelude::*,
+  UnwrapAnd,
 };
+use clap::Parser;
 use dlopen2::wrapper::{Container, WrapperApi};
 use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
@@ -50,38 +52,27 @@ impl Vm {
     Self::default()
   }
 
-  pub fn repl(&mut self, env: &mut Env) -> Result<(), Box<dyn std::error::Error>> {
-    const FILE: &'static str = "<repl>";
-
+  pub fn ssdb(&mut self, env: &mut Env) -> Result<(), Box<dyn std::error::Error>> {
     let mut rl = DefaultEditor::new()?;
-
-    let mut line_number = 1usize;
-
-    let ctx = SmartPtr::new(Context::new(Some(FILE), None));
-
     loop {
-      let prompt = format!("{}:{}: ", ctx.name(), line_number);
-      match rl.readline(&prompt) {
-        Ok(line) => match Compiler::compile(FILE, &line, Some(ctx.clone())) {
-          Ok(ctx) => {
-            self.current_frame.ctx = ctx;
-            self.stack_frames = Default::default();
-            self.opened_files = vec![(0, PathBuf::from(FILE.to_string()))];
-            match self.execute(env) {
-              Ok(ret) => {
-                line_number += 1;
-                match ret {
-                  Return::Value(v) => println!("=> {}", v),
-                  Return::Yield(_) => return Ok(()),
+      match rl.readline("dbg> ") {
+        Ok(line) => match shellwords::split(&format!("dbg {}", line)) {
+          Ok(words) => match Cli::try_parse_from(words) {
+            Ok(cli) => match cli.exec(self, env) {
+              Ok(output) => {
+                output.response.unwrap_and(|response| println!("{}", response));
+                if output.quit {
+                  return Ok(());
                 }
               }
-              Err(e) => println!("{:?}", e),
-            }
-          }
-          Err(e) => println!("{:?}", e),
+              Err(e) => println!("{}", e),
+            },
+            Err(e) => println!("{}", e),
+          },
+          Err(e) => println!("{}", e),
         },
         Err(ReadlineError::Interrupted) => {
-          println!("Use ps.exit() instead of CTRL-C");
+          println!("Use repl.quit instead of CTRL-C");
         }
         Err(e) => Err(e)?,
       }
@@ -89,7 +80,7 @@ impl Vm {
   }
 
   pub fn load<T: ToString>(&self, file: T, code: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    Compiler::compile(&file.to_string(), code, None)
+    Compiler::compile(&file.to_string(), code)
   }
 
   pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<Return, Vec<RuntimeError>> {
@@ -210,7 +201,7 @@ impl Vm {
         println!("<< {} >>", self.current_frame.ctx.id);
       }
 
-      let mut returned_value = false;
+      let mut should_return_from_stack = false;
 
       while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
         #[cfg(feature = "runtime-disassembly")]
@@ -284,7 +275,7 @@ impl Vm {
             break;
           }
           Opcode::RetValue => {
-            returned_value = true;
+            should_return_from_stack = true;
             break;
           }
           Opcode::Req => {
@@ -310,7 +301,10 @@ impl Vm {
 
             return Ok(Return::Yield(Yield::new(current_frame, stack_frames, opened_files)));
           }
-          Opcode::Breakpoint => {}
+          Opcode::Breakpoint => {
+            self.current_frame.ip += 1;
+            self.ssdb(env).ok();
+          }
         }
 
         self.current_frame.ip += 1;
@@ -321,7 +315,7 @@ impl Vm {
         println!("<< END >>");
       }
 
-      let ret_val = if returned_value {
+      let ret_val = if should_return_from_stack {
         // return actual value, failure here is a logic error so unwrap
         self.stack_pop().unwrap()
       } else {
@@ -329,11 +323,12 @@ impl Vm {
         Value::nil
       };
 
-      let last_file = self.opened_files.last().unwrap();
-
-      // if we're at the stack frame that required this file, pop it as we're exiting the file
-      if last_file.0 == self.stack_frames.len() {
-        self.opened_files.pop();
+      // if executing at the stack frame that required this file, pop it as we're exiting the file
+      // repl isn't an opened file therefore have to check for Some
+      if let Some(last_file) = self.opened_files.last() {
+        if last_file.0 == self.stack_frames.len() {
+          self.opened_files.pop();
+        }
       }
 
       if let Some(stack_frame) = self.stack_frames.pop() {
@@ -344,7 +339,9 @@ impl Vm {
           break Ok(Return::Value(ret_val));
         }
       } else {
-        // TODO is this even possible to reach?
+        // possible to reach with repl
+        // since it will run out of instructions
+        // but keep the stack/ip
         break Ok(Return::Value(ret_val));
       }
     }
@@ -684,7 +681,7 @@ impl Vm {
       let mut attempts = Vec::with_capacity(10);
 
       let file = value.to_string();
-      let this_file = &self.opened_files.last().unwrap().1; // must exist by program logic
+      let this_file = self.opened_files.last().map(|f| f.1.clone());
 
       let required_file = PathBuf::from(file.as_str());
 
@@ -712,9 +709,12 @@ impl Vm {
         None
       }
 
-      // find relative first, if not already at cwd
-      if let Some(this_dir) = this_file.parent() {
-        found_file = try_to_find_file(this_dir, &required_file, &mut attempts);
+      // find relative first, skip if None, None will be during repl so go to cwd
+      if let Some(this_dir) = this_file
+        .map(|this_file| this_file.parent().map(|p| p.to_path_buf()))
+        .flatten()
+      {
+        found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
       }
 
       // then try to find from cwd
@@ -753,7 +753,7 @@ impl Vm {
           }
           _ => match fs::read_to_string(&found_file) {
             Ok(data) => {
-              let new_ctx = Compiler::compile(&file, &data, None)?;
+              let new_ctx = Compiler::compile(&file, &data)?;
 
               #[cfg(feature = "disassemble")]
               {
@@ -947,29 +947,18 @@ impl Vm {
 
   #[cold]
   fn error_at<F: FnOnce(OpCodeReflection) -> RuntimeError>(&self, f: F) -> RuntimeError {
-    if let Some(meta) = &self.current_frame.ctx.meta {
-      if let Some(opcode_ref) = meta.get(self.current_frame.ip) {
-        f(opcode_ref)
-      } else {
-        RuntimeError {
-          msg: format!("could not fetch info for instruction {:04X}", self.current_frame.ip),
-          file: meta.file.access().clone(),
-          line: 0,
-          column: 0,
-        }
-      }
+    if let Some(opcode_ref) = self.current_frame.ctx.meta.get(self.current_frame.ip) {
+      f(opcode_ref)
     } else {
       RuntimeError {
         msg: format!("could not fetch info for instruction {:04X}", self.current_frame.ip),
-        file: String::from("<unknown file>"),
+        file: self.current_frame.ctx.meta.file.access().clone(),
         line: 0,
         column: 0,
       }
     }
   }
 
-  #[cfg(debug_assertions)]
-  #[cfg(feature = "runtime-disassembly")]
   pub fn stack_display(&self) {
     if self.current_frame.stack.is_empty() {
       println!("               | [ ]");
