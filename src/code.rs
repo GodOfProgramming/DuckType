@@ -123,6 +123,8 @@ pub enum Opcode {
   Yield,
   /** Halt the VM when this instruction is reached and enter repl mode */
   Breakpoint,
+  /** Mark the current value as exported */
+  Export,
 }
 
 #[derive(Default)]

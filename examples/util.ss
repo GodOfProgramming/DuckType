@@ -12,4 +12,19 @@ mod global_module {
   }
 }
 
-ret "yay";
+export mod {
+  class ModuleClass {
+    new(self) {
+      self.value = "MODULE";
+    }
+
+    fn call_global(self) {
+      self.value = "GLOBAL";
+      ret global_fn(self);
+    }
+  }
+}
+
+fn global_fn(x) {
+  ret x.value;
+}

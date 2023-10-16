@@ -54,7 +54,7 @@ fn run_file(mut vm: Vm, file: PathBuf, mut env: Env) -> bool {
               match vm.resume(y, &mut env) {
                 Ok(result) => match result {
                   Return::Value(v) => {
-                    println!("{}", v);
+                    println!("=> {}", v);
                     break;
                   }
                   Return::Yield(y) => yield_result = Some(y),
@@ -70,7 +70,7 @@ fn run_file(mut vm: Vm, file: PathBuf, mut env: Env) -> bool {
               match vm.run(file.clone(), ctx.clone(), &mut env) {
                 Ok(result) => match result {
                   Return::Value(v) => {
-                    println!("{}", v);
+                    println!("=> {}", v);
                     break;
                   }
                   Return::Yield(y) => yield_result = Some(y),

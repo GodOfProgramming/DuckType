@@ -204,6 +204,7 @@ impl Vm {
       }
 
       let mut should_return_from_stack = false;
+      let mut export = None;
 
       while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
         #[cfg(feature = "runtime-disassembly")]
@@ -306,6 +307,17 @@ impl Vm {
           Opcode::Breakpoint => {
             self.ssdb(env).ok();
           }
+          Opcode::Export => {
+            if export.is_none() {
+              if let Some(value) = self.stack_pop() {
+                export = Some(value);
+              } else {
+                self.error(&opcode, "no value on stack to export");
+              }
+            } else {
+              self.error(&opcode, "can only have one export");
+            }
+          }
         }
 
         self.current_frame.ip += 1;
@@ -316,8 +328,12 @@ impl Vm {
         println!("<< END >>");
       }
 
-      let ret_val = if should_return_from_stack {
-        // return actual value, failure here is a logic error so unwrap
+      let output = if let Some(export) = export {
+        // if there's an export, use this, only possible when exiting a file
+        export
+      } else if should_return_from_stack {
+        // return from stack, not possible to hit outside of functions
+        // failure here is a logic error so unwrap
         self.stack_pop().unwrap()
       } else {
         // if implicit/void return nil
@@ -335,15 +351,15 @@ impl Vm {
       if let Some(stack_frame) = self.stack_frames.pop() {
         if stack_frame.ip < stack_frame.ctx.num_instructions() {
           self.current_frame = stack_frame;
-          self.stack_push(ret_val);
+          self.stack_push(output);
         } else {
-          break Ok(Return::Value(ret_val));
+          break Ok(Return::Value(output));
         }
       } else {
         // possible to reach with repl
         // since it will run out of instructions
         // but keep the stack/ip
-        break Ok(Return::Value(ret_val));
+        break Ok(Return::Value(output));
       }
     }
   }

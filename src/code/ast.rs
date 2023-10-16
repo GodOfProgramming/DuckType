@@ -99,6 +99,10 @@ impl AstGenerator {
         self.advance();
         self.class_stmt();
       }
+      Token::Export => {
+        self.advance();
+        self.export_stmt();
+      }
       Token::Fn => {
         self.advance();
         self.fn_stmt();
@@ -211,6 +215,19 @@ impl AstGenerator {
         });
       } else {
         self.error::<0>(String::from("expected an identifier"));
+      }
+    });
+  }
+
+  fn export_stmt(&mut self) {
+    self.meta_at::<1>().unwrap_and(|loc| {
+      if let Some(current) = self.current() {
+        if let Some(expr) = self.expression() {
+          self.statements.push(Statement::from(ExportStmt::new(expr, loc)));
+          if !matches!(current, Token::Mod | Token::Class | Token::Fn) {
+            self.consume(Token::Semicolon, "expected ';' after expression");
+          }
+        }
       }
     });
   }
@@ -1549,6 +1566,7 @@ impl AstGenerator {
       Token::Class => ParseRule::new(Some(|this| Self::class_expr(this, None)), None, Precedence::Primary),
       Token::Cont => ParseRule::new(None, None, Precedence::None),
       Token::Else => ParseRule::new(None, None, Precedence::None),
+      Token::Export => ParseRule::new(None, None, Precedence::None),
       Token::False => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::For => ParseRule::new(None, None, Precedence::None),
       Token::Fn => ParseRule::new(None, None, Precedence::None),
@@ -1556,7 +1574,7 @@ impl AstGenerator {
       Token::Let => ParseRule::new(None, None, Precedence::None),
       Token::Loop => ParseRule::new(None, None, Precedence::None),
       Token::Match => ParseRule::new(None, None, Precedence::None),
-      Token::Mod => ParseRule::new(None, None, Precedence::None),
+      Token::Mod => ParseRule::new(Some(|this| Self::mod_expr(this, None)), None, Precedence::Primary),
       Token::New => ParseRule::new(None, None, Precedence::None),
       Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::Or => ParseRule::new(None, Some(Self::or_expr), Precedence::Or),
@@ -1711,6 +1729,7 @@ pub enum Statement {
   Cont(ContStatement),
   Class(ClassStatement),
   DefaultConstructorRet(DefaultConstructorRet),
+  Export(ExportStmt),
   Fn(FnStatement),
   For(ForStatement),
   If(IfStatement),
@@ -1753,6 +1772,7 @@ impl Statement {
       Statement::Cont(_) => (),
       Statement::Class(c) => c.body.dump(tmpl),
       Statement::DefaultConstructorRet(_) => (),
+      Statement::Export(_) => (),
       Statement::Fn(_) => (),
       Statement::For(_) => (),
       Statement::If(_) => (),
@@ -1799,6 +1819,7 @@ impl Display for Statement {
       Self::Cont(_) => write!(f, "cont"),
       Self::Class(c) => write!(f, "class {}", c.ident.name),
       Self::DefaultConstructorRet(_) => write!(f, "default constructor ret"),
+      Self::Export(_) => write!(f, "export"),
       Self::Fn(function) => write!(f, "fn {}", function.ident.name),
       Self::For(_) => write!(f, "for"),
       Self::If(_) => write!(f, "if"),
@@ -1844,6 +1865,12 @@ impl From<ClassStatement> for Statement {
 impl From<DefaultConstructorRet> for Statement {
   fn from(stmt: DefaultConstructorRet) -> Self {
     Self::DefaultConstructorRet(stmt)
+  }
+}
+
+impl From<ExportStmt> for Statement {
+  fn from(stmt: ExportStmt) -> Self {
+    Self::Export(stmt)
   }
 }
 
@@ -1980,6 +2007,18 @@ pub struct DefaultConstructorRet {
 impl DefaultConstructorRet {
   fn new(loc: SourceLocation) -> Self {
     Self { loc }
+  }
+}
+
+#[derive(Debug)]
+pub struct ExportStmt {
+  pub expr: Expression,
+  pub loc: SourceLocation,
+}
+
+impl ExportStmt {
+  fn new(expr: Expression, loc: SourceLocation) -> Self {
+    Self { expr, loc }
   }
 }
 

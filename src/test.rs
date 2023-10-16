@@ -59,7 +59,7 @@ mod integration_tests {
 
   #[test]
   fn adding_a_global(test: &mut IntegrationTest) {
-    test.script = "ret foo;".into();
+    test.script = "export foo;".into();
 
     test.load(|this, ctx, env| {
       env.assign(String::from("foo"), Value::from("foo"));
@@ -81,7 +81,7 @@ mod integration_tests {
 
   #[test]
   fn calling_a_native_function(test: &mut IntegrationTest) {
-    test.script = "let x = 1; ret test_func(x, 2);".into();
+    test.script = "let x = 1; export test_func(x, 2);".into();
 
     test.load(|this, ctx, env| {
       env.define(
@@ -210,21 +210,21 @@ mod integration_tests {
 
   #[test]
   fn if_3(test: &mut IntegrationTest) {
-    test.script = "if true and false or true { ret true; } else { ret false; }".into();
+    test.script = "let x = false; if true and false or true { x = true; } else { x = false; } export x;".into();
 
     test.run(|_, _, v| assert!(v.truthy()));
   }
 
   #[test]
   fn if_4(test: &mut IntegrationTest) {
-    test.script = "if true and false and false or true { ret true; } else { ret false; }".into();
+    test.script = "let x = false; if true and false and false or true { x = true; } else { x = false; } export x;".into();
 
     test.run(|_, _, v| assert!(v.truthy()));
   }
 
   #[test]
   fn if_5(test: &mut IntegrationTest) {
-    test.script = "if true and false and (false or true) { ret true; } else { ret false; }".into();
+    test.script = "let x = true; if true and false and (false or true) { x = true; } else { x = false; } export x;".into();
 
     test.run(|_, _, v| {
       println!("{:?}", v);
