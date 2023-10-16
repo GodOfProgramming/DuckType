@@ -30,6 +30,7 @@ pub enum Lib {
   Io,
 }
 
+#[derive(Clone)]
 pub enum Library {
   All,
   None,
@@ -88,6 +89,15 @@ fn load_std() -> Value {
         }),
       )
       .ok();
+
+    lib
+      .set(
+        "reflect",
+        LockedModule::initialize(|lib| {
+          lib.set("defined", Value::native(defined)).ok();
+        }),
+      )
+      .ok();
   })
   .into()
 }
@@ -112,4 +122,9 @@ fn fields(value: Value) -> ValueResult<Vec<Value>> {
   }
 
   Ok(fields)
+}
+
+fn defined(vm: &mut Vm, args: Args) -> ValueResult {
+  let name: &StringValue = args.into_iter().next_arg().try_unwrap_arg("defined", 0)?;
+  Ok(vm.env().lookup(name.as_str()).is_some().into())
 }

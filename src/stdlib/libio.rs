@@ -7,20 +7,7 @@ pub struct LibIo;
 impl LibIo {
   pub fn load() -> Value {
     LockedModule::initialize(|lib| {
-      lib
-        .set(
-          "open",
-          Value::native(|_vm, _env, args| {
-            if let Some(filename) = args.list.first().map(|a| a.as_str()).flatten() {
-              let path = PathBuf::from(filename.to_string());
-              let file = fs::File::open(path).map_err(|e| ValueError::Todo(e.to_string()))?;
-              Ok(Value::from(File::new(file)))
-            } else {
-              Err(ValueError::ArgumentError(0, 1))
-            }
-          }),
-        )
-        .ok();
+      lib.set("open", Value::native(open)).ok();
     })
     .into()
   }
@@ -36,6 +23,13 @@ impl File {
   fn new(file: fs::File) -> Self {
     Self { internal: Some(file) }
   }
+}
+
+#[native]
+fn open(filename: &StringValue) -> ValueResult {
+  let path = PathBuf::from(filename.as_str());
+  let file = fs::File::open(path).map_err(|e| ValueError::Todo(e.to_string()))?;
+  Ok(Value::from(File::new(file)))
 }
 
 #[methods]

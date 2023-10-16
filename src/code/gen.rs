@@ -110,7 +110,7 @@ impl BytecodeGenerator {
 
   fn class_stmt(&mut self, stmt: ClassStatement) {
     if self.scope_depth > 0 {
-      self.error(stmt.loc, String::from("classes must be declared at the surface scope"));
+      self.error(stmt.loc, "classes must be declared at the surface scope");
       return;
     }
 
@@ -125,9 +125,18 @@ impl BytecodeGenerator {
     self.emit(Opcode::RetValue, stmt.loc);
   }
 
+  fn export_stmt(&mut self, stmt: ExportStmt) {
+    if self.scope_depth == 0 {
+      self.emit_expr(stmt.expr);
+      self.emit(Opcode::Export, stmt.loc);
+    } else {
+      self.error(stmt.loc, "exports can only be made at the surface scope");
+    }
+  }
+
   fn fn_stmt(&mut self, stmt: FnStatement) {
     if self.scope_depth > 0 {
-      self.error(stmt.loc, String::from("functions must be declared at the surface scope"));
+      self.error(stmt.loc, "functions must be declared at the surface scope");
       return;
     }
 
@@ -227,7 +236,7 @@ impl BytecodeGenerator {
 
   fn mod_stmt(&mut self, stmt: ModStatement) {
     if self.scope_depth > 0 {
-      self.error(stmt.loc, String::from("modules must be declared at the surface scope"));
+      self.error(stmt.loc, "modules must be declared at the surface scope");
       return;
     }
 
@@ -243,29 +252,16 @@ impl BytecodeGenerator {
     self.emit(Opcode::Print, stmt.loc);
   }
 
-  fn req_stmt(&mut self, stmt: ReqStatement) {
-    self.emit_expr(stmt.file);
-    self.emit(Opcode::Req, stmt.loc.clone());
-
-    if let Some(var) = stmt.ident {
-      let is_global = var.global;
-      if let Some(var) = self.declare_variable(var, stmt.loc.clone()) {
-        self.define_variable(is_global, var, stmt.loc.clone());
-      }
-      if is_global {
-        self.emit(Opcode::Pop, stmt.loc);
-      }
-    } else {
-      self.emit(Opcode::Pop, stmt.loc);
-    }
-  }
-
   fn ret_stmt(&mut self, stmt: RetStatement) {
-    if let Some(expr) = stmt.expr {
-      self.emit_expr(expr);
-      self.emit(Opcode::RetValue, stmt.loc);
+    if self.scope_depth != 0 {
+      if let Some(expr) = stmt.expr {
+        self.emit_expr(expr);
+        self.emit(Opcode::RetValue, stmt.loc);
+      } else {
+        self.emit(Opcode::Ret, stmt.loc);
+      }
     } else {
-      self.emit(Opcode::Ret, stmt.loc);
+      self.error(stmt.loc, "ret can only be used within functions");
     }
   }
 
@@ -465,13 +461,10 @@ impl BytecodeGenerator {
         if is_static {
           class.set_constructor(function);
         } else {
-          self.error(
-            expr.loc.clone(),
-            String::from("method was used as initializer somehow (logic error)"),
-          );
+          self.error(expr.loc.clone(), "method was used as initializer somehow (logic error)");
         }
       } else {
-        self.error(expr.loc.clone(), format!("unable to create initializer function for class"));
+        self.error(expr.loc.clone(), "unable to create initializer function for class");
       }
     }
 
@@ -562,6 +555,11 @@ impl BytecodeGenerator {
     }
   }
 
+  fn req_expr(&mut self, expr: ReqExpression) {
+    self.emit_expr(*expr.file);
+    self.emit(Opcode::Req, expr.loc.clone());
+  }
+
   /* Utility Functions */
 
   fn emit(&mut self, op: Opcode, loc: SourceLocation) {
@@ -579,6 +577,7 @@ impl BytecodeGenerator {
       Statement::Cont(stmt) => self.cont_stmt(stmt),
       Statement::Class(stmt) => self.class_stmt(stmt),
       Statement::DefaultConstructorRet(stmt) => self.default_constructor_ret(stmt),
+      Statement::Export(stmt) => self.export_stmt(stmt),
       Statement::Fn(stmt) => self.fn_stmt(stmt),
       Statement::For(stmt) => self.for_stmt(stmt),
       Statement::If(stmt) => self.if_stmt(stmt),
@@ -587,7 +586,6 @@ impl BytecodeGenerator {
       Statement::Match(stmt) => self.match_stmt(stmt),
       Statement::Mod(stmt) => self.mod_stmt(stmt),
       Statement::Print(stmt) => self.print_stmt(stmt),
-      Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::Use(stmt) => self.use_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
@@ -622,6 +620,7 @@ impl BytecodeGenerator {
       Expression::Lambda(expr) => self.lambda_expr(expr),
       Expression::Closure(expr) => self.closure_expr(expr),
       Expression::Method(expr) => self.method_expr(expr),
+      Expression::Req(expr) => self.req_expr(expr),
     }
   }
 
@@ -763,7 +762,7 @@ impl BytecodeGenerator {
       }
 
       if ident.name == local.name {
-        self.error(loc, String::from("variable with the same name already declared"));
+        self.error(loc, "variable with the same name already declared");
         return false;
       }
     }
@@ -810,7 +809,7 @@ impl BytecodeGenerator {
     } else if self.define_local() {
       true
     } else {
-      self.error(loc, String::from("could not define variable"));
+      self.error(loc, "could not define variable");
       false
     }
   }
@@ -822,7 +821,7 @@ impl BytecodeGenerator {
       for local in self.locals.iter().rev() {
         if ident.name == local.name {
           if !local.initialized {
-            self.error(loc, String::from("tried to use an undeclared identifier"));
+            self.error(loc, "tried to use an undeclared identifier");
             return None;
           } else {
             return Some(Lookup {
@@ -898,7 +897,7 @@ impl BytecodeGenerator {
       for arg in args {
         let loc = loc.clone();
         if arg.global {
-          this.error(loc.clone(), String::from("parameter cannot be a global variable"));
+          this.error(loc.clone(), "parameter cannot be a global variable");
           continue;
         }
 
@@ -929,7 +928,8 @@ impl BytecodeGenerator {
     })
   }
 
-  fn error(&mut self, loc: SourceLocation, msg: String) {
+  fn error(&mut self, loc: SourceLocation, msg: impl Into<String>) {
+    let msg = msg.into();
     if cfg!(debug_assertions) {
       println!("{} ({}, {}): {}", loc.file.display(), loc.line, loc.column, msg);
     }

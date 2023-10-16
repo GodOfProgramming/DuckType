@@ -20,14 +20,14 @@ impl ClassValue {
     }
   }
 
-  pub fn construct(mut class_value: Value, vm: &mut Vm, mut args: Args) -> ValueResult<()> {
+  pub fn construct(vm: &mut Vm, mut class_value: Value, mut args: Args) -> ValueResult<()> {
     let class_clone = class_value.clone();
     if let Some(class) = class_value.as_class_mut() {
       let instance = Value::from(InstanceValue::new(StructValue::default(), class_clone));
       if let Some(initializer) = &mut class.initializer {
         if let Some(initializer) = initializer.as_fn() {
           args.list.push(instance);
-          initializer.call(vm, args.list);
+          initializer.call(vm, args);
         } else {
           Err(ValueError::Todo(format!("invalid type for constructor {}", initializer)))?;
         }
@@ -80,9 +80,9 @@ impl UsertypeFields for ClassValue {
 impl ClassValue {
   fn __str__(&self) -> String {
     if let Some(name) = &self.name {
-      name.clone()
+      format!("<class {}>", name.clone())
     } else {
-      "<unnamed class>".to_string()
+      "<anonymous class>".to_string()
     }
   }
 

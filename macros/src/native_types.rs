@@ -1,7 +1,7 @@
 use crate::common;
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{quote, TokenStreamExt};
-use syn::{token::Comma, FnArg, Item, ItemFn, ItemMod, ItemStruct};
+use syn::{FnArg, Item, ItemFn, ItemMod, ItemStruct};
 
 struct NativeFn {
   name: Ident,
@@ -18,28 +18,14 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
     .filter(|input| matches!(input, FnArg::Typed(_)))
     .count();
 
-  let mut args = TokenStream::new();
-  args.append_separated(
-    (0..nargs).map(|i| {
-      quote! {
-        try_arg_cast(args
-        .next()
-        .unwrap(), #name_str, #i)?
-      }
-    }),
-    Comma::default(),
-  );
-
-  let try_cast_arg = common::try_cast_arg_fn_tokens();
+  let args = common::make_arg_list(nargs, name_str);
 
   quote! {
-    fn #ident(_: &mut Vm, _: &mut Env, args: Args) -> ValueResult {
-      #try_cast_arg
-
+    fn #ident(vm: &mut Vm, mut args: Args) -> ValueResult {
       #item
 
       if args.list.len() == #nargs {
-        let mut args = args.list.into_iter();
+        let mut args = args.into_iter();
         Ok(Value::from(#ident(#args)?))
       } else {
         Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))
@@ -112,8 +98,8 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
 
   quote! {
     #[no_mangle]
-    pub fn simple_script_load_module(vm: &mut Vm, env: &mut Env) -> ValueResult<()> {
-      #mod_name::register_to(env);
+    pub fn simple_script_load_module(vm: &mut Vm) -> ValueResult<()> {
+      #mod_name::register_to(vm.env());
       Ok(())
     }
 

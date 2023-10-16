@@ -123,13 +123,15 @@ pub enum Opcode {
   Yield,
   /** Halt the VM when this instruction is reached and enter repl mode */
   Breakpoint,
+  /** Mark the current value as exported */
+  Export,
 }
 
 #[derive(Default)]
 pub struct Compiler;
 
 impl Compiler {
-  pub fn compile(file: PathBuf, source: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+  pub fn compile(file: PathBuf, source: &str, env: SmartPtr<Env>) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
     let file = Rc::new(file);
     let mut scanner = Scanner::new(Rc::clone(&file), source);
 
@@ -152,7 +154,7 @@ impl Compiler {
 
     let source = Rc::new(source.to_string());
     let reflection = Reflection::new(file, Rc::clone(&source));
-    let ctx = SmartPtr::new(Context::new(Some("*main*"), reflection));
+    let ctx = SmartPtr::new(Context::new(Some("*main*"), env, reflection));
 
     let generator = BytecodeGenerator::new(ctx);
 
@@ -283,7 +285,6 @@ impl Display for ConstantValue {
   }
 }
 
-#[derive(Debug)]
 pub struct Context {
   pub name: Option<String>,
   pub id: usize, // the function id within the local file
@@ -296,11 +297,12 @@ pub struct Context {
   // map of string to const vec location to save memory
   strings: BTreeMap<String, usize>,
 
+  pub env: SmartPtr<Env>,
   pub meta: Reflection,
 }
 
 impl Context {
-  fn new(name: Option<impl Into<String>>, reflection: Reflection) -> Self {
+  fn new(name: Option<impl Into<String>>, env: SmartPtr<Env>, reflection: Reflection) -> Self {
     Self {
       name: name.map(|n| n.into()),
       id: Default::default(),
@@ -308,11 +310,13 @@ impl Context {
       instructions: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
+      env,
       meta: reflection,
     }
   }
 
   fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
+    let env = ctx.env.clone();
     let global = if ctx.global.valid() {
       ctx.global.clone()
     } else {
@@ -327,6 +331,7 @@ impl Context {
       consts: Default::default(),
       strings: Default::default(),
       instructions: Default::default(),
+      env,
       meta: reflection,
     }
   }
@@ -571,7 +576,7 @@ impl Context {
   }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct StackFrame {
   pub ip: usize,
   pub ctx: SmartPtr<Context>,
@@ -597,7 +602,6 @@ impl StackFrame {
   }
 }
 
-#[derive(Debug)]
 pub struct Yield {
   pub current_frame: StackFrame,
   pub stack_frames: Vec<StackFrame>,

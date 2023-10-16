@@ -1,8 +1,6 @@
-req "lib/sspec/sspec.ss";
+let sspec = req "lib/sspec/sspec.ss";
 
 use sspec.describe;
-
-$SSPEC_VERBOSE = true;
 
 describe("pemdas", |t| {
   let value = (1 + 2) * 3 - 4.0 / 5 + 6 * 7 - 8 * 9.0 / 10;

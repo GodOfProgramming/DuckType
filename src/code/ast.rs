@@ -99,6 +99,10 @@ impl AstGenerator {
         self.advance();
         self.class_stmt();
       }
+      Token::Export => {
+        self.advance();
+        self.export_stmt();
+      }
       Token::Fn => {
         self.advance();
         self.fn_stmt();
@@ -134,10 +138,6 @@ impl AstGenerator {
       Token::Print => {
         self.advance();
         self.print_stmt();
-      }
-      Token::Req => {
-        self.advance();
-        self.req_stmt();
       }
       Token::Ret => {
         self.advance();
@@ -219,6 +219,19 @@ impl AstGenerator {
     });
   }
 
+  fn export_stmt(&mut self) {
+    self.meta_at::<1>().unwrap_and(|loc| {
+      if let Some(current) = self.current() {
+        if let Some(expr) = self.expression() {
+          self.statements.push(Statement::from(ExportStmt::new(expr, loc)));
+          if !matches!(current, Token::Mod | Token::Class | Token::Fn) {
+            self.consume(Token::Semicolon, "expected ';' after expression");
+          }
+        }
+      }
+    });
+  }
+
   fn fn_stmt(&mut self) {
     if let Some(stmt) = self.parse_fn() {
       self.statements.push(stmt);
@@ -289,38 +302,6 @@ impl AstGenerator {
       }
 
       self.statements.push(Statement::from(declaration));
-    }
-  }
-
-  fn req_stmt(&mut self) {
-    if let Some(loc) = self.meta_at::<1>() {
-      if let Some(expr) = self.expression() {
-        let ident = if self.advance_if_matches(Token::Arrow) {
-          if let Some(token) = self.current() {
-            if let Token::Identifier(ident) = token {
-              self.advance();
-              Some(Ident::new(ident))
-            } else {
-              self.error::<0>(String::from("identifier expected after require"));
-              None
-            }
-          } else {
-            self.error::<0>(String::from("unexpected end of file"));
-            None
-          }
-        } else {
-          None
-        };
-
-        if !self.consume(Token::Semicolon, "expected ';' after expression") {
-          return;
-        }
-
-        self.statements.push(Statement::from(ReqStatement::new(expr, ident, loc)));
-      }
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
     }
   }
 
@@ -982,6 +963,28 @@ impl AstGenerator {
       while let Some(token) = self.current() {
         if let Some(member_loc) = self.meta_at::<0>() {
           match token {
+            Token::Let => {
+              self.advance();
+              if let Some(Token::Identifier(ident)) = self.current() {
+                declared_items.insert(ident.clone());
+                self.advance();
+
+                if !self.consume(Token::Colon, "expected ':' after ident") {
+                  return None;
+                }
+
+                let ident = Ident::new(ident);
+                if let Some(constant) = self.expression() {
+                  module_items.push((ident, constant));
+                }
+
+                if !self.consume(Token::Semicolon, "expected ';' after expression") {
+                  return None;
+                }
+              } else {
+                self.error::<0>("mod name is invalid");
+              }
+            }
             Token::Mod => {
               self.advance();
               if let Some(Token::Identifier(ident)) = self.current() {
@@ -992,7 +995,7 @@ impl AstGenerator {
                   module_items.push((ident, module));
                 }
               } else {
-                self.error::<0>("class name is invalid");
+                self.error::<0>("mod name is invalid");
               }
             }
             Token::Class => {
@@ -1102,6 +1105,12 @@ impl AstGenerator {
       self.error::<1>("cannot find meta");
       None
     }
+  }
+
+  fn req_expr(&mut self) -> Option<Expression> {
+    let loc = self.meta_at::<1>()?;
+    let expr = self.expression()?;
+    Some(Expression::from(ReqExpression::new(expr, loc)))
   }
 
   fn anon_fn_expr(&mut self) -> Option<Expression> {
@@ -1579,6 +1588,7 @@ impl AstGenerator {
       Token::Class => ParseRule::new(Some(|this| Self::class_expr(this, None)), None, Precedence::Primary),
       Token::Cont => ParseRule::new(None, None, Precedence::None),
       Token::Else => ParseRule::new(None, None, Precedence::None),
+      Token::Export => ParseRule::new(None, None, Precedence::None),
       Token::False => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::For => ParseRule::new(None, None, Precedence::None),
       Token::Fn => ParseRule::new(None, None, Precedence::None),
@@ -1586,12 +1596,12 @@ impl AstGenerator {
       Token::Let => ParseRule::new(None, None, Precedence::None),
       Token::Loop => ParseRule::new(None, None, Precedence::None),
       Token::Match => ParseRule::new(None, None, Precedence::None),
-      Token::Mod => ParseRule::new(None, None, Precedence::None),
+      Token::Mod => ParseRule::new(Some(|this| Self::mod_expr(this, None)), None, Precedence::Primary),
       Token::New => ParseRule::new(None, None, Precedence::None),
       Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::Or => ParseRule::new(None, Some(Self::or_expr), Precedence::Or),
       Token::Print => ParseRule::new(None, None, Precedence::None),
-      Token::Req => ParseRule::new(None, None, Precedence::None),
+      Token::Req => ParseRule::new(Some(Self::req_expr), None, Precedence::Primary),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::Struct => ParseRule::new(Some(Self::struct_expr), None, Precedence::Primary),
       Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
@@ -1741,6 +1751,7 @@ pub enum Statement {
   Cont(ContStatement),
   Class(ClassStatement),
   DefaultConstructorRet(DefaultConstructorRet),
+  Export(ExportStmt),
   Fn(FnStatement),
   For(ForStatement),
   If(IfStatement),
@@ -1749,7 +1760,6 @@ pub enum Statement {
   Match(MatchStatement),
   Mod(ModStatement),
   Print(PrintStatement),
-  Req(ReqStatement),
   Ret(RetStatement),
   Use(UseStatement),
   While(WhileStatement),
@@ -1784,6 +1794,7 @@ impl Statement {
       Statement::Cont(_) => (),
       Statement::Class(c) => c.body.dump(tmpl),
       Statement::DefaultConstructorRet(_) => (),
+      Statement::Export(_) => (),
       Statement::Fn(_) => (),
       Statement::For(_) => (),
       Statement::If(_) => (),
@@ -1807,7 +1818,6 @@ impl Statement {
       Statement::Match(_) => (),
       Statement::Mod(m) => m.body.dump(tmpl),
       Statement::Print(_) => (),
-      Statement::Req(_) => (),
       Statement::Ret(_) => (),
       Statement::Use(u) => {
         html! {
@@ -1831,6 +1841,7 @@ impl Display for Statement {
       Self::Cont(_) => write!(f, "cont"),
       Self::Class(c) => write!(f, "class {}", c.ident.name),
       Self::DefaultConstructorRet(_) => write!(f, "default constructor ret"),
+      Self::Export(_) => write!(f, "export"),
       Self::Fn(function) => write!(f, "fn {}", function.ident.name),
       Self::For(_) => write!(f, "for"),
       Self::If(_) => write!(f, "if"),
@@ -1839,7 +1850,6 @@ impl Display for Statement {
       Self::Match(_) => write!(f, "match"),
       Self::Mod(_) => write!(f, "mod"),
       Self::Print(_) => write!(f, "print"),
-      Self::Req(_) => write!(f, "req"),
       Self::Ret(_) => write!(f, "ret"),
       Self::While(_) => write!(f, "while"),
       Self::Use(_) => write!(f, "use"),
@@ -1880,6 +1890,12 @@ impl From<DefaultConstructorRet> for Statement {
   }
 }
 
+impl From<ExportStmt> for Statement {
+  fn from(stmt: ExportStmt) -> Self {
+    Self::Export(stmt)
+  }
+}
+
 impl From<FnStatement> for Statement {
   fn from(stmt: FnStatement) -> Self {
     Self::Fn(stmt)
@@ -1901,12 +1917,6 @@ impl From<IfStatement> for Statement {
 impl From<LetStatement> for Statement {
   fn from(stmt: LetStatement) -> Self {
     Self::Let(stmt)
-  }
-}
-
-impl From<ReqStatement> for Statement {
-  fn from(stmt: ReqStatement) -> Self {
-    Self::Req(stmt)
   }
 }
 
@@ -2023,6 +2033,18 @@ impl DefaultConstructorRet {
 }
 
 #[derive(Debug)]
+pub struct ExportStmt {
+  pub expr: Expression,
+  pub loc: SourceLocation,
+}
+
+impl ExportStmt {
+  fn new(expr: Expression, loc: SourceLocation) -> Self {
+    Self { expr, loc }
+  }
+}
+
+#[derive(Debug)]
 pub struct FnStatement {
   pub ident: Ident,
   pub params: Vec<Ident>,
@@ -2093,19 +2115,6 @@ pub struct LetStatement {
 impl LetStatement {
   fn new(ident: Ident, value: Option<Expression>, loc: SourceLocation) -> Self {
     Self { ident, value, loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct ReqStatement {
-  pub file: Expression,
-  pub ident: Option<Ident>,
-  pub loc: SourceLocation,
-}
-
-impl ReqStatement {
-  fn new(file: Expression, ident: Option<Ident>, loc: SourceLocation) -> Self {
-    Self { file, ident, loc }
   }
 }
 
@@ -2253,6 +2262,7 @@ pub enum Expression {
   Lambda(LambdaExpression),
   Closure(ClosureExpression),
   Method(MethodExpression),
+  Req(ReqExpression),
 }
 
 impl Expression {
@@ -2313,6 +2323,7 @@ impl Expression {
       Expression::Lambda(l) => l.body.dump(tmpl),
       Expression::Closure(c) => c.body.dump(tmpl),
       Expression::Method(m) => m.body.dump(tmpl),
+      Expression::Req(_) => (),
     }
   }
 }
@@ -2339,6 +2350,7 @@ impl Display for Expression {
       Self::Lambda(_) => write!(f, "lambda"),
       Self::Closure(_) => write!(f, "closure"),
       Self::Method(_) => write!(f, "method"),
+      Self::Req(_) => write!(f, "req"),
     }
   }
 }
@@ -2454,6 +2466,12 @@ impl From<ClosureExpression> for Expression {
 impl From<MethodExpression> for Expression {
   fn from(expr: MethodExpression) -> Self {
     Self::Method(expr)
+  }
+}
+
+impl From<ReqExpression> for Expression {
+  fn from(expr: ReqExpression) -> Self {
+    Self::Req(expr)
   }
 }
 
@@ -2813,6 +2831,21 @@ impl MethodExpression {
       name,
       params,
       body: Box::new(body),
+      loc,
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct ReqExpression {
+  pub file: Box<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl ReqExpression {
+  fn new(file: Expression, loc: SourceLocation) -> Self {
+    Self {
+      file: Box::new(file),
       loc,
     }
   }
