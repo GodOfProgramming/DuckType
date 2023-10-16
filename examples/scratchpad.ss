@@ -1,9 +1,9 @@
 let sspec = req "lib/sspec/sspec.ss";
-let util = req "util";
 
-let instance = util.ModuleClass("module");
+use sspec.describe;
 
-print(instance.value);
-print(std.reflect.defined("global_fn"));
-print(instance.call_global());
-print(instance.clone());
+sspec.verbose.set(true);
+
+describe("test verbose switch", |t| {
+  t.expect(true).to_be(false);
+});
