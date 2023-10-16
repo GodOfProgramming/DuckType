@@ -41,7 +41,7 @@ use macros::{methods, Fields};
 pub use method_value::MethodValue;
 pub use module_value::{LockedModule, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use std::{convert::Infallible, error::Error, fmt::Debug};
+use std::{convert::Infallible, error::Error, fmt::Debug, vec::IntoIter};
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 use thiserror::Error;
@@ -80,7 +80,7 @@ pub trait UsertypeFields {
 }
 
 pub trait UsertypeMethods {
-  fn __new__(_args: Args) -> ValueResult {
+  fn __new__(vm: &mut Vm, _args: Args) -> ValueResult {
     Err(ValueError::UndefinedInitializer)
   }
   fn get_method(&self, this: &Value, field: &str) -> ValueResult<Option<Value>>;
@@ -97,24 +97,56 @@ pub trait DebugValue {
 pub trait LockableValue {
   fn __lock__(&mut self) {}
 }
-pub struct Args<'vm> {
-  pub vm: &'vm mut Vm,
+pub struct Args {
   pub list: Vec<Value>,
 }
 
-impl<'vm> Args<'vm> {
-  pub fn new(vm: &'vm mut Vm, args: impl Into<Vec<Value>>) -> Self {
-    Self { vm, list: args.into() }
+impl Args {
+  pub fn new(args: impl Into<Vec<Value>>) -> Self {
+    Self { list: args.into() }
   }
 
-  pub fn new_with_this(vm: &'vm mut Vm, this: Value, args: impl Into<Vec<Value>>) -> Self {
+  pub fn new_with_this(this: Value, args: impl Into<Vec<Value>>) -> Self {
     let mut args = args.into();
     args.push(this);
-    Self { vm, list: args }
+    Self { list: args }
   }
 
   pub fn count(&self) -> usize {
     self.list.len()
+  }
+
+  pub fn into_iter(self) -> ArgIter {
+    ArgIter {
+      items: self.list.into_iter(),
+    }
+  }
+}
+
+pub struct ArgIter {
+  items: IntoIter<Value>,
+}
+
+impl<'vm> ArgIter {
+  pub fn next_arg(&'vm mut self) -> Arg<'vm> {
+    Arg { items: &mut self.items }
+  }
+}
+
+pub struct Arg<'iter> {
+  items: &'iter mut IntoIter<Value>,
+}
+
+pub trait TryUnwrapArg<T> {
+  fn try_unwrap_arg(&mut self, fn_name: &'static str, pos: usize) -> ValueResult<T>;
+}
+
+impl<T> TryUnwrapArg<T> for Arg<'_>
+where
+  T: MaybeFrom<Value>,
+{
+  fn try_unwrap_arg(&mut self, fn_name: &'static str, pos: usize) -> ValueResult<T> {
+    T::maybe_from(self.items.next().clone().unwrap()).ok_or(ValueError::InvalidArgument(fn_name, pos))
   }
 }
 

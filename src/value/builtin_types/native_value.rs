@@ -2,9 +2,9 @@ use super::Args;
 use crate::prelude::*;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-pub type NativeFn = for<'a> fn(&mut Args) -> ValueResult;
+pub type NativeFn = for<'a> fn(&mut Vm, Args) -> ValueResult;
 
-type NativeClosureType = dyn FnMut(&mut Args) -> ValueResult;
+type NativeClosureType = dyn FnMut(&mut Vm, Args) -> ValueResult;
 
 #[derive(Usertype, Fields)]
 #[uuid("3c90ac96-ba86-4ceb-9b9a-591af85ca17b")]
@@ -17,7 +17,7 @@ impl NativeClosureValue {
   pub fn new<T, F>(name: T, callee: F) -> Self
   where
     T: ToString,
-    F: FnMut(&mut Args) -> ValueResult + 'static,
+    F: FnMut(&mut Vm, Args) -> ValueResult + 'static,
   {
     Self {
       name: name.to_string(),
@@ -25,8 +25,8 @@ impl NativeClosureValue {
     }
   }
 
-  pub fn call(&mut self, args: &mut Args) -> ValueResult {
-    (*self.callee)(args)
+  pub fn call(&mut self, vm: &mut Vm, args: Args) -> ValueResult {
+    (*self.callee)(vm, args)
   }
 }
 
@@ -49,10 +49,10 @@ pub enum NativeCallable {
 }
 
 impl NativeCallable {
-  pub fn call(&mut self, args: &mut Args) -> ValueResult {
+  pub fn call(&mut self, vm: &mut Vm, args: Args) -> ValueResult {
     match self {
-      NativeCallable::NativeFn(f) => f(args),
-      NativeCallable::NativeClosure(c) => c.call(args),
+      NativeCallable::NativeFn(f) => f(vm, args),
+      NativeCallable::NativeClosure(c) => c.call(vm, args),
     }
   }
 }
@@ -88,8 +88,8 @@ impl NativeMethodValue {
     }
   }
 
-  pub fn call(&mut self, args: &mut Args) -> ValueResult {
-    self.callee.call(args)
+  pub fn call(&mut self, vm: &mut Vm, args: Args) -> ValueResult {
+    self.callee.call(vm, args)
   }
 }
 

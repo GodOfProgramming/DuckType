@@ -14,7 +14,7 @@ impl FunctionValue {
     Self { airity, locals, ctx }
   }
 
-  pub fn call(&self, mut args: Args) {
+  pub fn call(&self, vm: &mut Vm, mut args: Args) {
     if args.list.len() > self.airity {
       args.list.drain(0..self.airity);
     } else {
@@ -24,8 +24,8 @@ impl FunctionValue {
     }
 
     args.list.reserve(self.locals);
-    args.vm.new_frame(self.ctx.clone());
-    args.vm.set_stack(args.list);
+    vm.new_frame(self.ctx.clone());
+    vm.set_stack(args.list);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {

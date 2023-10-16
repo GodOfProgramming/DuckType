@@ -22,8 +22,8 @@ pub mod prelude {
 
 pub mod macro_requirements {
   pub use crate::prelude::{
-    methods, native, Args, DebugValue, DisplayValue, Env, Fields, LockableValue, LockedModule, MaybeFrom, Usertype,
-    UsertypeFields, UsertypeMethods, Value, ValueError, ValueResult, Vm,
+    methods, native, Args, DebugValue, DisplayValue, Env, Fields, LockableValue, LockedModule, MaybeFrom, TryUnwrapArg,
+    Usertype, UsertypeFields, UsertypeMethods, Value, ValueError, ValueResult, Vm,
   };
   pub use uuid;
 }

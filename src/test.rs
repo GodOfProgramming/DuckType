@@ -88,7 +88,7 @@ mod integration_tests {
     test.load(|this, mut ctx| {
       ctx.env.define(
         "test_func",
-        Value::native(|args| {
+        Value::native(|_, args| {
           let args = &args.list;
           assert_eq!(args.len(), 2);
           assert_eq!(args[0], Value::from(1));

@@ -90,9 +90,14 @@ fn load_std() -> Value {
       )
       .ok();
 
-    LockedModule::initialize(|lib| {
-      lib.set("defined", Value::native(defined)).ok();
-    });
+    lib
+      .set(
+        "reflect",
+        LockedModule::initialize(|lib| {
+          lib.set("defined", Value::native(defined)).ok();
+        }),
+      )
+      .ok();
   })
   .into()
 }
@@ -119,6 +124,7 @@ fn fields(value: Value) -> ValueResult<Vec<Value>> {
   Ok(fields)
 }
 
-fn defined(args: &mut Args) -> ValueResult {
-  Ok(Value::nil)
+fn defined(vm: &mut Vm, args: Args) -> ValueResult {
+  let name: &StringValue = args.into_iter().next_arg().try_unwrap_arg("defined", 0)?;
+  Ok(vm.env().lookup(name.as_str()).is_some().into())
 }

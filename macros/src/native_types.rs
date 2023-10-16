@@ -1,7 +1,7 @@
 use crate::common;
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{quote, TokenStreamExt};
-use syn::{token::Comma, FnArg, Item, ItemFn, ItemMod, ItemStruct};
+use syn::{FnArg, Item, ItemFn, ItemMod, ItemStruct};
 
 struct NativeFn {
   name: Ident,
@@ -20,16 +20,12 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
 
   let args = common::make_arg_list(nargs, name_str);
 
-  let try_cast_arg = common::try_cast_arg_fn_tokens();
-
   quote! {
-    fn #ident(args: &mut Args) -> ValueResult {
-      #try_cast_arg
-
+    fn #ident(vm: &mut Vm, mut args: Args) -> ValueResult {
       #item
 
       if args.list.len() == #nargs {
-        let mut args = args.list.iter();
+        let mut args = args.into_iter();
         Ok(Value::from(#ident(#args)?))
       } else {
         Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))

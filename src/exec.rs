@@ -921,35 +921,35 @@ impl Vm {
   fn call_value(&mut self, opcode: &Opcode, mut callable: Value, args: impl Into<Vec<Value>>) -> ExecResult {
     let args = args.into();
     let res = if let Some(f) = callable.as_fn() {
-      let args = Args::new(self, args);
-      f.call(args);
+      let args = Args::new(args);
+      f.call(self, args);
       Ok(())
     } else if let Some(f) = callable.as_closure() {
-      let args = Args::new(self, args);
-      f.call(args);
+      let args = Args::new(args);
+      f.call(self, args);
       Ok(())
     } else if let Some(f) = callable.as_method() {
-      let args = Args::new_with_this(self, f.this.clone(), args);
-      f.call(args);
+      let args = Args::new_with_this(f.this.clone(), args);
+      f.call(self, args);
       Ok(())
     } else if let Some(f) = callable.as_native_fn() {
-      let mut args = Args::new(self, args);
-      let v = f(&mut args).map_err(|e| self.error(opcode, e))?;
+      let args = Args::new(args);
+      let v = f(self, args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if let Some(f) = callable.as_native_closure_mut() {
-      let mut args = Args::new(self, args);
-      let v = f.call(&mut args).map_err(|e| self.error(opcode, e))?;
+      let args = Args::new(args);
+      let v = f.call(self, args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if let Some(f) = callable.as_native_method_mut() {
-      let mut args = Args::new_with_this(self, f.this.clone(), args);
-      let v = f.call(&mut args).map_err(|e| self.error(opcode, e))?;
+      let args = Args::new_with_this(f.this.clone(), args);
+      let v = f.call(self, args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if callable.is_class() {
-      let args = Args::new(self, args);
-      ClassValue::construct(callable, args).map_err(|e| self.error(opcode, e))?;
+      let args = Args::new(args);
+      ClassValue::construct(self, callable, args).map_err(|e| self.error(opcode, e))?;
       Ok(())
     } else {
       Err(vec![format!(

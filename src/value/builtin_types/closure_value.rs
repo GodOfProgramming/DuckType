@@ -16,7 +16,7 @@ impl ClosureValue {
     }
   }
 
-  pub fn call(&self, mut args: Args) {
+  pub fn call(&self, vm: &mut Vm, mut args: Args) {
     if args.list.len() > self.function.airity {
       args.list.drain(0..self.function.airity);
     } else {
@@ -29,9 +29,8 @@ impl ClosureValue {
     captures_with_args.extend(self.captures.clone());
     captures_with_args.extend(args.list);
 
-    args.vm.new_frame(self.function.context_ptr().clone());
-
-    args.vm.set_stack(captures_with_args);
+    vm.new_frame(self.function.context_ptr().clone());
+    vm.set_stack(captures_with_args);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
