@@ -15,11 +15,19 @@ impl InstanceValue {
 
 impl UsertypeFields for InstanceValue {
   fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
-    self.data.get_field(field)
+    if field == "__class__" {
+      Ok(Some(self.class.clone()))
+    } else {
+      self.data.get_field(field)
+    }
   }
 
   fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
-    Ok(self.data.set(field, value))
+    if field == "__class__" {
+      Err(ValueError::Immutable(field.to_string()))
+    } else {
+      Ok(self.data.set(field, value))
+    }
   }
 }
 

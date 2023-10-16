@@ -1,15 +1,5 @@
-class GlobalClass {
-  new(self, value) {
-    self.value = value;
-  }
-}
-
-mod global_module {
-  class ModuleClass {
-    new(self, value) {
-      self.value = value;
-    }
-  }
+fn global_fn(x) {
+  ret x.value;
 }
 
 export mod {
@@ -22,9 +12,9 @@ export mod {
       self.value = "GLOBAL";
       ret global_fn(self);
     }
-  }
-}
 
-fn global_fn(x) {
-  ret x.value;
+    fn clone(self) {
+      ret self.__class__(self.value);
+    }
+  }
 }
