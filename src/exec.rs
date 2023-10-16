@@ -1,6 +1,7 @@
 use crate::{
   code::{Compiler, ConstantValue, Context, Env, OpCodeReflection, Opcode, StackFrame, Yield},
   dbg::{Cli, RuntimeError},
+  prelude::Library,
   value::prelude::*,
   UnwrapAnd,
 };
@@ -17,7 +18,7 @@ use std::{
 
 #[derive(WrapperApi)]
 struct NativeApi {
-  simple_script_load_module: fn(vm: &mut Vm, env: &mut Env) -> ValueResult<()>,
+  simple_script_load_module: fn(vm: &mut Vm) -> ValueResult<()>,
 }
 
 pub mod prelude {
@@ -31,7 +32,6 @@ type ExecBoolResult<'file> = Result<bool, Vec<RuntimeError>>;
 // or better yet, have ctx have an Option<usize> and option<Vec<Value>>
 // and when running if present, then set the current thread's ip & stack to those values
 
-#[derive(Debug)]
 pub enum Return {
   Value(Value),
   Yield(Yield),
@@ -42,6 +42,9 @@ pub struct Vm {
   current_frame: StackFrame,
   stack_frames: Vec<StackFrame>,
 
+  args: Vec<String>,
+  libs: Library,
+
   // usize for what frame to pop on, string for file path
   opened_files: Vec<(usize, PathBuf)>,
 
@@ -49,17 +52,21 @@ pub struct Vm {
 }
 
 impl Vm {
-  pub fn new() -> Self {
-    Self::default()
+  pub fn new(args: Vec<String>, libs: Library) -> Self {
+    Self {
+      args,
+      libs,
+      ..Default::default()
+    }
   }
 
-  pub fn ssdb(&mut self, env: &mut Env) -> Result<(), Box<dyn std::error::Error>> {
+  pub fn ssdb(&mut self) -> Result<(), Box<dyn std::error::Error>> {
     let mut rl = DefaultEditor::new()?;
     loop {
       match rl.readline("dbg> ") {
         Ok(line) => match shellwords::split(&format!("dbg {}", line)) {
           Ok(words) => match Cli::try_parse_from(words) {
-            Ok(cli) => match cli.exec(self, env) {
+            Ok(cli) => match cli.exec(self) {
               Ok(output) => {
                 rl.add_history_entry(line).ok();
                 output.response.unwrap_and(|response| println!("=> {}", response));
@@ -81,18 +88,18 @@ impl Vm {
     }
   }
 
-  pub fn load(&self, file: impl Into<PathBuf>, code: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    Compiler::compile(file.into(), code)
+  pub fn load(&self, file: impl Into<PathBuf>, code: &str, env: Env) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+    Compiler::compile(file.into(), code, SmartPtr::new(env))
   }
 
-  pub fn resume(&mut self, y: Yield, env: &mut Env) -> Result<Return, Vec<RuntimeError>> {
+  pub fn resume(&mut self, y: Yield) -> Result<Return, Vec<RuntimeError>> {
     self.current_frame = y.current_frame;
     self.stack_frames = y.stack_frames;
     self.opened_files = y.opened_files;
-    self.execute(env)
+    self.execute()
   }
 
-  pub fn run(&mut self, file: impl Into<PathBuf>, ctx: SmartPtr<Context>, env: &mut Env) -> Result<Return, Vec<RuntimeError>> {
+  pub fn run(&mut self, file: impl Into<PathBuf>, ctx: SmartPtr<Context>) -> Result<Return, Vec<RuntimeError>> {
     #[cfg(feature = "disassemble")]
     {
       ctx.disassemble();
@@ -105,7 +112,7 @@ impl Vm {
 
     self.opened_files = vec![(0, file.into())];
     self.reinitialize(ctx);
-    self.execute(env)
+    self.execute()
   }
 
   fn reinitialize(&mut self, ctx: SmartPtr<Context>) {
@@ -113,7 +120,7 @@ impl Vm {
     self.stack_frames = Default::default();
   }
 
-  fn unary_op<F>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult
+  fn unary_op<F>(&mut self, opcode: &Opcode, f: F) -> ExecResult
   where
     F: FnOnce(Value) -> ValueResult,
   {
@@ -127,7 +134,7 @@ impl Vm {
           })
           .map_err(|e| self.error(opcode, e))?;
 
-        self.call_value(env, opcode, callable, vec![])
+        self.call_value(opcode, callable, [])
       } else {
         self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
         Ok(())
@@ -137,7 +144,7 @@ impl Vm {
     }
   }
 
-  fn binary_op<F>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult
+  fn binary_op<F>(&mut self, opcode: &Opcode, f: F) -> ExecResult
   where
     F: FnOnce(Value, Value) -> ValueResult,
   {
@@ -161,7 +168,7 @@ impl Vm {
             })
             .map_err(|e| self.error(opcode, e))?;
 
-          self.call_value(env, opcode, callable, vec![bv])
+          self.call_value(opcode, callable, [bv])
         } else {
           self.stack_push(f(av, bv).map_err(|e| self.error(opcode, e))?);
           Ok(())
@@ -196,7 +203,7 @@ impl Vm {
     vec![self.error_at(|opcode_ref| RuntimeError::from_ref(msg, opcode, opcode_ref))]
   }
 
-  fn execute(&mut self, env: &mut Env) -> Result<Return, Vec<RuntimeError>> {
+  fn execute(&mut self) -> Result<Return, Vec<RuntimeError>> {
     loop {
       #[cfg(feature = "runtime-disassembly")]
       {
@@ -221,28 +228,28 @@ impl Vm {
           Opcode::False => self.exec_false(),
           Opcode::Pop => self.exec_pop(),
           Opcode::PopN(count) => self.exec_pop_n(count),
-          Opcode::ForceAssignGlobal(index) => self.exec_force_assign_global(env, &opcode, index)?,
-          Opcode::DefineGlobal(index) => self.exec_define_global(env, &opcode, index)?,
-          Opcode::LookupGlobal(index) => self.exec_lookup_global(env, &opcode, index)?,
-          Opcode::AssignGlobal(index) => self.exec_assign_global(env, &opcode, index)?,
+          Opcode::ForceAssignGlobal(index) => self.exec_force_assign_global(&opcode, index)?,
+          Opcode::DefineGlobal(index) => self.exec_define_global(&opcode, index)?,
+          Opcode::LookupGlobal(index) => self.exec_lookup_global(&opcode, index)?,
+          Opcode::AssignGlobal(index) => self.exec_assign_global(&opcode, index)?,
           Opcode::LookupLocal(index) => self.exec_lookup_local(&opcode, index)?,
           Opcode::AssignLocal(index) => self.exec_assign_local(&opcode, index)?,
           Opcode::InitializeMember(index) => self.exec_initialize_member(&opcode, index)?,
           Opcode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
           Opcode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
           Opcode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
-          Opcode::Equal => self.exec_equal(env, &opcode)?,
-          Opcode::NotEqual => self.exec_not_equal(env, &opcode)?,
-          Opcode::Greater => self.exec_greater(env, &opcode)?,
-          Opcode::GreaterEqual => self.exec_greater_equal(env, &opcode)?,
-          Opcode::Less => self.exec_less(env, &opcode)?,
-          Opcode::LessEqual => self.exec_less_equal(env, &opcode)?,
+          Opcode::Equal => self.exec_equal(&opcode)?,
+          Opcode::NotEqual => self.exec_not_equal(&opcode)?,
+          Opcode::Greater => self.exec_greater(&opcode)?,
+          Opcode::GreaterEqual => self.exec_greater_equal(&opcode)?,
+          Opcode::Less => self.exec_less(&opcode)?,
+          Opcode::LessEqual => self.exec_less_equal(&opcode)?,
           Opcode::Check => self.exec_check(&opcode)?,
-          Opcode::Add => self.exec_add(env, &opcode)?,
-          Opcode::Sub => self.exec_sub(env, &opcode)?,
-          Opcode::Mul => self.exec_mul(env, &opcode)?,
-          Opcode::Div => self.exec_div(env, &opcode)?,
-          Opcode::Rem => self.exec_rem(env, &opcode)?,
+          Opcode::Add => self.exec_add(&opcode)?,
+          Opcode::Sub => self.exec_sub(&opcode)?,
+          Opcode::Mul => self.exec_mul(&opcode)?,
+          Opcode::Div => self.exec_div(&opcode)?,
+          Opcode::Rem => self.exec_rem(&opcode)?,
           Opcode::Or(count) => {
             if self.exec_or(&opcode, count)? {
               continue;
@@ -253,8 +260,8 @@ impl Vm {
               continue;
             }
           }
-          Opcode::Not => self.exec_not(env, &opcode)?,
-          Opcode::Negate => self.exec_negate(env, &opcode)?,
+          Opcode::Not => self.exec_not(&opcode)?,
+          Opcode::Negate => self.exec_negate(&opcode)?,
           Opcode::Print => self.exec_print(&opcode)?,
           Opcode::Jump(count) => {
             self.jump(count);
@@ -271,7 +278,7 @@ impl Vm {
           }
           Opcode::Call(airity) => {
             self.current_frame.ip += 1;
-            self.exec_call(env, &opcode, airity)?;
+            self.exec_call(&opcode, airity)?;
             continue;
           }
           Opcode::Ret => {
@@ -283,7 +290,7 @@ impl Vm {
           }
           Opcode::Req => {
             self.current_frame.ip += 1;
-            self.exec_req(env, &opcode)?;
+            self.exec_req(&opcode)?;
             continue;
           }
           Opcode::CreateList(num_items) => self.exec_create_list(num_items),
@@ -305,7 +312,7 @@ impl Vm {
             return Ok(Return::Yield(Yield::new(current_frame, stack_frames, opened_files)));
           }
           Opcode::Breakpoint => {
-            self.ssdb(env).ok();
+            self.ssdb().ok();
           }
           Opcode::Export => {
             if export.is_none() {
@@ -418,9 +425,9 @@ impl Vm {
     }
   }
 
-  fn exec_lookup_global(&mut self, env: &Env, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_lookup_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
-      if let Some(global) = env.lookup(&name) {
+      if let Some(global) = this.env().lookup(&name) {
         this.stack_push(global);
         Ok(())
       } else {
@@ -429,11 +436,11 @@ impl Vm {
     })
   }
 
-  fn exec_force_assign_global(&mut self, env: &mut Env, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_force_assign_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       // used with functions & classes only, so pop
       if let Some(v) = this.stack_pop() {
-        env.assign(name, v);
+        this.env().assign(name, v);
         Ok(())
       } else {
         Err(this.error(opcode, String::from("can not define global using empty stack")))
@@ -441,10 +448,10 @@ impl Vm {
     })
   }
 
-  fn exec_define_global(&mut self, env: &mut Env, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_define_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(v) = this.stack_peek() {
-        if env.define(name, v) {
+        if this.env().define(name, v) {
           Ok(())
         } else {
           Err(this.error(opcode, String::from("tried redefining global variable")))
@@ -455,10 +462,10 @@ impl Vm {
     })
   }
 
-  fn exec_assign_global(&mut self, env: &mut Env, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_assign_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(v) = this.stack_peek() {
-        if env.assign(name, v) {
+        if this.env().assign(name, v) {
           Ok(())
         } else {
           Err(this.error(opcode, String::from("tried to assign to nonexistent global")))
@@ -563,32 +570,32 @@ impl Vm {
     }
   }
 
-  fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult {
-    self.binary_op(env, opcode, |a, b| Ok(Value::from(f(a, b))))
+  fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: &Opcode, f: F) -> ExecResult {
+    self.binary_op(opcode, |a, b| Ok(Value::from(f(a, b))))
   }
 
-  fn exec_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_bool(env, opcode, |a, b| a == b)
+  fn exec_equal(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(opcode, |a, b| a == b)
   }
 
-  fn exec_not_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_bool(env, opcode, |a, b| a != b)
+  fn exec_not_equal(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(opcode, |a, b| a != b)
   }
 
-  fn exec_greater(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_bool(env, opcode, |a, b| a > b)
+  fn exec_greater(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(opcode, |a, b| a > b)
   }
 
-  fn exec_greater_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_bool(env, opcode, |a, b| a >= b)
+  fn exec_greater_equal(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(opcode, |a, b| a >= b)
   }
 
-  fn exec_less(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_bool(env, opcode, |a, b| a < b)
+  fn exec_less(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(opcode, |a, b| a < b)
   }
 
-  fn exec_less_equal(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_bool(env, opcode, |a, b| a <= b)
+  fn exec_less_equal(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_bool(opcode, |a, b| a <= b)
   }
 
   fn exec_check(&mut self, opcode: &Opcode) -> ExecResult {
@@ -604,28 +611,28 @@ impl Vm {
     }
   }
 
-  fn exec_arith<F: FnOnce(Value, Value) -> ValueResult>(&mut self, env: &mut Env, opcode: &Opcode, f: F) -> ExecResult {
-    self.binary_op(env, opcode, |a, b| f(a, b))
+  fn exec_arith<F: FnOnce(Value, Value) -> ValueResult>(&mut self, opcode: &Opcode, f: F) -> ExecResult {
+    self.binary_op(opcode, |a, b| f(a, b))
   }
 
-  fn exec_add(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_arith(env, opcode, |a, b| a + b)
+  fn exec_add(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_arith(opcode, |a, b| a + b)
   }
 
-  fn exec_sub(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_arith(env, opcode, |a, b| a - b)
+  fn exec_sub(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_arith(opcode, |a, b| a - b)
   }
 
-  fn exec_mul(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_arith(env, opcode, |a, b| a * b)
+  fn exec_mul(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_arith(opcode, |a, b| a * b)
   }
 
-  fn exec_div(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_arith(env, opcode, |a, b| a / b)
+  fn exec_div(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_arith(opcode, |a, b| a / b)
   }
 
-  fn exec_rem(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.exec_arith(env, opcode, |a, b| a % b)
+  fn exec_rem(&mut self, opcode: &Opcode) -> ExecResult {
+    self.exec_arith(opcode, |a, b| a % b)
   }
 
   /// when f evaluates to true, short circuit
@@ -653,12 +660,12 @@ impl Vm {
     self.exec_logical(opcode, offset, |v| v.falsy())
   }
 
-  fn exec_not(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.unary_op(env, opcode, |v| Ok(!v))
+  fn exec_not(&mut self, opcode: &Opcode) -> ExecResult {
+    self.unary_op(opcode, |v| Ok(!v))
   }
 
-  fn exec_negate(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
-    self.unary_op(env, opcode, |v| -v)
+  fn exec_negate(&mut self, opcode: &Opcode) -> ExecResult {
+    self.unary_op(opcode, |v| -v)
   }
 
   fn exec_print(&mut self, opcode: &Opcode) -> ExecResult {
@@ -684,16 +691,16 @@ impl Vm {
     }
   }
 
-  fn exec_call(&mut self, env: &mut Env, opcode: &Opcode, airity: usize) -> ExecResult {
+  fn exec_call(&mut self, opcode: &Opcode, airity: usize) -> ExecResult {
     let args = self.stack_drain_from(airity);
     if let Some(callable) = self.stack_pop() {
-      self.call_value(env, opcode, callable, args)
+      self.call_value(opcode, callable, args)
     } else {
       Err(self.error(opcode, "cannot operate on empty stack"))
     }
   }
 
-  fn exec_req(&mut self, env: &mut Env, opcode: &Opcode) -> ExecResult {
+  fn exec_req(&mut self, opcode: &Opcode) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       let mut attempts = Vec::with_capacity(10);
 
@@ -742,7 +749,7 @@ impl Vm {
 
       // if still not found, try searching library paths
       if found_file.is_none() {
-        if let Some(library_mod) = env.lookup("$LIBRARY") {
+        if let Some(library_mod) = self.env().lookup("$LIBRARY") {
           if let Some(library_mod) = library_mod.as_struct() {
             if let Ok(Some(list)) = library_mod.get_field("path").map(|l| l.map(|l| l.as_array())) {
               for item in list.iter() {
@@ -763,14 +770,15 @@ impl Vm {
             let lib: Container<NativeApi> =
               unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
-            lib.simple_script_load_module(self, env).map_err(|e| self.error(opcode, e))?;
+            lib.simple_script_load_module(self).map_err(|e| self.error(opcode, e))?;
 
             self.opened_libs.insert(found_file, lib);
             Ok(())
           }
           _ => match fs::read_to_string(&found_file) {
             Ok(data) => {
-              let new_ctx = Compiler::compile(found_file.clone(), &data)?;
+              let env = SmartPtr::new(Env::initialize(&self.args, self.libs.clone()));
+              let new_ctx = Compiler::compile(found_file.clone(), &data, env)?;
 
               #[cfg(feature = "disassemble")]
               {
@@ -910,7 +918,8 @@ impl Vm {
     self.current_frame.ip = self.current_frame.ip.saturating_sub(count);
   }
 
-  fn call_value(&mut self, env: &mut Env, opcode: &Opcode, mut callable: Value, args: Vec<Value>) -> ExecResult {
+  fn call_value(&mut self, opcode: &Opcode, mut callable: Value, args: impl Into<Vec<Value>>) -> ExecResult {
+    let args = args.into();
     let res = if let Some(f) = callable.as_fn() {
       f.call(self, args);
       Ok(())
@@ -922,16 +931,16 @@ impl Vm {
       f.call(self, args);
       Ok(())
     } else if let Some(f) = callable.as_native_fn() {
-      let v = f(self, env, args.into()).map_err(|e| self.error(opcode, e))?;
+      let v = f(self, args.into()).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if let Some(f) = callable.as_native_closure_mut() {
-      let v = f.call(self, env, args.into()).map_err(|e| self.error(opcode, e))?;
+      let v = f.call(self, args.into()).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if let Some(f) = callable.as_native_method_mut() {
       let args = Args::new_with_this(f.this.clone(), args);
-      let v = f.call(self, env, args).map_err(|e| self.error(opcode, e))?;
+      let v = f.call(self, args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if callable.is_class() {
@@ -955,6 +964,10 @@ impl Vm {
     }
 
     res
+  }
+
+  pub fn env(&mut self) -> &mut Env {
+    &mut self.current_frame.ctx.env
   }
 
   #[cold]

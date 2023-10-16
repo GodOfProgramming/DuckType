@@ -16,15 +16,17 @@ impl TestFixture for ApiTest {
 
 #[fixture(ApiTest)]
 mod tests {
+  use std::rc::Rc;
+
   use super::*;
 
   #[test]
   fn can_register_global_variables(t: &mut ApiTest) {
     let script = "export some_var;";
-    let ctx = t.vm.load(TEST_FILE, script).unwrap();
-    let mut env = Env::initialize(&[], Library::All);
-    env.define("some_var", Value::from(true));
-    if let Return::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
+    let env = Env::initialize(&[], Library::All);
+    let mut ctx = t.vm.load(TEST_FILE, script, env).unwrap();
+    ctx.env.define("some_var", Value::from(true));
+    if let Return::Value(v) = t.vm.run(TEST_FILE, ctx).unwrap() {
       assert!(v == Value::from(true));
     } else {
       panic!();
@@ -34,11 +36,11 @@ mod tests {
   #[test]
   fn can_register_lambda(t: &mut ApiTest) {
     let script = "export some_func();";
-    let ctx = t.vm.load("test", script).unwrap();
-    let mut env = Env::initialize(&[], Library::All);
-    env.define("some_func", Value::native(|_vm, _env, _args| Ok(Value::from(true))));
+    let env = Env::initialize(&[], Library::All);
+    let mut ctx = t.vm.load("test", script, env).unwrap();
+    ctx.env.define("some_func", Value::native(|_vm, _args| Ok(Value::from(true))));
 
-    if let Return::Value(v) = t.vm.run(TEST_FILE, ctx, &mut env).unwrap() {
+    if let Return::Value(v) = t.vm.run(TEST_FILE, ctx).unwrap() {
       assert!(v == Value::from(true));
     } else {
       panic!();
@@ -48,12 +50,12 @@ mod tests {
   #[test]
   fn can_yield(t: &mut ApiTest) {
     let script = "let x = true; yield; export x;";
-    let ctx = t.vm.load("test", script).unwrap();
-    let mut env = Env::initialize(&[], Library::All);
-    let result = t.vm.run(TEST_FILE, ctx, &mut env).unwrap();
+    let env = Env::initialize(&[], Library::All);
+    let ctx = t.vm.load("test", script, env).unwrap();
+    let result = t.vm.run(TEST_FILE, ctx).unwrap();
 
     if let Return::Yield(y) = result {
-      if let Return::Value(v) = t.vm.resume(y, &mut env).unwrap() {
+      if let Return::Value(v) = t.vm.resume(y).unwrap() {
         assert!(v == Value::from(true));
       } else {
         panic!();

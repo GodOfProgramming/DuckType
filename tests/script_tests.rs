@@ -12,21 +12,17 @@ impl ScriptTest {
   pub fn run(&mut self, script: &Path) {
     println!("running {:?}", script);
     let src = fs::read_to_string(script).unwrap();
-    let ctx = self.vm.load(script.to_string_lossy().to_string(), &src).unwrap();
-    self
-      .vm
-      .run(
-        script.to_string_lossy().to_string(),
-        ctx,
-        &mut Env::initialize(&[], Library::All),
-      )
-      .unwrap();
+    let env = Env::initialize(&[], Library::All);
+    let ctx = self.vm.load(script.to_string_lossy().to_string(), &src, env).unwrap();
+    self.vm.run(script.to_string_lossy().to_string(), ctx).unwrap();
   }
 }
 
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
-    Self::default()
+    Self {
+      vm: Vm::new(vec![], Library::All),
+    }
   }
 }
 
@@ -67,17 +63,17 @@ mod tests {
     {
       const SCRIPT: &str = "print(leaker); print(leaker.this); leaker.this = leaker; print(leaker.this);";
 
-      let ctx = t.vm.load("test", SCRIPT).unwrap();
-      let mut env = Env::initialize(&[], Library::None);
+      let env = Env::initialize(&[], Library::All);
+      let mut ctx = t.vm.load("test", SCRIPT, env).unwrap();
 
       let l = Leaker {
         b: unsafe { &mut B },
         this: Value::nil,
       };
 
-      env.define("leaker", Value::from(l));
+      ctx.env.define("leaker", Value::from(l));
 
-      t.vm.run("test", ctx, &mut env).unwrap();
+      t.vm.run("test", ctx).unwrap();
     }
 
     assert!(unsafe { !B });

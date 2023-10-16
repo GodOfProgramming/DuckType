@@ -358,7 +358,7 @@ impl Value {
   pub fn new_native_closure<N, F>(name: N, f: F) -> Self
   where
     N: ToString,
-    F: FnMut(&mut Vm, &mut Env, Args) -> ValueResult + 'static,
+    F: FnMut(&mut Vm, Args) -> ValueResult + 'static,
   {
     Self::from(NativeClosureValue::new(name, f))
   }
@@ -391,7 +391,7 @@ impl Value {
 
   pub fn new_native_closure_method<T: ToString, F>(name: T, this: Value, f: F) -> Self
   where
-    F: FnMut(&mut Vm, &mut Env, Args) -> ValueResult + 'static,
+    F: FnMut(&mut Vm, Args) -> ValueResult + 'static,
   {
     Self::from(NativeMethodValue::new_native_closure(this, NativeClosureValue::new(name, f)))
   }
@@ -1179,7 +1179,7 @@ impl Callable {
     }
   }
 
-  pub fn call(&mut self, vm: &mut Vm, env: &mut Env, args: Args) -> ValueResult<()> {
+  pub fn call(&mut self, vm: &mut Vm, args: Args) -> ValueResult<()> {
     match self {
       Callable::Fn(f) => {
         f.as_fn_unchecked().call(vm, args.list);
@@ -1194,17 +1194,17 @@ impl Callable {
         Ok(())
       }
       Callable::NativeFn(f) => {
-        let value = f(vm, env, args)?;
+        let value = f(vm, args)?;
         vm.stack_push(value);
         Ok(())
       }
       Callable::NativeClosure(c) => {
-        let value = c.as_native_closure_unchecked_mut().call(vm, env, args)?;
+        let value = c.as_native_closure_unchecked_mut().call(vm, args)?;
         vm.stack_push(value);
         Ok(())
       }
       Callable::NativeMethod(m) => {
-        let value = m.as_native_method_unchecked_mut().call(vm, env, args)?;
+        let value = m.as_native_method_unchecked_mut().call(vm, args)?;
         vm.stack_push(value);
         Ok(())
       }

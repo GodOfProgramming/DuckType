@@ -12,7 +12,7 @@ impl LibConsole {
     .into()
   }
 
-  fn print(_vm: &mut Vm, _env: &mut Env, args: Args) -> ValueResult {
+  fn print(_vm: &mut Vm, args: Args) -> ValueResult {
     for arg in args.list {
       print!("{}", arg);
     }
@@ -20,7 +20,7 @@ impl LibConsole {
     Ok(Value::nil)
   }
 
-  fn println(_vm: &mut Vm, _env: &mut Env, args: Args) -> ValueResult {
+  fn println(_vm: &mut Vm, args: Args) -> ValueResult {
     for arg in args.list {
       print!("{}", arg);
     }
@@ -29,7 +29,7 @@ impl LibConsole {
     Ok(Value::nil)
   }
 
-  fn flushln(_vm: &mut Vm, _env: &mut Env, args: Args) -> ValueResult {
+  fn flushln(_vm: &mut Vm, args: Args) -> ValueResult {
     use std::io::{stdout, Write};
     for arg in args.list {
       print!("{}", arg);

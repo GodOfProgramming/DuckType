@@ -33,7 +33,7 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
   let try_cast_arg = common::try_cast_arg_fn_tokens();
 
   quote! {
-    fn #ident(_: &mut Vm, _: &mut Env, args: Args) -> ValueResult {
+    fn #ident(_: &mut Vm, args: Args) -> ValueResult {
       #try_cast_arg
 
       #item
@@ -112,8 +112,8 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
 
   quote! {
     #[no_mangle]
-    pub fn simple_script_load_module(vm: &mut Vm, env: &mut Env) -> ValueResult<()> {
-      #mod_name::register_to(env);
+    pub fn simple_script_load_module(vm: &mut Vm) -> ValueResult<()> {
+      #mod_name::register_to(vm.env());
       Ok(())
     }
 

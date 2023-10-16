@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use simple_script::prelude::*;
-use std::{fs, path::PathBuf, process};
+use std::{fs, path::PathBuf, process, rc::Rc};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -28,8 +28,8 @@ fn main() {
     Command::Run { file, runargs } => {
       let mut exit_code = 0;
 
-      let vm = Vm::new();
       let env = Env::initialize(&runargs, Library::All);
+      let vm = Vm::new(runargs, Library::All);
 
       if let Some(file) = file {
         if !run_file(vm, file, env) {
@@ -42,16 +42,16 @@ fn main() {
   }
 }
 
-fn run_file(mut vm: Vm, file: PathBuf, mut env: Env) -> bool {
+fn run_file(mut vm: Vm, file: PathBuf, env: Env) -> bool {
   if file.exists() {
     match fs::read_to_string(&file) {
-      Ok(contents) => match vm.load(file.clone(), &contents) {
+      Ok(contents) => match vm.load(file.clone(), &contents, env) {
         Ok(ctx) => {
           let mut yield_result = None;
 
           loop {
             if let Some(y) = yield_result.take() {
-              match vm.resume(y, &mut env) {
+              match vm.resume(y) {
                 Ok(result) => match result {
                   Return::Value(v) => {
                     println!("=> {}", v);
@@ -67,7 +67,7 @@ fn run_file(mut vm: Vm, file: PathBuf, mut env: Env) -> bool {
                 }
               }
             } else {
-              match vm.run(file.clone(), ctx.clone(), &mut env) {
+              match vm.run(file.clone(), ctx.clone()) {
                 Ok(result) => match result {
                   Return::Value(v) => {
                     println!("=> {}", v);

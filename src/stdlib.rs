@@ -30,6 +30,7 @@ pub enum Lib {
   Io,
 }
 
+#[derive(Clone)]
 pub enum Library {
   All,
   None,

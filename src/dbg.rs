@@ -79,8 +79,8 @@ pub struct Cli {
 }
 
 impl Cli {
-  pub fn exec(self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
-    self.command.exec(vm, env)
+  pub fn exec(self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
+    self.command.exec(vm)
   }
 }
 
@@ -109,11 +109,11 @@ pub enum Command {
 }
 
 impl Command {
-  pub fn exec(self, vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+  pub fn exec(self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
     match self {
       Command::Quit => Ok(CommandOutput::new(None, true)),
-      Command::Env { command } => command.exec(vm, env),
-      Command::Stack { command } => command.exec(vm, env),
+      Command::Env { command } => command.exec(vm.env()),
+      Command::Stack { command } => command.exec(vm),
     }
   }
 }
@@ -134,7 +134,7 @@ pub enum EnvCmd {
 }
 
 impl EnvCmd {
-  fn exec(self, _vm: &mut Vm, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+  fn exec(self, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
     let output = match self {
       EnvCmd::Get { name } => Some(if let Some(value) = env.lookup(&name) {
         format!("{:?}", value)
@@ -193,7 +193,7 @@ pub enum StackCmd {
 }
 
 impl StackCmd {
-  fn exec(&self, vm: &mut Vm, _env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+  fn exec(&self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
     let output = match self {
       StackCmd::Display => {
         vm.stack_display();
