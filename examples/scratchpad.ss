@@ -1,3 +1,4 @@
+let sspec = req "lib/sspec/sspec.ss";
 let util = req "util";
 
 let instance = util.ModuleClass("module");

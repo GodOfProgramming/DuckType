@@ -16,6 +16,11 @@ impl StringValue {
     Ok(self.str.len() as i32)
   }
 
+  fn replace_with(&mut self, other: &Self) -> ValueResult<()> {
+    self.str = other.str.clone();
+    Ok(())
+  }
+
   fn clone(&self) -> ValueResult<Self> {
     Ok(Self { str: self.str.clone() })
   }

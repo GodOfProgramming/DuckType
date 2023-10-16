@@ -14,18 +14,18 @@ impl FunctionValue {
     Self { airity, locals, ctx }
   }
 
-  pub fn call(&self, vm: &mut Vm, mut args: Vec<Value>) {
-    if args.len() > self.airity {
-      args.drain(0..self.airity);
+  pub fn call(&self, mut args: Args) {
+    if args.list.len() > self.airity {
+      args.list.drain(0..self.airity);
     } else {
-      while args.len() < self.airity {
-        args.push(Value::nil);
+      while args.list.len() < self.airity {
+        args.list.push(Value::nil);
       }
     }
 
-    args.reserve(self.locals);
-    vm.new_frame(self.ctx.clone());
-    vm.set_stack(args);
+    args.list.reserve(self.locals);
+    args.vm.new_frame(self.ctx.clone());
+    args.vm.set_stack(args.list);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {

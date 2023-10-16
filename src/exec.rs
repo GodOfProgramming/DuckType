@@ -921,30 +921,35 @@ impl Vm {
   fn call_value(&mut self, opcode: &Opcode, mut callable: Value, args: impl Into<Vec<Value>>) -> ExecResult {
     let args = args.into();
     let res = if let Some(f) = callable.as_fn() {
-      f.call(self, args);
+      let args = Args::new(self, args);
+      f.call(args);
       Ok(())
     } else if let Some(f) = callable.as_closure() {
-      f.call(self, args);
+      let args = Args::new(self, args);
+      f.call(args);
       Ok(())
     } else if let Some(f) = callable.as_method() {
-      let args = Args::new_with_this(f.this.clone(), args);
-      f.call(self, args);
+      let args = Args::new_with_this(self, f.this.clone(), args);
+      f.call(args);
       Ok(())
     } else if let Some(f) = callable.as_native_fn() {
-      let v = f(self, args.into()).map_err(|e| self.error(opcode, e))?;
+      let mut args = Args::new(self, args);
+      let v = f(&mut args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if let Some(f) = callable.as_native_closure_mut() {
-      let v = f.call(self, args.into()).map_err(|e| self.error(opcode, e))?;
+      let mut args = Args::new(self, args);
+      let v = f.call(&mut args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if let Some(f) = callable.as_native_method_mut() {
-      let args = Args::new_with_this(f.this.clone(), args);
-      let v = f.call(self, args).map_err(|e| self.error(opcode, e))?;
+      let mut args = Args::new_with_this(self, f.this.clone(), args);
+      let v = f.call(&mut args).map_err(|e| self.error(opcode, e))?;
       self.stack_push(v);
       Ok(())
     } else if callable.is_class() {
-      ClassValue::construct(callable, self, args.into()).map_err(|e| self.error(opcode, e))?;
+      let args = Args::new(self, args);
+      ClassValue::construct(callable, args).map_err(|e| self.error(opcode, e))?;
       Ok(())
     } else {
       Err(vec![format!(

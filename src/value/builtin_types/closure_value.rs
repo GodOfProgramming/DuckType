@@ -16,22 +16,22 @@ impl ClosureValue {
     }
   }
 
-  pub fn call(&self, vm: &mut Vm, mut args: Vec<Value>) {
-    if args.len() > self.function.airity {
-      args.drain(0..self.function.airity);
+  pub fn call(&self, mut args: Args) {
+    if args.list.len() > self.function.airity {
+      args.list.drain(0..self.function.airity);
     } else {
-      while args.len() < self.function.airity {
-        args.push(Value::nil);
+      while args.list.len() < self.function.airity {
+        args.list.push(Value::nil);
       }
     }
 
-    let mut captures_with_args = Vec::with_capacity(self.captures.len() + args.len());
+    let mut captures_with_args = Vec::with_capacity(self.captures.len() + args.list.len());
     captures_with_args.extend(self.captures.clone());
-    captures_with_args.extend(args);
+    captures_with_args.extend(args.list);
 
-    vm.new_frame(self.function.context_ptr().clone());
+    args.vm.new_frame(self.function.context_ptr().clone());
 
-    vm.set_stack(captures_with_args);
+    args.vm.set_stack(captures_with_args);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {

@@ -89,6 +89,10 @@ fn load_std() -> Value {
         }),
       )
       .ok();
+
+    LockedModule::initialize(|lib| {
+      lib.set("defined", Value::native(defined)).ok();
+    });
   })
   .into()
 }
@@ -113,4 +117,8 @@ fn fields(value: Value) -> ValueResult<Vec<Value>> {
   }
 
   Ok(fields)
+}
+
+fn defined(args: &mut Args) -> ValueResult {
+  Ok(Value::nil)
 }

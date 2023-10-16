@@ -139,14 +139,14 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       let nargs = method.nargs;
       let name = method.name;
       let name_str = Literal::string(&name.to_string());
-      let args = make_arg_list(nargs, &name_str);
+      let args = common::make_arg_list(nargs, &name_str);
       if method.receiver.mutability.is_some() {
         method_lambda_bodies.push(quote! {
-          Value::new_native_fn_method(this.clone(), |_, mut args| {
+          Value::new_native_fn_method(this.clone(), |mut args| {
             if args.list.len() == #nargs + 1 {
               if let Some(mut this) = args.list.pop() {
                 if let Some(this) = this.cast_to_mut::<#me>() {
-                  let mut args = args.list.into_iter();
+                  let mut args = args.list.iter();
                   Ok(Value::from(#me::#name(this, #args)?))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
@@ -161,11 +161,11 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         });
       } else {
         method_lambda_bodies.push(quote! {
-          Value::new_native_fn_method(this.clone(), |_, mut args| {
+          Value::new_native_fn_method(this.clone(), |mut args| {
             if args.list.len() == #nargs + 1 {
               if let Some(this) = args.list.pop() {
                 if let Some(this) = this.cast_to::<#me>() {
-                  let mut args = args.list.into_iter();
+                  let mut args = args.list.iter();
                   Ok(Value::from(#me::#name(this, #args)?))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
@@ -192,12 +192,12 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     let nargs = static_method.nargs;
     let name = static_method.name;
     let name_str = Literal::string(&name.to_string());
-    let args = make_arg_list(nargs, name_str);
+    let args = common::make_arg_list(nargs, name_str);
 
     static_lambda_bodies.push(quote! {
       Value::native(|_,args| {
         if args.list.len() == #nargs {
-          let mut args = args.list.into_iter();
+          let mut args = args.list.iter();
           Ok(Value::from(#me::#name(#args)?))
         } else {
           Err(ValueError::ArgumentError(args.list.len(), #nargs))
@@ -213,12 +213,12 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       let nargs = count_args(constructor);
       let name = &constructor.sig.ident;
       let name_str = Literal::string(&name.to_string());
-      let args = make_arg_list(nargs, name_str);
+      let args = common::make_arg_list(nargs, name_str);
       quote! {
-        fn __new__(vm: &mut Vm, args: Args) -> ValueResult {
+        fn __new__(args: Args) -> ValueResult {
           #constructor
           #try_cast_arg
-          let mut args = args.list.into_iter();
+          let mut args = args.list.iter();
           Ok(Value::from(#name(#args)?))
         }
       }
@@ -306,19 +306,4 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
 
 fn count_args(f: &ImplItemMethod) -> usize {
   f.sig.inputs.iter().filter(|input| matches!(input, FnArg::Typed(_))).count()
-}
-
-fn make_arg_list(nargs: usize, name: impl ToTokens) -> TokenStream {
-  let mut args = TokenStream::default();
-  args.append_separated(
-    (0..nargs).map(|i| {
-      quote! {
-        try_arg_cast(args
-        .next()
-        .unwrap(), #name, #i)?
-      }
-    }),
-    Comma::default(),
-  );
-  args
 }

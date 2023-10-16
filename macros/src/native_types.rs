@@ -18,28 +18,18 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
     .filter(|input| matches!(input, FnArg::Typed(_)))
     .count();
 
-  let mut args = TokenStream::new();
-  args.append_separated(
-    (0..nargs).map(|i| {
-      quote! {
-        try_arg_cast(args
-        .next()
-        .unwrap(), #name_str, #i)?
-      }
-    }),
-    Comma::default(),
-  );
+  let args = common::make_arg_list(nargs, name_str);
 
   let try_cast_arg = common::try_cast_arg_fn_tokens();
 
   quote! {
-    fn #ident(_: &mut Vm, args: Args) -> ValueResult {
+    fn #ident(args: &mut Args) -> ValueResult {
       #try_cast_arg
 
       #item
 
       if args.list.len() == #nargs {
-        let mut args = args.list.into_iter();
+        let mut args = args.list.iter();
         Ok(Value::from(#ident(#args)?))
       } else {
         Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))

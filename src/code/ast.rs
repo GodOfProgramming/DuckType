@@ -963,6 +963,28 @@ impl AstGenerator {
       while let Some(token) = self.current() {
         if let Some(member_loc) = self.meta_at::<0>() {
           match token {
+            Token::Let => {
+              self.advance();
+              if let Some(Token::Identifier(ident)) = self.current() {
+                declared_items.insert(ident.clone());
+                self.advance();
+
+                if !self.consume(Token::Colon, "expected ':' after ident") {
+                  return None;
+                }
+
+                let ident = Ident::new(ident);
+                if let Some(constant) = self.expression() {
+                  module_items.push((ident, constant));
+                }
+
+                if !self.consume(Token::Semicolon, "expected ';' after expression") {
+                  return None;
+                }
+              } else {
+                self.error::<0>("mod name is invalid");
+              }
+            }
             Token::Mod => {
               self.advance();
               if let Some(Token::Identifier(ident)) = self.current() {
@@ -973,7 +995,7 @@ impl AstGenerator {
                   module_items.push((ident, module));
                 }
               } else {
-                self.error::<0>("class name is invalid");
+                self.error::<0>("mod name is invalid");
               }
             }
             Token::Class => {

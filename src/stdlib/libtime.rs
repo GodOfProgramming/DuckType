@@ -8,7 +8,7 @@ impl LibTime {
     LockedModule::initialize(|lib| {
       let mono = LockedModule::initialize(|mono| {
         mono
-          .set("now", Value::native(|_vm, _args| Ok(Value::from(TimestampValue::new()))))
+          .set("now", Value::native(|_args| Ok(Value::from(TimestampValue::new()))))
           .ok();
 
         mono.set("elapsed", Value::native(elapsed)).ok();

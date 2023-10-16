@@ -80,7 +80,7 @@ pub trait UsertypeFields {
 }
 
 pub trait UsertypeMethods {
-  fn __new__(_vm: &mut Vm, _args: Args) -> ValueResult {
+  fn __new__(_args: Args) -> ValueResult {
     Err(ValueError::UndefinedInitializer)
   }
   fn get_method(&self, this: &Value, field: &str) -> ValueResult<Option<Value>>;
@@ -97,38 +97,24 @@ pub trait DebugValue {
 pub trait LockableValue {
   fn __lock__(&mut self) {}
 }
-#[derive(Default, Debug)]
-pub struct Args {
+pub struct Args<'vm> {
+  pub vm: &'vm mut Vm,
   pub list: Vec<Value>,
 }
 
-impl Args {
-  pub fn new_with_this(this: Value, mut args: Vec<Value>) -> Self {
-    args.push(this);
-    Self { list: args }
+impl<'vm> Args<'vm> {
+  pub fn new(vm: &'vm mut Vm, args: impl Into<Vec<Value>>) -> Self {
+    Self { vm, list: args.into() }
   }
+
+  pub fn new_with_this(vm: &'vm mut Vm, this: Value, args: impl Into<Vec<Value>>) -> Self {
+    let mut args = args.into();
+    args.push(this);
+    Self { vm, list: args }
+  }
+
   pub fn count(&self) -> usize {
     self.list.len()
-  }
-}
-
-impl From<Value> for Args {
-  fn from(arg: Value) -> Self {
-    Self { list: vec![arg] }
-  }
-}
-
-impl From<Vec<Value>> for Args {
-  fn from(list: Vec<Value>) -> Self {
-    Self { list }
-  }
-}
-
-impl<T: Into<Value> + Clone, const I: usize> From<[T; I]> for Args {
-  fn from(list: [T; I]) -> Self {
-    Self {
-      list: list.into_iter().map(|v| -> Value { v.into() }).collect(),
-    }
   }
 }
 

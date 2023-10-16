@@ -38,7 +38,7 @@ mod tests {
     let script = "export some_func();";
     let env = Env::initialize(&[], Library::All);
     let mut ctx = t.vm.load("test", script, env).unwrap();
-    ctx.env.define("some_func", Value::native(|_vm, _args| Ok(Value::from(true))));
+    ctx.env.define("some_func", Value::native(|_args| Ok(Value::from(true))));
 
     if let Return::Value(v) = t.vm.run(TEST_FILE, ctx).unwrap() {
       assert!(v == Value::from(true));

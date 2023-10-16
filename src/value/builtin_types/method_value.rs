@@ -13,8 +13,8 @@ impl MethodValue {
     Self { this, function }
   }
 
-  pub fn call(&self, vm: &mut Vm, args: Args) {
-    self.function.call(vm, args.list);
+  pub fn call(&self, args: Args) {
+    self.function.call(args);
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
