@@ -1,15 +1,8 @@
-req "examples/ss_module/target/debug/ss_module";
+let util = req "util";
 
-use example_module.Foo;
+let g = GlobalClass("global");
+let m = global_module.ModuleClass("module");
 
-let s = "wheee";
-example_module.test_function(s);
-
-let old = example_module.test_clear(s);
-example_module.test_function(s);
-example_module.test_function(old);
-
-let f = Foo();
-print(f.value);
-f.value = 1;
-print(f.value);
+print(g.value);
+print(m.value);
+print(util);

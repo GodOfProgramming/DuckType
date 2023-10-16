@@ -80,9 +80,9 @@ impl UsertypeFields for ClassValue {
 impl ClassValue {
   fn __str__(&self) -> String {
     if let Some(name) = &self.name {
-      name.clone()
+      format!("<class {}>", name.clone())
     } else {
-      "<unnamed class>".to_string()
+      "<anonymous class>".to_string()
     }
   }
 

@@ -243,23 +243,6 @@ impl BytecodeGenerator {
     self.emit(Opcode::Print, stmt.loc);
   }
 
-  fn req_stmt(&mut self, stmt: ReqStatement) {
-    self.emit_expr(stmt.file);
-    self.emit(Opcode::Req, stmt.loc.clone());
-
-    if let Some(var) = stmt.ident {
-      let is_global = var.global;
-      if let Some(var) = self.declare_variable(var, stmt.loc.clone()) {
-        self.define_variable(is_global, var, stmt.loc.clone());
-      }
-      if is_global {
-        self.emit(Opcode::Pop, stmt.loc);
-      }
-    } else {
-      self.emit(Opcode::Pop, stmt.loc);
-    }
-  }
-
   fn ret_stmt(&mut self, stmt: RetStatement) {
     if let Some(expr) = stmt.expr {
       self.emit_expr(expr);
@@ -562,6 +545,11 @@ impl BytecodeGenerator {
     }
   }
 
+  fn req_expr(&mut self, expr: ReqExpression) {
+    self.emit_expr(*expr.file);
+    self.emit(Opcode::Req, expr.loc.clone());
+  }
+
   /* Utility Functions */
 
   fn emit(&mut self, op: Opcode, loc: SourceLocation) {
@@ -587,7 +575,6 @@ impl BytecodeGenerator {
       Statement::Match(stmt) => self.match_stmt(stmt),
       Statement::Mod(stmt) => self.mod_stmt(stmt),
       Statement::Print(stmt) => self.print_stmt(stmt),
-      Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::Use(stmt) => self.use_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
@@ -622,6 +609,7 @@ impl BytecodeGenerator {
       Expression::Lambda(expr) => self.lambda_expr(expr),
       Expression::Closure(expr) => self.closure_expr(expr),
       Expression::Method(expr) => self.method_expr(expr),
+      Expression::Req(expr) => self.req_expr(expr),
     }
   }
 

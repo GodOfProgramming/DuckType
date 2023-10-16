@@ -135,10 +135,6 @@ impl AstGenerator {
         self.advance();
         self.print_stmt();
       }
-      Token::Req => {
-        self.advance();
-        self.req_stmt();
-      }
       Token::Ret => {
         self.advance();
         self.ret_stmt();
@@ -289,38 +285,6 @@ impl AstGenerator {
       }
 
       self.statements.push(Statement::from(declaration));
-    }
-  }
-
-  fn req_stmt(&mut self) {
-    if let Some(loc) = self.meta_at::<1>() {
-      if let Some(expr) = self.expression() {
-        let ident = if self.advance_if_matches(Token::Arrow) {
-          if let Some(token) = self.current() {
-            if let Token::Identifier(ident) = token {
-              self.advance();
-              Some(Ident::new(ident))
-            } else {
-              self.error::<0>(String::from("identifier expected after require"));
-              None
-            }
-          } else {
-            self.error::<0>(String::from("unexpected end of file"));
-            None
-          }
-        } else {
-          None
-        };
-
-        if !self.consume(Token::Semicolon, "expected ';' after expression") {
-          return;
-        }
-
-        self.statements.push(Statement::from(ReqStatement::new(expr, ident, loc)));
-      }
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
     }
   }
 
@@ -1104,6 +1068,12 @@ impl AstGenerator {
     }
   }
 
+  fn req_expr(&mut self) -> Option<Expression> {
+    let loc = self.meta_at::<1>()?;
+    let expr = self.expression()?;
+    Some(Expression::from(ReqExpression::new(expr, loc)))
+  }
+
   fn anon_fn_expr(&mut self) -> Option<Expression> {
     let loc = self.meta_at::<0>()?;
 
@@ -1591,7 +1561,7 @@ impl AstGenerator {
       Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::Or => ParseRule::new(None, Some(Self::or_expr), Precedence::Or),
       Token::Print => ParseRule::new(None, None, Precedence::None),
-      Token::Req => ParseRule::new(None, None, Precedence::None),
+      Token::Req => ParseRule::new(Some(Self::req_expr), None, Precedence::Primary),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::Struct => ParseRule::new(Some(Self::struct_expr), None, Precedence::Primary),
       Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
@@ -1749,7 +1719,6 @@ pub enum Statement {
   Match(MatchStatement),
   Mod(ModStatement),
   Print(PrintStatement),
-  Req(ReqStatement),
   Ret(RetStatement),
   Use(UseStatement),
   While(WhileStatement),
@@ -1807,7 +1776,6 @@ impl Statement {
       Statement::Match(_) => (),
       Statement::Mod(m) => m.body.dump(tmpl),
       Statement::Print(_) => (),
-      Statement::Req(_) => (),
       Statement::Ret(_) => (),
       Statement::Use(u) => {
         html! {
@@ -1839,7 +1807,6 @@ impl Display for Statement {
       Self::Match(_) => write!(f, "match"),
       Self::Mod(_) => write!(f, "mod"),
       Self::Print(_) => write!(f, "print"),
-      Self::Req(_) => write!(f, "req"),
       Self::Ret(_) => write!(f, "ret"),
       Self::While(_) => write!(f, "while"),
       Self::Use(_) => write!(f, "use"),
@@ -1901,12 +1868,6 @@ impl From<IfStatement> for Statement {
 impl From<LetStatement> for Statement {
   fn from(stmt: LetStatement) -> Self {
     Self::Let(stmt)
-  }
-}
-
-impl From<ReqStatement> for Statement {
-  fn from(stmt: ReqStatement) -> Self {
-    Self::Req(stmt)
   }
 }
 
@@ -2097,19 +2058,6 @@ impl LetStatement {
 }
 
 #[derive(Debug)]
-pub struct ReqStatement {
-  pub file: Expression,
-  pub ident: Option<Ident>,
-  pub loc: SourceLocation,
-}
-
-impl ReqStatement {
-  fn new(file: Expression, ident: Option<Ident>, loc: SourceLocation) -> Self {
-    Self { file, ident, loc }
-  }
-}
-
-#[derive(Debug)]
 pub struct LoopStatement {
   pub block: Box<Statement>,
   pub loc: SourceLocation,
@@ -2253,6 +2201,7 @@ pub enum Expression {
   Lambda(LambdaExpression),
   Closure(ClosureExpression),
   Method(MethodExpression),
+  Req(ReqExpression),
 }
 
 impl Expression {
@@ -2313,6 +2262,7 @@ impl Expression {
       Expression::Lambda(l) => l.body.dump(tmpl),
       Expression::Closure(c) => c.body.dump(tmpl),
       Expression::Method(m) => m.body.dump(tmpl),
+      Expression::Req(_) => (),
     }
   }
 }
@@ -2339,6 +2289,7 @@ impl Display for Expression {
       Self::Lambda(_) => write!(f, "lambda"),
       Self::Closure(_) => write!(f, "closure"),
       Self::Method(_) => write!(f, "method"),
+      Self::Req(_) => write!(f, "req"),
     }
   }
 }
@@ -2454,6 +2405,12 @@ impl From<ClosureExpression> for Expression {
 impl From<MethodExpression> for Expression {
   fn from(expr: MethodExpression) -> Self {
     Self::Method(expr)
+  }
+}
+
+impl From<ReqExpression> for Expression {
+  fn from(expr: ReqExpression) -> Self {
+    Self::Req(expr)
   }
 }
 
@@ -2813,6 +2770,21 @@ impl MethodExpression {
       name,
       params,
       body: Box::new(body),
+      loc,
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct ReqExpression {
+  pub file: Box<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl ReqExpression {
+  fn new(file: Expression, loc: SourceLocation) -> Self {
+    Self {
+      file: Box::new(file),
       loc,
     }
   }
