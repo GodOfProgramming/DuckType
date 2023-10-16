@@ -2,14 +2,14 @@ let sspec = req "lib/sspec/sspec.ss";
 
 use sspec.describe;
 
-let $COUNTER = 0;
+let $COUNTER = 1;
 
 class SomeClass {
   fn second(self, t) {
     print "second";
     print self;
     print t;
-    t.expect($COUNTER).to_be(1);
+    t.expect($COUNTER).to_be(2);
     $COUNTER += 1;
     ret self;
   }

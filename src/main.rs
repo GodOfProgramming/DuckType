@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use simple_script::prelude::*;
-use std::{fs, path::PathBuf, process, rc::Rc};
+use std::{fs, path::PathBuf, process};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]

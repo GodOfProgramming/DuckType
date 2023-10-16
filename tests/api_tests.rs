@@ -16,8 +16,6 @@ impl TestFixture for ApiTest {
 
 #[fixture(ApiTest)]
 mod tests {
-  use std::rc::Rc;
-
   use super::*;
 
   #[test]

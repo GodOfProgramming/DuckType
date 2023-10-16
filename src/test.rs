@@ -53,11 +53,8 @@ impl TestFixture for IntegrationTest {
 
 #[fixture(IntegrationTest)]
 mod integration_tests {
-  use std::borrow::BorrowMut;
-
-  use evalexpr::eval;
-
   use super::*;
+  use evalexpr::eval;
 
   #[test]
   fn adding_a_global(test: &mut IntegrationTest) {
