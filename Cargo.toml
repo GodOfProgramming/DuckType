@@ -1,6 +1,6 @@
 [package]
 name = "simple_script"
-version = "0.30.0"
+version = "0.31.0"
 authors = ["Jonathan Dickert <jon.p.dickert@gmail.com>"]
 edition = "2021"
 
