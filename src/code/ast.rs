@@ -978,15 +978,17 @@ impl AstGenerator {
               declared_items.insert(ident.clone());
               self.advance();
 
-              if !self.consume(Token::Colon, "expected ':' after ident") {
-                return None;
+              if self.advance_if_matches(Token::Colon) {
+                let ident = Ident::new(ident);
+                if let Some(expr) = self.expression() {
+                  module_items.push((ident, expr));
+                }
+              } else {
+                module_items.push((
+                  Ident::new(ident.clone()),
+                  Expression::from(IdentExpression::new(Ident::new(ident), member_loc)),
+                ))
               }
-
-              let ident = Ident::new(ident);
-              if let Some(constant) = self.expression() {
-                module_items.push((ident, constant));
-              }
-
               if !self.consume(Token::Semicolon, "expected ';' after expression") {
                 return None;
               }

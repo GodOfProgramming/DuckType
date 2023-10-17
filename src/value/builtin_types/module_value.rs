@@ -47,6 +47,10 @@ impl ModuleValue {
   fn __lock__(&mut self) {
     self.locked = true;
   }
+
+  fn __dbg__(&self) -> String {
+    format!("mod {:#?}", self.members)
+  }
 }
 
 pub struct LockedModule(ModuleValue);
