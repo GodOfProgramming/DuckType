@@ -1,9 +1,3 @@
-let sspec = req "lib/sspec/sspec.ss";
+let module = req "examples/module";
 
-use sspec.describe;
-
-sspec.verbose.set(true);
-
-describe("test verbose switch", |t| {
-  t.expect(true).to_be(false);
-});
+print(module);

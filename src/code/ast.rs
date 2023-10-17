@@ -64,6 +64,7 @@ struct AstGenerator {
   index: usize,
 
   in_loop: bool,
+  export_found: bool,
 }
 
 impl AstGenerator {
@@ -75,6 +76,7 @@ impl AstGenerator {
       errors: Default::default(),
       index: Default::default(),
       in_loop: Default::default(),
+      export_found: false,
     }
   }
 
@@ -225,6 +227,10 @@ impl AstGenerator {
   }
 
   fn export_stmt(&mut self) {
+    if self.export_found {
+      self.error::<1>("can only export once per file");
+    }
+    self.export_found = true;
     self.meta_at::<1>().unwrap_and(|loc| {
       if let Some(current) = self.current() {
         if let Some(expr) = self.expression() {
@@ -968,26 +974,21 @@ impl AstGenerator {
       while let Some(token) = self.current() {
         if let Some(member_loc) = self.meta_at::<0>() {
           match token {
-            Token::Let => {
+            Token::Identifier(ident) => {
+              declared_items.insert(ident.clone());
               self.advance();
-              if let Some(Token::Identifier(ident)) = self.current() {
-                declared_items.insert(ident.clone());
-                self.advance();
 
-                if !self.consume(Token::Colon, "expected ':' after ident") {
-                  return None;
-                }
+              if !self.consume(Token::Colon, "expected ':' after ident") {
+                return None;
+              }
 
-                let ident = Ident::new(ident);
-                if let Some(constant) = self.expression() {
-                  module_items.push((ident, constant));
-                }
+              let ident = Ident::new(ident);
+              if let Some(constant) = self.expression() {
+                module_items.push((ident, constant));
+              }
 
-                if !self.consume(Token::Semicolon, "expected ';' after expression") {
-                  return None;
-                }
-              } else {
-                self.error::<0>("mod name is invalid");
+              if !self.consume(Token::Semicolon, "expected ';' after expression") {
+                return None;
               }
             }
             Token::Mod => {

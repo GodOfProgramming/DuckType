@@ -315,14 +315,10 @@ impl Vm {
             self.ssdb().ok();
           }
           Opcode::Export => {
-            if export.is_none() {
-              if let Some(value) = self.stack_pop() {
-                export = Some(value);
-              } else {
-                self.error(&opcode, "no value on stack to export");
-              }
+            if let Some(value) = self.stack_pop() {
+              export = Some(value);
             } else {
-              self.error(&opcode, "can only have one export");
+              self.error(&opcode, "no value on stack to export");
             }
           }
         }
@@ -335,17 +331,14 @@ impl Vm {
         println!("<< END >>");
       }
 
-      let output = if let Some(export) = export {
+      let output = export
         // if there's an export, use this, only possible when exiting a file
-        export
-      } else if should_return_from_stack {
+        .take()
         // return from stack, not possible to hit outside of functions
         // failure here is a logic error so unwrap
-        self.stack_pop().unwrap()
-      } else {
+        .or_else(|| should_return_from_stack.then(|| self.stack_pop().unwrap()))
         // if implicit/void return nil
-        Value::nil
-      };
+        .unwrap_or_default();
 
       // if executing at the stack frame that required this file, pop it as we're exiting the file
       // repl isn't an opened file therefore have to check for Some

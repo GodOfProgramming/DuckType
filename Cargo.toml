@@ -10,6 +10,9 @@ members = [".", "macros"]
 [workspace.dependencies]
 uuid = { version = "1.4.1", features = ["v4", "macro-diagnostics"] }
 
+[[bin]]
+name = "ss"
+path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
