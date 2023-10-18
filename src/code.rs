@@ -9,7 +9,7 @@ use lex::Scanner;
 use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
-  collections::BTreeMap,
+  collections::{btree_map::Iter, BTreeMap},
   convert::TryFrom,
   env,
   error::Error,
@@ -679,6 +679,10 @@ impl Env {
 
   pub fn lookup<T: AsRef<str>>(&self, name: T) -> Option<Value> {
     self.vars.get(name.as_ref()).cloned()
+  }
+
+  pub fn iter<'a>(&'a self) -> Iter<'a, String, Value> {
+    self.vars.iter()
   }
 }
 

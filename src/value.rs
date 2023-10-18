@@ -7,6 +7,7 @@ use static_assertions::assert_eq_size;
 use std::{
   cmp::Ordering,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
+  hash::Hash,
   mem,
   ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
 };
@@ -470,19 +471,19 @@ impl Value {
     }
   }
 
-  fn pointer(&self) -> ConstVoid {
+  pub(crate) fn pointer(&self) -> ConstVoid {
     (self.bits & VALUE_BITMASK) as ConstVoid
   }
 
-  fn pointer_mut(&mut self) -> MutVoid {
+  pub(crate) fn pointer_mut(&mut self) -> MutVoid {
     (self.bits & VALUE_BITMASK) as MutVoid
   }
 
-  fn meta(&self) -> &ValueMeta {
+  pub(crate) fn meta(&self) -> &ValueMeta {
     unsafe { &*((self.pointer() as *const u8).offset(META_OFFSET) as *const ValueMeta) }
   }
 
-  fn meta_mut(&mut self) -> &mut ValueMeta {
+  pub(crate) fn meta_mut(&mut self) -> &mut ValueMeta {
     unsafe { &mut *((self.pointer_mut() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
   }
 
@@ -529,27 +530,18 @@ impl Default for Value {
   }
 }
 
-impl Drop for Value {
-  fn drop(&mut self) {
-    if self.is_ptr() {
-      let pointer = self.pointer_mut();
-      let meta = self.meta_mut();
-
-      meta.ref_count -= 1;
-
-      if meta.ref_count == 0 {
-        (meta.vtable.dealloc)(pointer);
-      }
-    }
-  }
-}
-
 impl Clone for Value {
   fn clone(&self) -> Self {
     if self.is_ptr() {
       self.meta_mut_bypass().ref_count += 1;
     }
     Self { bits: self.bits }
+  }
+}
+
+impl Hash for Value {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    self.bits.hash(state);
   }
 }
 
@@ -996,7 +988,7 @@ pub struct VTable {
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
   lock: fn(MutVoid),
-  dealloc: fn(MutVoid),
+  pub(crate) dealloc: fn(MutVoid),
   type_id: fn() -> &'static Uuid,
   type_name: fn() -> String,
 }

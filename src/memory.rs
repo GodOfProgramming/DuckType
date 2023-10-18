@@ -2,13 +2,13 @@ use crate::{
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
 };
-use std::mem;
+use std::{collections::HashSet, mem};
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
 #[derive(Default)]
 pub struct Gc {
-  allocations: Vec<u64>,
+  allocations: HashSet<u64>,
 }
 
 impl Gc {
@@ -29,7 +29,8 @@ impl Gc {
 
     // return the pointer to the object, hiding the vtable & ref count behind the returned address
     let bits = ptr as u64 | POINTER_TAG;
-    self.allocations.push(bits);
+    let new = self.allocations.insert(bits);
+    debug_assert!(new);
     Value { bits }
   }
 
@@ -39,6 +40,30 @@ impl Gc {
 
   fn allocate_type<T>(item: T) -> *mut T {
     Box::into_raw(Box::new(item))
+  }
+
+  pub fn clean(&mut self, vm: &mut Vm) {
+    let mut marked_allocations = HashSet::new();
+    vm.trace_allocations(&mut marked_allocations);
+
+    let unmarked_allocations = self.allocations.difference(&marked_allocations).cloned();
+
+    for alloc in unmarked_allocations {
+      self.drop(Value { bits: alloc });
+    }
+  }
+
+  fn drop(&self, mut value: Value) {
+    debug_assert!(value.is_ptr());
+
+    let pointer = value.pointer_mut();
+    let meta = value.meta_mut();
+
+    meta.ref_count -= 1;
+
+    if meta.ref_count == 0 {
+      (meta.vtable.dealloc)(pointer);
+    }
   }
 }
 

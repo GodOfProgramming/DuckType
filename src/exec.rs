@@ -11,7 +11,7 @@ use dlopen2::wrapper::{Container, WrapperApi};
 use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, HashSet},
   env, fs,
   path::{Path, PathBuf},
   rc::Rc,
@@ -40,8 +40,8 @@ pub enum Return {
 
 #[derive(Default)]
 pub struct Vm {
-  current_frame: StackFrame,
-  stack_frames: Vec<StackFrame>,
+  pub(crate) current_frame: StackFrame,
+  pub(crate) stack_frames: Vec<StackFrame>,
   pub gc: Gc,
 
   args: Vec<String>,
@@ -972,8 +972,14 @@ impl Vm {
     res
   }
 
+  pub fn trace_allocations(&self, _set: &mut HashSet<u64>) {}
+
+  pub fn ctx(&mut self) -> &mut Context {
+    &mut self.current_frame.ctx
+  }
+
   pub fn env(&mut self) -> &mut Env {
-    &mut self.current_frame.ctx.env
+    &mut self.ctx().env
   }
 
   #[cold]
