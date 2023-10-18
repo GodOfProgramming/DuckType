@@ -12,7 +12,7 @@ impl ScriptTest {
   pub fn run(&mut self, script: &Path) {
     println!("running {:?}", script);
     let src = fs::read_to_string(script).unwrap();
-    let env = Env::initialize(&[], Library::All);
+    let env = Env::initialize(&mut self.vm.gc, &[], Library::All);
     let ctx = self.vm.load(script.to_string_lossy().to_string(), &src, env).unwrap();
     self.vm.run(script.to_string_lossy().to_string(), ctx).unwrap();
   }
@@ -63,7 +63,7 @@ mod tests {
     {
       const SCRIPT: &str = "print(leaker); print(leaker.this); leaker.this = leaker; print(leaker.this);";
 
-      let env = Env::initialize(&[], Library::All);
+      let env = Env::initialize(&mut t.vm.gc, &[], Library::All);
       let mut ctx = t.vm.load("test", SCRIPT, env).unwrap();
 
       let l = Leaker {
@@ -71,7 +71,7 @@ mod tests {
         this: Value::nil,
       };
 
-      ctx.env.define("leaker", Value::from(l));
+      ctx.env.define("leaker", t.vm.gc.allocate(l));
 
       t.vm.run("test", ctx).unwrap();
     }

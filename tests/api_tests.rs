@@ -21,7 +21,7 @@ mod tests {
   #[test]
   fn can_register_global_variables(t: &mut ApiTest) {
     let script = "export some_var;";
-    let env = Env::initialize(&[], Library::All);
+    let env = Env::initialize(&mut t.vm.gc, &[], Library::All);
     let mut ctx = t.vm.load(TEST_FILE, script, env).unwrap();
     ctx.env.define("some_var", Value::from(true));
     if let Return::Value(v) = t.vm.run(TEST_FILE, ctx).unwrap() {
@@ -34,7 +34,7 @@ mod tests {
   #[test]
   fn can_register_lambda(t: &mut ApiTest) {
     let script = "export some_func();";
-    let env = Env::initialize(&[], Library::All);
+    let env = Env::initialize(&mut t.vm.gc, &[], Library::All);
     let mut ctx = t.vm.load("test", script, env).unwrap();
     ctx.env.define("some_func", Value::native(|_, _args| Ok(Value::from(true))));
 
@@ -48,7 +48,7 @@ mod tests {
   #[test]
   fn can_yield(t: &mut ApiTest) {
     let script = "let x = true; yield; export x;";
-    let env = Env::initialize(&[], Library::All);
+    let env = Env::initialize(&mut t.vm.gc, &[], Library::All);
     let ctx = t.vm.load("test", script, env).unwrap();
     let result = t.vm.run(TEST_FILE, ctx).unwrap();
 

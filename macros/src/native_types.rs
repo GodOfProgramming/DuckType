@@ -16,7 +16,8 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
     .inputs
     .iter()
     .filter(|input| matches!(input, FnArg::Typed(_)))
-    .count();
+    .count()
+    - 1;
 
   let args = common::make_arg_list(nargs, name_str);
 
@@ -26,7 +27,9 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
 
       if args.list.len() == #nargs {
         let mut args = args.into_iter();
-        Ok(Value::from(#ident(#args)?))
+        let output = #ident(vm, #args)?;
+        let value = vm.gc.allocate(output);
+        Ok(value)
       } else {
         Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))
       }

@@ -14,15 +14,15 @@ impl InstanceValue {
 }
 
 impl UsertypeFields for InstanceValue {
-  fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
+  fn get_field(&self, gc: &mut Gc, field: &str) -> ValueResult<Option<Value>> {
     if field == "__class__" {
       Ok(Some(self.class.clone()))
     } else {
-      self.data.get_field(field)
+      self.data.get_field(gc, field)
     }
   }
 
-  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
+  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
     if field == "__class__" {
       Err(ValueError::Immutable(field.to_string()))
     } else {
@@ -32,9 +32,9 @@ impl UsertypeFields for InstanceValue {
 }
 
 impl UsertypeMethods for InstanceValue {
-  fn get_method(&self, this: &Value, name: &str) -> ValueResult<Option<Value>> {
+  fn get_method(&self, gc: &mut Gc, this: &Value, name: &str) -> ValueResult<Option<Value>> {
     if let Some(class) = self.class.as_class() {
-      Ok(class.get_method(this, name))
+      Ok(class.get_method(gc, this, name))
     } else {
       Ok(None)
     }

@@ -10,3 +10,13 @@ let a = ClassB.new_a();
 
 a.foo();
 b.bar();
+
+fn get_str() {
+  ret "some string";
+}
+
+let x = get_str();
+let y = get_str();
+x.replace_with("foobar");
+print(x);
+print(y);

@@ -5,7 +5,10 @@ mod libps;
 mod libstring;
 mod libtime;
 
-use crate::prelude::*;
+use crate::{
+  memory::{Allocation, Gc},
+  prelude::*,
+};
 use enum_iterator::{all, Sequence};
 use libconsole::LibConsole;
 use libenv::LibEnv;
@@ -43,19 +46,19 @@ impl Default for Library {
   }
 }
 
-pub fn load_libs(args: &[String], library: &Library) -> BTreeMap<String, Value> {
+pub fn load_libs(gc: &mut Gc, args: &[String], library: &Library) -> BTreeMap<String, Value> {
   let mut loaded_libs = BTreeMap::default();
 
   match library {
     Library::All => {
       for lib in all::<Lib>() {
-        let (key, value) = load_lib(args, &lib);
+        let (key, value) = load_lib(gc, args, &lib);
         loaded_libs.insert(key.to_string(), value);
       }
     }
     Library::List(list) => {
       for lib in list {
-        let (key, value) = load_lib(args, lib);
+        let (key, value) = load_lib(gc, args, lib);
         loaded_libs.insert(key.to_string(), value);
       }
     }
@@ -65,60 +68,49 @@ pub fn load_libs(args: &[String], library: &Library) -> BTreeMap<String, Value> 
   loaded_libs
 }
 
-fn load_lib(args: &[String], lib: &Lib) -> (&'static str, Value) {
+fn load_lib(gc: &mut Gc, args: &[String], lib: &Lib) -> (&'static str, Value) {
   match lib {
-    Lib::Std => ("std", load_std()),
-    Lib::Env => ("env", LibEnv::load(args)),
-    Lib::Time => ("time", LibTime::load()),
-    Lib::String => ("str", LibString::load()),
-    Lib::Console => ("console", LibConsole::load()),
-    Lib::Ps => ("ps", LibPs::load()),
-    Lib::Io => ("io", LibIo::load()),
+    Lib::Std => ("std", load_std(gc)),
+    Lib::Env => ("env", LibEnv::load(gc, args)),
+    Lib::Time => ("time", LibTime::load(gc)),
+    Lib::String => ("str", LibString::load(gc)),
+    Lib::Console => ("console", LibConsole::load(gc)),
+    Lib::Ps => ("ps", LibPs::load(gc)),
+    Lib::Io => ("io", LibIo::load(gc)),
   }
 }
 
-fn load_std() -> Value {
-  LockedModule::initialize(|lib| {
-    lib.set("debug", Value::native(debug)).ok();
-
-    lib
-      .set(
-        "Object",
-        LockedModule::initialize(|object_module| {
-          object_module.set("fields", Value::native(fields)).ok();
-        }),
-      )
-      .ok();
-
-    lib
-      .set(
-        "reflect",
-        LockedModule::initialize(|lib| {
-          lib.set("defined", Value::native(defined)).ok();
-        }),
-      )
-      .ok();
+fn load_std(gc: &mut Gc) -> Value {
+  LockedModule::initialize(gc, |gc, lib| {
+    lib.set(gc, "debug", Value::native(debug)).ok();
+    let object = LockedModule::initialize(gc, |gc, object_module| {
+      object_module.set(gc, "fields", Value::native(fields)).ok();
+    });
+    lib.set(gc, "Object", object).ok();
+    let reflect = LockedModule::initialize(gc, |gc, lib| {
+      lib.set(gc, "defined", Value::native(defined)).ok();
+    });
+    lib.set(gc, "reflect", reflect).ok();
   })
-  .into()
 }
 
 #[native]
-fn debug(value: Value) -> ValueResult {
-  Ok(Value::from(format!("{:?}", value)))
+fn debug(vm: &mut Vm, value: Value) -> ValueResult {
+  Ok(vm.gc.allocate(format!("{:?}", value)))
 }
 
 #[native]
-fn fields(value: Value) -> ValueResult<Vec<Value>> {
-  fn get_fields(s: &StructValue) -> Vec<Value> {
-    s.members.keys().cloned().map(Value::from).collect::<Vec<Value>>()
+fn fields(vm: &mut Vm, value: Value) -> ValueResult<Vec<Value>> {
+  fn get_fields(vm: &mut Vm, s: &StructValue) -> Vec<Value> {
+    s.members.keys().cloned().map(|v| vm.gc.allocate(v)).collect::<Vec<Value>>()
   }
 
   let mut fields = Vec::default();
 
   if let Some(i) = value.as_instance() {
-    fields.extend(get_fields(&i.data))
+    fields.extend(get_fields(vm, &i.data))
   } else if let Some(s) = value.as_struct() {
-    fields.extend(get_fields(s))
+    fields.extend(get_fields(vm, s))
   }
 
   Ok(fields)

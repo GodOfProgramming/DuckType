@@ -3,7 +3,9 @@ use macros::{methods, Fields};
 use tfix::prelude::*;
 
 #[derive(Default)]
-struct ValueTest {}
+struct ValueTest {
+  vm: Vm,
+}
 
 impl TestFixture for ValueTest {
   fn set_up() -> Self {
@@ -36,6 +38,8 @@ impl UnimplementedObject {}
 #[fixture(ValueTest)]
 mod unit_tests {
 
+  use crate::memory::Allocation;
+
   use super::*;
 
   #[test]
@@ -59,24 +63,24 @@ mod unit_tests {
   }
 
   #[test]
-  fn structs_supported(_: &mut ValueTest) {
+  fn structs_supported(t: &mut ValueTest) {
     let mut v = StructValue::new();
     v.set("foo", 123.into());
-    assert_eq!(v.get_field("foo").unwrap().unwrap(), 123.into());
-    v.set("field", ImplementedObject::default().into());
-    assert!(v.get_field("field").unwrap().unwrap().is::<ImplementedObject>());
+    assert_eq!(v.get_field(&mut t.vm.gc, "foo").unwrap().unwrap(), 123.into());
+    v.set("field", t.vm.gc.allocate(ImplementedObject::default()));
+    assert!(v.get_field(&mut t.vm.gc, "field").unwrap().unwrap().is::<ImplementedObject>());
   }
 
   #[test]
-  fn userdata_supported(_: &mut ValueTest) {
+  fn userdata_supported(t: &mut ValueTest) {
     const V: i32 = 1;
-    let value = Value::from(ImplementedObject::new(V));
+    let value = t.vm.gc.allocate(ImplementedObject::new(V));
     assert_eq!(value.cast_to::<ImplementedObject>().unwrap().field, V);
   }
 
   #[test]
-  fn can_assign_different_types(_: &mut ValueTest) {
-    let mut v = Value::from(ImplementedObject::default());
+  fn can_assign_different_types(t: &mut ValueTest) {
+    let mut v = t.vm.gc.allocate(ImplementedObject::default());
     assert!(v.is::<ImplementedObject>());
 
     v = Value::from(123);
@@ -85,7 +89,7 @@ mod unit_tests {
     v = Value::from(1.23);
     assert!(v.is_f64());
 
-    v = Value::from(ImplementedObject::default());
+    v = t.vm.gc.allocate(ImplementedObject::default());
     assert!(v.is::<ImplementedObject>());
 
     v = Value::from(Nil);

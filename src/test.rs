@@ -20,7 +20,7 @@ impl IntegrationTest {
   }
 
   fn load<F: FnOnce(&mut Self, SmartPtr<Context>)>(&mut self, f: F) {
-    let env = Env::initialize(&[], Library::All);
+    let env = Env::initialize(&mut self.vm.gc, &[], Library::All);
     match self.vm.load(TEST_FILE, &self.script, env) {
       Ok(ctx) => {
         f(self, ctx);
@@ -53,6 +53,8 @@ impl TestFixture for IntegrationTest {
 
 #[fixture(IntegrationTest)]
 mod integration_tests {
+  use crate::memory::Allocation;
+
   use super::*;
   use evalexpr::eval;
 
@@ -61,7 +63,7 @@ mod integration_tests {
     test.script = "export foo;".into();
 
     test.load(|this, mut ctx| {
-      ctx.env.assign(String::from("foo"), Value::from("foo"));
+      ctx.env.assign(String::from("foo"), this.vm.gc.allocate("foo"));
       match this.vm.run(TEST_FILE, ctx) {
         Ok(res) => match res {
           Return::Value(v) => {

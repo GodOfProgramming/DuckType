@@ -1,4 +1,7 @@
-use crate::prelude::*;
+use crate::{
+  memory::{Allocation, Gc},
+  prelude::*,
+};
 use std::collections::BTreeMap;
 
 #[derive(Default, Usertype)]
@@ -16,13 +19,13 @@ impl ModuleValue {
     }
   }
 
-  pub fn set(&mut self, field: &str, value: impl Into<Value>) -> ValueResult<()> {
-    <Self as Usertype>::set(self, field, value.into())
+  pub fn set(&mut self, gc: &mut Gc, field: &str, value: impl Into<Value>) -> ValueResult<()> {
+    <Self as Usertype>::set(self, gc, field, value.into())
   }
 }
 
 impl UsertypeFields for ModuleValue {
-  fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
+  fn get_field(&self, _gc: &mut Gc, field: &str) -> ValueResult<Option<Value>> {
     self
       .members
       .get(field)
@@ -32,7 +35,7 @@ impl UsertypeFields for ModuleValue {
       .transpose()
   }
 
-  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
+  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
     if self.locked {
       Err(ValueError::Immutable(self.__str__()))
     } else {
@@ -56,16 +59,10 @@ impl ModuleValue {
 pub struct LockedModule(ModuleValue);
 
 impl LockedModule {
-  pub fn initialize(f: impl FnOnce(&mut ModuleValue)) -> ModuleValue {
+  pub fn initialize(gc: &mut Gc, f: impl FnOnce(&mut Gc, &mut ModuleValue)) -> Value {
     let mut module = ModuleValue::new();
-    f(&mut module);
+    f(gc, &mut module);
     module.__lock__();
-    module
-  }
-}
-
-impl Into<Value> for LockedModule {
-  fn into(self) -> Value {
-    self.0.into()
+    gc.allocate(module)
   }
 }

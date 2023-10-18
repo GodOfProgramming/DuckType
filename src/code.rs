@@ -1,4 +1,7 @@
-use crate::prelude::*;
+use crate::{
+  memory::{Allocation, Gc},
+  prelude::*,
+};
 use ast::Ast;
 use gen::BytecodeGenerator;
 use inter_struct::prelude::*;
@@ -631,25 +634,25 @@ pub struct Env {
 }
 
 impl Env {
-  pub fn initialize(args: &[String], library: Library) -> Self {
+  pub fn initialize(gc: &mut Gc, args: &[String], library: Library) -> Self {
     let mut env = Env {
       vars: Default::default(),
       libs: library,
       args: args.into(),
     };
 
-    env.vars = stdlib::load_libs(&env.args, &env.libs);
+    env.vars = stdlib::load_libs(gc, &env.args, &env.libs);
 
     let mut lib_paths = Vec::default();
 
     if let Ok(paths) = env::var("SIMPLE_LIBRARY_PATHS") {
-      lib_paths.extend(paths.split_terminator(';').map(Value::from));
+      lib_paths.extend(paths.split_terminator(';').map(|v| gc.allocate(v)));
     }
 
-    let module = LockedModule::initialize(|module| {
-      let lib_paths = Value::from(lib_paths);
+    let module = LockedModule::initialize(gc, |gc, module| {
+      let lib_paths = gc.allocate(lib_paths);
 
-      module.set("path", lib_paths).ok();
+      module.set(gc, "path", lib_paths).ok();
     });
 
     env.assign("$LIBRARY", module.into());

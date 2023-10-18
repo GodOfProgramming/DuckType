@@ -57,10 +57,10 @@ where
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  fn get(&self, this: &Value, field: &str) -> ValueResult {
-    match <Self as UsertypeFields>::get_field(self, field) {
+  fn get(&self, gc: &mut Gc, this: &Value, field: &str) -> ValueResult {
+    match <Self as UsertypeFields>::get_field(self, gc, field) {
       Ok(Some(value)) => Ok(value),
-      Ok(None) => match <Self as UsertypeMethods>::get_method(self, this, field) {
+      Ok(None) => match <Self as UsertypeMethods>::get_method(self, gc, this, field) {
         Ok(Some(value)) => Ok(value),
         Ok(None) => Ok(Value::nil),
         Err(e) => Err(e),
@@ -69,21 +69,21 @@ where
     }
   }
 
-  fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
-    <Self as UsertypeFields>::set_field(self, field, value)
+  fn set(&mut self, gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
+    <Self as UsertypeFields>::set_field(self, gc, field, value)
   }
 }
 
 pub trait UsertypeFields {
-  fn get_field(&self, field: &str) -> ValueResult<Option<Value>>;
-  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()>;
+  fn get_field(&self, gc: &mut Gc, field: &str) -> ValueResult<Option<Value>>;
+  fn set_field(&mut self, gc: &mut Gc, field: &str, value: Value) -> ValueResult<()>;
 }
 
 pub trait UsertypeMethods {
-  fn __new__(_vm: &mut Vm, _args: Args) -> ValueResult {
+  fn __new__(_gc: &mut Gc, _args: Args) -> ValueResult {
     Err(ValueError::UndefinedInitializer)
   }
-  fn get_method(&self, this: &Value, field: &str) -> ValueResult<Option<Value>>;
+  fn get_method(&self, gc: &mut Gc, this: &Value, field: &str) -> ValueResult<Option<Value>>;
 }
 
 pub trait DisplayValue {

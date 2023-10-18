@@ -3,15 +3,11 @@ use crate::prelude::*;
 pub struct LibEnv;
 
 impl LibEnv {
-  pub fn load(args: &[String]) -> Value {
-    LockedModule::initialize(|lib| {
-      lib
-        .set(
-          "ARGV",
-          Value::from(args.iter().map(|arg| Value::from(arg.clone())).collect::<Vec<Value>>()),
-        )
-        .ok();
+  pub fn load(gc: &mut Gc, args: &[String]) -> Value {
+    LockedModule::initialize(gc, |gc, lib| {
+      let args = args.iter().map(|arg| gc.allocate(arg.clone())).collect::<Vec<Value>>();
+      let args = gc.allocate(args);
+      lib.set(gc, "ARGV", args).ok();
     })
-    .into()
   }
 }

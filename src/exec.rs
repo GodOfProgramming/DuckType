@@ -1,6 +1,7 @@
 use crate::{
   code::{Compiler, ConstantValue, Context, Env, OpCodeReflection, Opcode, StackFrame, Yield},
   dbg::{Cli, RuntimeError},
+  memory::{Allocation, Gc},
   prelude::Library,
   value::prelude::*,
   UnwrapAnd,
@@ -41,6 +42,7 @@ pub enum Return {
 pub struct Vm {
   current_frame: StackFrame,
   stack_frames: Vec<StackFrame>,
+  pub gc: Gc,
 
   args: Vec<String>,
   libs: Library,
@@ -126,14 +128,13 @@ impl Vm {
   {
     if let Some(v) = self.stack_pop() {
       if v.is_ptr() {
-        let callable = v
-          .lookup(match opcode {
-            Opcode::Negate => ops::NEG,
-            Opcode::Not => ops::NOT,
-            op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
-          })
-          .map_err(|e| self.error(opcode, e))?;
+        let key = match opcode {
+          Opcode::Negate => ops::NEG,
+          Opcode::Not => ops::NOT,
+          op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
+        };
 
+        let callable = v.lookup(&mut self.gc, key).map_err(|e| self.error(opcode, e))?;
         self.call_value(opcode, callable, [])
       } else {
         self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
@@ -151,23 +152,22 @@ impl Vm {
     if let Some(bv) = self.stack_pop() {
       if let Some(av) = self.stack_pop() {
         if av.is_ptr() {
-          let callable = av
-            .lookup(match opcode {
-              Opcode::Add => ops::ADD,
-              Opcode::Sub => ops::SUB,
-              Opcode::Mul => ops::MUL,
-              Opcode::Div => ops::DIV,
-              Opcode::Rem => ops::REM,
-              Opcode::Equal => ops::EQUALITY,
-              Opcode::NotEqual => ops::NOT_EQUAL,
-              Opcode::Less => ops::LESS,
-              Opcode::LessEqual => ops::LESS_EQUAL,
-              Opcode::Greater => ops::GREATER,
-              Opcode::GreaterEqual => ops::GREATER_EQUAL,
-              op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
-            })
-            .map_err(|e| self.error(opcode, e))?;
+          let key = match opcode {
+            Opcode::Add => ops::ADD,
+            Opcode::Sub => ops::SUB,
+            Opcode::Mul => ops::MUL,
+            Opcode::Div => ops::DIV,
+            Opcode::Rem => ops::REM,
+            Opcode::Equal => ops::EQUALITY,
+            Opcode::NotEqual => ops::NOT_EQUAL,
+            Opcode::Less => ops::LESS,
+            Opcode::LessEqual => ops::LESS_EQUAL,
+            Opcode::Greater => ops::GREATER,
+            Opcode::GreaterEqual => ops::GREATER_EQUAL,
+            op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
+          };
 
+          let callable = av.lookup(&mut self.gc, key).map_err(|e| self.error(opcode, e))?;
           self.call_value(opcode, callable, [bv])
         } else {
           self.stack_push(f(av, bv).map_err(|e| self.error(opcode, e))?);
@@ -372,7 +372,8 @@ impl Vm {
 
   fn exec_const(&mut self, opcode: &Opcode, index: usize) -> ExecResult {
     if let Some(c) = self.current_frame.ctx.const_at(index) {
-      self.stack_push(Value::from_constant(c));
+      let value = Value::from_constant(&mut self.gc, c);
+      self.stack_push(value);
     } else {
       Err(self.error(opcode, String::from("could not lookup constant")))?;
     }
@@ -478,9 +479,9 @@ impl Vm {
               obj.set(name, value);
               Ok(())
             } else if let Some(obj) = obj.as_instance_mut() {
-              obj.set(name, value).map_err(|e| self.error(opcode, e))
+              obj.set(&mut self.gc, name, value).map_err(|e| self.error(opcode, e))
             } else if let Some(obj) = obj.as_module_mut() {
-              obj.set(name, value).map_err(|e| self.error(opcode, e))
+              obj.set(&mut self.gc, name, value).map_err(|e| self.error(opcode, e))
             } else {
               Err(self.error(opcode, String::from("invalid type for member initialization")))
             }
@@ -503,7 +504,9 @@ impl Vm {
       if let Some(mut obj) = self.stack_pop() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
-            obj.assign(&name, value.clone()).map_err(|e| self.error(opcode, e))?;
+            obj
+              .assign(&mut self.gc, &name, value.clone())
+              .map_err(|e| self.error(opcode, e))?;
             self.stack_push(value);
             Ok(())
           } else {
@@ -524,7 +527,8 @@ impl Vm {
     if let Some(obj) = self.stack_pop() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
-          self.stack_push(obj.lookup(name).map_err(|e| self.error(opcode, e))?);
+          let value = obj.lookup(&mut self.gc, name).map_err(|e| self.error(opcode, e))?;
+          self.stack_push(value);
           Ok(())
         } else {
           Err(self.error(opcode, "member identifier is not a string"))
@@ -542,11 +546,11 @@ impl Vm {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
           if let Some(obj) = value.as_struct() {
-            let member = obj.get(&value, name).map_err(|e| self.error(opcode, e))?;
+            let member = obj.get(&mut self.gc, &value, name).map_err(|e| self.error(opcode, e))?;
             self.stack_push(member);
             Ok(())
           } else if let Some(obj) = value.as_instance() {
-            let member = obj.get(&value, name).map_err(|e| self.error(opcode, e))?;
+            let member = obj.get(&mut self.gc, &value, name).map_err(|e| self.error(opcode, e))?;
             self.stack_push(member);
             Ok(())
           } else {
@@ -744,7 +748,7 @@ impl Vm {
       if found_file.is_none() {
         if let Some(library_mod) = self.env().lookup("$LIBRARY") {
           if let Some(library_mod) = library_mod.as_struct() {
-            if let Ok(Some(list)) = library_mod.get_field("path").map(|l| l.map(|l| l.as_array())) {
+            if let Ok(Some(list)) = library_mod.get_field(&mut self.gc, "path").map(|l| l.map(|l| l.as_array())) {
               for item in list.iter() {
                 let base = PathBuf::from(item.to_string());
                 found_file = try_to_find_file(&base, &required_file, &mut attempts);
@@ -770,7 +774,7 @@ impl Vm {
           }
           _ => match fs::read_to_string(&found_file) {
             Ok(data) => {
-              let env = SmartPtr::new(Env::initialize(&self.args, self.libs.clone()));
+              let env = SmartPtr::new(Env::initialize(&mut self.gc, &self.args, self.libs.clone()));
               let new_ctx = Compiler::compile(found_file.clone(), &data, env)?;
 
               #[cfg(feature = "disassemble")]
@@ -799,7 +803,8 @@ impl Vm {
 
   fn exec_create_list(&mut self, num_items: usize) {
     let list = self.stack_drain_from(num_items);
-    self.stack_push(Value::from(list));
+    let list = self.gc.allocate(list);
+    self.stack_push(list);
   }
 
   fn exec_create_closure(&mut self, opcode: &Opcode) -> ExecResult {
@@ -808,7 +813,8 @@ impl Vm {
         Some(captures) => {
           if let Some(f) = function.as_fn() {
             if let Some(captures) = captures.as_array() {
-              self.stack_push(Value::from(ClosureValue::new(captures, f.clone())));
+              let closure = self.gc.allocate(ClosureValue::new(captures, f.clone()));
+              self.stack_push(closure);
               Ok(())
             } else {
               Err(self.error(opcode, "capture list must be a struct"))
@@ -824,11 +830,13 @@ impl Vm {
   }
 
   fn exec_create_struct(&mut self) {
-    self.stack_push(Value::new_struct());
+    let v = self.gc.allocate(StructValue::default());
+    self.stack_push(v);
   }
 
   fn exec_create_module(&mut self) {
-    self.stack_push(Value::new_module());
+    let v = self.gc.allocate(ModuleValue::new());
+    self.stack_push(v);
   }
 
   fn exec_lock(&mut self) -> ExecResult {
