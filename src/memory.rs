@@ -1,4 +1,5 @@
 use crate::{
+  code::StackFrame,
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
 };
@@ -73,6 +74,41 @@ impl Into<HashSet<u64>> for Marker {
 }
 
 impl Gc {
+  pub fn clean(&mut self, current_frame: &StackFrame, stack_frames: &Vec<StackFrame>) -> usize {
+    let mut cleaned = 0;
+
+    let mut marked_allocations = Marker::default();
+
+    for value in &current_frame.stack {
+      marked_allocations.trace(value);
+    }
+
+    current_frame.ctx.env.trace(&mut marked_allocations);
+
+    for frame in stack_frames {
+      for value in &frame.stack {
+        marked_allocations.trace(value);
+      }
+
+      frame.ctx.env.trace(&mut marked_allocations);
+    }
+
+    let marked_allocations = marked_allocations.into();
+
+    let unmarked_allocations = self.allocations.difference(&marked_allocations).cloned();
+
+    for alloc in unmarked_allocations {
+      let value = Value { bits: alloc };
+      debug_assert!(value.is_ptr());
+      if value.meta().ref_count.load(Ordering::Relaxed) == 0 {
+        self.drop_value(value);
+        cleaned += 1;
+      }
+    }
+
+    cleaned
+  }
+
   pub fn allocate_handle<T: Usertype>(&mut self, item: T) -> ValueHandle {
     let value = self.allocate(item);
     ValueHandle::new(value)
@@ -106,21 +142,6 @@ impl Gc {
 
   fn allocate_type<T>(item: T) -> *mut T {
     Box::into_raw(Box::new(item))
-  }
-
-  pub fn clean(&mut self, vm: &mut Vm) {
-    let mut marked_allocations = Marker::default();
-    vm.trace(&mut marked_allocations);
-    let marked_allocations = marked_allocations.into();
-
-    let unmarked_allocations = self.allocations.difference(&marked_allocations).cloned();
-
-    for alloc in unmarked_allocations {
-      let value = Value { bits: alloc };
-      if value.meta().ref_count.load(Ordering::Relaxed) == 0 {
-        self.drop_value(value);
-      }
-    }
   }
 
   fn drop_value(&self, mut value: Value) {
@@ -247,5 +268,65 @@ where
 {
   fn allocate(&mut self, value: T) -> Value {
     self.allocate_usertype::<T>(value)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::rc::Rc;
+
+  use ptr::SmartPtr;
+
+  use crate::{
+    code::{Reflection, StackFrame},
+    prelude::*,
+  };
+
+  #[derive(Usertype, Fields)]
+  #[uuid("random")]
+  struct SomeType {}
+
+  #[methods]
+  impl SomeType {}
+
+  impl TraceableValue for SomeType {
+    fn trace(&self, marks: &mut Marker) {
+      // do nothing
+    }
+  }
+
+  fn new_ctx(gc: &mut Gc) -> SmartPtr<Context> {
+    SmartPtr::new(Context::new(
+      Some("main"),
+      SmartPtr::new(Env::initialize(gc, &[], Default::default())),
+      Reflection::new(Rc::new(Default::default()), Rc::new(Default::default())),
+    ))
+  }
+
+  #[test]
+  fn gc_can_allocate_and_clean() {
+    let mut gc = Gc::default();
+    let ctx = new_ctx(&mut gc);
+
+    gc.allocate(SomeType {});
+
+    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default());
+    assert_eq!(cleaned, 1);
+  }
+
+  #[test]
+  fn gc_does_not_clean_more_than_it_needs_to() {
+    let mut gc = Gc::default();
+    let ctx = new_ctx(&mut gc);
+
+    let x = gc.allocate(1);
+    let y = gc.allocate(1.0);
+    let b = gc.allocate(true);
+    let c = gc.allocate('c');
+
+    gc.allocate(SomeType {});
+
+    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default());
+    assert_eq!(cleaned, 1);
   }
 }

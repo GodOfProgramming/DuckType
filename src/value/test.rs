@@ -2,14 +2,15 @@ use crate::prelude::*;
 use macros::{methods, Fields};
 use tfix::prelude::*;
 
-#[derive(Default)]
 struct ValueTest {
   vm: Vm,
 }
 
 impl TestFixture for ValueTest {
   fn set_up() -> Self {
-    Self::default()
+    Self {
+      vm: Vm::new([], Library::None),
+    }
   }
 }
 

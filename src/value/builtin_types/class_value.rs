@@ -111,6 +111,10 @@ impl TraceableValue for ClassValue {
       marks.trace(initializer);
     }
 
+    for method in self.methods.values() {
+      method.trace(marks);
+    }
+
     for value in self.static_members.values() {
       marks.trace(value);
     }

@@ -1,7 +1,7 @@
 use crate::{
   code::{Compiler, ConstantValue, Context, Env, OpCodeReflection, Opcode, StackFrame, Yield},
   dbg::{Cli, RuntimeError},
-  memory::{Allocation, Gc, Marker},
+  memory::{Allocation, Gc},
   prelude::Library,
   value::prelude::*,
   UnwrapAnd,
@@ -15,6 +15,7 @@ use std::{
   env, fs,
   path::{Path, PathBuf},
   rc::Rc,
+  time::{Duration, Instant},
 };
 
 #[derive(WrapperApi)]
@@ -38,7 +39,8 @@ pub enum Return {
   Yield(Yield),
 }
 
-#[derive(Default)]
+const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(100);
+
 pub struct Vm {
   pub(crate) current_frame: StackFrame,
   pub(crate) stack_frames: Vec<StackFrame>,
@@ -51,14 +53,21 @@ pub struct Vm {
   opened_files: Vec<(usize, PathBuf)>,
 
   opened_libs: BTreeMap<PathBuf, Container<NativeApi>>,
+
+  next_gc: Instant,
 }
 
 impl Vm {
-  pub fn new(args: Vec<String>, libs: Library) -> Self {
+  pub fn new(args: impl Into<Vec<String>>, libs: Library) -> Self {
     Self {
-      args,
+      args: args.into(),
       libs,
-      ..Default::default()
+      current_frame: Default::default(),
+      stack_frames: Default::default(),
+      gc: Default::default(),
+      opened_files: Default::default(),
+      opened_libs: Default::default(),
+      next_gc: Instant::now() + DEFAULT_GC_FREQUENCY,
     }
   }
 
@@ -204,6 +213,8 @@ impl Vm {
   }
 
   fn execute(&mut self) -> Result<Return, Vec<RuntimeError>> {
+    self.next_gc = Instant::now() + DEFAULT_GC_FREQUENCY;
+
     loop {
       #[cfg(feature = "runtime-disassembly")]
       {
@@ -214,6 +225,12 @@ impl Vm {
       let mut export = None;
 
       while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
+        let now = Instant::now();
+        if now > self.next_gc {
+          self.next_gc = now + DEFAULT_GC_FREQUENCY;
+          self.gc.clean(&self.current_frame, &self.stack_frames);
+        }
+
         #[cfg(feature = "runtime-disassembly")]
         {
           self.stack_display();
@@ -970,22 +987,6 @@ impl Vm {
     }
 
     res
-  }
-
-  pub fn trace(&self, marks: &mut Marker) {
-    for value in &self.current_frame.stack {
-      marks.trace(value);
-    }
-
-    self.current_frame.ctx.env.trace(marks);
-
-    for frame in &self.stack_frames {
-      for value in &frame.stack {
-        marks.trace(value);
-      }
-
-      frame.ctx.env.trace(marks);
-    }
   }
 
   pub fn ctx(&mut self) -> &Context {

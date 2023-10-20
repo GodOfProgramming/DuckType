@@ -3,7 +3,6 @@ use simple_script::prelude::*;
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
 
-#[derive(Default)]
 struct ScriptTest {
   vm: Vm,
 }

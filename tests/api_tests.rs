@@ -3,14 +3,15 @@ use tfix::prelude::*;
 
 const TEST_FILE: &str = "test";
 
-#[derive(Default)]
 struct ApiTest {
   vm: Vm,
 }
 
 impl TestFixture for ApiTest {
   fn set_up() -> Self {
-    Self::default()
+    Self {
+      vm: Vm::new([], Default::default()),
+    }
   }
 }
 

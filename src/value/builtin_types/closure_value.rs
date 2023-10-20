@@ -58,5 +58,6 @@ impl TraceableValue for ClosureValue {
     for value in &self.captures {
       marks.trace(value);
     }
+    self.function.trace(marks);
   }
 }

@@ -11,7 +11,7 @@ struct IntegrationTest {
 
 impl IntegrationTest {
   fn new() -> Self {
-    let vm = Vm::default();
+    let vm = Vm::new([], Default::default());
 
     Self {
       script: Default::default(),

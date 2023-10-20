@@ -305,7 +305,7 @@ pub struct Context {
 }
 
 impl Context {
-  fn new(name: Option<impl Into<String>>, env: SmartPtr<Env>, reflection: Reflection) -> Self {
+  pub(crate) fn new(name: Option<impl Into<String>>, env: SmartPtr<Env>, reflection: Reflection) -> Self {
     Self {
       name: name.map(|n| n.into()),
       id: Default::default(),
@@ -316,6 +316,10 @@ impl Context {
       env,
       meta: reflection,
     }
+  }
+
+  pub fn trace(&self, marks: &mut Marker) {
+    self.env.trace(marks);
   }
 
   fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
@@ -700,7 +704,7 @@ pub struct Reflection {
 }
 
 impl Reflection {
-  fn new(file: Rc<PathBuf>, source: Rc<String>) -> Self {
+  pub(crate) fn new(file: Rc<PathBuf>, source: Rc<String>) -> Self {
     Reflection {
       file,
       source,

@@ -33,17 +33,12 @@ pub enum Lib {
   Io,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum Library {
-  All,
+  #[default]
   None,
+  All,
   List(Vec<Lib>),
-}
-
-impl Default for Library {
-  fn default() -> Self {
-    Self::List(Default::default())
-  }
 }
 
 pub fn load_libs(gc: &mut Gc, args: &[String], library: &Library) -> BTreeMap<String, Value> {

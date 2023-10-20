@@ -44,5 +44,6 @@ impl MethodValue {
 impl TraceableValue for MethodValue {
   fn trace(&self, marks: &mut Marker) {
     marks.trace(&self.this);
+    self.function.trace(marks);
   }
 }

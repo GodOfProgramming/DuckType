@@ -63,7 +63,7 @@ impl From<&FunctionConstant> for FunctionValue {
 }
 
 impl TraceableValue for FunctionValue {
-  fn trace(&self, _marks: &mut Marker) {
-    // do nothing
+  fn trace(&self, marks: &mut Marker) {
+    self.ctx.trace(marks);
   }
 }
