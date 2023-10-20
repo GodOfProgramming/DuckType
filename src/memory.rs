@@ -14,6 +14,15 @@ pub struct ValueHandle {
   value: Value,
 }
 
+impl ValueHandle {
+  fn new(mut value: Value) -> Self {
+    if value.is_ptr() {
+      value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
+    }
+    Self { value }
+  }
+}
+
 impl Clone for ValueHandle {
   fn clone(&self) -> Self {
     if self.value.is_ptr() {
@@ -64,6 +73,11 @@ impl Into<HashSet<u64>> for Marker {
 }
 
 impl Gc {
+  pub fn allocate_handle<T: Usertype>(&mut self, item: T) -> ValueHandle {
+    let value = self.allocate(item);
+    ValueHandle::new(value)
+  }
+
   fn allocate_usertype<T: Usertype>(&mut self, item: T) -> Value {
     let allocated = unsafe { &mut *Self::allocate_type(AllocatedObject::new(item)) };
 
@@ -126,7 +140,7 @@ struct AllocatedObject<T: Usertype> {
 impl<T: Usertype> AllocatedObject<T> {
   fn new(obj: T) -> Self {
     let meta = ValueMeta {
-      ref_count: AtomicUsize::new(1),
+      ref_count: AtomicUsize::new(0),
       vtable: &T::VTABLE,
     };
     Self { obj, meta }

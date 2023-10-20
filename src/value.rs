@@ -489,6 +489,10 @@ impl Value {
     unsafe { &*((self.pointer() as *const u8).offset(META_OFFSET) as *const ValueMeta) }
   }
 
+  pub(crate) fn meta_mut(&mut self) -> &mut ValueMeta {
+    unsafe { &mut *((self.pointer_mut() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
+  }
+
   fn vtable(&self) -> &VTable {
     if self.is_ptr() {
       self.meta().vtable
