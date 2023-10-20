@@ -40,9 +40,11 @@ pub enum Return {
 }
 
 const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(0);
-// const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(u64::MAX);
 
 pub struct Vm {
+  // Don't get rid of current_frame in favor of the vec of stack frames
+  // current_frame will be needed for repl so locals at the 0 depth scope
+  // stay alive
   pub(crate) current_frame: StackFrame,
   pub(crate) stack_frames: Vec<StackFrame>,
   pub gc: Gc,
