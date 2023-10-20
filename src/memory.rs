@@ -95,12 +95,13 @@ impl Gc {
 
     let marked_allocations = marked_allocations.into();
 
-    let unmarked_allocations = self.allocations.difference(&marked_allocations).cloned();
+    let unmarked_allocations: Vec<u64> = self.allocations.difference(&marked_allocations).cloned().collect();
 
     for alloc in unmarked_allocations {
       let value = Value { bits: alloc };
       debug_assert!(value.is_ptr());
       if value.meta().ref_count.load(Ordering::Relaxed) == 0 {
+        self.allocations.remove(&alloc);
         self.drop_value(value);
         cleaned += 1;
       }
@@ -131,8 +132,8 @@ impl Gc {
 
     // return the pointer to the object, hiding the vtable & ref count behind the returned address
     let bits = ptr as u64 | POINTER_TAG;
-    let new = self.allocations.insert(bits);
-    debug_assert!(new);
+    let new_allocation = self.allocations.insert(bits);
+    debug_assert!(new_allocation);
     Value { bits }
   }
 

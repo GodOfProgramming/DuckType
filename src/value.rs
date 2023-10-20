@@ -653,7 +653,7 @@ impl Display for Value {
       Tag::I32 => write!(f, "{}", self.as_i32_unchecked()),
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
-      Tag::NativeFn => write!(f, "{:p}", &self.as_native_fn_unchecked()),
+      Tag::NativeFn => write!(f, "<native fn {:p}>", &self.as_native_fn_unchecked()),
       Tag::NativeClass => write!(f, "FREE SLOT"),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),

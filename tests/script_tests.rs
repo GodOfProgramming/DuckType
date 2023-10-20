@@ -66,7 +66,7 @@ mod tests {
   #[test]
   fn memory_leak_test(t: &mut ScriptTest) {
     {
-      const SCRIPT: &str = "print(leaker); print(leaker.this); leaker.this = leaker; print(leaker.this);";
+      const SCRIPT: &str = "leaker.this = leaker;";
 
       let env = Env::initialize(&mut t.vm.gc, &[], Library::All);
       let mut ctx = t.vm.load("test", SCRIPT, env).unwrap();
@@ -79,6 +79,8 @@ mod tests {
       ctx.env.define("leaker", t.vm.gc.allocate(l));
 
       t.vm.run("test", ctx).unwrap();
+
+      t.vm.run_gc();
     }
 
     assert!(unsafe { !B });

@@ -319,6 +319,9 @@ impl Context {
   }
 
   pub fn trace(&self, marks: &mut Marker) {
+    if self.global.valid() {
+      self.global.trace(marks);
+    }
     self.env.trace(marks);
   }
 

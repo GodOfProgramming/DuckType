@@ -39,7 +39,8 @@ pub enum Return {
   Yield(Yield),
 }
 
-const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(100);
+const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(0);
+// const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(u64::MAX);
 
 pub struct Vm {
   pub(crate) current_frame: StackFrame,
@@ -194,17 +195,11 @@ impl Vm {
   where
     F: FnOnce(&mut Self, String) -> ExecResult,
   {
-    let name = if let Some(name) = self.current_frame.ctx.global_const_at(index) {
-      if let ConstantValue::String(name) = name {
-        Ok((*name).clone())
-      } else {
-        Err(self.error(opcode, format!("global variable name is not an identifier: {}", name)))
-      }
-    } else {
-      Err(self.error(opcode, String::from("global variable name does not exist")))
-    }?;
-
-    f(self, name)
+    match self.current_frame.ctx.global_const_at(index) {
+      Some(ConstantValue::String(name)) => f(self, name.clone()),
+      Some(name) => Err(self.error(opcode, format!("global variable ident is not an identifier: {}", name)))?,
+      None => Err(self.error(opcode, format!("global variable ident does not exist at index {}", index)))?,
+    }
   }
 
   #[cold]
@@ -227,8 +222,7 @@ impl Vm {
       while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
         let now = Instant::now();
         if now > self.next_gc {
-          self.next_gc = now + DEFAULT_GC_FREQUENCY;
-          self.gc.clean(&self.current_frame, &self.stack_frames);
+          self.run_gc();
         }
 
         #[cfg(feature = "runtime-disassembly")]
@@ -999,6 +993,12 @@ impl Vm {
 
   pub fn env(&mut self) -> &mut Env {
     &mut self.ctx_mut().env
+  }
+
+  pub fn run_gc(&mut self) {
+    let now = Instant::now();
+    self.next_gc = now + DEFAULT_GC_FREQUENCY;
+    self.gc.clean(&self.current_frame, &self.stack_frames);
   }
 
   #[cold]
