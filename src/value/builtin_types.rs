@@ -52,7 +52,7 @@ pub struct Nil;
 
 pub trait Usertype
 where
-  Self: UsertypeFields + UsertypeMethods + DisplayValue + DebugValue + LockableValue + Sized + 'static,
+  Self: UsertypeFields + UsertypeMethods + DisplayValue + DebugValue + LockableValue + TraceableValue + Sized + 'static,
 {
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
@@ -96,6 +96,10 @@ pub trait DebugValue {
 
 pub trait LockableValue {
   fn __lock__(&mut self) {}
+}
+
+pub trait TraceableValue {
+  fn trace(&self, marks: &mut Marker);
 }
 pub struct Args {
   pub list: Vec<Value>,
@@ -151,12 +155,20 @@ where
 }
 
 /// Intentionally empty
+///
+/// bool, char, i32, f64
 #[derive(Default, Usertype, Fields)]
 #[uuid("6d9d039a-9803-41ff-8e84-a0ea830e2380")]
 pub struct Primitive {}
 
 #[methods]
 impl Primitive {}
+
+impl TraceableValue for Primitive {
+  fn trace(&self, _marks: &mut Marker) {
+    // do nothing
+  }
+}
 
 impl TryFrom<Value> for Primitive {
   type Error = Box<dyn Error>;

@@ -684,6 +684,12 @@ impl Env {
   pub fn iter<'a>(&'a self) -> Iter<'a, String, Value> {
     self.vars.iter()
   }
+
+  pub fn trace(&self, marks: &mut Marker) {
+    for value in self.vars.values() {
+      marks.trace(value);
+    }
+  }
 }
 
 #[derive(Debug)]

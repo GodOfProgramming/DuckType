@@ -61,3 +61,9 @@ impl From<&FunctionConstant> for FunctionValue {
     }
   }
 }
+
+impl TraceableValue for FunctionValue {
+  fn trace(&self, _marks: &mut Marker) {
+    // do nothing
+  }
+}

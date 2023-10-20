@@ -52,3 +52,11 @@ impl ClosureValue {
     format!("<{}>", self.__str__())
   }
 }
+
+impl TraceableValue for ClosureValue {
+  fn trace(&self, marks: &mut Marker) {
+    for value in &self.captures {
+      marks.trace(value);
+    }
+  }
+}

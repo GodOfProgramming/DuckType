@@ -44,6 +44,12 @@ impl Drop for Leaker {
   }
 }
 
+impl TraceableValue for Leaker {
+  fn trace(&self, marks: &mut Marker) {
+    marks.trace(&self.this);
+  }
+}
+
 #[fixture(ScriptTest)]
 mod tests {
   use super::*;

@@ -49,3 +49,8 @@ impl File {
     }
   }
 }
+impl TraceableValue for File {
+  fn trace(&self, _marks: &mut Marker) {
+    // do nothing
+  }
+}

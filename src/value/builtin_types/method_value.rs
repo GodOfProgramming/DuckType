@@ -40,3 +40,9 @@ impl MethodValue {
     format!("<{}>", self.__str__())
   }
 }
+
+impl TraceableValue for MethodValue {
+  fn trace(&self, marks: &mut Marker) {
+    marks.trace(&self.this);
+  }
+}

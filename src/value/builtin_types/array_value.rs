@@ -68,3 +68,11 @@ impl DerefMut for ArrayValue {
     &mut self.list
   }
 }
+
+impl TraceableValue for ArrayValue {
+  fn trace(&self, marks: &mut Marker) {
+    for value in &self.list {
+      marks.trace(value);
+    }
+  }
+}

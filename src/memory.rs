@@ -2,13 +2,65 @@ use crate::{
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
 };
-use std::{collections::HashSet, mem};
+use std::{
+  collections::HashSet,
+  mem,
+  sync::atomic::{AtomicUsize, Ordering},
+};
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
+
+pub struct ValueHandle {
+  value: Value,
+}
+
+impl Clone for ValueHandle {
+  fn clone(&self) -> Self {
+    if self.value.is_ptr() {
+      self.value.meta().ref_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    Self {
+      value: self.value.clone(),
+    }
+  }
+}
+
+impl Drop for ValueHandle {
+  fn drop(&mut self) {
+    if self.value.is_ptr() {
+      let meta = self.value.meta();
+
+      if meta.ref_count.load(Ordering::Relaxed) > 0 {
+        meta.ref_count.fetch_sub(1, Ordering::Relaxed);
+      }
+    }
+  }
+}
 
 #[derive(Default)]
 pub struct Gc {
   allocations: HashSet<u64>,
+}
+
+#[derive(Default)]
+pub struct Marker {
+  marked_values: HashSet<u64>,
+}
+
+impl Marker {
+  pub fn trace(&mut self, value: &Value) {
+    if !self.marked_values.contains(&value.bits) {
+      self.marked_values.insert(value.bits);
+      value.trace(self);
+    }
+  }
+}
+
+impl Into<HashSet<u64>> for Marker {
+  fn into(self) -> HashSet<u64> {
+    self.marked_values
+  }
 }
 
 impl Gc {
@@ -43,27 +95,25 @@ impl Gc {
   }
 
   pub fn clean(&mut self, vm: &mut Vm) {
-    let mut marked_allocations = HashSet::new();
-    vm.trace_allocations(&mut marked_allocations);
+    let mut marked_allocations = Marker::default();
+    vm.trace(&mut marked_allocations);
+    let marked_allocations = marked_allocations.into();
 
     let unmarked_allocations = self.allocations.difference(&marked_allocations).cloned();
 
     for alloc in unmarked_allocations {
-      self.drop(Value { bits: alloc });
+      let value = Value { bits: alloc };
+      if value.meta().ref_count.load(Ordering::Relaxed) == 0 {
+        self.drop_value(value);
+      }
     }
   }
 
-  fn drop(&self, mut value: Value) {
+  fn drop_value(&self, mut value: Value) {
     debug_assert!(value.is_ptr());
-
     let pointer = value.pointer_mut();
-    let meta = value.meta_mut();
-
-    meta.ref_count -= 1;
-
-    if meta.ref_count == 0 {
-      (meta.vtable.dealloc)(pointer);
-    }
+    let meta = value.meta();
+    (meta.vtable.dealloc)(pointer);
   }
 }
 
@@ -76,7 +126,7 @@ struct AllocatedObject<T: Usertype> {
 impl<T: Usertype> AllocatedObject<T> {
   fn new(obj: T) -> Self {
     let meta = ValueMeta {
-      ref_count: 1,
+      ref_count: AtomicUsize::new(1),
       vtable: &T::VTABLE,
     };
     Self { obj, meta }

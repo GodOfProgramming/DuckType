@@ -1,7 +1,7 @@
 use crate::{
   code::{Compiler, ConstantValue, Context, Env, OpCodeReflection, Opcode, StackFrame, Yield},
   dbg::{Cli, RuntimeError},
-  memory::{Allocation, Gc},
+  memory::{Allocation, Gc, Marker},
   prelude::Library,
   value::prelude::*,
   UnwrapAnd,
@@ -11,7 +11,7 @@ use dlopen2::wrapper::{Container, WrapperApi};
 use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
-  collections::{BTreeMap, HashSet},
+  collections::BTreeMap,
   env, fs,
   path::{Path, PathBuf},
   rc::Rc,
@@ -972,14 +972,32 @@ impl Vm {
     res
   }
 
-  pub fn trace_allocations(&self, _set: &mut HashSet<u64>) {}
+  pub fn trace(&self, marks: &mut Marker) {
+    for value in &self.current_frame.stack {
+      marks.trace(value);
+    }
 
-  pub fn ctx(&mut self) -> &mut Context {
+    self.current_frame.ctx.env.trace(marks);
+
+    for frame in &self.stack_frames {
+      for value in &frame.stack {
+        marks.trace(value);
+      }
+
+      frame.ctx.env.trace(marks);
+    }
+  }
+
+  pub fn ctx(&mut self) -> &Context {
+    &self.current_frame.ctx
+  }
+
+  pub fn ctx_mut(&mut self) -> &mut Context {
     &mut self.current_frame.ctx
   }
 
   pub fn env(&mut self) -> &mut Env {
-    &mut self.ctx().env
+    &mut self.ctx_mut().env
   }
 
   #[cold]

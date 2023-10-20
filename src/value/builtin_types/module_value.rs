@@ -66,3 +66,11 @@ impl LockedModule {
     gc.allocate(module)
   }
 }
+
+impl TraceableValue for ModuleValue {
+  fn trace(&self, marks: &mut Marker) {
+    for value in self.members.values() {
+      marks.trace(value);
+    }
+  }
+}

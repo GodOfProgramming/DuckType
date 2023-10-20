@@ -54,3 +54,12 @@ impl DebugValue for InstanceValue {
 }
 
 impl LockableValue for InstanceValue {}
+
+impl TraceableValue for InstanceValue {
+  fn trace(&self, marks: &mut Marker) {
+    marks.trace(&self.class);
+    for value in self.data.values() {
+      marks.trace(value);
+    }
+  }
+}

@@ -104,3 +104,15 @@ impl ClassValue {
     format!("class {}", self.__str__())
   }
 }
+
+impl TraceableValue for ClassValue {
+  fn trace(&self, marks: &mut Marker) {
+    if let Some(initializer) = &self.initializer {
+      marks.trace(initializer);
+    }
+
+    for value in self.static_members.values() {
+      marks.trace(value);
+    }
+  }
+}

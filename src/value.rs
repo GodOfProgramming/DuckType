@@ -10,6 +10,7 @@ use std::{
   hash::Hash,
   mem,
   ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
+  sync::atomic::AtomicUsize,
 };
 pub use tags::*;
 use uuid::Uuid;
@@ -39,6 +40,7 @@ where
   fn maybe_from(value: T) -> Option<Self>;
 }
 
+#[derive(Clone)]
 pub struct Value {
   pub bits: u64,
 }
@@ -460,6 +462,10 @@ impl Value {
     (self.vtable().lock)(self.pointer_mut())
   }
 
+  pub fn trace(&self, marks: &mut Marker) {
+    (self.vtable().trace)(self.pointer(), marks as *mut Marker as MutVoid);
+  }
+
   // utility
 
   /// Executes f only if self is nil, otherwise returns self
@@ -481,16 +487,6 @@ impl Value {
 
   pub(crate) fn meta(&self) -> &ValueMeta {
     unsafe { &*((self.pointer() as *const u8).offset(META_OFFSET) as *const ValueMeta) }
-  }
-
-  pub(crate) fn meta_mut(&mut self) -> &mut ValueMeta {
-    unsafe { &mut *((self.pointer_mut() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
-  }
-
-  /// Bypass mutable self and access mut ValueMeta
-  #[allow(clippy::mut_from_ref)]
-  fn meta_mut_bypass(&self) -> &mut ValueMeta {
-    unsafe { &mut *((self.pointer() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
   }
 
   fn vtable(&self) -> &VTable {
@@ -527,15 +523,6 @@ impl Value {
 impl Default for Value {
   fn default() -> Self {
     Self { bits: NIL_TAG }
-  }
-}
-
-impl Clone for Value {
-  fn clone(&self) -> Self {
-    if self.is_ptr() {
-      self.meta_mut_bypass().ref_count += 1;
-    }
-    Self { bits: self.bits }
   }
 }
 
@@ -988,6 +975,7 @@ pub struct VTable {
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
   lock: fn(MutVoid),
+  trace: fn(ConstVoid, MutVoid),
   pub(crate) dealloc: fn(MutVoid),
   type_id: fn() -> &'static Uuid,
   type_name: fn() -> String,
@@ -1001,6 +989,7 @@ impl VTable {
       display_string: |this| <T as DisplayValue>::__str__(Self::cast(this)),
       debug_string: |this| <T as DebugValue>::__dbg__(Self::cast(this)),
       lock: |this| <T as LockableValue>::__lock__(Self::cast_mut(this)),
+      trace: |this, marks| <T as TraceableValue>::trace(Self::cast(this), Self::cast_mut(marks)),
       dealloc: |this| Gc::consume(this as *mut T),
       type_id: || &<T as Usertype>::ID,
       type_name: || std::any::type_name::<T>().to_string(),
@@ -1095,6 +1084,6 @@ impl Callable {
 }
 
 pub(crate) struct ValueMeta {
-  pub(crate) ref_count: usize,
   pub(crate) vtable: &'static VTable,
+  pub(crate) ref_count: AtomicUsize,
 }

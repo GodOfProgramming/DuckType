@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use std::{
-  collections::BTreeMap,
+  collections::{btree_map::Values, BTreeMap},
   fmt::{Display, Formatter, Result as FmtResult},
 };
 
@@ -13,6 +13,10 @@ pub struct StructValue {
 impl StructValue {
   pub fn new() -> Self {
     Self::default()
+  }
+
+  pub(crate) fn values<'a>(&'a self) -> Values<'a, String, Value> {
+    self.members.values()
   }
 
   pub fn set(&mut self, name: impl ToString, value: Value) {
@@ -50,5 +54,13 @@ impl Display for StructValue {
         .collect::<Vec<String>>()
         .join(", ")
     )
+  }
+}
+
+impl TraceableValue for StructValue {
+  fn trace(&self, marks: &mut Marker) {
+    for value in self.members.values() {
+      marks.trace(value);
+    }
   }
 }
