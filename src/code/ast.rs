@@ -20,6 +20,20 @@ use {
   std::path::Path,
 };
 
+trait AstStatement {
+  fn stmt(ast: &mut AstGenerator);
+}
+
+trait AstExpression {
+  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
+    None
+  }
+
+  fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
+    None
+  }
+}
+
 pub struct Ast {
   pub statements: Vec<Statement>,
 }
@@ -96,424 +110,85 @@ impl AstGenerator {
     match token {
       Token::Break => {
         self.advance();
-        self.break_stmt();
+        BreakStatement::stmt(self);
       }
       Token::Cont => {
         self.advance();
-        self.cont_stmt();
+        ContStatement::stmt(self);
       }
       Token::Class => {
         self.advance();
-        self.class_stmt();
+        ClassStatement::stmt(self);
       }
       Token::Export => {
         self.advance();
-        self.export_stmt();
+        ExportStatement::stmt(self);
       }
       Token::Fn => {
         self.advance();
-        self.fn_stmt();
+        FnStatement::stmt(self);
       }
       Token::For => {
         self.advance();
-        self.for_stmt();
+        ForStatement::stmt(self);
       }
       Token::If => {
         self.advance();
-        self.if_stmt();
+        IfStatement::stmt(self);
       }
       Token::LeftBrace => {
         self.advance();
-        self.block_stmt();
+        BlockStatement::stmt(self);
       }
       Token::Let => {
         self.advance();
-        self.let_stmt();
+        LetStatement::stmt(self);
       }
       Token::Loop => {
         self.advance();
-        self.loop_stmt();
+        LoopStatement::stmt(self);
       }
       Token::Match => {
         self.advance();
-        self.match_stmt();
+        MatchStatement::stmt(self);
       }
       Token::Mod => {
         self.advance();
-        self.mod_stmt();
+        ModStatement::stmt(self);
       }
       Token::Print => {
         self.advance();
-        self.print_stmt();
+        PrintStatement::stmt(self);
       }
       Token::Req => {
         self.advance();
-        self.req_stmt();
+        ReqStatement::stmt(self);
       }
       Token::Ret => {
         self.advance();
-        self.ret_stmt();
+        RetStatement::stmt(self);
       }
       Token::Use => {
         self.advance();
-        self.use_stmt();
+        UseStatement::stmt(self);
       }
       Token::While => {
         self.advance();
-        self.while_stmt();
+        WhileStatement::stmt(self);
       }
       Token::Yield => {
         self.advance();
-        self.yield_stmt();
+        YieldStatement::stmt(self);
       }
       Token::Breakpoint => {
         self.advance();
         self.breakpoint_stmt();
       }
-      _ => self.expression_stmt(),
+      _ => ExpressionStatement::stmt(self),
     }
   }
 
   /* Statements */
-
-  fn block_stmt(&mut self) {
-    self.meta_at::<1>().unwrap_and(|block_loc| {
-      self.block(block_loc).unwrap_and(|block| {
-        self.statements.push(Statement::from(block));
-      });
-    });
-  }
-
-  fn break_stmt(&mut self) {
-    if !self.in_loop {
-      self.error::<1>(String::from("break statements can only be used within loops"));
-      return;
-    }
-
-    if !self.consume(Token::Semicolon, "expect ';' after statement") {
-      return;
-    }
-
-    self.meta_at::<2>().unwrap_and(|loc| {
-      self.statements.push(Statement::from(BreakStatement::new(loc)));
-    });
-  }
-
-  fn cont_stmt(&mut self) {
-    if !self.in_loop {
-      self.error::<1>(String::from("cont statements can only be used within loops"));
-      return;
-    }
-
-    if !self.consume(Token::Semicolon, "expect ';' after statement") {
-      return;
-    }
-
-    self.meta_at::<2>().unwrap_and(|loc| {
-      self.statements.push(Statement::from(ContStatement::new(loc)));
-    });
-  }
-
-  fn class_stmt(&mut self) {
-    self.meta_at::<0>().unwrap_and(|class_loc| {
-      if let Some(Token::Identifier(class_name)) = self.current() {
-        let ident = Ident::new_global(class_name);
-        self.advance();
-        self.class_expr(Some(ident.clone())).unwrap_and(|expr| {
-          self
-            .statements
-            .push(Statement::from(ClassStatement::new(ident, expr, class_loc)));
-        });
-      } else {
-        self.error::<0>(String::from("expected an identifier"));
-      }
-    });
-  }
-
-  fn export_stmt(&mut self) {
-    if self.export_found {
-      self.error::<1>("can only export once per file");
-    }
-    self.export_found = true;
-    self.meta_at::<1>().unwrap_and(|loc| {
-      if let Some(current) = self.current() {
-        if let Some(expr) = self.expression() {
-          self.statements.push(Statement::from(ExportStmt::new(expr, loc)));
-          if !matches!(current, Token::Mod | Token::Class | Token::Fn) {
-            self.consume(Token::Semicolon, "expected ';' after expression");
-          }
-        }
-      }
-    });
-  }
-
-  fn fn_stmt(&mut self) {
-    if let Some(stmt) = self.parse_fn() {
-      self.statements.push(stmt);
-    }
-  }
-
-  fn for_stmt(&mut self) {
-    self.meta_at::<1>().unwrap_and(|for_loc| {
-      self.meta_at::<0>().unwrap_and(|initializer_loc| {
-        let initializer = if self.advance_if_matches(Token::Let) {
-          if let Some(declaration) = self.declaration() {
-            Statement::from(declaration)
-          } else {
-            return;
-          }
-        } else if let Some(expr) = self.expression() {
-          Statement::from(ExpressionStatement::new(expr, initializer_loc))
-        } else {
-          return;
-        };
-
-        if !self.consume(Token::Semicolon, "expected ';' after expression") {
-          return;
-        }
-
-        if let Some(comparison) = self.expression() {
-          if !self.consume(Token::Semicolon, "expected ';' after comparison") {
-            return;
-          }
-
-          if let Some(increment) = self.expression() {
-            if self.consume(Token::LeftBrace, "expected '{' after increment") {
-              let prev = self.in_loop;
-              self.in_loop = true;
-              self.meta_at::<1>().unwrap_and(|block_loc| {
-                if let Some(block) = self.block(block_loc) {
-                  self.statements.push(Statement::from(ForStatement::new(
-                    initializer,
-                    comparison,
-                    increment,
-                    Statement::from(block),
-                    for_loc,
-                  )));
-                }
-              });
-              self.in_loop = prev;
-            }
-          } else {
-            self.error::<0>(String::from("expected increment after comparison"));
-          }
-        } else {
-          self.error::<0>(String::from("expected comparison after initializer"));
-        }
-      });
-    });
-  }
-
-  fn if_stmt(&mut self) {
-    if let Some(if_stmt) = self.branch() {
-      self.statements.push(Statement::from(if_stmt));
-    }
-  }
-
-  fn let_stmt(&mut self) {
-    if let Some(declaration) = self.declaration() {
-      if !self.consume(Token::Semicolon, "expected ';' after expression") {
-        return;
-      }
-
-      self.statements.push(Statement::from(declaration));
-    }
-  }
-
-  fn loop_stmt(&mut self) {
-    if !self.consume(Token::LeftBrace, "expect '{' after loop") {
-      return;
-    }
-
-    let prev = self.in_loop;
-    self.in_loop = true;
-
-    if let Some(loc) = self.meta_at::<1>() {
-      if let Some(block) = self.block(loc.clone()) {
-        self
-          .statements
-          .push(Statement::from(LoopStatement::new(Statement::from(block), loc)));
-      }
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
-    }
-
-    self.in_loop = prev;
-  }
-
-  fn match_stmt(&mut self) {
-    if let Some(loc) = self.meta_at::<1>() {
-      if let Some(expr) = self.expression() {
-        if !self.consume(Token::LeftBrace, "expected '{' after expression") {
-          return;
-        }
-
-        let mut branches = Vec::default();
-
-        while let Some(token) = self.current() {
-          if token == Token::RightBrace {
-            break;
-          }
-
-          if let Some(condition) = self.expression() {
-            if !self.consume(Token::Arrow, "expected => after expression") {
-              break;
-            }
-
-            if let Some(eval_loc) = self.meta_at::<0>() {
-              let stmt = if self.advance_if_matches(Token::LeftBrace) {
-                if let Some(block) = self.block(eval_loc) {
-                  Statement::from(block)
-                } else {
-                  break;
-                }
-              } else if let Some(eval_loc) = self.meta_at::<0>() {
-                if let Some(eval) = self.expression() {
-                  if !self.consume(Token::Comma, "expected ',' after expression") {
-                    break;
-                  }
-                  Statement::from(ExpressionStatement::new(eval, eval_loc))
-                } else {
-                  break;
-                }
-              } else {
-                break;
-              };
-
-              branches.push((condition, stmt));
-            } else {
-              break; // error but need to restore statements
-            }
-          } else {
-            // sanity check
-            self.error::<0>(String::from("could not find original token"));
-          }
-        }
-
-        if !self.consume(Token::RightBrace, "expected '}' after match") {
-          return;
-        }
-
-        let default = if self.advance_if_matches(Token::Else) && self.advance_if_matches(Token::LeftBrace) {
-          if let Some(else_loc) = self.meta_at::<2>() {
-            self.block(else_loc).map(Statement::from)
-          } else {
-            // sanity check
-            self.error::<0>(String::from("could not find original token"));
-            None
-          }
-        } else {
-          None
-        };
-
-        self
-          .statements
-          .push(Statement::from(MatchStatement::new(expr, branches, default, loc)))
-      }
-    }
-  }
-
-  fn mod_stmt(&mut self) {
-    self.meta_at::<0>().unwrap_and(|mod_loc| {
-      if let Some(Token::Identifier(mod_name)) = self.current() {
-        let ident = Ident::new(mod_name);
-        self.advance();
-        self.mod_expr(Some(ident.clone())).unwrap_and(|expr| {
-          self.statements.push(Statement::from(ModStatement::new(ident, expr, mod_loc)));
-        });
-      } else {
-        self.error::<1>("expected ident after mod");
-      }
-    });
-  }
-
-  fn print_stmt(&mut self) {
-    self.meta_at::<1>().unwrap_and(|loc| {
-      if let Some(expr) = self.expression() {
-        if self.consume(Token::Semicolon, "expected ';' after value") {
-          self.statements.push(Statement::from(PrintStatement::new(expr, loc)));
-        }
-      }
-    });
-  }
-
-  fn req_stmt(&mut self) {
-    self.meta_at::<1>().unwrap_and(|loc| {
-      self.req_expr().unwrap_and(|expr| {
-        if self.consume(Token::As, "expected as after req") {
-          if let Some(Token::Identifier(ident)) = self.current() {
-            self.advance();
-            if self.consume(Token::Semicolon, "expected ';' after ident") {
-              self
-                .statements
-                .push(Statement::from(ReqStatement::new(expr, Ident::new(ident), loc)));
-            }
-          }
-        }
-      });
-    });
-  }
-
-  fn ret_stmt(&mut self) {
-    self.meta_at::<1>().unwrap_and(|loc| {
-      if let Some(current) = self.current() {
-        let expr = if current == Token::Semicolon {
-          None
-        } else if let Some(expr) = self.expression() {
-          Some(expr)
-        } else {
-          return;
-        };
-
-        if !self.consume(Token::Semicolon, "expected ';' after value") {
-          return;
-        }
-
-        self.statements.push(Statement::from(RetStatement::new(expr, loc)));
-      }
-    });
-  }
-
-  fn use_stmt(&mut self) {
-    self.meta_at::<0>().unwrap_and(|loc| {
-      let path = self.resolve();
-      if path.is_empty() {
-        self.error::<1>(String::from("use must have a type following it"));
-      } else if self.consume(Token::Semicolon, "expected ';' after use") {
-        self.statements.push(Statement::from(UseStatement::new(path, loc)));
-      }
-    });
-  }
-
-  fn while_stmt(&mut self) {
-    self.expression().unwrap_and(|expr| {
-      if !self.consume(Token::LeftBrace, "expected '{' after expression") {
-        return;
-      }
-
-      let prev = self.in_loop;
-      self.in_loop = true;
-
-      self.meta_at::<1>().unwrap_and(|loc| {
-        if let Some(block) = self.block(loc.clone()) {
-          self
-            .statements
-            .push(Statement::from(WhileStatement::new(expr, Statement::from(block), loc)));
-        }
-      });
-
-      self.in_loop = prev;
-    });
-  }
-
-  fn yield_stmt(&mut self) {
-    self.meta_at::<0>().unwrap_and(|loc| {
-      if self.consume(Token::Semicolon, "expected ';' after yield") {
-        self.statements.push(Statement::from(YieldStatement::new(loc)));
-      }
-    });
-  }
 
   fn breakpoint_stmt(&mut self) {
     self
@@ -521,17 +196,6 @@ impl AstGenerator {
       .unwrap_and(|meta| self.statements.push(Statement::Breakpoint(meta)));
     if !self.consume(Token::Semicolon, "expected ';' after value") {
       return;
-    }
-  }
-
-  fn expression_stmt(&mut self) {
-    if let Some(loc) = self.meta_at::<0>() {
-      if let Some(expr) = self.expression() {
-        if !self.consume(Token::Semicolon, "expected ';' after value") {
-          return;
-        }
-        self.statements.push(Statement::from(ExpressionStatement::new(expr, loc)));
-      }
     }
   }
 

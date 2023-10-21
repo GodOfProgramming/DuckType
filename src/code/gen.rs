@@ -125,7 +125,7 @@ impl BytecodeGenerator {
     self.emit(Opcode::RetValue, stmt.loc);
   }
 
-  fn export_stmt(&mut self, stmt: ExportStmt) {
+  fn export_stmt(&mut self, stmt: ExportStatement) {
     if self.scope_depth == 0 {
       self.emit_expr(stmt.expr);
       self.emit(Opcode::Export, stmt.loc);
