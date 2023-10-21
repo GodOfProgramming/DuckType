@@ -25,10 +25,10 @@ impl File {
 }
 
 #[native]
-fn open(vm: &mut Vm, filename: &StringValue) -> ValueResult {
+fn open(filename: &StringValue) -> ValueResult<File> {
   let path = PathBuf::from(filename.as_str());
   let file = fs::File::open(path).map_err(|e| ValueError::Todo(e.to_string()))?;
-  Ok(vm.gc.allocate(File::new(file)))
+  Ok(File::new(file))
 }
 
 #[methods]

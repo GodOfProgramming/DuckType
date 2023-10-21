@@ -259,7 +259,17 @@ impl Allocation<&[Value]> for Gc {
 
 impl Allocation<Vec<Value>> for Gc {
   fn allocate(&mut self, value: Vec<Value>) -> Value {
-    self.allocate_usertype(ArrayValue::new_from_vec(&value))
+    self.allocate_usertype(ArrayValue::new_from_vec(value))
+  }
+}
+
+impl<T> Allocation<Vec<T>> for Gc
+where
+  T: Usertype,
+{
+  fn allocate(&mut self, value: Vec<T>) -> Value {
+    let list = value.into_iter().map(|v| self.allocate(v)).collect();
+    self.allocate_usertype(ArrayValue::new_from_vec(list))
   }
 }
 

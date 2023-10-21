@@ -20,7 +20,7 @@ impl LibTime {
 }
 
 #[native]
-fn elapsed(_vm: &mut Vm, before: &TimestampValue) -> ValueResult {
+fn elapsed(before: &TimestampValue) -> ValueResult {
   let now = Instant::now();
   let since = now.duration_since(**before);
   Ok(Value::from(since.as_secs_f64()))

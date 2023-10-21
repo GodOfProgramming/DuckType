@@ -17,15 +17,15 @@ impl ArrayValue {
     Self { list: list.into() }
   }
 
-  pub fn new_from_vec(list: &Vec<Value>) -> Self {
-    Self { list: list.clone() }
+  pub fn new_from_vec(list: Vec<Value>) -> Self {
+    Self { list }
   }
 }
 
 #[methods]
 impl ArrayValue {
   fn __new__(args: &Vec<Value>) -> ValueResult<ArrayValue> {
-    Ok(ArrayValue::new_from_vec(args))
+    Ok(ArrayValue::new_from_vec(args.clone()))
   }
 
   fn push(&mut self, _gc: &mut Gc, value: Value) -> ValueResult<()> {

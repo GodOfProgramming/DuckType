@@ -136,7 +136,7 @@ impl BytecodeGenerator {
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
     if self.scope_depth > 0 {
-      self.error(stmt.loc, "functions must be declared at the surface scope");
+      self.error(stmt.loc, "functions must be declared at the surface scope, or use a lambda");
       return;
     }
 
@@ -266,6 +266,11 @@ impl BytecodeGenerator {
   }
 
   fn use_stmt(&mut self, stmt: UseStatement) {
+    if self.scope_depth != 0 {
+      self.error(stmt.loc, "use cannot be declared inside of scopes");
+      return;
+    }
+
     let initial = stmt.path.first().cloned().unwrap(); // validated in ast
     let var = stmt.path.last().cloned().unwrap(); // validated in ast
     let var_idx = self.declare_global(var);

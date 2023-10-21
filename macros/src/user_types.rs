@@ -2,7 +2,7 @@ use crate::common;
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::quote;
 use std::env;
-use syn::{Fields, FnArg, ImplItem, ImplItemMethod, ItemImpl, ItemStruct, Receiver};
+use syn::{Fields, FnArg, ImplItem, ItemImpl, ItemStruct, Receiver};
 
 pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal>, traceables: Vec<Ident>) -> TokenStream {
   let name = struct_def.ident;
@@ -127,7 +127,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         "__dbg__" => debug_fn = Some(method),
         "__lock__" => lock_fn = Some(method),
         _ => {
-          let nargs = common::count_args(&method);
+          let nargs = common::count_args!(method);
 
           if let Some(FnArg::Receiver(this)) = method.sig.inputs.iter().next() {
             methods.push(Method {
@@ -231,7 +231,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
 
   let constructor_impl = constructor
     .map(|constructor| {
-      let nargs = common::count_args(constructor);
+      let nargs = common::count_args!(constructor);
       let name = &constructor.sig.ident;
       let name_str = Literal::string(&name.to_string());
       let args = common::make_arg_list(nargs, name_str);

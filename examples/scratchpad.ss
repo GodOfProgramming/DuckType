@@ -11,6 +11,8 @@ let module = req "examples/module";
 
 print(std.debug(module));
 
+module.some_another_fn();
+
 use module.ClassA;
 use module.ClassB;
 

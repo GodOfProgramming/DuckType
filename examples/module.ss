@@ -38,8 +38,12 @@ export mod {
 
   bound_string: x;
 
-  fn another_func() {
+  fn another_fn() {
     print("another func");
+  }
+
+  fn some_another_fn() {
+    some_func();
   }
 
   class Foo {}

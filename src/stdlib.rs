@@ -90,28 +90,28 @@ fn load_std(gc: &mut Gc) -> Value {
 }
 
 #[native]
-fn debug(vm: &mut Vm, value: Value) -> ValueResult {
-  Ok(vm.gc.allocate(format!("{:?}", value)))
+fn debug(value: Value) -> ValueResult<String> {
+  Ok(format!("{:?}", value))
 }
 
 #[native]
-fn fields(vm: &mut Vm, value: Value) -> ValueResult<Vec<Value>> {
-  fn get_fields(vm: &mut Vm, s: &StructValue) -> Vec<Value> {
-    s.members.keys().cloned().map(|v| vm.gc.allocate(v)).collect::<Vec<Value>>()
+fn fields(value: Value) -> ValueResult<Vec<StringValue>> {
+  fn get_fields(s: &StructValue) -> Vec<StringValue> {
+    s.members.keys().cloned().map(StringValue::from).collect()
   }
 
   let mut fields = Vec::default();
 
   if let Some(i) = value.as_instance() {
-    fields.extend(get_fields(vm, &i.data))
+    fields.extend(get_fields(&i.data))
   } else if let Some(s) = value.as_struct() {
-    fields.extend(get_fields(vm, s))
+    fields.extend(get_fields(s))
   }
 
   Ok(fields)
 }
 
-fn defined(vm: &mut Vm, args: Args) -> ValueResult {
-  let name: &StringValue = args.into_iter().next_arg().try_unwrap_arg("defined", 0)?;
-  Ok(vm.env().lookup(name.as_str()).is_some().into())
+#[native(with_vm)]
+fn defined(vm: &mut Vm, name: &StringValue) -> ValueResult<bool> {
+  Ok(vm.env().lookup(name.as_str()).is_some())
 }

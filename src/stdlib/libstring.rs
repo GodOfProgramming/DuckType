@@ -13,7 +13,7 @@ impl LibString {
 }
 
 #[native]
-fn parse_number(_vm: &mut Vm, value: &StringValue) -> ValueResult {
+fn parse_number(value: &StringValue) -> ValueResult {
   value
     .parse::<f64>()
     .map(Value::from)
@@ -21,7 +21,7 @@ fn parse_number(_vm: &mut Vm, value: &StringValue) -> ValueResult {
 }
 
 #[native]
-fn contains(_vm: &mut Vm, string: Value, substr: Value) -> ValueResult {
+fn contains(string: Value, substr: Value) -> ValueResult {
   if let Some(string) = string.as_str() {
     if let Some(substr) = substr.as_str() {
       return Ok(Value::from(string.contains::<&str>(substr.as_ref())));
@@ -32,7 +32,7 @@ fn contains(_vm: &mut Vm, string: Value, substr: Value) -> ValueResult {
 }
 
 #[native]
-fn is_prefix(_vm: &mut Vm, string: Value, substr: Value) -> ValueResult {
+fn is_prefix(string: Value, substr: Value) -> ValueResult {
   if let Some(string) = string.as_str() {
     if let Some(substr) = substr.as_str() {
       return Ok(Value::from(string.strip_prefix::<&str>(substr.as_ref()).is_some()));
