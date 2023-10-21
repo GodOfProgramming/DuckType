@@ -127,7 +127,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         "__dbg__" => debug_fn = Some(method),
         "__lock__" => lock_fn = Some(method),
         _ => {
-          let nargs = count_args(&method);
+          let nargs = common::count_args(&method);
 
           if let Some(FnArg::Receiver(this)) = method.sig.inputs.iter().next() {
             methods.push(Method {
@@ -231,16 +231,21 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
 
   let constructor_impl = constructor
     .map(|constructor| {
-      let nargs = count_args(constructor);
+      let nargs = common::count_args(constructor);
       let name = &constructor.sig.ident;
       let name_str = Literal::string(&name.to_string());
       let args = common::make_arg_list(nargs, name_str);
       quote! {
-        fn #name(gc: &mut Gc, mut args: Args) -> ValueResult {
+        fn #name(vm: &mut Vm, mut args: Args) -> ValueResult {
           #constructor
 
-          let mut args = args.into_iter();
-          Ok(gc.allocate(#name(#args)?))
+          if args.list.len() == #nargs {
+            let mut args = args.into_iter();
+            let output = #name(#args)?;
+            Ok(vm.gc.allocate(output))
+          } else {
+            Err(ValueError::ArgumentError(args.list.len(), #nargs))
+          }
         }
       }
     })
@@ -320,8 +325,4 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
 
     #lock_impl
   }
-}
-
-fn count_args(f: &ImplItemMethod) -> usize {
-  f.sig.inputs.iter().filter(|input| matches!(input, FnArg::Typed(_))).count()
 }

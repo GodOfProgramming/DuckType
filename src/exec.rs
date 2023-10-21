@@ -20,7 +20,7 @@ use std::{
 
 #[derive(WrapperApi)]
 struct NativeApi {
-  simple_script_load_module: fn(vm: &mut Vm) -> ValueResult<()>,
+  simple_script_load_module: fn(vm: &mut Vm) -> ValueResult,
 }
 
 pub mod prelude {
@@ -780,7 +780,9 @@ impl Vm {
             let lib: Container<NativeApi> =
               unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
-            lib.simple_script_load_module(self).map_err(|e| self.error(opcode, e))?;
+            let value = lib.simple_script_load_module(self).map_err(|e| self.error(opcode, e))?;
+
+            self.stack_push(value);
 
             self.opened_libs.insert(found_file, lib);
             Ok(())
@@ -983,6 +985,10 @@ impl Vm {
     }
 
     res
+  }
+
+  pub fn gc_env(&mut self) -> (&mut Gc, &mut Env) {
+    (&mut self.gc, &mut self.current_frame.ctx.env)
   }
 
   pub fn ctx(&mut self) -> &Context {

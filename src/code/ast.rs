@@ -1310,9 +1310,9 @@ impl AstGenerator {
     parts
   }
 
-  fn meta_at<const I: usize>(&mut self) -> Option<SourceLocation> {
-    self.meta.get(self.index - I).cloned().or_else(|| {
-      self.error::<I>(String::from("unable to get meta at position"));
+  fn meta_at<const OFFSET: usize>(&mut self) -> Option<SourceLocation> {
+    self.meta.get(self.index - OFFSET).cloned().or_else(|| {
+      self.error::<OFFSET>(String::from("unable to get meta at position"));
       None
     })
   }

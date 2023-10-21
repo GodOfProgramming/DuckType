@@ -1,3 +1,12 @@
+let test = req "examples/ss_module/target/debug/ss_module.dll";
+
+use test.Foo;
+
+let f = Foo(1);
+
+print("foo is");
+print(f);
+
 let module = req "examples/module";
 
 print(std.debug(module));
