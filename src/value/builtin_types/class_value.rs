@@ -5,8 +5,11 @@ use std::collections::BTreeMap;
 #[uuid("2034facf-835a-495c-b504-26efc0ca3f95")]
 pub struct ClassValue {
   pub name: Option<String>,
+  #[trace]
   pub initializer: Option<Value>,
+  #[trace]
   pub methods: BTreeMap<String, FunctionValue>,
+  #[trace]
   pub static_members: BTreeMap<String, Value>,
 }
 
@@ -102,21 +105,5 @@ impl ClassValue {
 
   fn __dbg__(&self) -> String {
     format!("class {}", self.__str__())
-  }
-}
-
-impl TraceableValue for ClassValue {
-  fn trace(&self, marks: &mut Marker) {
-    if let Some(initializer) = &self.initializer {
-      marks.trace(initializer);
-    }
-
-    for method in self.methods.values() {
-      method.trace(marks);
-    }
-
-    for value in self.static_members.values() {
-      marks.trace(value);
-    }
   }
 }

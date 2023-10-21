@@ -6,6 +6,7 @@ use ptr::SmartPtr;
 pub struct FunctionValue {
   pub airity: usize,
   locals: usize,
+  #[trace]
   ctx: SmartPtr<Context>,
 }
 
@@ -59,11 +60,5 @@ impl From<&FunctionConstant> for FunctionValue {
       locals: f.locals,
       ctx: f.ctx.clone(),
     }
-  }
-}
-
-impl TraceableValue for FunctionValue {
-  fn trace(&self, marks: &mut Marker) {
-    self.ctx.trace(marks);
   }
 }

@@ -4,7 +4,9 @@ use ptr::SmartPtr;
 #[derive(Clone, Usertype, Fields)]
 #[uuid("e924d375-93f0-4ce9-a2f3-5a4cf612492e")]
 pub struct ClosureValue {
+  #[trace]
   captures: Vec<Value>,
+  #[trace]
   function: FunctionValue,
 }
 
@@ -50,14 +52,5 @@ impl ClosureValue {
 
   fn __dbg__(&self) -> String {
     format!("<{}>", self.__str__())
-  }
-}
-
-impl TraceableValue for ClosureValue {
-  fn trace(&self, marks: &mut Marker) {
-    for value in &self.captures {
-      marks.trace(value);
-    }
-    self.function.trace(marks);
   }
 }

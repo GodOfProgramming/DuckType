@@ -23,7 +23,7 @@ impl Parse for UuidAttr {
   }
 }
 
-#[proc_macro_derive(Usertype, attributes(uuid))]
+#[proc_macro_derive(Usertype, attributes(uuid, trace))]
 pub fn derive_usertype(input: TokenStream) -> TokenStream {
   let struct_def = parse_macro_input!(input as ItemStruct);
 
@@ -36,7 +36,18 @@ pub fn derive_usertype(input: TokenStream) -> TokenStream {
     None => None,
   };
 
-  user_types::derive_usertype(struct_def, uuid_attr).into()
+  let traceables = struct_def
+    .fields
+    .iter()
+    .filter_map(|f| {
+      f.attrs
+        .iter()
+        .find(|attr| attr.path.is_ident("trace"))
+        .and_then(|_| f.ident.clone())
+    })
+    .collect();
+
+  user_types::derive_usertype(struct_def, uuid_attr, traceables).into()
 }
 
 #[proc_macro_derive(Fields, attributes(field))]

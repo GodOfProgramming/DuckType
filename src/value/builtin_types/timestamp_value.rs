@@ -31,9 +31,3 @@ impl Deref for TimestampValue {
     &self.timestamp
   }
 }
-
-impl TraceableValue for TimestampValue {
-  fn trace(&self, _marks: &mut Marker) {
-    // do nothing
-  }
-}

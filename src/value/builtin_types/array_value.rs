@@ -8,6 +8,7 @@ use std::{
 #[derive(Default, Usertype, Fields)]
 #[uuid("8b881e80-c828-4563-b7ad-d4b8f1bffbfa")]
 pub struct ArrayValue {
+  #[trace]
   list: Vec<Value>,
 }
 
@@ -66,13 +67,5 @@ impl Deref for ArrayValue {
 impl DerefMut for ArrayValue {
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.list
-  }
-}
-
-impl TraceableValue for ArrayValue {
-  fn trace(&self, marks: &mut Marker) {
-    for value in &self.list {
-      marks.trace(value);
-    }
   }
 }

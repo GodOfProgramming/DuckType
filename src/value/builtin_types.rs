@@ -41,7 +41,14 @@ use macros::{methods, Fields};
 pub use method_value::MethodValue;
 pub use module_value::{LockedModule, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use std::{convert::Infallible, error::Error, fmt::Debug, vec::IntoIter};
+use ptr::SmartPtr;
+use std::{
+  collections::{BTreeMap, HashMap},
+  convert::Infallible,
+  error::Error,
+  fmt::Debug,
+  vec::IntoIter,
+};
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 use thiserror::Error;
@@ -101,6 +108,67 @@ pub trait LockableValue {
 pub trait TraceableValue {
   fn trace(&self, marks: &mut Marker);
 }
+
+impl TraceableValue for SmartPtr<Context> {
+  fn trace(&self, marks: &mut Marker) {
+    self.trace_all(marks);
+  }
+}
+
+impl TraceableValue for Option<Value> {
+  fn trace(&self, marks: &mut Marker) {
+    if let Some(value) = self {
+      marks.trace(value);
+    }
+  }
+}
+
+impl TraceableValue for Vec<Value> {
+  fn trace(&self, marks: &mut Marker) {
+    for value in self {
+      marks.trace(value);
+    }
+  }
+}
+
+impl<T> TraceableValue for HashMap<T, Value> {
+  fn trace(&self, marks: &mut Marker) {
+    for value in self.values() {
+      marks.trace(value);
+    }
+  }
+}
+
+impl<T, V> TraceableValue for HashMap<T, V>
+where
+  V: TraceableValue,
+{
+  fn trace(&self, marks: &mut Marker) {
+    for value in self.values() {
+      value.trace(marks);
+    }
+  }
+}
+
+impl<T> TraceableValue for BTreeMap<T, Value> {
+  fn trace(&self, marks: &mut Marker) {
+    for value in self.values() {
+      marks.trace(value);
+    }
+  }
+}
+
+impl<T, V> TraceableValue for BTreeMap<T, V>
+where
+  V: TraceableValue,
+{
+  fn trace(&self, marks: &mut Marker) {
+    for value in self.values() {
+      value.trace(marks);
+    }
+  }
+}
+
 pub struct Args {
   pub list: Vec<Value>,
 }
@@ -163,12 +231,6 @@ pub struct Primitive {}
 
 #[methods]
 impl Primitive {}
-
-impl TraceableValue for Primitive {
-  fn trace(&self, _marks: &mut Marker) {
-    // do nothing
-  }
-}
 
 impl TryFrom<Value> for Primitive {
   type Error = Box<dyn Error>;

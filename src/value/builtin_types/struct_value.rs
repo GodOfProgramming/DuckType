@@ -7,6 +7,7 @@ use std::{
 #[derive(Usertype, Default)]
 #[uuid("1215f7a4-1b67-4387-bf00-f950bbc63743")]
 pub struct StructValue {
+  #[trace]
   pub members: BTreeMap<String, Value>,
 }
 
@@ -54,13 +55,5 @@ impl Display for StructValue {
         .collect::<Vec<String>>()
         .join(", ")
     )
-  }
-}
-
-impl TraceableValue for StructValue {
-  fn trace(&self, marks: &mut Marker) {
-    for value in self.members.values() {
-      marks.trace(value);
-    }
   }
 }

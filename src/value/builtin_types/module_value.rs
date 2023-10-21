@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 #[derive(Default, Usertype)]
 #[uuid("fc79ffad-9286-4188-9905-76ae73108f9e")]
 pub struct ModuleValue {
+  #[trace]
   pub members: BTreeMap<String, Value>,
   pub locked: bool,
 }
@@ -64,13 +65,5 @@ impl LockedModule {
     f(gc, &mut module);
     module.__lock__();
     gc.allocate(module)
-  }
-}
-
-impl TraceableValue for ModuleValue {
-  fn trace(&self, marks: &mut Marker) {
-    for value in self.members.values() {
-      marks.trace(value);
-    }
   }
 }

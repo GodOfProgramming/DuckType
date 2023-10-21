@@ -92,12 +92,6 @@ impl DerefMut for StringValue {
   }
 }
 
-impl TraceableValue for StringValue {
-  fn trace(&self, _marks: &mut Marker) {
-    // do nothing
-  }
-}
-
 #[cfg(test)]
 mod test {
   use super::*;

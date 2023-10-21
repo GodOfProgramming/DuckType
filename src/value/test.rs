@@ -26,12 +26,6 @@ impl ImplementedObject {
   }
 }
 
-impl TraceableValue for ImplementedObject {
-  fn trace(&self, _marks: &mut Marker) {
-    // do nothing
-  }
-}
-
 #[methods]
 impl ImplementedObject {}
 
@@ -41,12 +35,6 @@ struct UnimplementedObject {}
 
 #[methods]
 impl UnimplementedObject {}
-
-impl TraceableValue for UnimplementedObject {
-  fn trace(&self, _marks: &mut Marker) {
-    // do nothing
-  }
-}
 
 #[fixture(ValueTest)]
 mod unit_tests {

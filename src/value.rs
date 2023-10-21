@@ -463,6 +463,10 @@ impl Value {
   }
 
   pub fn trace(&self, marks: &mut Marker) {
+    marks.trace(self);
+  }
+
+  pub fn trace_vtable(&self, marks: &mut Marker) {
     (self.vtable().trace)(self.pointer(), marks as *mut Marker as MutVoid);
   }
 

@@ -43,12 +43,6 @@ impl Display for NativeClosureValue {
   }
 }
 
-impl TraceableValue for NativeClosureValue {
-  fn trace(&self, _marks: &mut Marker) {
-    // do nothing
-  }
-}
-
 pub enum NativeCallable {
   NativeFn(NativeFn),
   NativeClosure(NativeClosureValue),
@@ -75,6 +69,7 @@ impl Display for NativeCallable {
 #[derive(Usertype, Fields)]
 #[uuid("846eb503-820d-446a-9b54-7a274d85cd32")]
 pub struct NativeMethodValue {
+  #[trace]
   pub this: Value,
   callee: NativeCallable,
 }
@@ -109,11 +104,5 @@ impl NativeMethodValue {
 impl Display for NativeMethodValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     write!(f, "<native method {}>", self.callee)
-  }
-}
-
-impl TraceableValue for NativeMethodValue {
-  fn trace(&self, marks: &mut Marker) {
-    marks.trace(&self.this);
   }
 }

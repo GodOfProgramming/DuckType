@@ -3,7 +3,9 @@ use crate::prelude::*;
 #[derive(Usertype, Default)]
 #[uuid("988a6bd1-4a54-416f-aad5-0d1cc8ce652e")]
 pub struct InstanceValue {
+  #[trace]
   pub data: StructValue,
+  #[trace]
   pub class: Value,
 }
 
@@ -54,12 +56,3 @@ impl DebugValue for InstanceValue {
 }
 
 impl LockableValue for InstanceValue {}
-
-impl TraceableValue for InstanceValue {
-  fn trace(&self, marks: &mut Marker) {
-    marks.trace(&self.class);
-    for value in self.data.values() {
-      marks.trace(value);
-    }
-  }
-}

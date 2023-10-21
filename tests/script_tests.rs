@@ -31,6 +31,7 @@ struct Leaker {
   b: &'static mut bool,
 
   #[field]
+  #[trace]
   this: Value,
 }
 
@@ -40,12 +41,6 @@ impl Leaker {}
 impl Drop for Leaker {
   fn drop(&mut self) {
     *self.b = true;
-  }
-}
-
-impl TraceableValue for Leaker {
-  fn trace(&self, marks: &mut Marker) {
-    marks.trace(&self.this);
   }
 }
 
@@ -60,29 +55,32 @@ mod tests {
       .for_each(|dir| dir.flatten().into_iter().for_each(|entry| t.run(&entry.path())));
   }
 
-  static mut B: bool = false;
-
   /// This tests for the memory leaking capability of reference counting. This should fail once garbage collection is implemented
   #[test]
   fn memory_leak_test(t: &mut ScriptTest) {
-    {
-      const SCRIPT: &str = "leaker.this = leaker;";
+    static mut B: bool = false;
 
-      let env = Env::initialize(&mut t.vm.gc, &[], Library::All);
-      let mut ctx = t.vm.load("test", SCRIPT, env).unwrap();
+    const SCRIPT: &str = "{ let leaker = make_leaker(); leaker.this = leaker; }";
 
-      let l = Leaker {
+    let env = Env::initialize(&mut t.vm.gc, &[], Library::All);
+    let mut ctx = t.vm.load("test", SCRIPT, env).unwrap();
+
+    #[native]
+    fn make_leaker(_vm: &mut Vm) -> ValueResult<Leaker> {
+      Ok(Leaker {
         b: unsafe { &mut B },
         this: Value::nil,
-      };
-
-      ctx.env.define("leaker", t.vm.gc.allocate(l));
-
-      t.vm.run("test", ctx).unwrap();
-
-      t.vm.run_gc();
+      })
     }
 
+    ctx.env.define("make_leaker", Value::native(make_leaker));
+
+    t.vm.run("test", ctx).unwrap();
+
     assert!(unsafe { !B });
+
+    t.vm.run_gc();
+
+    assert!(unsafe { B });
   }
 }

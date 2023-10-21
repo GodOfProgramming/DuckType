@@ -4,7 +4,7 @@ use quote::quote;
 use std::env;
 use syn::{Fields, FnArg, ImplItem, ImplItemMethod, ItemImpl, ItemStruct, Receiver};
 
-pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal>) -> TokenStream {
+pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal>, traceables: Vec<Ident>) -> TokenStream {
   let name = struct_def.ident;
 
   let uuid_value = match uuid_value {
@@ -28,10 +28,30 @@ pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal
     }
   };
 
+  let traceable_impl = if !traceables.is_empty() {
+    quote! {
+      impl TraceableValue for #name {
+        fn trace(&self, marks: &mut Marker) {
+          #(self.#traceables.trace(marks);)*
+        }
+      }
+    }
+  } else {
+    quote! {
+      impl TraceableValue for #name {
+        fn trace(&self, _marks: &mut Marker) {
+          // do nothing
+        }
+      }
+    }
+  };
+
   quote! {
     impl Usertype for #name {
       const ID: uuid::Uuid = uuid::uuid!(#uuid_value);
     }
+
+    #traceable_impl
   }
 }
 

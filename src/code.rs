@@ -318,7 +318,7 @@ impl Context {
     }
   }
 
-  pub fn trace(&self, marks: &mut Marker) {
+  pub fn trace_all(&self, marks: &mut Marker) {
     if self.global.valid() {
       self.global.trace(marks);
     }

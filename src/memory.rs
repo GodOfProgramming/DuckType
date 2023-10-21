@@ -62,7 +62,7 @@ impl Marker {
   pub fn trace(&mut self, value: &Value) {
     if !self.marked_values.contains(&value.bits) {
       self.marked_values.insert(value.bits);
-      value.trace(self);
+      value.trace_vtable(self);
     }
   }
 }
@@ -290,12 +290,6 @@ mod tests {
   #[methods]
   impl SomeType {}
 
-  impl TraceableValue for SomeType {
-    fn trace(&self, marks: &mut Marker) {
-      // do nothing
-    }
-  }
-
   fn new_ctx(gc: &mut Gc) -> SmartPtr<Context> {
     SmartPtr::new(Context::new(
       Some("main"),
@@ -320,10 +314,10 @@ mod tests {
     let mut gc = Gc::default();
     let ctx = new_ctx(&mut gc);
 
-    let x = gc.allocate(1);
-    let y = gc.allocate(1.0);
-    let b = gc.allocate(true);
-    let c = gc.allocate('c');
+    let _x = gc.allocate(1);
+    let _y = gc.allocate(1.0);
+    let _b = gc.allocate(true);
+    let _c = gc.allocate('c');
 
     gc.allocate(SomeType {});
 

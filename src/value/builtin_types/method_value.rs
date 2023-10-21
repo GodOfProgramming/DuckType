@@ -4,7 +4,9 @@ use ptr::SmartPtr;
 #[derive(Clone, Usertype, Fields)]
 #[uuid("7d8c2afc-2706-4b79-a7cf-9bdfdc10ab0c")]
 pub struct MethodValue {
+  #[trace]
   pub this: Value,
+  #[trace]
   pub function: FunctionValue,
 }
 
@@ -38,12 +40,5 @@ impl MethodValue {
 
   fn __dbg__(&self) -> String {
     format!("<{}>", self.__str__())
-  }
-}
-
-impl TraceableValue for MethodValue {
-  fn trace(&self, marks: &mut Marker) {
-    marks.trace(&self.this);
-    self.function.trace(marks);
   }
 }
