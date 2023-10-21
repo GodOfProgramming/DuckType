@@ -41,7 +41,14 @@ use macros::{methods, Fields};
 pub use method_value::MethodValue;
 pub use module_value::{LockedModule, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use std::{convert::Infallible, error::Error, fmt::Debug, vec::IntoIter};
+use ptr::SmartPtr;
+use std::{
+  collections::{BTreeMap, HashMap},
+  convert::Infallible,
+  error::Error,
+  fmt::Debug,
+  vec::IntoIter,
+};
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 use thiserror::Error;
@@ -52,15 +59,15 @@ pub struct Nil;
 
 pub trait Usertype
 where
-  Self: UsertypeFields + UsertypeMethods + DisplayValue + DebugValue + LockableValue + Sized + 'static,
+  Self: UsertypeFields + UsertypeMethods + DisplayValue + DebugValue + LockableValue + TraceableValue + Sized + 'static,
 {
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  fn get(&self, this: &Value, field: &str) -> ValueResult {
-    match <Self as UsertypeFields>::get_field(self, field) {
+  fn get(&self, gc: &mut Gc, this: &Value, field: &str) -> ValueResult {
+    match <Self as UsertypeFields>::get_field(self, gc, field) {
       Ok(Some(value)) => Ok(value),
-      Ok(None) => match <Self as UsertypeMethods>::get_method(self, this, field) {
+      Ok(None) => match <Self as UsertypeMethods>::get_method(self, gc, this, field) {
         Ok(Some(value)) => Ok(value),
         Ok(None) => Ok(Value::nil),
         Err(e) => Err(e),
@@ -69,21 +76,21 @@ where
     }
   }
 
-  fn set(&mut self, field: &str, value: Value) -> ValueResult<()> {
-    <Self as UsertypeFields>::set_field(self, field, value)
+  fn set(&mut self, gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
+    <Self as UsertypeFields>::set_field(self, gc, field, value)
   }
 }
 
 pub trait UsertypeFields {
-  fn get_field(&self, field: &str) -> ValueResult<Option<Value>>;
-  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()>;
+  fn get_field(&self, gc: &mut Gc, field: &str) -> ValueResult<Option<Value>>;
+  fn set_field(&mut self, gc: &mut Gc, field: &str, value: Value) -> ValueResult<()>;
 }
 
 pub trait UsertypeMethods {
   fn __new__(_vm: &mut Vm, _args: Args) -> ValueResult {
     Err(ValueError::UndefinedInitializer)
   }
-  fn get_method(&self, this: &Value, field: &str) -> ValueResult<Option<Value>>;
+  fn get_method(&self, gc: &mut Gc, this: &Value, field: &str) -> ValueResult<Option<Value>>;
 }
 
 pub trait DisplayValue {
@@ -97,6 +104,71 @@ pub trait DebugValue {
 pub trait LockableValue {
   fn __lock__(&mut self) {}
 }
+
+pub trait TraceableValue {
+  fn trace(&self, marks: &mut Marker);
+}
+
+impl TraceableValue for SmartPtr<Context> {
+  fn trace(&self, marks: &mut Marker) {
+    self.trace_all(marks);
+  }
+}
+
+impl TraceableValue for Option<Value> {
+  fn trace(&self, marks: &mut Marker) {
+    if let Some(value) = self {
+      marks.trace(value);
+    }
+  }
+}
+
+impl TraceableValue for Vec<Value> {
+  fn trace(&self, marks: &mut Marker) {
+    for value in self {
+      marks.trace(value);
+    }
+  }
+}
+
+impl<T> TraceableValue for HashMap<T, Value> {
+  fn trace(&self, marks: &mut Marker) {
+    for value in self.values() {
+      marks.trace(value);
+    }
+  }
+}
+
+impl<T, V> TraceableValue for HashMap<T, V>
+where
+  V: TraceableValue,
+{
+  fn trace(&self, marks: &mut Marker) {
+    for value in self.values() {
+      value.trace(marks);
+    }
+  }
+}
+
+impl<T> TraceableValue for BTreeMap<T, Value> {
+  fn trace(&self, marks: &mut Marker) {
+    for value in self.values() {
+      marks.trace(value);
+    }
+  }
+}
+
+impl<T, V> TraceableValue for BTreeMap<T, V>
+where
+  V: TraceableValue,
+{
+  fn trace(&self, marks: &mut Marker) {
+    for value in self.values() {
+      value.trace(marks);
+    }
+  }
+}
+
 pub struct Args {
   pub list: Vec<Value>,
 }
@@ -151,6 +223,8 @@ where
 }
 
 /// Intentionally empty
+///
+/// bool, char, i32, f64
 #[derive(Default, Usertype, Fields)]
 #[uuid("6d9d039a-9803-41ff-8e84-a0ea830e2380")]
 pub struct Primitive {}

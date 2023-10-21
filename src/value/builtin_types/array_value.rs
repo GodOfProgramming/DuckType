@@ -8,6 +8,7 @@ use std::{
 #[derive(Default, Usertype, Fields)]
 #[uuid("8b881e80-c828-4563-b7ad-d4b8f1bffbfa")]
 pub struct ArrayValue {
+  #[trace]
   list: Vec<Value>,
 }
 
@@ -27,16 +28,16 @@ impl ArrayValue {
     Ok(ArrayValue::new_from_vec(args))
   }
 
-  fn push(&mut self, value: Value) -> ValueResult<()> {
+  fn push(&mut self, _gc: &mut Gc, value: Value) -> ValueResult<()> {
     self.list.push(value);
     Ok(())
   }
 
-  fn len(&self) -> ValueResult<i32> {
+  fn len(&self, _gc: &mut Gc) -> ValueResult<i32> {
     Ok(self.list.len() as i32)
   }
 
-  fn __index__(&self, index: i32) -> ValueResult {
+  fn __index__(&self, _gc: &mut Gc, index: i32) -> ValueResult {
     Ok(self.list.get(index as usize).cloned().unwrap_or_default())
   }
 

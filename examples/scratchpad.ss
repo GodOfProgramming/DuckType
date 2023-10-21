@@ -1,9 +1,31 @@
-let sspec = req "lib/sspec/sspec.ss";
+let test = req "examples/ss_module/target/debug/ss_module.dll";
 
-use sspec.describe;
+use test.Foo;
 
-sspec.verbose.set(true);
+let f = Foo(1);
 
-describe("test verbose switch", |t| {
-  t.expect(true).to_be(false);
-});
+print("foo is");
+print(f);
+
+let module = req "examples/module";
+
+print(std.debug(module));
+
+use module.ClassA;
+use module.ClassB;
+
+let b = ClassA.new_b();
+let a = ClassB.new_a();
+
+a.foo();
+b.bar();
+
+fn get_str() {
+  ret "some string";
+}
+
+let x = get_str();
+let y = get_str();
+x.replace_with("foobar");
+print(x);
+print(y);

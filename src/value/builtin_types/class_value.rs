@@ -5,8 +5,11 @@ use std::collections::BTreeMap;
 #[uuid("2034facf-835a-495c-b504-26efc0ca3f95")]
 pub struct ClassValue {
   pub name: Option<String>,
+  #[trace]
   pub initializer: Option<Value>,
+  #[trace]
   pub methods: BTreeMap<String, FunctionValue>,
+  #[trace]
   pub static_members: BTreeMap<String, Value>,
 }
 
@@ -20,10 +23,24 @@ impl ClassValue {
     }
   }
 
+  pub fn from_constant(gc: &mut Gc, c: &ClassConstant) -> Value {
+    let class = Self {
+      name: c.name.clone(),
+      initializer: c.initializer.as_ref().map(|i| gc.allocate(FunctionValue::from(i))),
+      methods: c.methods.iter().map(|(k, v)| (k.clone(), FunctionValue::from(v))).collect(),
+      static_members: c
+        .statics
+        .iter()
+        .map(|(k, v)| (k.clone(), gc.allocate(FunctionValue::from(v))))
+        .collect(),
+    };
+    gc.allocate(class)
+  }
+
   pub fn construct(vm: &mut Vm, mut class_value: Value, mut args: Args) -> ValueResult<()> {
     let class_clone = class_value.clone();
     if let Some(class) = class_value.as_class_mut() {
-      let instance = Value::from(InstanceValue::new(StructValue::default(), class_clone));
+      let instance = vm.gc.allocate(InstanceValue::new(StructValue::default(), class_clone));
       if let Some(initializer) = &mut class.initializer {
         if let Some(initializer) = initializer.as_fn() {
           args.list.push(instance);
@@ -44,12 +61,12 @@ impl ClassValue {
     self.initializer = Some(value);
   }
 
-  pub fn get_method(&self, this: &Value, name: &str) -> Option<Value> {
+  pub fn get_method(&self, gc: &mut Gc, this: &Value, name: &str) -> Option<Value> {
     self
       .methods
       .get(name)
       .cloned()
-      .map(|method| MethodValue::new(this.clone(), method).into())
+      .map(|method| gc.allocate(MethodValue::new(this.clone(), method)))
   }
 
   pub fn set_method<N: ToString>(&mut self, name: N, value: FunctionValue) {
@@ -66,11 +83,11 @@ impl ClassValue {
 }
 
 impl UsertypeFields for ClassValue {
-  fn get_field(&self, field: &str) -> ValueResult<Option<Value>> {
+  fn get_field(&self, _gc: &mut Gc, field: &str) -> ValueResult<Option<Value>> {
     Ok(self.get_static(field))
   }
 
-  fn set_field(&mut self, field: &str, value: Value) -> ValueResult<()> {
+  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
     self.set_static(field, value);
     Ok(())
   }
@@ -88,20 +105,5 @@ impl ClassValue {
 
   fn __dbg__(&self) -> String {
     format!("class {}", self.__str__())
-  }
-}
-
-impl From<&ClassConstant> for ClassValue {
-  fn from(c: &ClassConstant) -> Self {
-    Self {
-      name: c.name.clone(),
-      initializer: c.initializer.as_ref().map(|i| Value::from(FunctionValue::from(i))),
-      methods: c.methods.iter().map(|(k, v)| (k.clone(), FunctionValue::from(v))).collect(),
-      static_members: c
-        .statics
-        .iter()
-        .map(|(k, v)| (k.clone(), Value::from(FunctionValue::from(v))))
-        .collect(),
-    }
   }
 }

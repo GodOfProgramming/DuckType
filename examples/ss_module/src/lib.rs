@@ -1,17 +1,17 @@
 use simple_script::macro_requirements::*;
-use simple_script::prelude::StringValue;
+use simple_script::prelude::*;
 
 #[native]
 mod example_module {
-  fn test_function(item: &StringValue) -> ValueResult<()> {
+  fn test_function(_: &mut Vm, item: &StringValue) -> ValueResult<()> {
     println!("{}", item);
     Ok(())
   }
 
-  fn test_clear(item: &mut StringValue) -> ValueResult {
+  fn test_clear(_: &mut Vm, item: &mut StringValue) -> ValueResult<String> {
     let old = item.clone();
     *item = StringValue::default();
-    Ok(old.into())
+    Ok(old)
   }
 
   #[derive(Default, Usertype, Fields)]
@@ -23,8 +23,12 @@ mod example_module {
 
   #[methods]
   impl Foo {
-    fn __new__() -> ValueResult<Foo> {
-      Ok(Foo::default())
+    fn __new__(item: i32) -> ValueResult<Foo> {
+      Ok(Foo { value: item })
+    }
+
+    fn __str__(&self) -> String {
+      format!("Foo {{ value: {} }}", self.value)
     }
   }
 }

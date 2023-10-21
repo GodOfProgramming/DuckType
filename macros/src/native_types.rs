@@ -16,7 +16,8 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
     .inputs
     .iter()
     .filter(|input| matches!(input, FnArg::Typed(_)))
-    .count();
+    .count()
+    - 1;
 
   let args = common::make_arg_list(nargs, name_str);
 
@@ -26,7 +27,9 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
 
       if args.list.len() == #nargs {
         let mut args = args.into_iter();
-        Ok(Value::from(#ident(#args)?))
+        let output = #ident(vm, #args)?;
+        let value = vm.gc.allocate(output);
+        Ok(value)
       } else {
         Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))
       }
@@ -77,8 +80,6 @@ impl TryFrom<Vec<Item>> for ModuleDef {
 
 pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
   let mod_name = &item.ident;
-  let mod_name_str = mod_name.to_string();
-  let mod_name_lit = Literal::string(&mod_name_str);
 
   let module_def = match item.content.map(|(_, content)| ModuleDef::try_from(content)).transpose() {
     Ok(Some(m)) => m,
@@ -98,19 +99,21 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
 
   quote! {
     #[no_mangle]
-    pub fn simple_script_load_module(vm: &mut Vm) -> ValueResult<()> {
-      #mod_name::register_to(vm.env());
-      Ok(())
+    pub fn simple_script_load_module(vm: &mut Vm) -> ValueResult {
+      let module = #mod_name::simple_script_autogen_create_module(&mut vm.gc);
+      Ok(module)
     }
 
     mod #mod_name {
       use super::*;
 
-      pub fn register_to(env: &mut Env) {
-        env.define(#mod_name_lit, LockedModule::initialize(|module| {
-           #fn_defs
-           #struct_defs
-        }));
+      pub fn simple_script_autogen_create_module(gc: &mut Gc) -> Value {
+        let module = LockedModule::initialize(gc, |gc, module| {
+          #fn_defs
+          #struct_defs
+        });
+
+        gc.allocate(module)
       }
 
       #(#functions)*
@@ -129,7 +132,7 @@ fn collect_fn_defs(functions: Vec<NativeFn>) -> (TokenStream, Vec<TokenStream>) 
     let native_fn_name_str = native_fn_name.to_string();
     let native_fn_name_lit = Literal::string(&native_fn_name_str);
     quote! {
-      module.set(#native_fn_name_lit, Value::native(#native_fn_name)).ok();
+      module.set(gc, #native_fn_name_lit, Value::native(#native_fn_name)).ok();
     }
   }));
 
@@ -143,7 +146,7 @@ fn collect_struct_defs(structs: Vec<NativeStruct>) -> (TokenStream, Vec<ItemStru
     let struct_name_str = struct_name.to_string();
     let struct_name_lit = Literal::string(&struct_name_str);
     quote! {
-      module.set(#struct_name_lit, Value::native(<#struct_name as UsertypeMethods>::__new__)).ok();
+      module.set(gc, #struct_name_lit, Value::native(<#struct_name as UsertypeMethods>::__new__)).ok();
     }
   }));
 

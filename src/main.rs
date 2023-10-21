@@ -28,8 +28,8 @@ fn main() {
     Command::Run { file, runargs } => {
       let mut exit_code = 0;
 
-      let env = Env::initialize(&runargs, Library::All);
-      let vm = Vm::new(runargs, Library::All);
+      let mut vm = Vm::new(runargs.clone(), Library::All);
+      let env = Env::initialize(&mut vm.gc, &runargs, Library::All);
 
       if let Some(file) = file {
         if !run_file(vm, file, env) {

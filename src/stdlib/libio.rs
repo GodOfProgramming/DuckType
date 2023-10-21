@@ -5,11 +5,10 @@ use crate::prelude::*;
 pub struct LibIo;
 
 impl LibIo {
-  pub fn load() -> Value {
-    LockedModule::initialize(|lib| {
-      lib.set("open", Value::native(open)).ok();
+  pub fn load(gc: &mut Gc) -> Value {
+    LockedModule::initialize(gc, |gc, lib| {
+      lib.set(gc, "open", Value::native(open)).ok();
     })
-    .into()
   }
 }
 
@@ -26,10 +25,10 @@ impl File {
 }
 
 #[native]
-fn open(filename: &StringValue) -> ValueResult {
+fn open(vm: &mut Vm, filename: &StringValue) -> ValueResult {
   let path = PathBuf::from(filename.as_str());
   let file = fs::File::open(path).map_err(|e| ValueError::Todo(e.to_string()))?;
-  Ok(Value::from(File::new(file)))
+  Ok(vm.gc.allocate(File::new(file)))
 }
 
 #[methods]
@@ -38,7 +37,7 @@ impl File {
     Err(ValueError::Infallible)
   }
 
-  fn read(&mut self) -> ValueResult<String> {
+  fn read(&mut self, _gc: &mut Gc) -> ValueResult<String> {
     if let Some(file) = &mut self.internal {
       let mut out = String::new();
 

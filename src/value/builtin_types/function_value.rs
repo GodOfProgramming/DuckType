@@ -6,6 +6,7 @@ use ptr::SmartPtr;
 pub struct FunctionValue {
   pub airity: usize,
   locals: usize,
+  #[trace]
   ctx: SmartPtr<Context>,
 }
 

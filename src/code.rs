@@ -1,4 +1,7 @@
-use crate::prelude::*;
+use crate::{
+  memory::{Allocation, Gc},
+  prelude::*,
+};
 use ast::Ast;
 use gen::BytecodeGenerator;
 use inter_struct::prelude::*;
@@ -6,7 +9,7 @@ use lex::Scanner;
 use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
-  collections::BTreeMap,
+  collections::{btree_map::Iter, BTreeMap},
   convert::TryFrom,
   env,
   error::Error,
@@ -302,7 +305,7 @@ pub struct Context {
 }
 
 impl Context {
-  fn new(name: Option<impl Into<String>>, env: SmartPtr<Env>, reflection: Reflection) -> Self {
+  pub(crate) fn new(name: Option<impl Into<String>>, env: SmartPtr<Env>, reflection: Reflection) -> Self {
     Self {
       name: name.map(|n| n.into()),
       id: Default::default(),
@@ -313,6 +316,13 @@ impl Context {
       env,
       meta: reflection,
     }
+  }
+
+  pub fn trace_all(&self, marks: &mut Marker) {
+    if self.global.valid() {
+      self.global.trace(marks);
+    }
+    self.env.trace(marks);
   }
 
   fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
@@ -631,25 +641,25 @@ pub struct Env {
 }
 
 impl Env {
-  pub fn initialize(args: &[String], library: Library) -> Self {
+  pub fn initialize(gc: &mut Gc, args: &[String], library: Library) -> Self {
     let mut env = Env {
       vars: Default::default(),
       libs: library,
       args: args.into(),
     };
 
-    env.vars = stdlib::load_libs(&env.args, &env.libs);
+    env.vars = stdlib::load_libs(gc, &env.args, &env.libs);
 
     let mut lib_paths = Vec::default();
 
     if let Ok(paths) = env::var("SIMPLE_LIBRARY_PATHS") {
-      lib_paths.extend(paths.split_terminator(';').map(Value::from));
+      lib_paths.extend(paths.split_terminator(';').map(|v| gc.allocate(v)));
     }
 
-    let module = LockedModule::initialize(|module| {
-      let lib_paths = Value::from(lib_paths);
+    let module = LockedModule::initialize(gc, |gc, module| {
+      let lib_paths = gc.allocate(lib_paths);
 
-      module.set("path", lib_paths).ok();
+      module.set(gc, "path", lib_paths).ok();
     });
 
     env.assign("$LIBRARY", module.into());
@@ -677,6 +687,16 @@ impl Env {
   pub fn lookup<T: AsRef<str>>(&self, name: T) -> Option<Value> {
     self.vars.get(name.as_ref()).cloned()
   }
+
+  pub fn iter<'a>(&'a self) -> Iter<'a, String, Value> {
+    self.vars.iter()
+  }
+
+  pub fn trace(&self, marks: &mut Marker) {
+    for value in self.vars.values() {
+      marks.trace(value);
+    }
+  }
 }
 
 #[derive(Debug)]
@@ -687,7 +707,7 @@ pub struct Reflection {
 }
 
 impl Reflection {
-  fn new(file: Rc<PathBuf>, source: Rc<String>) -> Self {
+  pub(crate) fn new(file: Rc<PathBuf>, source: Rc<String>) -> Self {
     Reflection {
       file,
       source,

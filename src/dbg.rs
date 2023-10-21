@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{memory::Allocation, prelude::*};
 use std::{
   error::Error,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
@@ -112,7 +112,7 @@ impl Command {
   pub fn exec(self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
     match self {
       Command::Quit => Ok(CommandOutput::new(None, true)),
-      Command::Env { command } => command.exec(vm.env()),
+      Command::Env { command } => command.exec(vm),
       Command::Stack { command } => command.exec(vm),
     }
   }
@@ -134,24 +134,23 @@ pub enum EnvCmd {
 }
 
 impl EnvCmd {
-  fn exec(self, env: &mut Env) -> Result<CommandOutput, Box<dyn Error>> {
+  fn exec(self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
     let output = match self {
-      EnvCmd::Get { name } => Some(if let Some(value) = env.lookup(&name) {
+      EnvCmd::Get { name } => Some(if let Some(value) = vm.env().lookup(&name) {
         format!("{:?}", value)
       } else {
         format!("no item in the env with the name '{}'", name)
       }),
       EnvCmd::Set { name, value } => {
-        env.assign(
-          name,
-          match value {
-            ValueCommand::Bool { value } => value.into(),
-            ValueCommand::I32 { value } => value.into(),
-            ValueCommand::F64 { value } => value.into(),
-            ValueCommand::Char { value } => value.into(),
-            ValueCommand::String { value } => value.into(),
-          },
-        );
+        let value = match value {
+          ValueCommand::Bool { value } => value.into(),
+          ValueCommand::I32 { value } => value.into(),
+          ValueCommand::F64 { value } => value.into(),
+          ValueCommand::Char { value } => value.into(),
+          ValueCommand::String { value } => vm.gc.allocate(value),
+        };
+
+        vm.env().assign(name, value);
         None
       }
     };

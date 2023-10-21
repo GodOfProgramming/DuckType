@@ -4,7 +4,9 @@ use ptr::SmartPtr;
 #[derive(Clone, Usertype, Fields)]
 #[uuid("e924d375-93f0-4ce9-a2f3-5a4cf612492e")]
 pub struct ClosureValue {
+  #[trace]
   captures: Vec<Value>,
+  #[trace]
   function: FunctionValue,
 }
 

@@ -1,6 +1,7 @@
 pub(crate) mod code;
 pub(crate) mod dbg;
 pub(crate) mod exec;
+pub(crate) mod memory;
 pub(crate) mod stdlib;
 pub(crate) mod value;
 
@@ -14,6 +15,7 @@ pub mod prelude {
   pub use super::code::prelude::*;
   pub use super::dbg::prelude::*;
   pub use super::exec::prelude::*;
+  pub use super::memory::*;
   pub(crate) use super::stdlib;
   pub use super::stdlib::prelude::*;
   pub use super::value::prelude::*;

@@ -60,7 +60,7 @@ impl NativeCallable {
 impl Display for NativeCallable {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     match self {
-      NativeCallable::NativeFn(nf) => write!(f, "{:p}", &nf),
+      NativeCallable::NativeFn(nf) => write!(f, "<native fn {:p}>", &nf),
       NativeCallable::NativeClosure(c) => write!(f, "{}", c),
     }
   }
@@ -69,6 +69,7 @@ impl Display for NativeCallable {
 #[derive(Usertype, Fields)]
 #[uuid("846eb503-820d-446a-9b54-7a274d85cd32")]
 pub struct NativeMethodValue {
+  #[trace]
   pub this: Value,
   callee: NativeCallable,
 }
@@ -102,6 +103,6 @@ impl NativeMethodValue {
 
 impl Display for NativeMethodValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    write!(f, "{}", self.callee)
+    write!(f, "<native method {}>", self.callee)
   }
 }

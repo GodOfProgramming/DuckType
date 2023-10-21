@@ -1,33 +1,37 @@
-use crate::{code::ConstantValue, prelude::*};
+use crate::{
+  code::ConstantValue,
+  memory::{Allocation, Gc, META_OFFSET},
+  prelude::*,
+};
 use static_assertions::assert_eq_size;
 use std::{
   cmp::Ordering,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
+  hash::Hash,
   mem,
   ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
+  sync::atomic::AtomicUsize,
 };
 pub use tags::*;
 use uuid::Uuid;
 
 pub(crate) mod builtin_types;
-mod tags;
+pub(crate) mod tags;
 #[cfg(test)]
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, MaybeFrom, Tag, TransformToValue, Value};
+  pub use super::{builtin_types::*, MaybeFrom, Tag, Value};
 }
 
-type ConstVoid = *const ();
-type MutVoid = *mut ();
+pub(crate) type ConstVoid = *const ();
+pub(crate) type MutVoid = *mut ();
 
 // ensuring 64 bit platforms, redundancy is just sanity checks
 assert_eq_size!(usize, ConstVoid);
 assert_eq_size!(usize, MutVoid);
 assert_eq_size!(usize, f64);
 assert_eq_size!(usize, u64);
-
-const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
 pub trait MaybeFrom<T>
 where
@@ -36,8 +40,9 @@ where
   fn maybe_from(value: T) -> Option<Self>;
 }
 
+#[derive(Clone)]
 pub struct Value {
-  bits: u64,
+  pub bits: u64,
 }
 
 impl Value {
@@ -70,16 +75,16 @@ impl Value {
     self.is_nil() || self.is_bool() && self.bits & VALUE_BITMASK == 0
   }
 
-  pub fn from_constant(v: &ConstantValue) -> Self {
+  pub fn from_constant(gc: &mut Gc, v: &ConstantValue) -> Self {
     match v {
       ConstantValue::Nil => Self::nil,
       ConstantValue::Bool(v) => Self::from(*v),
       ConstantValue::Integer(v) => Self::from(*v),
       ConstantValue::Float(v) => Self::from(*v),
-      ConstantValue::String(v) => Self::from(v),
-      ConstantValue::StaticString(v) => Self::from(*v),
-      ConstantValue::Fn(v) => Self::from(FunctionValue::from(v)),
-      ConstantValue::Class(v) => Self::from(ClassValue::from(v)),
+      ConstantValue::String(v) => gc.allocate(v),
+      ConstantValue::StaticString(v) => gc.allocate(*v),
+      ConstantValue::Fn(v) => gc.allocate(FunctionValue::from(v)),
+      ConstantValue::Class(v) => ClassValue::from_constant(gc, v),
     }
   }
 
@@ -161,10 +166,6 @@ impl Value {
 
   // string
 
-  pub fn new_str() -> Self {
-    Self::from(StringValue::default())
-  }
-
   pub fn is_str(&self) -> bool {
     self.is::<StringValue>()
   }
@@ -178,10 +179,6 @@ impl Value {
   }
 
   // array
-
-  pub fn new_array() -> Self {
-    Self::from(ArrayValue::default())
-  }
 
   pub fn is_array(&self) -> bool {
     self.is::<ArrayValue>()
@@ -197,10 +194,6 @@ impl Value {
 
   // struct
 
-  pub fn new_struct() -> Self {
-    Self::from(StructValue::default())
-  }
-
   pub fn is_struct(&self) -> bool {
     self.is::<StructValue>()
   }
@@ -215,10 +208,6 @@ impl Value {
 
   // class
 
-  pub fn new_class<T: ToString>(name: T) -> Self {
-    Self::from(ClassValue::new(name.to_string()))
-  }
-
   pub fn is_class(&self) -> bool {
     self.is::<ClassValue>()
   }
@@ -232,10 +221,6 @@ impl Value {
   }
 
   // module
-
-  pub fn new_module() -> Self {
-    Self::from(ModuleValue::new())
-  }
 
   pub fn is_module(&self) -> bool {
     self.is::<ModuleValue>()
@@ -355,12 +340,12 @@ impl Value {
 
   // -- native closure
 
-  pub fn new_native_closure<N, F>(name: N, f: F) -> Self
+  pub fn new_native_closure<N, F>(gc: &mut Gc, name: N, f: F) -> Self
   where
     N: ToString,
     F: FnMut(&mut Vm, Args) -> ValueResult + 'static,
   {
-    Self::from(NativeClosureValue::new(name, f))
+    gc.allocate(NativeClosureValue::new(name, f))
   }
 
   pub fn is_native_closure(&self) -> bool {
@@ -385,15 +370,8 @@ impl Value {
 
   // -- native closure method
 
-  pub fn new_native_fn_method(this: Value, f: NativeFn) -> Self {
-    Self::from(NativeMethodValue::new_native_fn(this, f))
-  }
-
-  pub fn new_native_closure_method<T: ToString, F>(name: T, this: Value, f: F) -> Self
-  where
-    F: FnMut(&mut Vm, Args) -> ValueResult + 'static,
-  {
-    Self::from(NativeMethodValue::new_native_closure(this, NativeClosureValue::new(name, f)))
+  pub fn new_native_fn_method(gc: &mut Gc, this: Value, f: NativeFn) -> Self {
+    gc.allocate(NativeMethodValue::new_native_fn(this, f))
   }
 
   pub fn is_native_method(&self) -> bool {
@@ -456,17 +434,17 @@ impl Value {
 
   // value methods
 
-  pub fn lookup(&self, name: &str) -> ValueResult {
+  pub fn lookup(&self, gc: &mut Gc, name: &str) -> ValueResult {
     if self.is_ptr() {
-      (self.vtable().lookup)(self, name)
+      (self.vtable().lookup)(self, gc as *mut Gc as MutVoid, name)
     } else {
       Err(ValueError::InvalidLookup(self.clone()))
     }
   }
 
-  pub fn assign(&mut self, name: &str, value: Value) -> ValueResult<()> {
+  pub fn assign(&mut self, gc: &mut Gc, name: &str, value: Value) -> ValueResult<()> {
     if self.is_ptr() {
-      (self.vtable().assign)(self.pointer_mut(), name, value)
+      (self.vtable().assign)(self.pointer_mut(), gc as *mut Gc as MutVoid, name, value)
     } else {
       Ok(())
     }
@@ -484,6 +462,14 @@ impl Value {
     (self.vtable().lock)(self.pointer_mut())
   }
 
+  pub fn trace(&self, marks: &mut Marker) {
+    marks.trace(self);
+  }
+
+  pub fn trace_vtable(&self, marks: &mut Marker) {
+    (self.vtable().trace)(self.pointer(), marks as *mut Marker as MutVoid);
+  }
+
   // utility
 
   /// Executes f only if self is nil, otherwise returns self
@@ -495,26 +481,20 @@ impl Value {
     }
   }
 
-  fn pointer(&self) -> ConstVoid {
+  pub(crate) fn pointer(&self) -> ConstVoid {
     (self.bits & VALUE_BITMASK) as ConstVoid
   }
 
-  fn pointer_mut(&mut self) -> MutVoid {
+  pub(crate) fn pointer_mut(&mut self) -> MutVoid {
     (self.bits & VALUE_BITMASK) as MutVoid
   }
 
-  fn meta(&self) -> &ValueMeta {
+  pub(crate) fn meta(&self) -> &ValueMeta {
     unsafe { &*((self.pointer() as *const u8).offset(META_OFFSET) as *const ValueMeta) }
   }
 
-  fn meta_mut(&mut self) -> &mut ValueMeta {
+  pub(crate) fn meta_mut(&mut self) -> &mut ValueMeta {
     unsafe { &mut *((self.pointer_mut() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
-  }
-
-  /// Bypass mutable self and access mut ValueMeta
-  #[allow(clippy::mut_from_ref)]
-  fn meta_mut_bypass(&self) -> &mut ValueMeta {
-    unsafe { &mut *((self.pointer() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
   }
 
   fn vtable(&self) -> &VTable {
@@ -546,31 +526,6 @@ impl Value {
   fn convert_mut<T>(&mut self) -> &'static mut T {
     unsafe { &mut *(self.pointer_mut() as *mut T) }
   }
-
-  fn allocate<T>(item: T) -> *mut T {
-    Box::into_raw(Box::new(item))
-  }
-
-  fn allocate_usertype<T: Usertype>(item: T) -> Self {
-    let allocated = unsafe { &mut *Self::allocate(AllocatedObject::new(item)) };
-
-    let ptr = &mut allocated.obj as *mut T as MutVoid;
-    debug_assert_eq!(allocated as *const _ as *const (), &allocated.meta as *const _ as *const ());
-
-    // ensure the pointer to the allocated object is offset by the right distance
-    debug_assert_eq!(
-      unsafe { (ptr as *const u8).offset(META_OFFSET) as *const () },
-      allocated as *const _ as *const ()
-    );
-
-    // ensure the pointer fits in 48 bits
-    debug_assert_eq!(ptr as u64 & POINTER_TAG, 0);
-
-    // return the pointer to the object, hiding the vtable & ref count behind the returned address
-    Value {
-      bits: ptr as u64 | POINTER_TAG,
-    }
-  }
 }
 
 impl Default for Value {
@@ -579,39 +534,33 @@ impl Default for Value {
   }
 }
 
-impl Drop for Value {
-  fn drop(&mut self) {
-    if self.is_ptr() {
-      let pointer = self.pointer_mut();
-      let meta = self.meta_mut();
-
-      meta.ref_count -= 1;
-
-      if meta.ref_count == 0 {
-        (meta.vtable.dealloc)(pointer);
-      }
-    }
+impl Hash for Value {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    self.bits.hash(state);
   }
 }
 
-impl Clone for Value {
-  fn clone(&self) -> Self {
-    if self.is_ptr() {
-      self.meta_mut_bypass().ref_count += 1;
+impl TryFrom<Value> for i32 {
+  type Error = ValueError;
+
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
+    match value.tag() {
+      Tag::I32 => Ok(value.as_i32_unchecked()),
+      Tag::F64 => Ok(value.as_f64_unchecked() as i32),
+      _ => Err(ValueError::CoercionError(value, "i32")),
     }
-    Self { bits: self.bits }
   }
 }
 
 impl From<&Value> for Value {
-  fn from(value: &Value) -> Self {
-    value.clone()
+  fn from(item: &Value) -> Value {
+    item.clone()
   }
 }
 
 impl From<()> for Value {
-  fn from(_value: ()) -> Self {
-    Self::nil
+  fn from(_item: ()) -> Value {
+    Value::nil
   }
 }
 
@@ -651,36 +600,6 @@ impl From<char> for Value {
   }
 }
 
-impl From<&str> for Value {
-  fn from(item: &str) -> Self {
-    Value::allocate_usertype::<StringValue>(item.into())
-  }
-}
-
-impl From<String> for Value {
-  fn from(item: String) -> Self {
-    Value::allocate_usertype::<StringValue>(item.into())
-  }
-}
-
-impl From<&String> for Value {
-  fn from(item: &String) -> Self {
-    Value::allocate_usertype::<StringValue>(item.clone().into())
-  }
-}
-
-impl From<&[Value]> for Value {
-  fn from(array: &[Value]) -> Self {
-    Value::allocate_usertype(ArrayValue::new_from_slice(array))
-  }
-}
-
-impl From<Vec<Value>> for Value {
-  fn from(vec: Vec<Value>) -> Self {
-    Value::allocate_usertype(ArrayValue::new_from_vec(&vec))
-  }
-}
-
 impl From<NativeFn> for Value {
   fn from(f: NativeFn) -> Self {
     Self {
@@ -692,27 +611,6 @@ impl From<NativeFn> for Value {
 impl From<Nil> for Value {
   fn from(_: Nil) -> Self {
     Self { bits: NIL_TAG }
-  }
-}
-
-impl TryFrom<Value> for i32 {
-  type Error = ValueError;
-
-  fn try_from(value: Value) -> Result<Self, Self::Error> {
-    match value.tag() {
-      Tag::I32 => Ok(value.as_i32_unchecked()),
-      Tag::F64 => Ok(value.as_f64_unchecked() as i32),
-      _ => Err(ValueError::CoercionError(value, "i32")),
-    }
-  }
-}
-
-impl<T> From<T> for Value
-where
-  T: Usertype,
-{
-  fn from(item: T) -> Self {
-    Value::allocate_usertype::<T>(item)
   }
 }
 
@@ -759,7 +657,7 @@ impl Display for Value {
       Tag::I32 => write!(f, "{}", self.as_i32_unchecked()),
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
-      Tag::NativeFn => write!(f, "{:p}", &self.as_native_fn_unchecked()),
+      Tag::NativeFn => write!(f, "<native fn {:p}>", &self.as_native_fn_unchecked()),
       Tag::NativeClass => write!(f, "FREE SLOT"),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
@@ -1080,25 +978,27 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  lookup: fn(&Value, &str) -> ValueResult<Value>,
-  assign: fn(MutVoid, &str, Value) -> ValueResult<()>,
+  lookup: fn(&Value, MutVoid, &str) -> ValueResult<Value>,
+  assign: fn(MutVoid, MutVoid, &str, Value) -> ValueResult<()>,
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
   lock: fn(MutVoid),
-  dealloc: fn(MutVoid),
+  trace: fn(ConstVoid, MutVoid),
+  pub(crate) dealloc: fn(MutVoid),
   type_id: fn() -> &'static Uuid,
   type_name: fn() -> String,
 }
 
 impl VTable {
-  const fn new<T: Usertype>() -> Self {
+  pub const fn new<T: Usertype>() -> Self {
     Self {
-      lookup: |this, name| <T as Usertype>::get(Self::cast(this.pointer()), this, name),
-      assign: |this, name, value| <T as Usertype>::set(Self::cast_mut(this), name, value),
+      lookup: |this, gc, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::cast_mut(gc), this, name),
+      assign: |this, gc, name, value| <T as Usertype>::set(Self::cast_mut(this), Self::cast_mut(gc), name, value),
       display_string: |this| <T as DisplayValue>::__str__(Self::cast(this)),
       debug_string: |this| <T as DebugValue>::__dbg__(Self::cast(this)),
       lock: |this| <T as LockableValue>::__lock__(Self::cast_mut(this)),
-      dealloc: |this| consume(this as *mut T),
+      trace: |this, marks| <T as TraceableValue>::trace(Self::cast(this), Self::cast_mut(marks)),
+      dealloc: |this| Gc::consume(this as *mut T),
       type_id: || &<T as Usertype>::ID,
       type_name: || std::any::type_name::<T>().to_string(),
     }
@@ -1110,27 +1010,6 @@ impl VTable {
 
   fn cast_mut<'t, T>(ptr: MutVoid) -> &'t mut T {
     unsafe { &mut *(ptr as *mut T) }
-  }
-}
-
-struct ValueMeta {
-  ref_count: usize,
-  vtable: &'static VTable,
-}
-
-#[repr(C)]
-struct AllocatedObject<T: Usertype> {
-  meta: ValueMeta,
-  obj: T,
-}
-
-impl<T: Usertype> AllocatedObject<T> {
-  fn new(obj: T) -> Self {
-    let meta = ValueMeta {
-      ref_count: 1,
-      vtable: &T::VTABLE,
-    };
-    Self { obj, meta }
   }
 }
 
@@ -1212,10 +1091,7 @@ impl Callable {
   }
 }
 
-fn consume<T: Usertype>(this: *mut T) {
-  let _ = unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) };
-}
-
-pub trait TransformToValue {
-  fn transform(self) -> Value;
+pub(crate) struct ValueMeta {
+  pub(crate) vtable: &'static VTable,
+  pub(crate) ref_count: AtomicUsize,
 }
