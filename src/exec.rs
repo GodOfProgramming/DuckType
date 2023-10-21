@@ -823,7 +823,6 @@ impl Vm {
           _ => match fs::read_to_string(&found_file) {
             Ok(data) => {
               if let Some(handle) = self.lib_cache.get(&id) {
-                println!("found value: {:?}", handle.value);
                 self.stack_push(handle.value.clone());
               } else {
                 let env = SmartPtr::new(Env::initialize(&mut self.gc, &self.args, self.libs.clone()));
