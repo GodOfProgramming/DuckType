@@ -658,7 +658,6 @@ impl Display for Value {
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
       Tag::NativeFn => write!(f, "<native fn {:p}>", &self.as_native_fn_unchecked()),
-      Tag::NativeClass => write!(f, "FREE SLOT"),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
     }
@@ -675,13 +674,6 @@ impl Debug for Value {
       Tag::Bool => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_bool_unchecked(), self.raw_value()),
       Tag::Char => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_char_unchecked(), self.raw_value()),
       Tag::NativeFn => write!(
-        f,
-        "<@{addr:<width$} {:?}>",
-        self.tag(),
-        addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
-        width = PTR_DISPLAY_WIDTH,
-      ),
-      Tag::NativeClass => write!(
         f,
         "<@{addr:<width$} {:?}>",
         self.tag(),

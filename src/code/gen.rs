@@ -252,16 +252,28 @@ impl BytecodeGenerator {
     self.emit(Opcode::Print, stmt.loc);
   }
 
-  fn ret_stmt(&mut self, stmt: RetStatement) {
+  fn req_stmt(&mut self, stmt: ReqStatement) {
     if self.scope_depth != 0 {
-      if let Some(expr) = stmt.expr {
-        self.emit_expr(expr);
-        self.emit(Opcode::RetValue, stmt.loc);
-      } else {
-        self.emit(Opcode::Ret, stmt.loc);
-      }
-    } else {
+      self.error(stmt.loc, "req statements can only be used at surface scope");
+      return;
+    }
+
+    let var = self.declare_global(stmt.ident);
+    self.emit_expr(stmt.expr);
+    self.force_define_global(var, stmt.loc);
+  }
+
+  fn ret_stmt(&mut self, stmt: RetStatement) {
+    if self.scope_depth == 0 {
       self.error(stmt.loc, "ret can only be used within functions");
+      return;
+    }
+
+    if let Some(expr) = stmt.expr {
+      self.emit_expr(expr);
+      self.emit(Opcode::RetValue, stmt.loc);
+    } else {
+      self.emit(Opcode::Ret, stmt.loc);
     }
   }
 
@@ -591,6 +603,7 @@ impl BytecodeGenerator {
       Statement::Match(stmt) => self.match_stmt(stmt),
       Statement::Mod(stmt) => self.mod_stmt(stmt),
       Statement::Print(stmt) => self.print_stmt(stmt),
+      Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::Use(stmt) => self.use_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),

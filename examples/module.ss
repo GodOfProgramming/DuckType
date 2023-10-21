@@ -27,16 +27,11 @@ fn some_func() {
 let x = "super secret string";
 
 export mod {
-  ClassA: A;
-  ClassB: B;
+  ClassA: A, ClassB: B,
 
-  TestClass;
+  TestClass, RenamedClass: TestClass,
 
-  RenamedClass: TestClass;
-
-  some_func;
-
-  bound_string: x;
+  some_func, bound_string: x,
 
   fn another_fn() {
     print("another func");

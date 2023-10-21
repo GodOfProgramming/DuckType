@@ -146,6 +146,10 @@ impl AstGenerator {
         self.advance();
         self.print_stmt();
       }
+      Token::Req => {
+        self.advance();
+        self.req_stmt();
+      }
       Token::Ret => {
         self.advance();
         self.ret_stmt();
@@ -427,11 +431,27 @@ impl AstGenerator {
   fn print_stmt(&mut self) {
     self.meta_at::<1>().unwrap_and(|loc| {
       if let Some(expr) = self.expression() {
-        if !self.consume(Token::Semicolon, "expected ';' after value") {
-          return;
+        if self.consume(Token::Semicolon, "expected ';' after value") {
+          self.statements.push(Statement::from(PrintStatement::new(expr, loc)));
         }
-        self.statements.push(Statement::from(PrintStatement::new(expr, loc)));
       }
+    });
+  }
+
+  fn req_stmt(&mut self) {
+    self.meta_at::<1>().unwrap_and(|loc| {
+      self.req_expr().unwrap_and(|expr| {
+        if self.consume(Token::As, "expected as after req") {
+          if let Some(Token::Identifier(ident)) = self.current() {
+            self.advance();
+            if self.consume(Token::Semicolon, "expected ';' after ident") {
+              self
+                .statements
+                .push(Statement::from(ReqStatement::new(expr, Ident::new(ident), loc)));
+            }
+          }
+        }
+      });
     });
   }
 
@@ -989,8 +1009,10 @@ impl AstGenerator {
                   Expression::from(IdentExpression::new(Ident::new(ident), member_loc)),
                 ))
               }
-              if !self.consume(Token::Semicolon, "expected ';' after expression") {
-                return None;
+              if !matches!(self.current(), Some(Token::RightBrace)) {
+                if !self.consume(Token::Comma, "expected ',' after expression") {
+                  return None;
+                }
               }
             }
             Token::Mod => {
@@ -1592,6 +1614,7 @@ impl AstGenerator {
       Token::String(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::Number(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
       Token::And => ParseRule::new(None, Some(Self::and_expr), Precedence::And),
+      Token::As => ParseRule::new(None, None, Precedence::None),
       Token::Break => ParseRule::new(None, None, Precedence::None),
       Token::Class => ParseRule::new(Some(|this| Self::class_expr(this, None)), None, Precedence::Primary),
       Token::Cont => ParseRule::new(None, None, Precedence::None),
@@ -1749,6 +1772,12 @@ impl Ident {
 impl Display for Ident {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     write!(f, "{}", self.name)
+  }
+}
+
+impl PartialEq for Ident {
+  fn eq(&self, other: &Self) -> bool {
+    self.name == other.name
   }
 }
 

@@ -21,6 +21,7 @@ pub enum Statement {
   Match(MatchStatement),
   Mod(ModStatement),
   Print(PrintStatement),
+  Req(ReqStatement),
   Ret(RetStatement),
   Use(UseStatement),
   While(WhileStatement),
@@ -79,6 +80,7 @@ impl Statement {
       Statement::Match(_) => (),
       Statement::Mod(m) => m.body.dump(tmpl),
       Statement::Print(_) => (),
+      Statement::Req(_) => (),
       Statement::Ret(_) => (),
       Statement::Use(u) => {
         html! {
@@ -111,6 +113,7 @@ impl Display for Statement {
       Self::Match(_) => write!(f, "match"),
       Self::Mod(_) => write!(f, "mod"),
       Self::Print(_) => write!(f, "print"),
+      Self::Req(_) => write!(f, "req"),
       Self::Ret(_) => write!(f, "ret"),
       Self::While(_) => write!(f, "while"),
       Self::Use(_) => write!(f, "use"),
@@ -202,6 +205,12 @@ impl From<ModStatement> for Statement {
 impl From<PrintStatement> for Statement {
   fn from(stmt: PrintStatement) -> Self {
     Self::Print(stmt)
+  }
+}
+
+impl From<ReqStatement> for Statement {
+  fn from(stmt: ReqStatement) -> Self {
+    Self::Req(stmt)
   }
 }
 
@@ -446,6 +455,19 @@ pub struct PrintStatement {
 impl PrintStatement {
   pub(super) fn new(expr: Expression, loc: SourceLocation) -> Self {
     Self { expr, loc }
+  }
+}
+
+#[derive(Debug)]
+pub struct ReqStatement {
+  pub expr: Expression,
+  pub ident: Ident,
+  pub loc: SourceLocation,
+}
+
+impl ReqStatement {
+  pub(super) fn new(expr: Expression, ident: Ident, loc: SourceLocation) -> Self {
+    Self { expr, ident, loc }
   }
 }
 

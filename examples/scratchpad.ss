@@ -4,10 +4,9 @@ use test.Foo;
 
 let f = Foo(1);
 
-print("foo is");
-print(f);
+print("foo is " + f);
 
-let module = req "examples/module";
+req "examples/module" as module;
 
 print(std.debug(module));
 

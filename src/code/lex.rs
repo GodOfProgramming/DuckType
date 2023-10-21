@@ -55,6 +55,7 @@ pub enum Token {
 
   // Keywords.
   And,
+  As,
   Break,
   Class,
   Cont,
@@ -120,6 +121,7 @@ impl TryFrom<&[u8]> for Token {
   fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
     Ok(match str::from_utf8(bytes)? {
       "and" => Self::And,
+      "as" => Self::As,
       "break" => Self::Break,
       "class" => Self::Class,
       "cont" => Self::Cont,
