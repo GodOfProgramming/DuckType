@@ -6,7 +6,7 @@ let f = Foo(1);
 
 print("foo is " + f);
 
-req "examples/module" as module;
+req "examples/test_module" as module;
 
 print(std.debug(module));
 

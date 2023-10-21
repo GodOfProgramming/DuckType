@@ -1,5 +1,5 @@
 use crate::{
-  code::StackFrame,
+  code::{ast::IfStatement, StackFrame},
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
 };
@@ -12,11 +12,11 @@ use std::{
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
 pub struct ValueHandle {
-  value: Value,
+  pub(crate) value: Value,
 }
 
 impl ValueHandle {
-  fn new(mut value: Value) -> Self {
+  pub fn new(mut value: Value) -> Self {
     if value.is_ptr() {
       value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
     }
@@ -74,10 +74,19 @@ impl Into<HashSet<u64>> for Marker {
 }
 
 impl Gc {
-  pub fn clean(&mut self, current_frame: &StackFrame, stack_frames: &Vec<StackFrame>) -> usize {
+  pub fn clean<'v>(
+    &mut self,
+    current_frame: &StackFrame,
+    stack_frames: &Vec<StackFrame>,
+    cached_values: impl IntoIterator<Item = &'v Value>,
+  ) -> usize {
     let mut cleaned = 0;
 
     let mut marked_allocations = Marker::default();
+
+    for value in cached_values {
+      marked_allocations.trace(value);
+    }
 
     for value in &current_frame.stack {
       marked_allocations.trace(value);
@@ -315,7 +324,7 @@ mod tests {
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default());
+    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []);
     assert_eq!(cleaned, 1);
   }
 
@@ -331,7 +340,7 @@ mod tests {
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default());
+    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []);
     assert_eq!(cleaned, 1);
   }
 }

@@ -1,8 +1,9 @@
 use crate::{
   code::{Compiler, ConstantValue, Context, Env, OpCodeReflection, Opcode, StackFrame, Yield},
   dbg::{Cli, RuntimeError},
-  memory::{Allocation, Gc},
+  memory::{Allocation, Gc, ValueHandle},
   prelude::Library,
+  util::{FileIdType, FileMetadata, PlatformMetadata},
   value::prelude::*,
   UnwrapAnd,
 };
@@ -39,7 +40,23 @@ pub enum Return {
   Yield(Yield),
 }
 
-const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(0);
+pub(crate) struct FileInfo {
+  path: PathBuf,
+  id: FileIdType,
+  frame: usize,
+}
+
+impl FileInfo {
+  fn new(path: PathBuf, id: FileIdType, frame: usize) -> Self {
+    Self { path, id, frame }
+  }
+}
+
+#[cfg(test)]
+const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(100);
+
+#[cfg(not(test))]
+const DEFAULT_GC_FREQUENCY: Duration = Duration::from_millis(16);
 
 pub struct Vm {
   // Don't get rid of current_frame in favor of the vec of stack frames
@@ -52,10 +69,11 @@ pub struct Vm {
   args: Vec<String>,
   libs: Library,
 
-  // usize for what frame to pop on, string for file path
-  opened_files: Vec<(usize, PathBuf)>,
+  lib_cache: BTreeMap<FileIdType, ValueHandle>,
 
-  opened_libs: BTreeMap<PathBuf, Container<NativeApi>>,
+  // usize for what frame to pop on, string for file path
+  opened_files: Vec<FileInfo>,
+  opened_native_libs: BTreeMap<PathBuf, Container<NativeApi>>,
 
   next_gc: Instant,
 }
@@ -63,13 +81,14 @@ pub struct Vm {
 impl Vm {
   pub fn new(args: impl Into<Vec<String>>, libs: Library) -> Self {
     Self {
-      args: args.into(),
-      libs,
       current_frame: Default::default(),
       stack_frames: Default::default(),
       gc: Default::default(),
+      args: args.into(),
+      libs,
+      lib_cache: Default::default(),
       opened_files: Default::default(),
-      opened_libs: Default::default(),
+      opened_native_libs: Default::default(),
       next_gc: Instant::now() + DEFAULT_GC_FREQUENCY,
     }
   }
@@ -124,7 +143,10 @@ impl Vm {
       }
     }
 
-    self.opened_files = vec![(0, file.into())];
+    let file = file.into();
+    let id = PlatformMetadata::id_of(&file).unwrap_or(0);
+
+    self.opened_files = vec![FileInfo::new(file, id, 0)];
     self.reinitialize(ctx);
     self.execute()
   }
@@ -356,8 +378,10 @@ impl Vm {
       // if executing at the stack frame that required this file, pop it as we're exiting the file
       // repl isn't an opened file therefore have to check for Some
       if let Some(last_file) = self.opened_files.last() {
-        if last_file.0 == self.stack_frames.len() {
-          self.opened_files.pop();
+        if last_file.frame == self.stack_frames.len() {
+          if let Some(info) = self.opened_files.pop() {
+            self.lib_cache.insert(info.id, ValueHandle::new(output.clone()));
+          }
         }
       }
 
@@ -715,7 +739,7 @@ impl Vm {
       let mut attempts = Vec::with_capacity(10);
 
       let file_str = value.to_string();
-      let this_file = self.opened_files.last().map(|f| f.1.clone());
+      let this_file = self.opened_files.last().map(|f| f.path.clone());
 
       let required_file = PathBuf::from(file_str.as_str());
 
@@ -775,33 +799,47 @@ impl Vm {
       }
 
       if let Some(found_file) = found_file {
+        let id = PlatformMetadata::id_of(&found_file)
+          .map_err(|e| self.error(opcode, format!("failed to get file info of {}: {}", found_file.display(), e)))?;
+
         match found_file.extension().and_then(|s| s.to_str()) {
           Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-            let lib: Container<NativeApi> =
-              unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
+            let value = if let Some(handle) = self.lib_cache.get(&id) {
+              handle.value.clone()
+            } else {
+              let lib: Container<NativeApi> =
+                unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
-            let value = lib.simple_script_load_module(self).map_err(|e| self.error(opcode, e))?;
+              let value = lib.simple_script_load_module(self).map_err(|e| self.error(opcode, e))?;
+              self.opened_native_libs.insert(found_file, lib);
+              self.lib_cache.insert(id, ValueHandle::new(value.clone()));
+              value
+            };
 
             self.stack_push(value);
 
-            self.opened_libs.insert(found_file, lib);
             Ok(())
           }
           _ => match fs::read_to_string(&found_file) {
             Ok(data) => {
-              let env = SmartPtr::new(Env::initialize(&mut self.gc, &self.args, self.libs.clone()));
-              let new_ctx = Compiler::compile(found_file.clone(), &data, env)?;
+              if let Some(handle) = self.lib_cache.get(&id) {
+                println!("found value: {:?}", handle.value);
+                self.stack_push(handle.value.clone());
+              } else {
+                let env = SmartPtr::new(Env::initialize(&mut self.gc, &self.args, self.libs.clone()));
+                let new_ctx = Compiler::compile(found_file.clone(), &data, env)?;
 
-              #[cfg(feature = "disassemble")]
-              {
-                println!("!!!!! ENTERING {} !!!!!", found_file.display());
-                new_ctx.disassemble();
-                println!("!!!!! LEAVING  {} !!!!!", found_file.display());
+                #[cfg(feature = "disassemble")]
+                {
+                  println!("!!!!! ENTERING {} !!!!!", found_file.display());
+                  new_ctx.disassemble();
+                  println!("!!!!! LEAVING  {} !!!!!", found_file.display());
+                }
+
+                self.new_frame(new_ctx);
+
+                self.opened_files.push(FileInfo::new(found_file, id, self.stack_frames.len()));
               }
-
-              self.new_frame(new_ctx);
-
-              self.opened_files.push((self.stack_frames.len(), found_file));
 
               Ok(())
             }
@@ -1006,7 +1044,11 @@ impl Vm {
   pub fn run_gc(&mut self) {
     let now = Instant::now();
     self.next_gc = now + DEFAULT_GC_FREQUENCY;
-    self.gc.clean(&self.current_frame, &self.stack_frames);
+    self.gc.clean(
+      &self.current_frame,
+      &self.stack_frames,
+      self.lib_cache.values().map(|h| &h.value),
+    );
   }
 
   #[cold]

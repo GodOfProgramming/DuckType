@@ -1,4 +1,5 @@
 use crate::{
+  exec::FileInfo,
   memory::{Allocation, Gc},
   prelude::*,
 };
@@ -615,11 +616,11 @@ impl StackFrame {
 pub struct Yield {
   pub current_frame: StackFrame,
   pub stack_frames: Vec<StackFrame>,
-  pub opened_files: Vec<(usize, PathBuf)>,
+  pub(crate) opened_files: Vec<FileInfo>,
 }
 
 impl Yield {
-  pub fn new(current_frame: StackFrame, stack_frames: Vec<StackFrame>, opened_files: Vec<(usize, PathBuf)>) -> Self {
+  pub(crate) fn new(current_frame: StackFrame, stack_frames: Vec<StackFrame>, opened_files: Vec<FileInfo>) -> Self {
     Self {
       current_frame,
       stack_frames,
