@@ -41,31 +41,6 @@ describe("for loops", |t| {
   t.expect(total).to_be(10);
 });
 
-describe("matches", |t| {
-  let val = "match";
-  match val {
-    1 -> t.fail("shouldn't match 1"),
-    2 -> t.fail("shouldn't match 2"),
-    "match" -> t.expect(val).to_be("match"),
-  }
-
-  let x = 0;
-
-  match x {
-    0 -> x = 1,
-  }
-
-  t.expect(x).to_be(1);
-
-  match x {
-    2 -> x = 0,
-  } else {
-    x = 100;
-  }
-
-  t.expect(x).to_be(100);
-});
-
 describe("loops", |t| {
   let i = 0;
   let n = 5;

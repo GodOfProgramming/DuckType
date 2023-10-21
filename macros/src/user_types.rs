@@ -156,7 +156,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
   let mut method_lambda_bodies = Vec::new();
   for method in methods {
     if method.receiver.reference.is_some() {
-      let nargs = method.nargs - 1;
+      let nargs = method.nargs;
       let name = method.name;
       let name_str = Literal::string(&name.to_string());
       let args = common::make_arg_list(nargs, &name_str);
@@ -167,7 +167,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
               if let Some(mut this) = args.list.pop() {
                 if let Some(this) = this.cast_to_mut::<#me>() {
                   let mut args = args.into_iter();
-                  let output = #me::#name(this, &mut vm.gc, #args)?;
+                  let output = #me::#name(this, #args)?;
                   Ok(vm.gc.allocate(output))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
@@ -187,7 +187,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
               if let Some(this) = args.list.pop() {
                 if let Some(this) = this.cast_to::<#me>() {
                   let mut args = args.into_iter();
-                  let output = #me::#name(this, &mut vm.gc, #args)?;
+                  let output = #me::#name(this, #args)?;
                   Ok(vm.gc.allocate(output))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
@@ -211,7 +211,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
 
   let mut static_lambda_bodies = Vec::new();
   for static_method in statics {
-    let nargs = static_method.nargs - 1;
+    let nargs = static_method.nargs;
     let name = static_method.name;
     let name_str = Literal::string(&name.to_string());
     let args = common::make_arg_list(nargs, name_str);
@@ -220,7 +220,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       Value::native(|vm, args| {
         if args.list.len() == #nargs {
           let mut args = args.into_iter();
-          let output = #me::#name(gc, #args)?;
+          let output = #me::#name(#args)?;
           Ok(vm.gc.allocate(output))
         } else {
           Err(ValueError::ArgumentError(args.list.len(), #nargs))

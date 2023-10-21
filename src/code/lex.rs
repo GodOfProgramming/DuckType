@@ -215,8 +215,6 @@ impl<'src> Scanner<'src> {
           '-' => {
             if self.advance_if_match('=') {
               Token::MinusEqual
-            } else if self.advance_if_match('>') {
-              Token::Arrow
             } else {
               Token::Minus
             }
@@ -252,6 +250,8 @@ impl<'src> Scanner<'src> {
           '=' => {
             if self.advance_if_match('=') {
               Token::EqualEqual
+            } else if self.advance_if_match('>') {
+              Token::Arrow
             } else {
               Token::Equal
             }

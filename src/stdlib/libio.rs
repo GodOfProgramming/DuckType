@@ -37,7 +37,7 @@ impl File {
     Err(ValueError::Infallible)
   }
 
-  fn read(&mut self, _gc: &mut Gc) -> ValueResult<String> {
+  fn read(&mut self) -> ValueResult<String> {
     if let Some(file) = &mut self.internal {
       let mut out = String::new();
 

@@ -12,36 +12,36 @@ pub struct StringValue {
 
 #[methods]
 impl StringValue {
-  fn len(&self, _gc: &mut Gc) -> ValueResult<i32> {
+  fn len(&self) -> ValueResult<i32> {
     Ok(self.str.len() as i32)
   }
 
-  fn replace_with(&mut self, _gc: &mut Gc, other: &Self) -> ValueResult<()> {
+  fn replace_with(&mut self, other: &Self) -> ValueResult<()> {
     self.str = other.str.clone();
     Ok(())
   }
 
-  fn clone(&self, _gc: &mut Gc) -> ValueResult<Self> {
+  fn clone(&self) -> ValueResult<Self> {
     Ok(Self { str: self.str.clone() })
   }
 
-  fn reverse(&self, _gc: &mut Gc) -> ValueResult<Self> {
+  fn reverse(&self) -> ValueResult<Self> {
     Ok(Self {
       str: self.str.chars().rev().collect::<String>(),
     })
   }
 
-  fn __add__(&self, _gc: &mut Gc, other: Value) -> ValueResult<Self> {
+  fn __add__(&self, other: Value) -> ValueResult<Self> {
     Ok(Self {
       str: format!("{}{}", self, other),
     })
   }
 
-  fn __eq__(&self, _gc: &mut Gc, other: &Self) -> ValueResult<bool> {
+  fn __eq__(&self, other: &Self) -> ValueResult<bool> {
     Ok(self.str == other.str)
   }
 
-  fn __index__(&self, _gc: &mut Gc, index: i32) -> ValueResult {
+  fn __index__(&self, index: i32) -> ValueResult {
     Ok(self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default())
   }
 
