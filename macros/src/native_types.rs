@@ -8,7 +8,7 @@ pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
   let name_str = ident.to_string();
   let nargs = common::count_args!(item);
 
-  let args = common::make_arg_list(nargs - with_vm.then_some(1).unwrap_or(0), name_str);
+  let args = common::make_arg_list(nargs - if with_vm { 1 } else { 0 }, name_str);
 
   let call_expr = if with_vm {
     quote! {
@@ -25,7 +25,7 @@ pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
       #item
 
       if args.list.len() == #nargs {
-        let mut args = args.into_iter();
+        let mut args = args.into_arg_iter();
         let output = #call_expr?;
         let value = vm.gc.allocate(output);
         Ok(value)
@@ -91,8 +91,7 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
       // have mod foo;
       // need mod foo {}
       return syn::Error::new_spanned(mod_name, "mod impl must be implemented in the same file as it was declared")
-        .into_compile_error()
-        .into();
+        .into_compile_error();
     }
     Err(e) => return e,
   };

@@ -28,7 +28,8 @@ impl UsertypeFields for InstanceValue {
     if field == "__class__" {
       Err(ValueError::Immutable(field.to_string()))
     } else {
-      Ok(self.data.set(field, value))
+      self.data.set(field, value);
+      Ok(())
     }
   }
 }

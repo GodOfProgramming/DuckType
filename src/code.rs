@@ -165,7 +165,7 @@ impl Compiler {
     generator.generate(ast).map_err(|errs| Self::reformat_errors(&source, errs))
   }
 
-  fn reformat_errors<'file>(source: &str, errs: Vec<RuntimeError>) -> Vec<RuntimeError> {
+  fn reformat_errors(source: &str, errs: Vec<RuntimeError>) -> Vec<RuntimeError> {
     errs
       .into_iter()
       .map(|mut e| {
@@ -456,7 +456,7 @@ impl Context {
 
   pub fn display_opcodes(&self) {
     let default = self.id.to_string();
-    let name = self.name.as_ref().unwrap_or_else(|| &default);
+    let name = self.name.as_ref().unwrap_or(&default);
     println!(">>>>>> {} <<<<<<", name);
 
     for (i, op) in self.instructions.iter().enumerate() {
@@ -663,7 +663,7 @@ impl Env {
       module.set(gc, "path", lib_paths).ok();
     });
 
-    env.assign("$LIBRARY", module.into());
+    env.assign("$LIBRARY", module);
 
     env
   }
@@ -689,7 +689,7 @@ impl Env {
     self.vars.get(name.as_ref()).cloned()
   }
 
-  pub fn iter<'a>(&'a self) -> Iter<'a, String, Value> {
+  pub fn iter(&self) -> Iter<'_, String, Value> {
     self.vars.iter()
   }
 
@@ -720,7 +720,7 @@ impl Reflection {
     self.opcode_info.push(OpCodeInfo { line, column });
   }
 
-  pub fn get<'src>(&'src self, offset: usize) -> Option<OpCodeReflection<'src>> {
+  pub fn get(&self, offset: usize) -> Option<OpCodeReflection<'_>> {
     if let Some(info) = self.opcode_info.get(offset).cloned() {
       self.source.lines().nth(info.line - 1).map(|src| OpCodeReflection {
         file: Rc::clone(&self.file),

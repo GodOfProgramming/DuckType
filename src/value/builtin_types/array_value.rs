@@ -25,8 +25,8 @@ impl ArrayValue {
 
 #[methods]
 impl ArrayValue {
-  fn __new__(args: &Vec<Value>) -> ValueResult<ArrayValue> {
-    Ok(ArrayValue::new_from_vec(args.clone()))
+  fn __new__(args: &[Value]) -> ValueResult<ArrayValue> {
+    Ok(ArrayValue::new_from_vec(args.to_owned()))
   }
 
   fn push(&mut self, value: Value) -> ValueResult<()> {

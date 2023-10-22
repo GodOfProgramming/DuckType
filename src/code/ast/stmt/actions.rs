@@ -30,11 +30,12 @@ impl AstStatement for ExportStatement {
     ast.meta_at::<1>().unwrap_and(|loc| {
       if let Some(current) = ast.current() {
         if let Some(expr) = ast.expression() {
-          if !matches!(current, Token::Mod | Token::Class | Token::Fn) {
-            if !ast.consume(Token::Semicolon, "expected ';' after expression") {
-              return;
-            }
+          if !matches!(current, Token::Mod | Token::Class | Token::Fn)
+            && !ast.consume(Token::Semicolon, "expected ';' after expression")
+          {
+            return;
           }
+
           ast.statements.push(Statement::from(Self::new(expr, loc)));
         }
       }

@@ -20,9 +20,7 @@ pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal
       match env::var(&envvar) {
         Ok(uuid_value) => Literal::string(&uuid_value),
         Err(e) => {
-          return TokenStream::from(
-            syn::Error::new_spanned(name, format!("Error looking up env var {}: {}", envvar, e)).to_compile_error(),
-          )
+          return syn::Error::new_spanned(name, format!("Error looking up env var {}: {}", envvar, e)).to_compile_error();
         }
       }
     }
@@ -61,12 +59,12 @@ pub(crate) fn derive_fields(struct_def: ItemStruct) -> TokenStream {
 
   if let Fields::Named(fields) = &struct_def.fields {
     for field in &fields.named {
-      if field.attrs.iter().find(|attr| attr.path.is_ident("field")).is_some() {
+      if field.attrs.iter().any(|attr| attr.path.is_ident("field")) {
         idents.push(field.ident.clone().unwrap());
       }
     }
   } else {
-    return TokenStream::from(syn::Error::new_spanned(struct_def.fields, "not a valid class field").to_compile_error());
+    return syn::Error::new_spanned(struct_def.fields, "not a valid class field").to_compile_error();
   }
 
   let ident_strs = idents
@@ -166,7 +164,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
             if args.list.len() == #nargs + 1 {
               if let Some(mut this) = args.list.pop() {
                 if let Some(this) = this.cast_to_mut::<#me>() {
-                  let mut args = args.into_iter();
+                  let mut args = args.into_arg_iter();
                   let output = #me::#name(this, #args)?;
                   Ok(vm.gc.allocate(output))
                 } else {
@@ -186,7 +184,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
             if args.list.len() == #nargs + 1 {
               if let Some(this) = args.list.pop() {
                 if let Some(this) = this.cast_to::<#me>() {
-                  let mut args = args.into_iter();
+                  let mut args = args.into_arg_iter();
                   let output = #me::#name(this, #args)?;
                   Ok(vm.gc.allocate(output))
                 } else {
@@ -202,10 +200,8 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         });
       }
     } else {
-      return TokenStream::from(
-        syn::Error::new_spanned(method.name, "cannot impl method for fn signature not taking self reference")
-          .into_compile_error(),
-      );
+      return syn::Error::new_spanned(method.name, "cannot impl method for fn signature not taking self reference")
+        .into_compile_error();
     }
   }
 
@@ -219,7 +215,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     static_lambda_bodies.push(quote! {
       Value::native(|vm, args| {
         if args.list.len() == #nargs {
-          let mut args = args.into_iter();
+          let mut args = args.into_arg_iter();
           let output = #me::#name(#args)?;
           Ok(vm.gc.allocate(output))
         } else {
@@ -240,7 +236,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
           #constructor
 
           if args.list.len() == #nargs {
-            let mut args = args.into_iter();
+            let mut args = args.into_arg_iter();
             let output = #name(#args)?;
             Ok(vm.gc.allocate(output))
           } else {

@@ -62,19 +62,13 @@ impl Display for StringValue {
 
 impl From<String> for StringValue {
   fn from(str: String) -> Self {
-    Self {
-      str,
-      ..Default::default()
-    }
+    Self { str }
   }
 }
 
 impl From<&str> for StringValue {
   fn from(str: &str) -> Self {
-    Self {
-      str: str.to_string(),
-      ..Default::default()
-    }
+    Self { str: str.to_string() }
   }
 }
 

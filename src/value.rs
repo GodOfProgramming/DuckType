@@ -335,7 +335,7 @@ impl Value {
   }
 
   pub fn as_native_fn_unchecked(&self) -> NativeFn {
-    unsafe { mem::transmute((self.bits & VALUE_BITMASK) as u64) }
+    unsafe { mem::transmute(self.bits & VALUE_BITMASK) }
   }
 
   // -- native closure
@@ -629,6 +629,12 @@ impl MaybeFrom<Value> for i32 {
 impl MaybeFrom<Value> for &'static Vec<Value> {
   fn maybe_from(value: Value) -> Option<Self> {
     value.as_array().map(|a| &**a)
+  }
+}
+
+impl MaybeFrom<Value> for &[Value] {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.as_array().map(|a| &***a)
   }
 }
 

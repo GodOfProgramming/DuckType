@@ -70,7 +70,7 @@ pub fn native(args: TokenStream, input: TokenStream) -> TokenStream {
       let have_args = !args.is_empty();
       let with_vm = if have_args {
         let args: Ident = parse_macro_input!(args as Ident);
-        args.to_string() == "with_vm"
+        args == "with_vm"
       } else {
         false
       };
@@ -86,5 +86,5 @@ pub fn native(args: TokenStream, input: TokenStream) -> TokenStream {
 
 #[allow(unused)]
 fn message(location: impl ToTokens, msg: impl Into<String>) -> proc_macro2::TokenStream {
-  return syn::Error::new_spanned(location, msg.into()).to_compile_error();
+  syn::Error::new_spanned(location, msg.into()).to_compile_error()
 }

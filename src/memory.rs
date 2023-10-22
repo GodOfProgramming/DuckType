@@ -1,5 +1,5 @@
 use crate::{
-  code::{ast::IfStatement, StackFrame},
+  code::StackFrame,
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
 };
@@ -67,9 +67,9 @@ impl Marker {
   }
 }
 
-impl Into<HashSet<u64>> for Marker {
-  fn into(self) -> HashSet<u64> {
-    self.marked_values
+impl From<Marker> for HashSet<u64> {
+  fn from(value: Marker) -> Self {
+    value.marked_values
   }
 }
 

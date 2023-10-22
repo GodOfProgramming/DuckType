@@ -458,7 +458,7 @@ impl Vm {
 
   fn exec_lookup_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
-      if let Some(global) = this.env().lookup(&name) {
+      if let Some(global) = this.env().lookup(name) {
         this.stack_push(global);
         Ok(())
       } else {
@@ -542,7 +542,7 @@ impl Vm {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
             obj
-              .assign(&mut self.gc, &name, value.clone())
+              .assign(&mut self.gc, name, value.clone())
               .map_err(|e| self.error(opcode, e))?;
             self.stack_push(value);
             Ok(())
@@ -645,28 +645,24 @@ impl Vm {
     }
   }
 
-  fn exec_arith<F: FnOnce(Value, Value) -> ValueResult>(&mut self, opcode: &Opcode, f: F) -> ExecResult {
-    self.binary_op(opcode, |a, b| f(a, b))
-  }
-
   fn exec_add(&mut self, opcode: &Opcode) -> ExecResult {
-    self.exec_arith(opcode, |a, b| a + b)
+    self.binary_op(opcode, |a, b| a + b)
   }
 
   fn exec_sub(&mut self, opcode: &Opcode) -> ExecResult {
-    self.exec_arith(opcode, |a, b| a - b)
+    self.binary_op(opcode, |a, b| a - b)
   }
 
   fn exec_mul(&mut self, opcode: &Opcode) -> ExecResult {
-    self.exec_arith(opcode, |a, b| a * b)
+    self.binary_op(opcode, |a, b| a * b)
   }
 
   fn exec_div(&mut self, opcode: &Opcode) -> ExecResult {
-    self.exec_arith(opcode, |a, b| a / b)
+    self.binary_op(opcode, |a, b| a / b)
   }
 
   fn exec_rem(&mut self, opcode: &Opcode) -> ExecResult {
-    self.exec_arith(opcode, |a, b| a % b)
+    self.binary_op(opcode, |a, b| a % b)
   }
 
   /// when f evaluates to true, short circuit
@@ -746,7 +742,7 @@ impl Vm {
       let mut found_file = None;
 
       fn try_to_find_file(root: &Path, desired: &PathBuf, attempts: &mut Vec<PathBuf>) -> Option<PathBuf> {
-        let direct = root.join(&desired);
+        let direct = root.join(desired);
         if direct.exists() {
           return Some(direct);
         }
@@ -768,10 +764,7 @@ impl Vm {
       }
 
       // find relative first, skip if None, None will be during repl so go to cwd
-      if let Some(this_dir) = this_file
-        .map(|this_file| this_file.parent().map(|p| p.to_path_buf()))
-        .flatten()
-      {
+      if let Some(this_dir) = this_file.and_then(|this_file| this_file.parent().map(|p| p.to_path_buf())) {
         found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
       }
 

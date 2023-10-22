@@ -5,8 +5,6 @@ mod ops;
 use horrorshow::{html, prelude::*};
 use std::fmt::{Display, Formatter};
 
-use super::{Ident, Statement};
-use crate::code::SourceLocation;
 pub use literals::*;
 pub use ops::*;
 

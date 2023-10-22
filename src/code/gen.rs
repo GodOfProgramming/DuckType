@@ -845,9 +845,7 @@ impl BytecodeGenerator {
           }
         }
 
-        if index > 0 {
-          index -= 1;
-        }
+        index = index.saturating_sub(1);
       }
     }
 

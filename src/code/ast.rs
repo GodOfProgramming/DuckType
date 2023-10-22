@@ -5,8 +5,7 @@ use super::{lex::Token, SourceLocation};
 use crate::{prelude::*, UnwrapAnd};
 pub use expr::*;
 use std::{
-  collections::BTreeSet,
-  fmt::{Binary, Display, Formatter, Result as FmtResult},
+  fmt::{Display, Formatter, Result as FmtResult},
   mem,
   rc::Rc,
 };
@@ -190,11 +189,10 @@ impl AstGenerator {
   /* Statements */
 
   fn breakpoint_stmt(&mut self) {
-    self
-      .meta_at::<0>()
-      .unwrap_and(|meta| self.statements.push(Statement::Breakpoint(meta)));
-    if !self.consume(Token::Semicolon, "expected ';' after value") {
-      return;
+    if self.consume(Token::Semicolon, "expected ';' after value") {
+      self
+        .meta_at::<1>()
+        .unwrap_and(|meta| self.statements.push(Statement::Breakpoint(meta)));
     }
   }
 
@@ -516,7 +514,7 @@ impl AstGenerator {
     if self.consume(terminator, "expected terminator after parameters") {
       Some(Params::from((found_self, params.into_iter().map(Ident::new).collect())))
     } else {
-      return None;
+      None
     }
   }
 
@@ -763,7 +761,7 @@ impl Ident {
     let name = name.into();
     Self {
       global: matches!(name.chars().next(), Some('$')),
-      name: name,
+      name,
     }
   }
 

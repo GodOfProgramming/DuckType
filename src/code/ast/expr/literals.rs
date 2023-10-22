@@ -441,10 +441,8 @@ impl ModExpression {
               Expression::from(IdentExpression::new(Ident::new(ident), member_loc)),
             ))
           }
-          if !matches!(ast.current(), Some(Token::RightBrace)) {
-            if !ast.consume(Token::Comma, "expected ',' after expression") {
-              return None;
-            }
+          if !matches!(ast.current(), Some(Token::RightBrace)) && !ast.consume(Token::Comma, "expected ',' after expression") {
+            return None;
           }
         }
         Token::Mod => {
