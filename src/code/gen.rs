@@ -125,7 +125,7 @@ impl BytecodeGenerator {
     self.emit(Opcode::RetValue, stmt.loc);
   }
 
-  fn export_stmt(&mut self, stmt: ExportStmt) {
+  fn export_stmt(&mut self, stmt: ExportStatement) {
     if self.scope_depth == 0 {
       self.emit_expr(stmt.expr);
       self.emit(Opcode::Export, stmt.loc);
@@ -136,7 +136,7 @@ impl BytecodeGenerator {
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
     if self.scope_depth > 0 {
-      self.error(stmt.loc, "functions must be declared at the surface scope");
+      self.error(stmt.loc, "functions must be declared at the surface scope, or use a lambda");
       return;
     }
 
@@ -252,20 +252,37 @@ impl BytecodeGenerator {
     self.emit(Opcode::Print, stmt.loc);
   }
 
-  fn ret_stmt(&mut self, stmt: RetStatement) {
+  fn req_stmt(&mut self, stmt: ReqStatement) {
     if self.scope_depth != 0 {
-      if let Some(expr) = stmt.expr {
-        self.emit_expr(expr);
-        self.emit(Opcode::RetValue, stmt.loc);
-      } else {
-        self.emit(Opcode::Ret, stmt.loc);
-      }
-    } else {
+      self.error(stmt.loc, "req statements can only be used at surface scope");
+      return;
+    }
+
+    let var = self.declare_global(stmt.ident);
+    self.emit_expr(stmt.expr);
+    self.force_define_global(var, stmt.loc);
+  }
+
+  fn ret_stmt(&mut self, stmt: RetStatement) {
+    if self.scope_depth == 0 {
       self.error(stmt.loc, "ret can only be used within functions");
+      return;
+    }
+
+    if let Some(expr) = stmt.expr {
+      self.emit_expr(expr);
+      self.emit(Opcode::RetValue, stmt.loc);
+    } else {
+      self.emit(Opcode::Ret, stmt.loc);
     }
   }
 
   fn use_stmt(&mut self, stmt: UseStatement) {
+    if self.scope_depth != 0 {
+      self.error(stmt.loc, "use cannot be declared inside of scopes");
+      return;
+    }
+
     let initial = stmt.path.first().cloned().unwrap(); // validated in ast
     let var = stmt.path.last().cloned().unwrap(); // validated in ast
     let var_idx = self.declare_global(var);
@@ -527,31 +544,28 @@ impl BytecodeGenerator {
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
     let ident = self.add_const_ident(expr.ident);
     self.emit_expr(*expr.obj);
-    self.emit(Opcode::LookupMember(ident), expr.loc);
-  }
 
-  fn member_assign_expr(&mut self, expr: MemberAssignExpression) {
-    let mut op_assign = |expr: MemberAssignExpression, op| {
-      let ident = self.add_const_ident(expr.ident);
-      self.emit_expr(*expr.obj);
-      self.emit(Opcode::PeekMember(ident), expr.loc.clone());
-      self.emit_expr(*expr.value);
-      self.emit(op, expr.loc.clone());
-      self.emit(Opcode::AssignMember(ident), expr.loc);
-    };
+    if let Some(assignment) = expr.assignment {
+      let mut op_assign = |assignment: Assignment, op, loc: SourceLocation| {
+        self.emit(Opcode::PeekMember(ident), loc.clone());
+        self.emit_expr(*assignment.value);
+        self.emit(op, loc.clone());
+        self.emit(Opcode::AssignMember(ident), loc);
+      };
 
-    match expr.op {
-      AssignOperator::Assign => {
-        let ident = self.add_const_ident(expr.ident);
-        self.emit_expr(*expr.obj);
-        self.emit_expr(*expr.value);
-        self.emit(Opcode::AssignMember(ident), expr.loc);
+      match assignment.op {
+        AssignOperator::Assign => {
+          self.emit_expr(*assignment.value);
+          self.emit(Opcode::AssignMember(ident), expr.loc);
+        }
+        AssignOperator::Add => op_assign(assignment, Opcode::Add, expr.loc),
+        AssignOperator::Sub => op_assign(assignment, Opcode::Sub, expr.loc),
+        AssignOperator::Mul => op_assign(assignment, Opcode::Mul, expr.loc),
+        AssignOperator::Div => op_assign(assignment, Opcode::Div, expr.loc),
+        AssignOperator::Mod => op_assign(assignment, Opcode::Rem, expr.loc),
       }
-      AssignOperator::Add => op_assign(expr, Opcode::Add),
-      AssignOperator::Sub => op_assign(expr, Opcode::Sub),
-      AssignOperator::Mul => op_assign(expr, Opcode::Mul),
-      AssignOperator::Div => op_assign(expr, Opcode::Div),
-      AssignOperator::Mod => op_assign(expr, Opcode::Rem),
+    } else {
+      self.emit(Opcode::LookupMember(ident), expr.loc);
     }
   }
 
@@ -586,6 +600,7 @@ impl BytecodeGenerator {
       Statement::Match(stmt) => self.match_stmt(stmt),
       Statement::Mod(stmt) => self.mod_stmt(stmt),
       Statement::Print(stmt) => self.print_stmt(stmt),
+      Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::Use(stmt) => self.use_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
@@ -610,7 +625,6 @@ impl BytecodeGenerator {
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::MemberAccess(expr) => self.member_access_expr(expr),
-      Expression::MemberAssign(expr) => self.member_assign_expr(expr),
       Expression::Call(expr) => self.call_expr(expr),
       Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
@@ -831,9 +845,7 @@ impl BytecodeGenerator {
           }
         }
 
-        if index > 0 {
-          index -= 1;
-        }
+        index = index.saturating_sub(1);
       }
     }
 

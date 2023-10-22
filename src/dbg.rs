@@ -43,10 +43,19 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
+  pub fn fail_on_start(file: Rc<PathBuf>, msg: impl ToString) -> Self {
+    Self {
+      file: Rc::clone(&file),
+      msg: msg.to_string(),
+      line: 0,
+      column: 0,
+    }
+  }
+
   pub fn from_ref<M: ToString>(msg: M, opcode: &Opcode, opcode_ref: OpCodeReflection) -> Self {
     let mut err = Self {
       msg: msg.to_string(),
-      file: opcode_ref.file.clone(),
+      file: Rc::clone(&opcode_ref.file),
       line: opcode_ref.line,
       column: opcode_ref.column,
     };

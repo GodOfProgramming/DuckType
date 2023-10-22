@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 require 'time'
 
 def benchmark(descriptor, reps)
@@ -24,7 +26,7 @@ x = 0
 
 benchmark('simple math', REPS) do |i|
   i += 1
-  x += i + i * i / i % i
+  x += 1 + 2 * 3 / 4 % i
 end
 
 def simple_function

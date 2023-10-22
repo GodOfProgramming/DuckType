@@ -8,7 +8,7 @@ use quote::ToTokens;
 use syn::{
   parenthesized,
   parse::{Parse, ParseStream},
-  parse_macro_input, Item, ItemImpl, ItemStruct,
+  parse_macro_input, Ident, Item, ItemImpl, ItemStruct,
 };
 
 struct UuidAttr {
@@ -63,10 +63,19 @@ pub fn methods(_args: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn native(_args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn native(args: TokenStream, input: TokenStream) -> TokenStream {
   let item: Item = parse_macro_input!(input as Item);
   match item {
-    Item::Fn(item) => native_types::native_fn(&item),
+    Item::Fn(item) => {
+      let have_args = !args.is_empty();
+      let with_vm = if have_args {
+        let args: Ident = parse_macro_input!(args as Ident);
+        args == "with_vm"
+      } else {
+        false
+      };
+      native_types::native_fn(&item, with_vm)
+    }
     Item::Mod(item) => native_types::native_mod(item),
     thing => {
       syn::Error::new_spanned(thing, "cannot impl method for fn signature not taking self reference").into_compile_error()
@@ -77,5 +86,5 @@ pub fn native(_args: TokenStream, input: TokenStream) -> TokenStream {
 
 #[allow(unused)]
 fn message(location: impl ToTokens, msg: impl Into<String>) -> proc_macro2::TokenStream {
-  return syn::Error::new_spanned(location, msg.into()).to_compile_error();
+  syn::Error::new_spanned(location, msg.into()).to_compile_error()
 }

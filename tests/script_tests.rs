@@ -66,7 +66,7 @@ mod tests {
     let mut ctx = t.vm.load("test", SCRIPT, env).unwrap();
 
     #[native]
-    fn make_leaker(_vm: &mut Vm) -> ValueResult<Leaker> {
+    fn make_leaker() -> ValueResult<Leaker> {
       Ok(Leaker {
         b: unsafe { &mut B },
         this: Value::nil,

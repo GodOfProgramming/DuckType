@@ -10,8 +10,7 @@ pub const I32_TAG: u64 = make_tag::<1>();
 pub const BOOL_TAG: u64 = make_tag::<2>();
 pub const CHAR_TAG: u64 = make_tag::<3>();
 pub const FN_TAG: u64 = make_tag::<4>();
-pub const NATIVE_CLASS_TAG: u64 = make_tag::<5>();
-pub const POINTER_TAG: u64 = make_tag::<6>();
+pub const POINTER_TAG: u64 = make_tag::<5>();
 pub const NIL_TAG: u64 = make_tag::<7>();
 
 #[repr(u64)]
@@ -22,7 +21,6 @@ pub enum Tag {
   Bool = BOOL_TAG,
   Char = CHAR_TAG,
   NativeFn = FN_TAG,
-  NativeClass = NATIVE_CLASS_TAG,
   Pointer = POINTER_TAG,
   Nil = NIL_TAG,
 }

@@ -3,12 +3,14 @@ use simple_script::prelude::*;
 
 #[native]
 mod example_module {
-  fn test_function(_: &mut Vm, item: &StringValue) -> ValueResult<()> {
+  #[native]
+  fn test_function(item: &StringValue) -> ValueResult<()> {
     println!("{}", item);
     Ok(())
   }
 
-  fn test_clear(_: &mut Vm, item: &mut StringValue) -> ValueResult<String> {
+  #[native]
+  fn test_clear(item: &mut StringValue) -> ValueResult<String> {
     let old = item.clone();
     *item = StringValue::default();
     Ok(old)

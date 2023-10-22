@@ -188,7 +188,7 @@ impl Args {
     self.list.len()
   }
 
-  pub fn into_iter(self) -> ArgIter {
+  pub fn into_arg_iter(self) -> ArgIter {
     ArgIter {
       items: self.list.into_iter(),
     }

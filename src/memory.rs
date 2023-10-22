@@ -11,12 +11,17 @@ use std::{
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
+// TODO this needs to hold a reference to the gc
+// so that when it's dropped it can remove itself
+// from the list of native handles
+// gc will need this so that values that only exist in native code
+// and are children of a root don't get garbage collected
 pub struct ValueHandle {
-  value: Value,
+  pub(crate) value: Value,
 }
 
 impl ValueHandle {
-  fn new(mut value: Value) -> Self {
+  pub fn new(mut value: Value) -> Self {
     if value.is_ptr() {
       value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
     }
@@ -67,17 +72,26 @@ impl Marker {
   }
 }
 
-impl Into<HashSet<u64>> for Marker {
-  fn into(self) -> HashSet<u64> {
-    self.marked_values
+impl From<Marker> for HashSet<u64> {
+  fn from(value: Marker) -> Self {
+    value.marked_values
   }
 }
 
 impl Gc {
-  pub fn clean(&mut self, current_frame: &StackFrame, stack_frames: &Vec<StackFrame>) -> usize {
+  pub fn clean<'v>(
+    &mut self,
+    current_frame: &StackFrame,
+    stack_frames: &Vec<StackFrame>,
+    cached_values: impl IntoIterator<Item = &'v Value>,
+  ) -> usize {
     let mut cleaned = 0;
 
     let mut marked_allocations = Marker::default();
+
+    for value in cached_values {
+      marked_allocations.trace(value);
+    }
 
     for value in &current_frame.stack {
       marked_allocations.trace(value);
@@ -259,7 +273,17 @@ impl Allocation<&[Value]> for Gc {
 
 impl Allocation<Vec<Value>> for Gc {
   fn allocate(&mut self, value: Vec<Value>) -> Value {
-    self.allocate_usertype(ArrayValue::new_from_vec(&value))
+    self.allocate_usertype(ArrayValue::new_from_vec(value))
+  }
+}
+
+impl<T> Allocation<Vec<T>> for Gc
+where
+  T: Usertype,
+{
+  fn allocate(&mut self, value: Vec<T>) -> Value {
+    let list = value.into_iter().map(|v| self.allocate(v)).collect();
+    self.allocate_usertype(ArrayValue::new_from_vec(list))
   }
 }
 
@@ -305,7 +329,7 @@ mod tests {
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default());
+    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []);
     assert_eq!(cleaned, 1);
   }
 
@@ -321,7 +345,7 @@ mod tests {
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default());
+    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []);
     assert_eq!(cleaned, 1);
   }
 }

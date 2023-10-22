@@ -3,31 +3,30 @@ use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{quote, TokenStreamExt};
 use syn::{FnArg, Item, ItemFn, ItemMod, ItemStruct};
 
-struct NativeFn {
-  name: Ident,
-  tokens: TokenStream,
-}
-
-pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
+pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
   let ident = &item.sig.ident;
   let name_str = ident.to_string();
-  let nargs = item
-    .sig
-    .inputs
-    .iter()
-    .filter(|input| matches!(input, FnArg::Typed(_)))
-    .count()
-    - 1;
+  let nargs = common::count_args!(item);
 
-  let args = common::make_arg_list(nargs, name_str);
+  let args = common::make_arg_list(nargs - if with_vm { 1 } else { 0 }, name_str);
+
+  let call_expr = if with_vm {
+    quote! {
+      #ident(vm, #args)
+    }
+  } else {
+    quote! {
+      #ident(#args)
+    }
+  };
 
   quote! {
     fn #ident(vm: &mut Vm, mut args: Args) -> ValueResult {
       #item
 
       if args.list.len() == #nargs {
-        let mut args = args.into_iter();
-        let output = #ident(vm, #args)?;
+        let mut args = args.into_arg_iter();
+        let output = #call_expr?;
         let value = vm.gc.allocate(output);
         Ok(value)
       } else {
@@ -37,14 +36,19 @@ pub(crate) fn native_fn(item: &ItemFn) -> TokenStream {
   }
 }
 
-struct NativeStruct {
+struct FnDef {
+  name: Ident,
+  item: ItemFn,
+}
+
+struct StructDef {
   name: Ident,
   item: ItemStruct,
 }
 
 struct ModuleDef {
-  functions: Vec<NativeFn>,
-  structs: Vec<NativeStruct>,
+  functions: Vec<FnDef>,
+  structs: Vec<StructDef>,
   unchanged: Vec<Item>,
 }
 
@@ -59,12 +63,12 @@ impl TryFrom<Vec<Item>> for ModuleDef {
       match item {
         Item::Fn(item_fn) => {
           let name = item_fn.sig.ident.clone();
-          let native_fn = native_fn(&item_fn);
-          functions.push(NativeFn { name, tokens: native_fn });
+          let item_fn = item_fn;
+          functions.push(FnDef { name, item: item_fn });
         }
         Item::Struct(item_struct) => {
           let name = item_struct.ident.clone();
-          structs.push(NativeStruct { name, item: item_struct })
+          structs.push(StructDef { name, item: item_struct })
         }
         thing => unchanged.push(thing),
       }
@@ -87,8 +91,7 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
       // have mod foo;
       // need mod foo {}
       return syn::Error::new_spanned(mod_name, "mod impl must be implemented in the same file as it was declared")
-        .into_compile_error()
-        .into();
+        .into_compile_error();
     }
     Err(e) => return e,
   };
@@ -125,7 +128,7 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
   }
 }
 
-fn collect_fn_defs(functions: Vec<NativeFn>) -> (TokenStream, Vec<TokenStream>) {
+fn collect_fn_defs(functions: Vec<FnDef>) -> (TokenStream, Vec<ItemFn>) {
   let mut fn_defs = TokenStream::default();
   fn_defs.append_all(functions.iter().map(|native_fn| {
     let native_fn_name = &native_fn.name;
@@ -136,10 +139,10 @@ fn collect_fn_defs(functions: Vec<NativeFn>) -> (TokenStream, Vec<TokenStream>) 
     }
   }));
 
-  (fn_defs, functions.into_iter().map(|f| f.tokens).collect())
+  (fn_defs, functions.into_iter().map(|f| f.item).collect())
 }
 
-fn collect_struct_defs(structs: Vec<NativeStruct>) -> (TokenStream, Vec<ItemStruct>) {
+fn collect_struct_defs(structs: Vec<StructDef>) -> (TokenStream, Vec<ItemStruct>) {
   let mut struct_defs = TokenStream::default();
   struct_defs.append_all(structs.iter().map(|native_struct| {
     let struct_name = &native_struct.name;

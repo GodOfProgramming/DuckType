@@ -5,6 +5,8 @@ pub(crate) mod memory;
 pub(crate) mod stdlib;
 pub(crate) mod value;
 
+mod util;
+
 #[cfg(test)]
 mod test;
 

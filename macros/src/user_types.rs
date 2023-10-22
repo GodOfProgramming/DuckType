@@ -2,7 +2,7 @@ use crate::common;
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::quote;
 use std::env;
-use syn::{Fields, FnArg, ImplItem, ImplItemMethod, ItemImpl, ItemStruct, Receiver};
+use syn::{Fields, FnArg, ImplItem, ItemImpl, ItemStruct, Receiver};
 
 pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal>, traceables: Vec<Ident>) -> TokenStream {
   let name = struct_def.ident;
@@ -20,9 +20,7 @@ pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal
       match env::var(&envvar) {
         Ok(uuid_value) => Literal::string(&uuid_value),
         Err(e) => {
-          return TokenStream::from(
-            syn::Error::new_spanned(name, format!("Error looking up env var {}: {}", envvar, e)).to_compile_error(),
-          )
+          return syn::Error::new_spanned(name, format!("Error looking up env var {}: {}", envvar, e)).to_compile_error();
         }
       }
     }
@@ -61,12 +59,12 @@ pub(crate) fn derive_fields(struct_def: ItemStruct) -> TokenStream {
 
   if let Fields::Named(fields) = &struct_def.fields {
     for field in &fields.named {
-      if field.attrs.iter().find(|attr| attr.path.is_ident("field")).is_some() {
+      if field.attrs.iter().any(|attr| attr.path.is_ident("field")) {
         idents.push(field.ident.clone().unwrap());
       }
     }
   } else {
-    return TokenStream::from(syn::Error::new_spanned(struct_def.fields, "not a valid class field").to_compile_error());
+    return syn::Error::new_spanned(struct_def.fields, "not a valid class field").to_compile_error();
   }
 
   let ident_strs = idents
@@ -127,7 +125,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         "__dbg__" => debug_fn = Some(method),
         "__lock__" => lock_fn = Some(method),
         _ => {
-          let nargs = common::count_args(&method);
+          let nargs = common::count_args!(method);
 
           if let Some(FnArg::Receiver(this)) = method.sig.inputs.iter().next() {
             methods.push(Method {
@@ -156,7 +154,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
   let mut method_lambda_bodies = Vec::new();
   for method in methods {
     if method.receiver.reference.is_some() {
-      let nargs = method.nargs - 1;
+      let nargs = method.nargs;
       let name = method.name;
       let name_str = Literal::string(&name.to_string());
       let args = common::make_arg_list(nargs, &name_str);
@@ -166,8 +164,8 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
             if args.list.len() == #nargs + 1 {
               if let Some(mut this) = args.list.pop() {
                 if let Some(this) = this.cast_to_mut::<#me>() {
-                  let mut args = args.into_iter();
-                  let output = #me::#name(this, &mut vm.gc, #args)?;
+                  let mut args = args.into_arg_iter();
+                  let output = #me::#name(this, #args)?;
                   Ok(vm.gc.allocate(output))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
@@ -186,8 +184,8 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
             if args.list.len() == #nargs + 1 {
               if let Some(this) = args.list.pop() {
                 if let Some(this) = this.cast_to::<#me>() {
-                  let mut args = args.into_iter();
-                  let output = #me::#name(this, &mut vm.gc, #args)?;
+                  let mut args = args.into_arg_iter();
+                  let output = #me::#name(this, #args)?;
                   Ok(vm.gc.allocate(output))
                 } else {
                   Err(ValueError::BadCast(#name_str, #me_str, this))
@@ -202,16 +200,14 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         });
       }
     } else {
-      return TokenStream::from(
-        syn::Error::new_spanned(method.name, "cannot impl method for fn signature not taking self reference")
-          .into_compile_error(),
-      );
+      return syn::Error::new_spanned(method.name, "cannot impl method for fn signature not taking self reference")
+        .into_compile_error();
     }
   }
 
   let mut static_lambda_bodies = Vec::new();
   for static_method in statics {
-    let nargs = static_method.nargs - 1;
+    let nargs = static_method.nargs;
     let name = static_method.name;
     let name_str = Literal::string(&name.to_string());
     let args = common::make_arg_list(nargs, name_str);
@@ -219,8 +215,8 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     static_lambda_bodies.push(quote! {
       Value::native(|vm, args| {
         if args.list.len() == #nargs {
-          let mut args = args.into_iter();
-          let output = #me::#name(gc, #args)?;
+          let mut args = args.into_arg_iter();
+          let output = #me::#name(#args)?;
           Ok(vm.gc.allocate(output))
         } else {
           Err(ValueError::ArgumentError(args.list.len(), #nargs))
@@ -231,7 +227,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
 
   let constructor_impl = constructor
     .map(|constructor| {
-      let nargs = common::count_args(constructor);
+      let nargs = common::count_args!(constructor);
       let name = &constructor.sig.ident;
       let name_str = Literal::string(&name.to_string());
       let args = common::make_arg_list(nargs, name_str);
@@ -240,7 +236,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
           #constructor
 
           if args.list.len() == #nargs {
-            let mut args = args.into_iter();
+            let mut args = args.into_arg_iter();
             let output = #name(#args)?;
             Ok(vm.gc.allocate(output))
           } else {

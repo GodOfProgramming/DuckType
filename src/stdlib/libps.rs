@@ -11,6 +11,6 @@ impl LibPs {
 }
 
 #[native]
-fn exit(_vm: &mut Vm, code: i32) -> ValueResult {
+fn exit(code: i32) -> ValueResult {
   std::process::exit(code);
 }

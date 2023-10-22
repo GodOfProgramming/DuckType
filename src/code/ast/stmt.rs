@@ -1,9 +1,15 @@
-use crate::code::SourceLocation;
+mod actions;
+mod control;
+mod decl;
+
+use super::{AstGenerator, AstStatement, Expression};
+use crate::code::{lex::Token, SourceLocation};
+pub use actions::*;
+pub use control::*;
+pub use decl::*;
 #[cfg(feature = "visit-ast")]
 use horrorshow::{html, prelude::*};
 use std::fmt::{self, Display, Formatter};
-
-use super::{Expression, Ident};
 
 #[derive(Debug)]
 pub enum Statement {
@@ -12,7 +18,7 @@ pub enum Statement {
   Cont(ContStatement),
   Class(ClassStatement),
   DefaultConstructorRet(DefaultConstructorRet),
-  Export(ExportStmt),
+  Export(ExportStatement),
   Fn(FnStatement),
   For(ForStatement),
   If(IfStatement),
@@ -21,6 +27,7 @@ pub enum Statement {
   Match(MatchStatement),
   Mod(ModStatement),
   Print(PrintStatement),
+  Req(ReqStatement),
   Ret(RetStatement),
   Use(UseStatement),
   While(WhileStatement),
@@ -79,6 +86,7 @@ impl Statement {
       Statement::Match(_) => (),
       Statement::Mod(m) => m.body.dump(tmpl),
       Statement::Print(_) => (),
+      Statement::Req(_) => (),
       Statement::Ret(_) => (),
       Statement::Use(u) => {
         html! {
@@ -111,6 +119,7 @@ impl Display for Statement {
       Self::Match(_) => write!(f, "match"),
       Self::Mod(_) => write!(f, "mod"),
       Self::Print(_) => write!(f, "print"),
+      Self::Req(_) => write!(f, "req"),
       Self::Ret(_) => write!(f, "ret"),
       Self::While(_) => write!(f, "while"),
       Self::Use(_) => write!(f, "use"),
@@ -151,8 +160,8 @@ impl From<DefaultConstructorRet> for Statement {
   }
 }
 
-impl From<ExportStmt> for Statement {
-  fn from(stmt: ExportStmt) -> Self {
+impl From<ExportStatement> for Statement {
+  fn from(stmt: ExportStatement) -> Self {
     Self::Export(stmt)
   }
 }
@@ -205,6 +214,12 @@ impl From<PrintStatement> for Statement {
   }
 }
 
+impl From<ReqStatement> for Statement {
+  fn from(stmt: ReqStatement) -> Self {
+    Self::Req(stmt)
+  }
+}
+
 impl From<RetStatement> for Statement {
   fn from(stmt: RetStatement) -> Self {
     Self::Ret(stmt)
@@ -236,272 +251,6 @@ impl From<ExpressionStatement> for Statement {
 }
 
 #[derive(Debug)]
-pub struct BlockStatement {
-  pub statements: Vec<Statement>,
-  pub loc: SourceLocation,
-}
-
-impl BlockStatement {
-  pub(super) fn new(statements: Vec<Statement>, loc: SourceLocation) -> Self {
-    Self { statements, loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct BreakStatement {
-  pub loc: SourceLocation,
-}
-
-impl BreakStatement {
-  pub(super) fn new(loc: SourceLocation) -> Self {
-    Self { loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct ContStatement {
-  pub loc: SourceLocation,
-}
-
-impl ContStatement {
-  pub(super) fn new(loc: SourceLocation) -> Self {
-    Self { loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct ClassStatement {
-  pub ident: Ident,
-  pub body: Expression,
-  pub loc: SourceLocation,
-}
-
-impl ClassStatement {
-  pub(super) fn new(ident: Ident, body: Expression, loc: SourceLocation) -> Self {
-    Self { ident, body, loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct DefaultConstructorRet {
-  pub loc: SourceLocation,
-}
-
-impl DefaultConstructorRet {
-  pub(super) fn new(loc: SourceLocation) -> Self {
-    Self { loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct ExportStmt {
-  pub expr: Expression,
-  pub loc: SourceLocation,
-}
-
-impl ExportStmt {
-  pub(super) fn new(expr: Expression, loc: SourceLocation) -> Self {
-    Self { expr, loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct FnStatement {
-  pub ident: Ident,
-  pub params: Vec<Ident>,
-  pub body: Box<Statement>,
-  pub loc: SourceLocation,
-}
-
-impl FnStatement {
-  pub(super) fn new(ident: Ident, params: Vec<Ident>, body: Statement, loc: SourceLocation) -> Self {
-    Self {
-      ident,
-      params,
-      body: Box::new(body),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct ForStatement {
-  pub initializer: Box<Statement>,
-  pub comparison: Expression,
-  pub increment: Expression,
-  pub block: Box<Statement>,
-
-  pub loc: SourceLocation,
-}
-
-impl ForStatement {
-  pub(super) fn new(
-    initializer: Statement,
-    comparison: Expression,
-    increment: Expression,
-    block: Statement,
-    loc: SourceLocation,
-  ) -> Self {
-    Self {
-      initializer: Box::new(initializer),
-      comparison,
-      increment,
-      block: Box::new(block),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct IfStatement {
-  pub comparison: Expression,
-  pub block: Box<Statement>,
-  pub else_block: Option<Box<Statement>>,
-  pub loc: SourceLocation,
-}
-
-impl IfStatement {
-  pub(super) fn new(comparison: Expression, block: Statement, else_block: Option<Statement>, loc: SourceLocation) -> Self {
-    Self {
-      comparison,
-      block: Box::new(block),
-      else_block: else_block.map(Box::new),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct LetStatement {
-  pub ident: Ident,
-  pub value: Option<Expression>,
-
-  pub loc: SourceLocation, // location of the let
-}
-
-impl LetStatement {
-  pub(super) fn new(ident: Ident, value: Option<Expression>, loc: SourceLocation) -> Self {
-    Self { ident, value, loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct LoopStatement {
-  pub block: Box<Statement>,
-  pub loc: SourceLocation,
-}
-
-impl LoopStatement {
-  pub(super) fn new(block: Statement, loc: SourceLocation) -> Self {
-    Self {
-      block: Box::new(block),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct MatchStatement {
-  pub expr: Expression,
-  pub branches: Vec<(Expression, Statement)>,
-  pub default: Option<Box<Statement>>,
-  pub loc: SourceLocation,
-}
-
-impl MatchStatement {
-  pub(super) fn new(
-    expr: Expression,
-    branches: Vec<(Expression, Statement)>,
-    default: Option<Statement>,
-    loc: SourceLocation,
-  ) -> Self {
-    Self {
-      expr,
-      branches,
-      default: default.map(Box::new),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct ModStatement {
-  pub ident: Ident,
-  pub body: Expression,
-  pub loc: SourceLocation,
-}
-
-impl ModStatement {
-  pub(super) fn new(ident: Ident, body: Expression, loc: SourceLocation) -> Self {
-    Self { ident, body, loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct PrintStatement {
-  pub expr: Expression,
-  pub loc: SourceLocation,
-}
-
-impl PrintStatement {
-  pub(super) fn new(expr: Expression, loc: SourceLocation) -> Self {
-    Self { expr, loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct RetStatement {
-  pub expr: Option<Expression>,
-  pub loc: SourceLocation,
-}
-
-impl RetStatement {
-  pub(super) fn new(expr: Option<Expression>, loc: SourceLocation) -> Self {
-    Self { expr, loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct UseStatement {
-  pub path: Vec<Ident>,
-  pub loc: SourceLocation,
-}
-
-impl UseStatement {
-  pub(super) fn new(path: Vec<Ident>, loc: SourceLocation) -> Self {
-    Self { path, loc }
-  }
-}
-
-#[derive(Debug)]
-pub struct WhileStatement {
-  pub comparison: Expression,
-  pub block: Box<Statement>,
-  pub loc: SourceLocation,
-}
-
-impl WhileStatement {
-  pub(super) fn new(comparison: Expression, block: Statement, loc: SourceLocation) -> Self {
-    Self {
-      comparison,
-      block: Box::new(block),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct YieldStatement {
-  pub loc: SourceLocation,
-}
-
-impl YieldStatement {
-  pub(super) fn new(loc: SourceLocation) -> Self {
-    Self { loc }
-  }
-}
-
-#[derive(Debug)]
 pub struct ExpressionStatement {
   pub expr: Expression,
   pub loc: SourceLocation,
@@ -510,5 +259,18 @@ pub struct ExpressionStatement {
 impl ExpressionStatement {
   pub(super) fn new(expr: Expression, loc: SourceLocation) -> Self {
     Self { expr, loc }
+  }
+}
+
+impl AstStatement for ExpressionStatement {
+  fn stmt(ast: &mut AstGenerator) {
+    if let Some(loc) = ast.meta_at::<0>() {
+      if let Some(expr) = ast.expression() {
+        if !ast.consume(Token::Semicolon, "expected ';' after value") {
+          return;
+        }
+        ast.statements.push(Statement::from(ExpressionStatement::new(expr, loc)));
+      }
+    }
   }
 }

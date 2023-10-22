@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use itertools::Itertools;
+use rand::seq::SliceRandom;
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
@@ -17,27 +18,31 @@ impl ArrayValue {
     Self { list: list.into() }
   }
 
-  pub fn new_from_vec(list: &Vec<Value>) -> Self {
-    Self { list: list.clone() }
+  pub fn new_from_vec(list: Vec<Value>) -> Self {
+    Self { list }
   }
 }
 
 #[methods]
 impl ArrayValue {
-  fn __new__(args: &Vec<Value>) -> ValueResult<ArrayValue> {
-    Ok(ArrayValue::new_from_vec(args))
+  fn __new__(args: &[Value]) -> ValueResult<ArrayValue> {
+    Ok(ArrayValue::new_from_vec(args.to_owned()))
   }
 
-  fn push(&mut self, _gc: &mut Gc, value: Value) -> ValueResult<()> {
+  fn push(&mut self, value: Value) -> ValueResult<()> {
     self.list.push(value);
     Ok(())
   }
 
-  fn len(&self, _gc: &mut Gc) -> ValueResult<i32> {
+  fn len(&self) -> ValueResult<i32> {
     Ok(self.list.len() as i32)
   }
 
-  fn __index__(&self, _gc: &mut Gc, index: i32) -> ValueResult {
+  fn random_index(&self) -> ValueResult {
+    Ok(self.list.choose(&mut rand::thread_rng()).cloned().unwrap_or_default())
+  }
+
+  fn __index__(&self, index: i32) -> ValueResult {
     Ok(self.list.get(index as usize).cloned().unwrap_or_default())
   }
 

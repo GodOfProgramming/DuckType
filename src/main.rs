@@ -24,7 +24,7 @@ fn main() {
   let args = Args::parse();
 
   match args.command {
-    Command::Uuid => println!("{}", Uuid::new_v4().to_string()),
+    Command::Uuid => println!("{}", Uuid::new_v4()),
     Command::Run { file, runargs } => {
       let mut exit_code = 0;
 

@@ -335,7 +335,7 @@ impl Value {
   }
 
   pub fn as_native_fn_unchecked(&self) -> NativeFn {
-    unsafe { mem::transmute((self.bits & VALUE_BITMASK) as u64) }
+    unsafe { mem::transmute(self.bits & VALUE_BITMASK) }
   }
 
   // -- native closure
@@ -632,6 +632,12 @@ impl MaybeFrom<Value> for &'static Vec<Value> {
   }
 }
 
+impl MaybeFrom<Value> for &[Value] {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.as_array().map(|a| &***a)
+  }
+}
+
 impl<T> MaybeFrom<Value> for &'static T
 where
   T: Usertype,
@@ -658,7 +664,6 @@ impl Display for Value {
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
       Tag::NativeFn => write!(f, "<native fn {:p}>", &self.as_native_fn_unchecked()),
-      Tag::NativeClass => write!(f, "FREE SLOT"),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
     }
@@ -675,13 +680,6 @@ impl Debug for Value {
       Tag::Bool => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_bool_unchecked(), self.raw_value()),
       Tag::Char => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_char_unchecked(), self.raw_value()),
       Tag::NativeFn => write!(
-        f,
-        "<@{addr:<width$} {:?}>",
-        self.tag(),
-        addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
-        width = PTR_DISPLAY_WIDTH,
-      ),
-      Tag::NativeClass => write!(
         f,
         "<@{addr:<width$} {:?}>",
         self.tag(),
