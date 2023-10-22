@@ -11,6 +11,11 @@ use std::{
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
+// TODO this needs to hold a reference to the gc
+// so that when it's dropped it can remove itself
+// from the list of native handles
+// gc will need this so that values that only exist in native code
+// and are children of a root don't get garbage collected
 pub struct ValueHandle {
   pub(crate) value: Value,
 }
