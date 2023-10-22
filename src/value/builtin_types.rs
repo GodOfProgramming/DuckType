@@ -246,7 +246,7 @@ pub enum ValueError {
   /// fn name
   #[error("MissingSelf: missing self in call to {0}")]
   MissingSelf(&'static str),
-  /// fn name, argument index, error
+  /// fn name, argument index
   #[error("InvalidArgument: wrong type passed to {0} in argument position {1}")]
   InvalidArgument(&'static str, usize),
   /// fn name, type, actual/this
@@ -288,6 +288,9 @@ pub enum ValueError {
   /// meant to be a placeholder for me being lazy
   #[error("{0}")]
   Todo(String),
+
+  #[error("error in native function: {0}")]
+  NativeApi(String),
 
   #[error("Infallible")]
   Infallible,

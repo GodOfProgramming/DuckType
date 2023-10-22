@@ -1,4 +1,4 @@
-use crate::common;
+use crate::{common, StrAttr};
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{quote, TokenStreamExt};
 use syn::{FnArg, Item, ItemFn, ItemMod, ItemStruct};
@@ -43,6 +43,7 @@ struct FnDef {
 
 struct StructDef {
   name: Ident,
+  rename: Option<Literal>,
   item: ItemStruct,
 }
 
@@ -68,7 +69,23 @@ impl TryFrom<Vec<Item>> for ModuleDef {
         }
         Item::Struct(item_struct) => {
           let name = item_struct.ident.clone();
-          structs.push(StructDef { name, item: item_struct })
+
+          let rename_attr = match item_struct.attrs.iter().find(|attr| attr.path.is_ident("rename")) {
+            Some(rename_attr) => {
+              let tokens = rename_attr.tokens.clone();
+              match syn::parse::<StrAttr>(tokens.into()) {
+                Ok(rename_value) => Some(rename_value.string),
+                Err(e) => return Err(common::error(rename_attr, format!("rename value is not a string: {}", e))),
+              }
+            }
+            None => None,
+          };
+
+          structs.push(StructDef {
+            name,
+            rename: rename_attr,
+            item: item_struct,
+          })
         }
         thing => unchanged.push(thing),
       }
@@ -90,8 +107,7 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
     Ok(None) => {
       // have mod foo;
       // need mod foo {}
-      return syn::Error::new_spanned(mod_name, "mod impl must be implemented in the same file as it was declared")
-        .into_compile_error();
+      return common::error(mod_name, "mod impl must be implemented in the same file as it was declared");
     }
     Err(e) => return e,
   };
@@ -147,7 +163,8 @@ fn collect_struct_defs(structs: Vec<StructDef>) -> (TokenStream, Vec<ItemStruct>
   struct_defs.append_all(structs.iter().map(|native_struct| {
     let struct_name = &native_struct.name;
     let struct_name_str = struct_name.to_string();
-    let struct_name_lit = Literal::string(&struct_name_str);
+    let struct_name_lit = &Literal::string(&struct_name_str);
+    let struct_name_lit = native_struct.rename.as_ref().unwrap_or(struct_name_lit);
     quote! {
       module.set(gc, #struct_name_lit, Value::native(<#struct_name as UsertypeMethods>::__new__)).ok();
     }

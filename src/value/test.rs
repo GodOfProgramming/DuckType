@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use macros::{methods, Fields};
 use tfix::prelude::*;
 
 struct ValueTest {
@@ -38,9 +37,6 @@ impl UnimplementedObject {}
 
 #[fixture(ValueTest)]
 mod unit_tests {
-
-  use crate::memory::Allocation;
-
   use super::*;
 
   #[test]

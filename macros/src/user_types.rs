@@ -20,7 +20,7 @@ pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal
       match env::var(&envvar) {
         Ok(uuid_value) => Literal::string(&uuid_value),
         Err(e) => {
-          return syn::Error::new_spanned(name, format!("Error looking up env var {}: {}", envvar, e)).to_compile_error();
+          return common::error(name, format!("Error looking up env var {}: {}", envvar, e));
         }
       }
     }
@@ -64,7 +64,7 @@ pub(crate) fn derive_fields(struct_def: ItemStruct) -> TokenStream {
       }
     }
   } else {
-    return syn::Error::new_spanned(struct_def.fields, "not a valid class field").to_compile_error();
+    return common::error(struct_def.fields, "not a valid class field");
   }
 
   let ident_strs = idents
@@ -200,8 +200,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         });
       }
     } else {
-      return syn::Error::new_spanned(method.name, "cannot impl method for fn signature not taking self reference")
-        .into_compile_error();
+      return common::error(method.name, "cannot impl method for fn signature not taking self reference");
     }
   }
 

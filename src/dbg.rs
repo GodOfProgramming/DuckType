@@ -1,4 +1,4 @@
-use crate::{memory::Allocation, prelude::*};
+use crate::prelude::*;
 use std::{
   error::Error,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
@@ -19,7 +19,7 @@ use clap::{ArgAction, Parser, Subcommand};
 #[cfg(debug_assertions)]
 pub(crate) use here;
 
-use crate::code::{OpCodeReflection, Opcode};
+use crate::code::OpCodeReflection;
 
 pub mod prelude {
   #[allow(unused)]

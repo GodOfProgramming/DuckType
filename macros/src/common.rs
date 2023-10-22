@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens, TokenStreamExt};
 use syn::token::Comma;
@@ -21,4 +23,12 @@ pub(crate) fn make_arg_list(nargs: usize, name: impl ToTokens) -> TokenStream {
     Comma::default(),
   );
   args
+}
+
+pub(crate) fn error<T, U>(item: T, msg: U) -> TokenStream
+where
+  T: ToTokens,
+  U: Display,
+{
+  syn::Error::new_spanned(item, msg).into_compile_error()
 }
