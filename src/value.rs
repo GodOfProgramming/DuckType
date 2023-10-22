@@ -13,11 +13,13 @@ use uuid::Uuid;
 
 pub(crate) mod builtin_types;
 pub(crate) mod tags;
+
+pub mod conv;
 #[cfg(test)]
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, MaybeFrom, Tag, Value};
+  pub use super::{builtin_types::*, conv::*, Tag, Value};
 }
 
 pub(crate) type ConstVoid = *const ();
@@ -28,13 +30,6 @@ assert_eq_size!(usize, ConstVoid);
 assert_eq_size!(usize, MutVoid);
 assert_eq_size!(usize, f64);
 assert_eq_size!(usize, u64);
-
-pub trait MaybeFrom<T>
-where
-  Self: Sized,
-{
-  fn maybe_from(value: T) -> Option<Self>;
-}
 
 #[derive(Clone)]
 pub struct Value {
@@ -166,7 +161,7 @@ impl Value {
     self.is::<StringValue>()
   }
 
-  pub fn as_str(&self) -> Option<&StringValue> {
+  pub fn as_str(&self) -> Option<&'static StringValue> {
     self.cast_to::<StringValue>()
   }
 
@@ -607,48 +602,6 @@ impl From<NativeFn> for Value {
 impl From<Nil> for Value {
   fn from(_: Nil) -> Self {
     Self { bits: NIL_TAG }
-  }
-}
-
-impl MaybeFrom<Value> for Value {
-  fn maybe_from(value: Value) -> Option<Self> {
-    Some(value)
-  }
-}
-
-impl MaybeFrom<Value> for i32 {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.as_i32()
-  }
-}
-
-impl MaybeFrom<Value> for &'static Vec<Value> {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.as_array().map(|a| &**a)
-  }
-}
-
-impl MaybeFrom<Value> for &[Value] {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.as_array().map(|a| &***a)
-  }
-}
-
-impl<T> MaybeFrom<Value> for &'static T
-where
-  T: Usertype,
-{
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.cast_to::<T>()
-  }
-}
-
-impl<T> MaybeFrom<Value> for &'static mut T
-where
-  T: Usertype,
-{
-  fn maybe_from(mut value: Value) -> Option<Self> {
-    value.cast_to_mut::<T>()
   }
 }
 

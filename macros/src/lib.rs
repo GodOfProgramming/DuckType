@@ -11,15 +11,17 @@ use syn::{
   parse_macro_input, Ident, Item, ItemImpl, ItemStruct,
 };
 
-struct UuidAttr {
-  uuid: Literal,
+struct StrAttr {
+  string: Literal,
 }
 
-impl Parse for UuidAttr {
+impl Parse for StrAttr {
   fn parse(input: ParseStream) -> syn::Result<Self> {
     let content;
     parenthesized!(content in input);
-    Ok(Self { uuid: content.parse()? })
+    Ok(Self {
+      string: content.parse()?,
+    })
   }
 }
 
@@ -30,8 +32,8 @@ pub fn derive_usertype(input: TokenStream) -> TokenStream {
   let uuid_attr = match struct_def.attrs.iter().find(|attr| attr.path.is_ident("uuid")) {
     Some(uuid_attr) => {
       let tokens = TokenStream::from(uuid_attr.tokens.clone());
-      let uuid_value = parse_macro_input!(tokens as UuidAttr);
-      Some(uuid_value.uuid)
+      let uuid_value = parse_macro_input!(tokens as StrAttr);
+      Some(uuid_value.string)
     }
     None => None,
   };
@@ -54,6 +56,11 @@ pub fn derive_usertype(input: TokenStream) -> TokenStream {
 pub fn derive_fields(input: TokenStream) -> TokenStream {
   let struct_def = parse_macro_input!(input as ItemStruct);
   user_types::derive_fields(struct_def).into()
+}
+
+#[proc_macro_derive(Renameable, attributes(rename))]
+pub fn allow_rename(_input: TokenStream) -> TokenStream {
+  TokenStream::default()
 }
 
 #[proc_macro_attribute]

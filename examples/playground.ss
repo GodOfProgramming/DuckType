@@ -1,13 +1,6 @@
-req "lib/sspec/sspec" as sspec;
+print(std.debug(io));
 
-use sspec.describe;
+let path = io.Path("C:\");
+let composed = path/"Windows"/"System32";
 
-let $x = 0;
-
-describe("simple math", |t| {
-  let i = 1_000_000;
-  i += 1;
-  $x += i + i * i / i % i;
-  print($x);
-  t.expect($x > 0).to_be(true);
-});
+print(composed);
