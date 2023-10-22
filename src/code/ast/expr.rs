@@ -1,10 +1,14 @@
+mod literals;
+mod ops;
+
 #[cfg(feature = "visit-ast")]
 use horrorshow::{html, prelude::*};
 use std::fmt::{Display, Formatter};
 
-use crate::code::{ConstantValue, SourceLocation};
-
 use super::{Ident, Statement};
+use crate::code::SourceLocation;
+pub use literals::*;
+pub use ops::*;
 
 #[derive(Debug)]
 pub enum Expression {
@@ -237,172 +241,6 @@ impl From<MethodExpression> for Expression {
 impl From<ReqExpression> for Expression {
   fn from(expr: ReqExpression) -> Self {
     Self::Req(expr)
-  }
-}
-
-#[derive(Debug)]
-pub struct LiteralExpression {
-  pub value: ConstantValue,
-
-  pub loc: SourceLocation, // location of the literal
-}
-
-impl LiteralExpression {
-  pub(super) fn new(value: ConstantValue, loc: SourceLocation) -> Self {
-    Self { value, loc }
-  }
-}
-
-#[derive(Debug)]
-pub enum UnaryOperator {
-  Not,
-  Negate,
-}
-
-#[derive(Debug)]
-pub struct UnaryExpression {
-  pub op: UnaryOperator,
-  pub expr: Box<Expression>,
-
-  pub loc: SourceLocation, // location of the operator
-}
-
-impl UnaryExpression {
-  pub(super) fn new(op: UnaryOperator, expr: Expression, loc: SourceLocation) -> Self {
-    Self {
-      op,
-      expr: Box::new(expr),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct AndExpression {
-  pub left: Box<Expression>,
-  pub right: Box<Expression>,
-
-  pub loc: SourceLocation, // location of the operator
-}
-
-impl AndExpression {
-  pub(super) fn new(left: Expression, right: Expression, loc: SourceLocation) -> Self {
-    Self {
-      left: Box::new(left),
-      right: Box::new(right),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct OrExpression {
-  pub left: Box<Expression>,
-  pub right: Box<Expression>,
-  pub loc: SourceLocation, // location of the operator
-}
-
-impl OrExpression {
-  pub(super) fn new(left: Expression, right: Expression, loc: SourceLocation) -> Self {
-    Self {
-      left: Box::new(left),
-      right: Box::new(right),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub enum BinaryOperator {
-  Equal,
-  NotEq,
-  Less,
-  LessEq,
-  Greater,
-  GreaterEq,
-  Add,
-  Sub,
-  Mul,
-  Div,
-  Mod,
-}
-
-#[derive(Debug)]
-pub struct BinaryExpression {
-  pub left: Box<Expression>,
-  pub op: BinaryOperator,
-  pub right: Box<Expression>,
-
-  pub loc: SourceLocation, // location of the operator
-}
-
-impl BinaryExpression {
-  pub(super) fn new(left: Expression, op: BinaryOperator, right: Expression, loc: SourceLocation) -> Self {
-    Self {
-      left: Box::new(left),
-      op,
-      right: Box::new(right),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct GroupExpression {
-  pub expr: Box<Expression>,
-
-  pub loc: SourceLocation, // location of the left paren
-}
-
-impl GroupExpression {
-  pub(super) fn new(expr: Expression, loc: SourceLocation) -> Self {
-    Self {
-      expr: Box::new(expr),
-      loc,
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct IdentExpression {
-  pub ident: Ident,
-
-  pub loc: SourceLocation, // location of the identifier
-}
-
-impl IdentExpression {
-  pub(super) fn new(ident: Ident, loc: SourceLocation) -> Self {
-    Self { ident, loc }
-  }
-}
-
-#[derive(Debug)]
-pub enum AssignOperator {
-  Assign,
-  Add,
-  Sub,
-  Mul,
-  Div,
-  Mod,
-}
-
-#[derive(Debug)]
-pub struct AssignExpression {
-  pub ident: Ident,
-  pub op: AssignOperator,
-  pub value: Box<Expression>,
-
-  pub loc: SourceLocation, // location of the =
-}
-
-impl AssignExpression {
-  pub(super) fn new(ident: Ident, op: AssignOperator, value: Expression, loc: SourceLocation) -> Self {
-    Self {
-      ident,
-      op,
-      value: Box::new(value),
-      loc,
-    }
   }
 }
 

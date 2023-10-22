@@ -1,15 +1,12 @@
 mod expr;
 mod stmt;
 
-use super::{
-  lex::{NumberToken, Token},
-  ConstantValue, SourceLocation,
-};
+use super::{lex::Token, SourceLocation};
 use crate::{prelude::*, UnwrapAnd};
 pub use expr::*;
 use std::{
   collections::BTreeSet,
-  fmt::{Display, Formatter, Result as FmtResult},
+  fmt::{Binary, Display, Formatter, Result as FmtResult},
   mem,
   rc::Rc,
 };
@@ -25,10 +22,12 @@ trait AstStatement {
 }
 
 trait AstExpression {
+  #[allow(unused_variables)]
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     None
   }
 
+  #[allow(unused_variables)]
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
     None
   }
@@ -203,196 +202,6 @@ impl AstGenerator {
 
   fn expression(&mut self) -> Option<Expression> {
     self.parse_precedence(Precedence::Assignment)
-  }
-
-  fn literal_expr(&mut self) -> Option<Expression> {
-    let mut expr = None;
-
-    if let Some(prev) = self.previous() {
-      match prev {
-        Token::Nil => {
-          expr = Some(Expression::from(LiteralExpression::new(
-            ConstantValue::Nil,
-            self.meta_at::<1>()?,
-          )));
-        }
-        Token::True => {
-          expr = Some(Expression::from(LiteralExpression::new(
-            ConstantValue::Bool(true),
-            self.meta_at::<1>()?,
-          )));
-        }
-        Token::False => {
-          expr = Some(Expression::from(LiteralExpression::new(
-            ConstantValue::Bool(false),
-            self.meta_at::<1>()?,
-          )));
-        }
-        Token::String(s) => {
-          expr = Some(Expression::from(LiteralExpression::new(
-            ConstantValue::String(s),
-            self.meta_at::<1>()?,
-          )))
-        }
-        Token::Number(n) => {
-          expr = Some(Expression::from(LiteralExpression::new(
-            match n {
-              NumberToken::I32(i) => ConstantValue::Integer(i),
-              NumberToken::F64(f) => ConstantValue::Float(f),
-            },
-            self.meta_at::<1>()?,
-          )))
-        }
-        _ => {
-          self.error::<1>(String::from("sanity check, invalid literal, very bad logic error"));
-        }
-      }
-    } else {
-      self.error::<1>(String::from("sanity check, no previous token, very bad logic error"));
-    }
-
-    expr
-  }
-
-  fn unary_expr(&mut self) -> Option<Expression> {
-    if let Some(operator_token) = self.previous() {
-      let op_meta = self.meta_at::<1>()?;
-      let op = match operator_token {
-        Token::Bang => UnaryOperator::Not,
-        Token::Minus => UnaryOperator::Negate,
-        _ => {
-          self.error::<1>(String::from("invalid unary operator"));
-          return None;
-        }
-      };
-
-      let expr = self.parse_precedence(Precedence::Unary)?;
-      Some(Expression::from(UnaryExpression::new(op, expr, op_meta)))
-    } else {
-      self.error::<1>(String::from("tried to make unary expression without operator"));
-      None
-    }
-  }
-
-  fn binary_expr(&mut self, left: Expression) -> Option<Expression> {
-    if let Some(operator_token) = self.previous() {
-      let op_meta = self.meta_at::<1>()?;
-      let op = match operator_token {
-        Token::EqualEqual => BinaryOperator::Equal,
-        Token::BangEqual => BinaryOperator::NotEq,
-        Token::Greater => BinaryOperator::Greater,
-        Token::GreaterEqual => BinaryOperator::GreaterEq,
-        Token::Less => BinaryOperator::Less,
-        Token::LessEqual => BinaryOperator::LessEq,
-        Token::Plus => BinaryOperator::Add,
-        Token::Minus => BinaryOperator::Sub,
-        Token::Asterisk => BinaryOperator::Mul,
-        Token::Slash => BinaryOperator::Div,
-        Token::Percent => BinaryOperator::Mod,
-        _ => {
-          self.error::<1>(String::from("invalid binary operator"));
-          return None;
-        }
-      };
-
-      let rule = Self::rule_for(&operator_token);
-
-      if let Some(next_precedence) = rule.precedence.next() {
-        let expr = self.parse_precedence(next_precedence)?;
-        Some(Expression::from(BinaryExpression::new(left, op, expr, op_meta)))
-      } else {
-        self.error::<1>(String::from(""));
-        None
-      }
-    } else {
-      self.error::<2>(String::from("unexpected end of token stream"));
-      None
-    }
-  }
-
-  fn and_expr(&mut self, left: Expression) -> Option<Expression> {
-    let rule = Self::rule_for(&Token::And);
-
-    if let Some(next_precedence) = rule.precedence.next() {
-      let op_meta = self.meta_at::<1>()?;
-      let expr = self.parse_precedence(next_precedence)?;
-      Some(Expression::from(AndExpression::new(left, expr, op_meta)))
-    } else {
-      self.error::<1>(String::from("unable to retrieve precedence for and expr")); // this may not be an error?
-      None
-    }
-  }
-
-  fn or_expr(&mut self, left: Expression) -> Option<Expression> {
-    let rule = Self::rule_for(&Token::Or);
-
-    if let Some(next_precedence) = rule.precedence.next() {
-      let op_meta = self.meta_at::<1>()?;
-      let expr = self.parse_precedence(next_precedence)?;
-      Some(Expression::from(OrExpression::new(left, expr, op_meta)))
-    } else {
-      self.error::<1>(String::from("unable to retrieve precedence for or expr")); // this may not be an error?
-      None
-    }
-  }
-
-  fn group_expr(&mut self) -> Option<Expression> {
-    let paren_meta = self.meta_at::<1>()?;
-    let expr = self.expression()?;
-    if self.consume(Token::RightParen, "expected ')' after expression") {
-      Some(Expression::from(GroupExpression::new(expr, paren_meta)))
-    } else {
-      None
-    }
-  }
-
-  fn ident_expr(&mut self) -> Option<Expression> {
-    if let Some(ident_token) = self.previous() {
-      if let Token::Identifier(ident_name) = ident_token {
-        Some(Expression::from(IdentExpression::new(
-          Ident::new(ident_name),
-          self.meta_at::<1>()?,
-        )))
-      } else {
-        self.error::<2>(String::from("variable name is not an identifier"));
-        None
-      }
-    } else {
-      self.error::<2>(String::from("unexpected end of token stream"));
-      None
-    }
-  }
-
-  fn assign_expr(&mut self, left: Expression) -> Option<Expression> {
-    if let Expression::Ident(expr) = &left {
-      if expr.ident.name == "self" {
-        self.error::<0>(String::from("cannot change the value of self"));
-      }
-    }
-
-    if let Expression::Ident(ident_expr) = left {
-      let op = self.previous()?;
-      let op_meta = self.meta_at::<1>()?;
-      let value = self.expression()?;
-
-      let op = match op {
-        Token::Equal => AssignOperator::Assign,
-        Token::PlusEqual => AssignOperator::Add,
-        Token::MinusEqual => AssignOperator::Sub,
-        Token::AsteriskEqual => AssignOperator::Mul,
-        Token::SlashEqual => AssignOperator::Div,
-        Token::PercentEqual => AssignOperator::Mod,
-        t => {
-          self.error::<1>(format!("invalid token {}", t));
-          return None;
-        }
-      };
-
-      Some(Expression::from(AssignExpression::new(ident_expr.ident, op, value, op_meta)))
-    } else {
-      self.error::<1>(String::from("can only assign to variables"));
-      None
-    }
   }
 
   fn call_expr(&mut self, expr: Expression) -> Option<Expression> {
@@ -1242,7 +1051,7 @@ impl AstGenerator {
 
   fn rule_for(token: &Token) -> ParseRule {
     match token {
-      Token::LeftParen => ParseRule::new(Some(Self::group_expr), Some(Self::call_expr), Precedence::Call),
+      Token::LeftParen => ParseRule::new(Some(GroupExpression::prefix), Some(Self::call_expr), Precedence::Call),
       Token::RightParen => ParseRule::new(None, None, Precedence::None),
       Token::LeftBrace => ParseRule::new(None, None, Precedence::None),
       Token::RightBrace => ParseRule::new(None, None, Precedence::None),
@@ -1254,37 +1063,37 @@ impl AstGenerator {
       Token::Colon => ParseRule::new(None, None, Precedence::None),
       Token::At => ParseRule::new(None, None, Precedence::None),
       Token::Pipe => ParseRule::new(Some(Self::anon_fn_expr), None, Precedence::Primary),
-      Token::Plus => ParseRule::new(None, Some(Self::binary_expr), Precedence::Term),
-      Token::PlusEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
-      Token::Minus => ParseRule::new(Some(Self::unary_expr), Some(Self::binary_expr), Precedence::Term),
-      Token::MinusEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
-      Token::Asterisk => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
-      Token::AsteriskEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
-      Token::Slash => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
-      Token::SlashEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
-      Token::Percent => ParseRule::new(None, Some(Self::binary_expr), Precedence::Factor),
-      Token::PercentEqual => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
-      Token::Bang => ParseRule::new(Some(Self::unary_expr), None, Precedence::None),
-      Token::BangEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Equality),
-      Token::Equal => ParseRule::new(None, Some(Self::assign_expr), Precedence::Assignment),
-      Token::EqualEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Equality),
-      Token::Greater => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
-      Token::GreaterEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
-      Token::Less => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
-      Token::LessEqual => ParseRule::new(None, Some(Self::binary_expr), Precedence::Comparison),
+      Token::Plus => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Term),
+      Token::PlusEqual => ParseRule::new(None, Some(AssignExpression::infix), Precedence::Assignment),
+      Token::Minus => ParseRule::new(Some(UnaryExpression::prefix), Some(BinaryExpression::infix), Precedence::Term),
+      Token::MinusEqual => ParseRule::new(None, Some(AssignExpression::infix), Precedence::Assignment),
+      Token::Asterisk => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Factor),
+      Token::AsteriskEqual => ParseRule::new(None, Some(AssignExpression::infix), Precedence::Assignment),
+      Token::Slash => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Factor),
+      Token::SlashEqual => ParseRule::new(None, Some(AssignExpression::infix), Precedence::Assignment),
+      Token::Percent => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Factor),
+      Token::PercentEqual => ParseRule::new(None, Some(AssignExpression::infix), Precedence::Assignment),
+      Token::Bang => ParseRule::new(Some(UnaryExpression::prefix), None, Precedence::None),
+      Token::BangEqual => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Equality),
+      Token::Equal => ParseRule::new(None, Some(AssignExpression::infix), Precedence::Assignment),
+      Token::EqualEqual => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Equality),
+      Token::Greater => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Comparison),
+      Token::GreaterEqual => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Comparison),
+      Token::Less => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Comparison),
+      Token::LessEqual => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Comparison),
       Token::Arrow => ParseRule::new(None, None, Precedence::None),
       Token::BackArrow => ParseRule::new(None, None, Precedence::None),
-      Token::Identifier(_) => ParseRule::new(Some(Self::ident_expr), None, Precedence::None),
-      Token::String(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
-      Token::Number(_) => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
-      Token::And => ParseRule::new(None, Some(Self::and_expr), Precedence::And),
+      Token::Identifier(_) => ParseRule::new(Some(IdentExpression::prefix), None, Precedence::None),
+      Token::String(_) => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
+      Token::Number(_) => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
+      Token::And => ParseRule::new(None, Some(AndExpression::infix), Precedence::And),
       Token::As => ParseRule::new(None, None, Precedence::None),
       Token::Break => ParseRule::new(None, None, Precedence::None),
       Token::Class => ParseRule::new(Some(|this| Self::class_expr(this, None)), None, Precedence::Primary),
       Token::Cont => ParseRule::new(None, None, Precedence::None),
       Token::Else => ParseRule::new(None, None, Precedence::None),
       Token::Export => ParseRule::new(None, None, Precedence::None),
-      Token::False => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
+      Token::False => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
       Token::For => ParseRule::new(None, None, Precedence::None),
       Token::Fn => ParseRule::new(None, None, Precedence::None),
       Token::If => ParseRule::new(None, None, Precedence::None),
@@ -1293,13 +1102,13 @@ impl AstGenerator {
       Token::Match => ParseRule::new(None, None, Precedence::None),
       Token::Mod => ParseRule::new(Some(|this| Self::mod_expr(this, None)), None, Precedence::Primary),
       Token::New => ParseRule::new(None, None, Precedence::None),
-      Token::Nil => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
-      Token::Or => ParseRule::new(None, Some(Self::or_expr), Precedence::Or),
+      Token::Nil => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
+      Token::Or => ParseRule::new(None, Some(OrExpression::infix), Precedence::Or),
       Token::Print => ParseRule::new(None, None, Precedence::None),
       Token::Req => ParseRule::new(Some(Self::req_expr), None, Precedence::Primary),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::Struct => ParseRule::new(Some(Self::struct_expr), None, Precedence::Primary),
-      Token::True => ParseRule::new(Some(Self::literal_expr), None, Precedence::Primary),
+      Token::True => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
       Token::Use => ParseRule::new(None, None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
       Token::Yield => ParseRule::new(None, None, Precedence::None),

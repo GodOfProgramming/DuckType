@@ -1,15 +1,12 @@
 mod actions;
 mod control;
-mod declarations;
+mod decl;
 
-use super::{AstGenerator, AstStatement, Expression, Ident};
-use crate::{
-  code::{lex::Token, SourceLocation},
-  UnwrapAnd,
-};
+use super::{AstGenerator, AstStatement, Expression};
+use crate::code::{lex::Token, SourceLocation};
 pub use actions::*;
 pub use control::*;
-pub use declarations::*;
+pub use decl::*;
 #[cfg(feature = "visit-ast")]
 use horrorshow::{html, prelude::*};
 use std::fmt::{self, Display, Formatter};
