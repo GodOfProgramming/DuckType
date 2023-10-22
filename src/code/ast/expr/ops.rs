@@ -176,6 +176,218 @@ impl AstExpression for BinaryExpression {
 }
 
 #[derive(Debug)]
+pub struct CallExpression {
+  pub callable: Box<Expression>,
+  pub args: Vec<Expression>,
+
+  pub loc: SourceLocation,
+}
+
+impl CallExpression {
+  pub(super) fn new(callable: Expression, args: Vec<Expression>, loc: SourceLocation) -> Self {
+    Self {
+      callable: Box::new(callable),
+      args,
+      loc,
+    }
+  }
+}
+
+impl AstExpression for CallExpression {
+  fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
+    let paren_meta = ast.meta_at::<1>()?;
+    let mut args = Vec::default();
+
+    if let Some(token) = ast.current() {
+      loop {
+        if token == Token::RightParen {
+          break;
+        }
+
+        args.push(ast.expression()?);
+
+        if !ast.advance_if_matches(Token::Comma) {
+          break;
+        }
+      }
+    }
+
+    if ast.consume(Token::RightParen, "expect ')' after arguments") {
+      Some(Expression::from(CallExpression::new(left, args, paren_meta)))
+    } else {
+      None
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct IndexExpression {
+  pub indexable: Box<Expression>,
+  pub index: Box<Expression>,
+
+  pub loc: SourceLocation,
+}
+
+impl IndexExpression {
+  pub(super) fn new(indexable: Expression, index: Expression, loc: SourceLocation) -> Self {
+    Self {
+      indexable: Box::new(indexable),
+      index: Box::new(index),
+      loc,
+    }
+  }
+}
+
+impl AstExpression for IndexExpression {
+  fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
+    let bracket_meta = ast.meta_at::<1>()?;
+
+    let index = ast.expression()?;
+
+    if ast.consume(Token::RightBracket, "expected ']' after expression") {
+      Some(Expression::from(IndexExpression::new(left, index, bracket_meta)))
+    } else {
+      None
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct MemberAccessExpression {
+  pub obj: Box<Expression>,
+  pub ident: Ident,
+  pub loc: SourceLocation,
+}
+
+impl MemberAccessExpression {
+  pub(super) fn new(obj: Expression, ident: Ident, loc: SourceLocation) -> Self {
+    Self {
+      obj: Box::new(obj),
+      ident,
+      loc,
+    }
+  }
+}
+
+impl AstExpression for MemberAssignExpression {
+  fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
+    if let Some(token) = ast.current() {
+      if let Token::Identifier(member) = token {
+        let ident_meta = ast.meta_at::<0>()?;
+
+        ast.advance();
+
+        if let Some(current) = ast.current() {
+          match current {
+            Token::Equal => {
+              ast.advance();
+              let value = ast.expression()?;
+              Some(Expression::from(MemberAssignExpression::new(
+                left,
+                Ident::new(member),
+                AssignOperator::Assign,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::PlusEqual => {
+              ast.advance();
+              let value = ast.expression()?;
+              Some(Expression::from(MemberAssignExpression::new(
+                left,
+                Ident::new(member),
+                AssignOperator::Add,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::MinusEqual => {
+              ast.advance();
+              let value = ast.expression()?;
+              Some(Expression::from(MemberAssignExpression::new(
+                left,
+                Ident::new(member),
+                AssignOperator::Sub,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::AsteriskEqual => {
+              ast.advance();
+              let value = ast.expression()?;
+              Some(Expression::from(MemberAssignExpression::new(
+                left,
+                Ident::new(member),
+                AssignOperator::Mul,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::SlashEqual => {
+              ast.advance();
+              let value = ast.expression()?;
+              Some(Expression::from(MemberAssignExpression::new(
+                left,
+                Ident::new(member),
+                AssignOperator::Div,
+                value,
+                ident_meta,
+              )))
+            }
+            Token::PercentEqual => {
+              ast.advance();
+              let value = ast.expression()?;
+              Some(Expression::from(MemberAssignExpression::new(
+                left,
+                Ident::new(member),
+                AssignOperator::Mod,
+                value,
+                ident_meta,
+              )))
+            }
+            _ => Some(Expression::from(MemberAccessExpression::new(
+              left,
+              Ident::new(member),
+              ident_meta,
+            ))),
+          }
+        } else {
+          ast.error::<1>(String::from("expected token following member access"));
+          None
+        }
+      } else {
+        ast.error::<1>(String::from("expected identifier"));
+        None
+      }
+    } else {
+      ast.error::<1>(String::from("unexpected end of file"));
+      None
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct MemberAssignExpression {
+  pub obj: Box<Expression>,
+  pub ident: Ident,
+  pub op: AssignOperator,
+  pub value: Box<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl MemberAssignExpression {
+  pub(super) fn new(obj: Expression, ident: Ident, op: AssignOperator, value: Expression, loc: SourceLocation) -> Self {
+    Self {
+      obj: Box::new(obj),
+      ident,
+      op,
+      value: Box::new(value),
+      loc,
+    }
+  }
+}
+
+#[derive(Debug)]
 pub struct OrExpression {
   pub left: Box<Expression>,
   pub right: Box<Expression>,

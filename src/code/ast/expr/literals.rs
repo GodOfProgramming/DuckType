@@ -67,6 +67,47 @@ impl AstExpression for IdentExpression {
 }
 
 #[derive(Debug)]
+pub struct ListExpression {
+  pub items: Vec<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl ListExpression {
+  pub(super) fn new(items: Vec<Expression>, loc: SourceLocation) -> Self {
+    Self { items, loc }
+  }
+}
+
+impl AstExpression for ListExpression {
+  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
+    let bracket_meta = ast.meta_at::<1>()?;
+    let mut items = Vec::default();
+
+    if let Some(token) = ast.current() {
+      if token != Token::RightBracket {
+        loop {
+          items.push(ast.expression()?);
+          if !ast.advance_if_matches(Token::Comma) {
+            break;
+          }
+        }
+      }
+    }
+
+    if ast.consume(Token::RightBracket, "expect ']' after arguments") {
+      let list = ListExpression::new(items, bracket_meta);
+      if ast.advance_if_matches(Token::Pipe) {
+        ast.closure_expr(Token::Pipe, list)
+      } else {
+        Some(Expression::from(list))
+      }
+    } else {
+      None
+    }
+  }
+}
+
+#[derive(Debug)]
 pub struct LiteralExpression {
   pub value: ConstantValue,
 

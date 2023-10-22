@@ -204,31 +204,6 @@ impl AstGenerator {
     self.parse_precedence(Precedence::Assignment)
   }
 
-  fn call_expr(&mut self, expr: Expression) -> Option<Expression> {
-    let paren_meta = self.meta_at::<1>()?;
-    let mut args = Vec::default();
-
-    if let Some(token) = self.current() {
-      loop {
-        if token == Token::RightParen {
-          break;
-        }
-
-        args.push(self.expression()?);
-
-        if !self.advance_if_matches(Token::Comma) {
-          break;
-        }
-      }
-    }
-
-    if self.consume(Token::RightParen, "expect ')' after arguments") {
-      Some(Expression::from(CallExpression::new(expr, args, paren_meta)))
-    } else {
-      None
-    }
-  }
-
   fn class_expr(&mut self, name: Option<Ident>) -> Option<Expression> {
     if let Some(class_loc) = self.meta_at::<0>() {
       // needed here because infix advances to '{' after seeing "class"
@@ -317,140 +292,6 @@ impl AstGenerator {
       )))
     } else {
       self.error::<0>("no meta found at location");
-      None
-    }
-  }
-
-  fn list_expr(&mut self) -> Option<Expression> {
-    let bracket_meta = self.meta_at::<1>()?;
-    let mut items = Vec::default();
-
-    if let Some(token) = self.current() {
-      if token != Token::RightBracket {
-        loop {
-          items.push(self.expression()?);
-          if !self.advance_if_matches(Token::Comma) {
-            break;
-          }
-        }
-      }
-    }
-
-    if self.consume(Token::RightBracket, "expect ']' after arguments") {
-      let list = ListExpression::new(items, bracket_meta);
-      if self.advance_if_matches(Token::Pipe) {
-        self.closure_expr(Token::Pipe, list)
-      } else {
-        Some(Expression::from(list))
-      }
-    } else {
-      None
-    }
-  }
-
-  fn index_expr(&mut self, expr: Expression) -> Option<Expression> {
-    let bracket_meta = self.meta_at::<1>()?;
-
-    let index = self.expression()?;
-
-    if self.consume(Token::RightBracket, "expected ']' after expression") {
-      Some(Expression::from(IndexExpression::new(expr, index, bracket_meta)))
-    } else {
-      None
-    }
-  }
-
-  fn member_expr(&mut self, expr: Expression) -> Option<Expression> {
-    if let Some(token) = self.current() {
-      if let Token::Identifier(member) = token {
-        let ident_meta = self.meta_at::<0>()?;
-
-        self.advance();
-
-        if let Some(current) = self.current() {
-          match current {
-            Token::Equal => {
-              self.advance();
-              let value = self.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
-                expr,
-                Ident::new(member),
-                AssignOperator::Assign,
-                value,
-                ident_meta,
-              )))
-            }
-            Token::PlusEqual => {
-              self.advance();
-              let value = self.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
-                expr,
-                Ident::new(member),
-                AssignOperator::Add,
-                value,
-                ident_meta,
-              )))
-            }
-            Token::MinusEqual => {
-              self.advance();
-              let value = self.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
-                expr,
-                Ident::new(member),
-                AssignOperator::Sub,
-                value,
-                ident_meta,
-              )))
-            }
-            Token::AsteriskEqual => {
-              self.advance();
-              let value = self.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
-                expr,
-                Ident::new(member),
-                AssignOperator::Mul,
-                value,
-                ident_meta,
-              )))
-            }
-            Token::SlashEqual => {
-              self.advance();
-              let value = self.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
-                expr,
-                Ident::new(member),
-                AssignOperator::Div,
-                value,
-                ident_meta,
-              )))
-            }
-            Token::PercentEqual => {
-              self.advance();
-              let value = self.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
-                expr,
-                Ident::new(member),
-                AssignOperator::Mod,
-                value,
-                ident_meta,
-              )))
-            }
-            _ => Some(Expression::from(MemberAccessExpression::new(
-              expr,
-              Ident::new(member),
-              ident_meta,
-            ))),
-          }
-        } else {
-          self.error::<1>(String::from("expected token following member access"));
-          None
-        }
-      } else {
-        self.error::<1>(String::from("expected identifier"));
-        None
-      }
-    } else {
-      self.error::<1>(String::from("unexpected end of file"));
       None
     }
   }
@@ -1051,14 +892,14 @@ impl AstGenerator {
 
   fn rule_for(token: &Token) -> ParseRule {
     match token {
-      Token::LeftParen => ParseRule::new(Some(GroupExpression::prefix), Some(Self::call_expr), Precedence::Call),
+      Token::LeftParen => ParseRule::new(Some(GroupExpression::prefix), Some(CallExpression::infix), Precedence::Call),
       Token::RightParen => ParseRule::new(None, None, Precedence::None),
       Token::LeftBrace => ParseRule::new(None, None, Precedence::None),
       Token::RightBrace => ParseRule::new(None, None, Precedence::None),
-      Token::LeftBracket => ParseRule::new(Some(Self::list_expr), Some(Self::index_expr), Precedence::Call),
+      Token::LeftBracket => ParseRule::new(Some(ListExpression::prefix), Some(IndexExpression::infix), Precedence::Call),
       Token::RightBracket => ParseRule::new(None, None, Precedence::None),
       Token::Comma => ParseRule::new(None, None, Precedence::None),
-      Token::Dot => ParseRule::new(None, Some(Self::member_expr), Precedence::Call),
+      Token::Dot => ParseRule::new(None, Some(MemberAssignExpression::infix), Precedence::Call),
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
       Token::Colon => ParseRule::new(None, None, Precedence::None),
       Token::At => ParseRule::new(None, None, Precedence::None),
