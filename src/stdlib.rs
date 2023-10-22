@@ -5,10 +5,7 @@ mod libps;
 mod libstring;
 mod libtime;
 
-use crate::{
-  memory::{Allocation, Gc},
-  prelude::*,
-};
+use crate::prelude::*;
 use enum_iterator::{all, Sequence};
 use libconsole::LibConsole;
 use libenv::LibEnv;

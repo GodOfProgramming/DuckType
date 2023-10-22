@@ -1,7 +1,8 @@
+pub mod memory;
+
 use crate::{
-  code::{Compiler, ConstantValue, Context, Env, OpCodeReflection, Opcode, StackFrame, Yield},
+  code::{Compiler, ConstantValue, Context, Env, OpCodeReflection, StackFrame, Yield},
   dbg::{Cli, RuntimeError},
-  memory::{Allocation, Gc, ValueHandle},
   prelude::Library,
   util::{FileIdType, FileMetadata, PlatformMetadata},
   value::prelude::*,
@@ -9,6 +10,7 @@ use crate::{
 };
 use clap::Parser;
 use dlopen2::wrapper::{Container, WrapperApi};
+use memory::{Allocation, Gc, ValueHandle};
 use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
@@ -25,31 +27,113 @@ struct NativeApi {
 }
 
 pub mod prelude {
-  pub use super::{Return, Vm};
+  pub use super::memory::*;
+  pub use super::{Opcode, Return, Vm};
 }
 
 type ExecResult<'file> = Result<(), Vec<RuntimeError>>;
 type ExecBoolResult<'file> = Result<bool, Vec<RuntimeError>>;
 
-// yield must store ip and stack and return ctx
-// or better yet, have ctx have an Option<usize> and option<Vec<Value>>
-// and when running if present, then set the current thread's ip & stack to those values
-
-pub enum Return {
-  Value(Value),
-  Yield(Yield),
-}
-
-pub(crate) struct FileInfo {
-  path: PathBuf,
-  id: FileIdType,
-  frame: usize,
-}
-
-impl FileInfo {
-  fn new(path: PathBuf, id: FileIdType, frame: usize) -> Self {
-    Self { path, id, frame }
-  }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Opcode {
+  /** No operation instruction */
+  NoOp,
+  /** Looks up a constant value at the specified location. Location is specified by the tuple */
+  Const(usize),
+  /** Pushes a nil value on to the stack */
+  Nil,
+  /** Pushes a true value on to the stack */
+  True,
+  /** Pushes a false value on to the stack */
+  False,
+  /** Pops a value off the stack */
+  Pop,
+  /** Pops N values off the stack. N is specified by tuple */
+  PopN(usize),
+  /** Looks up a local variable. The index in the stack is specified by the modifying bits */
+  LookupLocal(usize),
+  /** Assigns a value to the local variable indexed by the tuple. The value comes off the top of the stack */
+  AssignLocal(usize),
+  /** Assigns to a global, defining it if it already doesn't exist. The name is stored in the enum. The value comes off the top of the stack */
+  ForceAssignGlobal(usize),
+  /** Defines a new global variable. The name is stored in the enum. The value comes off the top of the stack */
+  DefineGlobal(usize),
+  /** Looks up a global variable. The name is stored in the enum */
+  LookupGlobal(usize),
+  /** Assigns a value to the global variable. The Name is stored in the enum. The value comes off the top of the stack */
+  AssignGlobal(usize),
+  /** Defines a member on an object type. The first item popped off the stack is the value. The object is next which is left on for further assignments. The member name is specified by the modifying bits */
+  AssignMember(usize),
+  /** Initializes a member of an object, keeping the object on the stack for further assignments */
+  InitializeMember(usize),
+  /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
+  LookupMember(usize),
+  /** Uses the constant pointed to by the modifying bits to peek at a value on the next item on the stack */
+  PeekMember(usize),
+  /** Pops two values off the stack, compares, then pushes the result back on */
+  Equal,
+  /** Pops two values off the stack, compares, then pushes the result back on */
+  NotEqual,
+  /** Pops two values off the stack, compares, then pushes the result back on */
+  Greater,
+  /** Pops two values off the stack, compares, then pushes the result back on */
+  GreaterEqual,
+  /** Pops two values off the stack, compares, then pushes the result back on */
+  Less,
+  /** Pops two values off the stack, compares, then pushes the result back on */
+  LessEqual,
+  /** Pops a value off the stack, and compars it with the peeked value, pushing the new value on */
+  Check,
+  /** Pops two values off the stack, calculates the sum, then pushes the result back on */
+  Add,
+  /** Pops two values off the stack, calculates the difference, then pushes the result back on */
+  Sub,
+  /** Pops two values off the stack, calculates the product, then pushes the result back on */
+  Mul,
+  /** Pops two values off the stack, calculates the quotient, then pushes the result back on */
+  Div,
+  /** Pops two values off the stack, calculates the remainder, then pushes the result back on */
+  Rem,
+  /** Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple */
+  Or(usize),
+  /** Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple */
+  And(usize),
+  /** Pops a value off the stack, inverts its truthy value, then pushes that back on */
+  Not,
+  /** Pops a value off the stack, inverts its numerical value, then pushes that back on */
+  Negate,
+  /** Pops a value off the stack and prints it to the screen */
+  Print,
+  /** Jumps to a code location indicated by the tuple */
+  Jump(usize),
+  /** Jumps to a code location indicated by the tuple */
+  JumpIfFalse(usize),
+  /** Jumps the instruction pointer backwards N instructions. N specified by the tuple */
+  Loop(usize),
+  /** Calls the instruction on the stack. Number of arguments is specified by the modifying bits */
+  Call(usize),
+  /** Exits from a function, returning nil on the previous frame */
+  Ret,
+  /** Exits from a function, returning the last value on the stack to the previous frame */
+  RetValue,
+  /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
+  Req,
+  /** Create a list of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
+  CreateList(usize),
+  /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
+  CreateClosure,
+  /** Create a new struct */
+  CreateStruct,
+  /** Create a new module */
+  CreateModule,
+  /** Locks a value making it immutable: REQUIRES THE UNDERLYING TYPE TO IMPLEMENT SAID FUNCTIONALITY WHEN __lock__() is invoked */
+  Lock,
+  /** Yield at the current location */
+  Yield,
+  /** Halt the VM when this instruction is reached and enter repl mode */
+  Breakpoint,
+  /** Mark the current value as exported */
+  Export,
 }
 
 #[cfg(test)]
@@ -234,7 +318,7 @@ impl Vm {
   fn execute(&mut self) -> Result<Return, Vec<RuntimeError>> {
     self.next_gc = Instant::now() + DEFAULT_GC_FREQUENCY;
 
-    loop {
+    'file: loop {
       #[cfg(feature = "runtime-disassembly")]
       {
         println!("<< {} >>", self.current_frame.ctx.id);
@@ -243,7 +327,7 @@ impl Vm {
       let mut should_return_from_stack = false;
       let mut export = None;
 
-      while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
+      'ctx: while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
         let now = Instant::now();
         if now > self.next_gc {
           self.run_gc();
@@ -287,12 +371,12 @@ impl Vm {
           Opcode::Rem => self.exec_rem(&opcode)?,
           Opcode::Or(count) => {
             if self.exec_or(&opcode, count)? {
-              continue;
+              continue 'ctx;
             }
           }
           Opcode::And(count) => {
             if self.exec_and(&opcode, count)? {
-              continue;
+              continue 'ctx;
             }
           }
           Opcode::Not => self.exec_not(&opcode)?,
@@ -300,33 +384,33 @@ impl Vm {
           Opcode::Print => self.exec_print(&opcode)?,
           Opcode::Jump(count) => {
             self.jump(count);
-            continue;
+            continue 'ctx;
           }
           Opcode::JumpIfFalse(count) => {
             if self.exec_jump_if_false(&opcode, count)? {
-              continue;
+              continue 'ctx;
             }
           }
           Opcode::Loop(count) => {
             self.loop_back(count);
-            continue;
+            continue 'ctx;
           }
           Opcode::Call(airity) => {
             self.current_frame.ip += 1;
             self.exec_call(&opcode, airity)?;
-            continue;
+            continue 'ctx;
           }
           Opcode::Ret => {
-            break;
+            break 'ctx;
           }
           Opcode::RetValue => {
             should_return_from_stack = true;
-            break;
+            break 'ctx;
           }
           Opcode::Req => {
             self.current_frame.ip += 1;
             self.exec_req(&opcode)?;
-            continue;
+            continue 'ctx;
           }
           Opcode::CreateList(num_items) => self.exec_create_list(num_items),
           Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
@@ -390,13 +474,13 @@ impl Vm {
           self.current_frame = stack_frame;
           self.stack_push(output);
         } else {
-          break Ok(Return::Value(output));
+          break 'file Ok(Return::Value(output));
         }
       } else {
         // possible to reach with repl
         // since it will run out of instructions
         // but keep the stack/ip
-        break Ok(Return::Value(output));
+        break 'file Ok(Return::Value(output));
       }
     }
   }
@@ -1065,5 +1149,22 @@ impl Vm {
         println!("{:#15}| [ {:?} ]", index, item);
       }
     }
+  }
+}
+
+pub enum Return {
+  Value(Value),
+  Yield(Yield),
+}
+
+pub(crate) struct FileInfo {
+  path: PathBuf,
+  id: FileIdType,
+  frame: usize,
+}
+
+impl FileInfo {
+  fn new(path: PathBuf, id: FileIdType, frame: usize) -> Self {
+    Self { path, id, frame }
   }
 }

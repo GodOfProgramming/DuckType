@@ -53,8 +53,6 @@ impl TestFixture for IntegrationTest {
 
 #[fixture(IntegrationTest)]
 mod integration_tests {
-  use crate::memory::Allocation;
-
   use super::*;
   use evalexpr::eval;
 

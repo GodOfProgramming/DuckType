@@ -1,7 +1,4 @@
-use crate::{
-  memory::{Allocation, Gc},
-  prelude::*,
-};
+use crate::prelude::*;
 use std::collections::BTreeMap;
 
 #[derive(Default, Usertype)]

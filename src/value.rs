@@ -1,8 +1,4 @@
-use crate::{
-  code::ConstantValue,
-  memory::{Allocation, Gc, META_OFFSET},
-  prelude::*,
-};
+use crate::{code::ConstantValue, prelude::*};
 use static_assertions::assert_eq_size;
 use std::{
   cmp::Ordering,
