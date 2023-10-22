@@ -6,6 +6,31 @@ use crate::code::{
 };
 
 #[derive(Debug)]
+pub enum AssignOperator {
+  Assign,
+  Add,
+  Sub,
+  Mul,
+  Div,
+  Mod,
+}
+
+#[derive(Debug)]
+pub struct Assignment {
+  pub op: AssignOperator,
+  pub value: Box<Expression>,
+}
+
+impl Assignment {
+  fn new(op: AssignOperator, value: Expression) -> Self {
+    Self {
+      op,
+      value: Box::new(value),
+    }
+  }
+}
+
+#[derive(Debug)]
 pub struct AndExpression {
   pub left: Box<Expression>,
   pub right: Box<Expression>,
@@ -36,16 +61,6 @@ impl AstExpression for AndExpression {
       None
     }
   }
-}
-
-#[derive(Debug)]
-pub enum AssignOperator {
-  Assign,
-  Add,
-  Sub,
-  Mul,
-  Div,
-  Mod,
 }
 
 #[derive(Debug)]
@@ -256,20 +271,30 @@ impl AstExpression for IndexExpression {
 pub struct MemberAccessExpression {
   pub obj: Box<Expression>,
   pub ident: Ident,
+  pub assignment: Option<Assignment>,
   pub loc: SourceLocation,
 }
 
 impl MemberAccessExpression {
-  pub(super) fn new(obj: Expression, ident: Ident, loc: SourceLocation) -> Self {
+  fn new(obj: Expression, ident: Ident, assignment: Option<Assignment>, loc: SourceLocation) -> Self {
     Self {
       obj: Box::new(obj),
       ident,
+      assignment,
       loc,
     }
   }
+
+  fn new_access(obj: Expression, ident: Ident, loc: SourceLocation) -> Self {
+    Self::new(obj, ident, None, loc)
+  }
+
+  fn new_assignment(obj: Expression, ident: Ident, assignment: Assignment, loc: SourceLocation) -> Self {
+    Self::new(obj, ident, Some(assignment), loc)
+  }
 }
 
-impl AstExpression for MemberAssignExpression {
+impl AstExpression for MemberAccessExpression {
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
     if let Some(token) = ast.current() {
       if let Token::Identifier(member) = token {
@@ -282,74 +307,64 @@ impl AstExpression for MemberAssignExpression {
             Token::Equal => {
               ast.advance();
               let value = ast.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
+              Some(Expression::from(Self::new_assignment(
                 left,
                 Ident::new(member),
-                AssignOperator::Assign,
-                value,
+                Assignment::new(AssignOperator::Assign, value),
                 ident_meta,
               )))
             }
             Token::PlusEqual => {
               ast.advance();
               let value = ast.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
+              Some(Expression::from(Self::new_assignment(
                 left,
                 Ident::new(member),
-                AssignOperator::Add,
-                value,
+                Assignment::new(AssignOperator::Add, value),
                 ident_meta,
               )))
             }
             Token::MinusEqual => {
               ast.advance();
               let value = ast.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
+              Some(Expression::from(Self::new_assignment(
                 left,
                 Ident::new(member),
-                AssignOperator::Sub,
-                value,
+                Assignment::new(AssignOperator::Sub, value),
                 ident_meta,
               )))
             }
             Token::AsteriskEqual => {
               ast.advance();
               let value = ast.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
+              Some(Expression::from(Self::new_assignment(
                 left,
                 Ident::new(member),
-                AssignOperator::Mul,
-                value,
+                Assignment::new(AssignOperator::Mul, value),
                 ident_meta,
               )))
             }
             Token::SlashEqual => {
               ast.advance();
               let value = ast.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
+              Some(Expression::from(Self::new_assignment(
                 left,
                 Ident::new(member),
-                AssignOperator::Div,
-                value,
+                Assignment::new(AssignOperator::Div, value),
                 ident_meta,
               )))
             }
             Token::PercentEqual => {
               ast.advance();
               let value = ast.expression()?;
-              Some(Expression::from(MemberAssignExpression::new(
+              Some(Expression::from(Self::new_assignment(
                 left,
                 Ident::new(member),
-                AssignOperator::Mod,
-                value,
+                Assignment::new(AssignOperator::Mod, value),
                 ident_meta,
               )))
             }
-            _ => Some(Expression::from(MemberAccessExpression::new(
-              left,
-              Ident::new(member),
-              ident_meta,
-            ))),
+            _ => Some(Expression::from(Self::new_access(left, Ident::new(member), ident_meta))),
           }
         } else {
           ast.error::<1>(String::from("expected token following member access"));
@@ -362,27 +377,6 @@ impl AstExpression for MemberAssignExpression {
     } else {
       ast.error::<1>(String::from("unexpected end of file"));
       None
-    }
-  }
-}
-
-#[derive(Debug)]
-pub struct MemberAssignExpression {
-  pub obj: Box<Expression>,
-  pub ident: Ident,
-  pub op: AssignOperator,
-  pub value: Box<Expression>,
-  pub loc: SourceLocation,
-}
-
-impl MemberAssignExpression {
-  pub(super) fn new(obj: Expression, ident: Ident, op: AssignOperator, value: Expression, loc: SourceLocation) -> Self {
-    Self {
-      obj: Box::new(obj),
-      ident,
-      op,
-      value: Box::new(value),
-      loc,
     }
   }
 }

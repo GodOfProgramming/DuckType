@@ -27,7 +27,6 @@ pub enum Expression {
   Class(ClassExpression),
   Mod(ModExpression),
   MemberAccess(MemberAccessExpression),
-  MemberAssign(MemberAssignExpression),
   Lambda(LambdaExpression),
   Closure(ClosureExpression),
   Method(MethodExpression),
@@ -88,7 +87,6 @@ impl Expression {
       }
       Expression::Mod(_) => (),
       Expression::MemberAccess(_) => (),
-      Expression::MemberAssign(_) => (),
       Expression::Lambda(l) => l.body.dump(tmpl),
       Expression::Closure(c) => c.body.dump(tmpl),
       Expression::Method(m) => m.body.dump(tmpl),
@@ -109,7 +107,6 @@ impl Display for Expression {
       Self::Ident(i) => write!(f, "ident {}", i.ident.name),
       Self::Assign(_) => write!(f, "assign"),
       Self::MemberAccess(_) => write!(f, "member access"),
-      Self::MemberAssign(_) => write!(f, "member assign"),
       Self::Call(_) => write!(f, "call"),
       Self::List(_) => write!(f, "list"),
       Self::Index(_) => write!(f, "index"),
@@ -211,12 +208,6 @@ impl From<ModExpression> for Expression {
 impl From<MemberAccessExpression> for Expression {
   fn from(expr: MemberAccessExpression) -> Self {
     Self::MemberAccess(expr)
-  }
-}
-
-impl From<MemberAssignExpression> for Expression {
-  fn from(expr: MemberAssignExpression) -> Self {
-    Self::MemberAssign(expr)
   }
 }
 

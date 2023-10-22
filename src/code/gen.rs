@@ -544,31 +544,28 @@ impl BytecodeGenerator {
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
     let ident = self.add_const_ident(expr.ident);
     self.emit_expr(*expr.obj);
-    self.emit(Opcode::LookupMember(ident), expr.loc);
-  }
 
-  fn member_assign_expr(&mut self, expr: MemberAssignExpression) {
-    let mut op_assign = |expr: MemberAssignExpression, op| {
-      let ident = self.add_const_ident(expr.ident);
-      self.emit_expr(*expr.obj);
-      self.emit(Opcode::PeekMember(ident), expr.loc.clone());
-      self.emit_expr(*expr.value);
-      self.emit(op, expr.loc.clone());
-      self.emit(Opcode::AssignMember(ident), expr.loc);
-    };
+    if let Some(assignment) = expr.assignment {
+      let mut op_assign = |assignment: Assignment, op, loc: SourceLocation| {
+        self.emit(Opcode::PeekMember(ident), loc.clone());
+        self.emit_expr(*assignment.value);
+        self.emit(op, loc.clone());
+        self.emit(Opcode::AssignMember(ident), loc);
+      };
 
-    match expr.op {
-      AssignOperator::Assign => {
-        let ident = self.add_const_ident(expr.ident);
-        self.emit_expr(*expr.obj);
-        self.emit_expr(*expr.value);
-        self.emit(Opcode::AssignMember(ident), expr.loc);
+      match assignment.op {
+        AssignOperator::Assign => {
+          self.emit_expr(*assignment.value);
+          self.emit(Opcode::AssignMember(ident), expr.loc);
+        }
+        AssignOperator::Add => op_assign(assignment, Opcode::Add, expr.loc),
+        AssignOperator::Sub => op_assign(assignment, Opcode::Sub, expr.loc),
+        AssignOperator::Mul => op_assign(assignment, Opcode::Mul, expr.loc),
+        AssignOperator::Div => op_assign(assignment, Opcode::Div, expr.loc),
+        AssignOperator::Mod => op_assign(assignment, Opcode::Rem, expr.loc),
       }
-      AssignOperator::Add => op_assign(expr, Opcode::Add),
-      AssignOperator::Sub => op_assign(expr, Opcode::Sub),
-      AssignOperator::Mul => op_assign(expr, Opcode::Mul),
-      AssignOperator::Div => op_assign(expr, Opcode::Div),
-      AssignOperator::Mod => op_assign(expr, Opcode::Rem),
+    } else {
+      self.emit(Opcode::LookupMember(ident), expr.loc);
     }
   }
 
@@ -628,7 +625,6 @@ impl BytecodeGenerator {
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::MemberAccess(expr) => self.member_access_expr(expr),
-      Expression::MemberAssign(expr) => self.member_assign_expr(expr),
       Expression::Call(expr) => self.call_expr(expr),
       Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),

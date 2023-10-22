@@ -899,7 +899,7 @@ impl AstGenerator {
       Token::LeftBracket => ParseRule::new(Some(ListExpression::prefix), Some(IndexExpression::infix), Precedence::Call),
       Token::RightBracket => ParseRule::new(None, None, Precedence::None),
       Token::Comma => ParseRule::new(None, None, Precedence::None),
-      Token::Dot => ParseRule::new(None, Some(MemberAssignExpression::infix), Precedence::Call),
+      Token::Dot => ParseRule::new(None, Some(MemberAccessExpression::infix), Precedence::Call),
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
       Token::Colon => ParseRule::new(None, None, Precedence::None),
       Token::At => ParseRule::new(None, None, Precedence::None),
