@@ -1,7 +1,7 @@
 use crate::{common, StrAttr};
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{quote, TokenStreamExt};
-use syn::{parse_macro_input, FnArg, Item, ItemFn, ItemMod, ItemStruct};
+use syn::{FnArg, Item, ItemFn, ItemMod, ItemStruct};
 
 pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
   let ident = &item.sig.ident;
@@ -72,8 +72,8 @@ impl TryFrom<Vec<Item>> for ModuleDef {
 
           let rename_attr = match item_struct.attrs.iter().find(|attr| attr.path.is_ident("rename")) {
             Some(rename_attr) => {
-              let tokens = TokenStream::from(rename_attr.tokens.clone());
-              match syn::parse2::<StrAttr>(tokens.into()) {
+              let tokens = rename_attr.tokens.clone();
+              match syn::parse::<StrAttr>(tokens.into()) {
                 Ok(rename_value) => Some(rename_value.string),
                 Err(e) => return Err(common::error(rename_attr, format!("rename value is not a string: {}", e))),
               }
@@ -164,7 +164,7 @@ fn collect_struct_defs(structs: Vec<StructDef>) -> (TokenStream, Vec<ItemStruct>
     let struct_name = &native_struct.name;
     let struct_name_str = struct_name.to_string();
     let struct_name_lit = &Literal::string(&struct_name_str);
-    let struct_name_lit = native_struct.rename.as_ref().unwrap_or(&struct_name_lit);
+    let struct_name_lit = native_struct.rename.as_ref().unwrap_or(struct_name_lit);
     quote! {
       module.set(gc, #struct_name_lit, Value::native(<#struct_name as UsertypeMethods>::__new__)).ok();
     }
