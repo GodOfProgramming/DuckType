@@ -9,11 +9,7 @@ mod util;
 #[cfg(test)]
 mod test;
 
-pub use code::Context;
-pub use code::Env;
-
 pub mod prelude {
-  pub use super::code::prelude::*;
   pub use super::dbg::prelude::*;
   pub use super::exec::prelude::*;
   pub(crate) use super::stdlib;

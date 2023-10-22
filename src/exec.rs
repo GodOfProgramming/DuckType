@@ -1,11 +1,11 @@
+mod env;
 pub mod memory;
 
 use crate::{
-  code::{Compiler, ConstantValue, Context, Env, OpCodeReflection, StackFrame, Yield},
-  dbg::{Cli, RuntimeError},
-  prelude::Library,
+  code::{Compiler, ConstantValue, OpCodeReflection},
+  dbg::Cli,
+  prelude::*,
   util::{FileIdType, FileMetadata, PlatformMetadata},
-  value::prelude::*,
   UnwrapAnd,
 };
 use clap::Parser;
@@ -15,7 +15,8 @@ use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
   collections::BTreeMap,
-  env, fs,
+  fmt::{self, Display, Formatter},
+  fs,
   path::{Path, PathBuf},
   rc::Rc,
   time::{Duration, Instant},
@@ -27,6 +28,7 @@ struct NativeApi {
 }
 
 pub mod prelude {
+  pub use super::env::prelude::*;
   pub use super::memory::*;
   pub use super::{Opcode, Return, Vm};
 }
@@ -854,7 +856,7 @@ impl Vm {
 
       // then try to find from cwd
       if found_file.is_none() {
-        let this_dir = env::current_dir().map_err(|e| self.error(opcode, e))?;
+        let this_dir = std::env::current_dir().map_err(|e| self.error(opcode, e))?;
         found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
       }
 
@@ -1149,6 +1151,54 @@ impl Vm {
         println!("{:#15}| [ {:?} ]", index, item);
       }
     }
+  }
+}
+
+#[derive(Default)]
+pub struct StackFrame {
+  pub ip: usize,
+  pub ctx: SmartPtr<Context>,
+  pub stack: Vec<Value>,
+}
+
+impl StackFrame {
+  pub fn new(ctx: SmartPtr<Context>) -> Self {
+    Self {
+      ip: Default::default(),
+      ctx,
+      stack: Default::default(),
+    }
+  }
+
+  /**
+   * Clear the current stack frame, returning the previous
+   */
+  pub fn clear_out(&mut self) -> Self {
+    let mut old = Self::default();
+    std::mem::swap(&mut old, self);
+    old
+  }
+}
+
+pub struct Yield {
+  pub current_frame: StackFrame,
+  pub stack_frames: Vec<StackFrame>,
+  pub(crate) opened_files: Vec<FileInfo>,
+}
+
+impl Yield {
+  pub(crate) fn new(current_frame: StackFrame, stack_frames: Vec<StackFrame>, opened_files: Vec<FileInfo>) -> Self {
+    Self {
+      current_frame,
+      stack_frames,
+      opened_files,
+    }
+  }
+}
+
+impl Display for Yield {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "yield")
   }
 }
 

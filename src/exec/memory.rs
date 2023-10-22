@@ -1,5 +1,4 @@
 use crate::{
-  code::StackFrame,
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
 };
@@ -8,6 +7,8 @@ use std::{
   mem,
   sync::atomic::{AtomicUsize, Ordering},
 };
+
+use super::StackFrame;
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
@@ -298,14 +299,10 @@ where
 
 #[cfg(test)]
 mod tests {
-  use std::rc::Rc;
-
+  use super::*;
+  use crate::code::Reflection;
   use ptr::SmartPtr;
-
-  use crate::{
-    code::{Reflection, StackFrame},
-    prelude::*,
-  };
+  use std::rc::Rc;
 
   #[derive(Usertype, Fields)]
   #[uuid("random")]
