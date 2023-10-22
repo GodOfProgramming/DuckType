@@ -1,4 +1,4 @@
-use crate::{exec::FileInfo, prelude::*};
+use crate::prelude::*;
 use ast::Ast;
 use gen::BytecodeGenerator;
 use inter_struct::prelude::*;

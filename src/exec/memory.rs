@@ -314,7 +314,7 @@ mod tests {
   fn new_ctx(gc: &mut Gc) -> SmartPtr<Context> {
     SmartPtr::new(Context::new(
       Some("main"),
-      SmartPtr::new(Env::initialize(gc, &[], Default::default())),
+      SmartPtr::new(Env::initialize(gc, None)),
       Reflection::new(Rc::new(Default::default()), Rc::new(Default::default())),
     ))
   }

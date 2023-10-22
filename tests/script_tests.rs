@@ -11,7 +11,8 @@ impl ScriptTest {
   pub fn run(&mut self, script: &Path) {
     println!("running {:?}", script);
     let src = fs::read_to_string(script).unwrap();
-    let env = Env::initialize(&mut self.vm.gc, &[], Library::All);
+    let libs = stdlib::load_libs(&mut self.vm.gc, &[], &Library::All);
+    let env = Env::initialize(&mut self.vm.gc, Some(libs));
     let ctx = self.vm.load(script.to_string_lossy().to_string(), &src, env).unwrap();
     self.vm.run(script.to_string_lossy().to_string(), ctx).unwrap();
   }
@@ -62,7 +63,8 @@ mod tests {
 
     const SCRIPT: &str = "{ let leaker = make_leaker(); leaker.this = leaker; }";
 
-    let env = Env::initialize(&mut t.vm.gc, &[], Library::All);
+    let libs = stdlib::load_libs(&mut t.vm.gc, &[], &Library::All);
+    let env = Env::initialize(&mut t.vm.gc, Some(libs));
     let mut ctx = t.vm.load("test", SCRIPT, env).unwrap();
 
     #[native]

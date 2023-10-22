@@ -29,7 +29,8 @@ fn main() {
       let mut exit_code = 0;
 
       let mut vm = Vm::new(runargs.clone(), Library::All);
-      let env = Env::initialize(&mut vm.gc, &runargs, Library::All);
+      let libs = stdlib::load_libs(&mut vm.gc, &runargs, &Library::All);
+      let env = Env::initialize(&mut vm.gc, Some(libs));
 
       if let Some(file) = file {
         if !run_file(vm, file, env) {

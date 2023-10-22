@@ -862,9 +862,12 @@ impl Vm {
 
       // if still not found, try searching library paths
       if found_file.is_none() {
-        if let Some(library_mod) = self.env().lookup("$LIBRARY") {
+        if let Some(library_mod) = self.env().lookup(Env::LIB_GLOBAL) {
           if let Some(library_mod) = library_mod.as_struct() {
-            if let Ok(Some(list)) = library_mod.get_field(&mut self.gc, "path").map(|l| l.map(|l| l.as_array())) {
+            if let Ok(Some(list)) = library_mod
+              .get_field(&mut self.gc, Env::PATHS_MEMBER)
+              .map(|l| l.map(|l| l.as_array()))
+            {
               for item in list.iter() {
                 let base = PathBuf::from(item.to_string());
                 found_file = try_to_find_file(&base, &required_file, &mut attempts);
@@ -904,7 +907,8 @@ impl Vm {
               if let Some(handle) = self.lib_cache.get(&id) {
                 self.stack_push(handle.value.clone());
               } else {
-                let env = SmartPtr::new(Env::initialize(&mut self.gc, &self.args, self.libs.clone()));
+                let libs = stdlib::load_libs(&mut self.gc, &self.args, &self.libs.clone());
+                let env = SmartPtr::new(Env::initialize(&mut self.gc, Some(libs)));
                 let new_ctx = Compiler::compile(found_file.clone(), &data, env)?;
 
                 #[cfg(feature = "disassemble")]

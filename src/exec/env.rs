@@ -312,33 +312,32 @@ impl Context {
 
 pub struct Env {
   vars: BTreeMap<String, Value>,
-  libs: Library,
-  args: Vec<String>,
 }
 
 impl Env {
-  pub fn initialize(gc: &mut Gc, args: &[String], library: Library) -> Self {
-    let mut env = Env {
-      vars: Default::default(),
-      libs: library,
-      args: args.into(),
-    };
+  pub const PATHS_ENV_VAR: &str = "SS_LIBRARY_PATHS";
+  pub const LIB_GLOBAL: &str = "LIBRARY";
+  pub const PATHS_MEMBER: &str = "paths";
+  pub const PATH_SEPARATOR: char = ';';
 
-    env.vars = stdlib::load_libs(gc, &env.args, &env.libs);
+  pub fn initialize(gc: &mut Gc, initial_vars: Option<BTreeMap<String, Value>>) -> Self {
+    let mut env = Env {
+      vars: initial_vars.unwrap_or_default(),
+    };
 
     let mut lib_paths = Vec::default();
 
-    if let Ok(paths) = env::var("SIMPLE_LIBRARY_PATHS") {
-      lib_paths.extend(paths.split_terminator(';').map(|v| gc.allocate(v)));
+    if let Ok(paths) = env::var(Self::PATHS_ENV_VAR) {
+      lib_paths.extend(paths.split_terminator(Self::PATH_SEPARATOR).map(|v| gc.allocate(v)));
     }
 
     let module = LockedModule::initialize(gc, |gc, module| {
       let lib_paths = gc.allocate(lib_paths);
 
-      module.set(gc, "path", lib_paths).ok();
+      module.set(gc, Self::PATHS_MEMBER, lib_paths).ok();
     });
 
-    env.assign("$LIBRARY", module);
+    env.define(Self::LIB_GLOBAL, module);
 
     env
   }
