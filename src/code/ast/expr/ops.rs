@@ -414,6 +414,29 @@ impl AstExpression for OrExpression {
 }
 
 #[derive(Debug)]
+pub struct ReqExpression {
+  pub file: Box<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl ReqExpression {
+  pub(super) fn new(file: Expression, loc: SourceLocation) -> Self {
+    Self {
+      file: Box::new(file),
+      loc,
+    }
+  }
+}
+
+impl AstExpression for ReqExpression {
+  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
+    let loc = ast.meta_at::<1>()?;
+    let expr = ast.expression()?;
+    Some(Expression::from(Self::new(expr, loc)))
+  }
+}
+
+#[derive(Debug)]
 pub enum UnaryOperator {
   Not,
   Negate,

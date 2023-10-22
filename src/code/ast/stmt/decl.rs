@@ -1,6 +1,6 @@
 use crate::{
   code::{
-    ast::{AstGenerator, AstStatement, Expression, Ident},
+    ast::{AstGenerator, AstStatement, ClassExpression, Expression, Ident, ModExpression},
     lex::Token,
     SourceLocation,
   },
@@ -28,7 +28,7 @@ impl AstStatement for ClassStatement {
       if let Some(Token::Identifier(class_name)) = ast.current() {
         let ident = Ident::new_global(class_name);
         ast.advance();
-        ast.class_expr(Some(ident.clone())).unwrap_and(|expr| {
+        ClassExpression::expr(ast, Some(ident.clone())).unwrap_and(|expr| {
           ast
             .statements
             .push(Statement::from(ClassStatement::new(ident, expr, class_loc)));
@@ -112,7 +112,7 @@ impl AstStatement for ModStatement {
       if let Some(Token::Identifier(mod_name)) = ast.current() {
         let ident = Ident::new(mod_name);
         ast.advance();
-        ast.mod_expr(Some(ident.clone())).unwrap_and(|expr| {
+        ModExpression::expr(ast, Some(ident.clone())).unwrap_and(|expr| {
           ast.statements.push(Statement::from(Self::new(ident, expr, mod_loc)));
         });
       } else {

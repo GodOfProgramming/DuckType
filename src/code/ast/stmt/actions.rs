@@ -1,6 +1,6 @@
 use crate::{
   code::{
-    ast::{AstGenerator, AstStatement, Expression, Ident},
+    ast::{AstExpression, AstGenerator, AstStatement, Expression, Ident, ReqExpression},
     lex::Token,
     SourceLocation,
   },
@@ -82,7 +82,7 @@ impl ReqStatement {
 impl AstStatement for ReqStatement {
   fn stmt(ast: &mut AstGenerator) {
     ast.meta_at::<1>().unwrap_and(|loc| {
-      ast.req_expr().unwrap_and(|expr| {
+      ReqExpression::prefix(ast).unwrap_and(|expr| {
         if ast.consume(Token::As, "expected as after req") {
           if let Some(Token::Identifier(ident)) = ast.current() {
             ast.advance();
