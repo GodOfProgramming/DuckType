@@ -349,35 +349,42 @@ impl<'src> Scanner<'src> {
 
   fn make_number(&mut self) -> Option<Token> {
     let mut is_float = false;
+    let mut digits = Vec::new();
 
-    while let Some(c) = self.peek() {
-      if Self::is_digit(c) {
-        self.advance();
-      } else {
-        break;
-      }
+    macro_rules! collect_digits {
+      ($this:ident, $digits:ident) => {
+        while let Some(c) = $this.peek() {
+          if Self::is_digit(c) {
+            $this.advance();
+            $digits.push(c);
+          } else if c == '_' {
+            $this.advance()
+          } else {
+            break;
+          }
+        }
+      };
     }
+
+    collect_digits!(self, digits);
 
     if let Some(c1) = self.peek() {
       if c1 == '.' {
+        digits.push(c1);
         if let Some(c2) = self.peek_n(1) {
           if Self::is_digit(c2) {
+            digits.push(c2);
             is_float = true;
             self.advance(); // advance past the '.'
             self.advance(); // advance past the first digit
-            while let Some(c) = self.peek() {
-              if Self::is_digit(c) {
-                self.advance();
-              } else {
-                break;
-              }
-            }
+
+            collect_digits!(self, digits);
           }
         }
       }
     }
 
-    let lexeme = String::from_utf8_lossy(&self.src[self.start_pos..self.pos]);
+    let lexeme = digits.iter().collect::<String>();
 
     if is_float {
       match lexeme.parse() {

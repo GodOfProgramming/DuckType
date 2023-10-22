@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 ss_time = ARGV[0].to_f
 ruby_time = ARGV[1].to_f
 

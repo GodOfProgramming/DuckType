@@ -1,0 +1,18 @@
+req "lib/sspec/bench" as bench;
+
+use bench.benchmark;
+
+let REPS = 1_000_000;
+
+let $x = 0;
+
+benchmark("simple math", REPS, |i| {
+  i += 1;
+  $x += 1 + 2 * 3 / 4 % i;
+});
+
+fn simple_function() {}
+
+benchmark("function calls", REPS, |_i| {
+  simple_function();
+});
