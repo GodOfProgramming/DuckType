@@ -10,7 +10,7 @@ use crate::{
 };
 use clap::Parser;
 use dlopen2::wrapper::{Container, WrapperApi};
-use memory::{Allocation, Gc, ValueHandle};
+use memory::{Allocation, Gc};
 use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
@@ -150,12 +150,12 @@ pub struct Vm {
   // stay alive
   pub(crate) current_frame: StackFrame,
   pub(crate) stack_frames: Vec<StackFrame>,
-  pub gc: Gc,
+  pub gc: SmartPtr<Gc>,
 
   args: Vec<String>,
   libs: Library,
 
-  lib_cache: BTreeMap<FileIdType, ValueHandle>,
+  lib_cache: BTreeMap<FileIdType, Value>,
 
   // usize for what frame to pop on, string for file path
   opened_files: Vec<FileInfo>,
@@ -169,7 +169,7 @@ impl Vm {
     Self {
       current_frame: Default::default(),
       stack_frames: Default::default(),
-      gc: Default::default(),
+      gc: SmartPtr::new(Gc::default()),
       args: args.into(),
       libs,
       lib_cache: Default::default(),
@@ -466,7 +466,7 @@ impl Vm {
       if let Some(last_file) = self.opened_files.last() {
         if last_file.frame == self.stack_frames.len() {
           if let Some(info) = self.opened_files.pop() {
-            self.lib_cache.insert(info.id, ValueHandle::new(output.clone()));
+            self.lib_cache.insert(info.id, output.clone());
           }
         }
       }
@@ -886,15 +886,15 @@ impl Vm {
 
         match found_file.extension().and_then(|s| s.to_str()) {
           Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-            let value = if let Some(handle) = self.lib_cache.get(&id) {
-              handle.value.clone()
+            let value = if let Some(value) = self.lib_cache.get(&id) {
+              value.clone()
             } else {
               let lib: Container<NativeApi> =
                 unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
               let value = lib.simple_script_load_module(self).map_err(|e| self.error(opcode, e))?;
               self.opened_native_libs.insert(found_file, lib);
-              self.lib_cache.insert(id, ValueHandle::new(value.clone()));
+              self.lib_cache.insert(id, value.clone());
               value
             };
 
@@ -904,8 +904,8 @@ impl Vm {
           }
           _ => match fs::read_to_string(&found_file) {
             Ok(data) => {
-              if let Some(handle) = self.lib_cache.get(&id) {
-                self.stack_push(handle.value.clone());
+              if let Some(value) = self.lib_cache.get(&id) {
+                self.stack_push(value.clone());
               } else {
                 let libs = stdlib::load_libs(&mut self.gc, &self.args, &self.libs.clone());
                 let env = SmartPtr::new(Env::initialize(&mut self.gc, Some(libs)));
@@ -1126,11 +1126,9 @@ impl Vm {
   pub fn run_gc(&mut self) {
     let now = Instant::now();
     self.next_gc = now + DEFAULT_GC_FREQUENCY;
-    self.gc.clean(
-      &self.current_frame,
-      &self.stack_frames,
-      self.lib_cache.values().map(|h| &h.value),
-    );
+    self
+      .gc
+      .clean(&self.current_frame, &self.stack_frames, self.lib_cache.values());
   }
 
   #[cold]
