@@ -297,7 +297,7 @@ impl BytecodeGenerator {
 
       for name in stmt.path.into_iter().skip(1) {
         let ident = self.add_const_ident(name);
-        self.emit(Opcode::LookupMember(ident), stmt.loc.clone());
+        self.emit(Opcode::Resolve(ident), stmt.loc.clone());
       }
 
       self.define_global(var_idx, stmt.loc.clone());
@@ -505,7 +505,7 @@ impl BytecodeGenerator {
     for (member, assign) in expr.items {
       let ident = self.add_const_ident(member);
       self.emit_expr(assign);
-      self.emit(Opcode::InitializeMember(ident), expr.loc.clone());
+      self.emit(Opcode::Define(ident), expr.loc.clone());
     }
   }
 

@@ -1,6 +1,6 @@
 let sspec = req "lib/sspec/sspec.ss";
 
-use sspec.describe;
+use sspec::describe;
 
 let $COUNTER = 1;
 

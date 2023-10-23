@@ -95,6 +95,11 @@ pub trait UsertypeMethods {
 
 pub trait ResolvableValue: DisplayValue {
   #[allow(unused_variables)]
+  fn __def__(&mut self, field: &str, value: Value) -> ValueResult<()> {
+    Err(ValueError::TypeError(self.__str__(), String::from("module")))
+  }
+
+  #[allow(unused_variables)]
   fn __res__(&self, field: &str) -> ValueResult {
     Err(ValueError::TypeError(self.__str__(), String::from("module")))
   }

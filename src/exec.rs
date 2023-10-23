@@ -134,6 +134,8 @@ pub enum Opcode {
   Breakpoint,
   /** Mark the current value as exported */
   Export,
+  /** Defines the identifier on the variable */
+  Define(usize),
   /** Resolve the specified identifier */
   Resolve(usize),
 }
@@ -441,6 +443,7 @@ impl Vm {
               self.error(&opcode, "no value on stack to export");
             }
           }
+          Opcode::Define(ident) => self.exec_define(&opcode, ident)?,
           Opcode::Resolve(ident) => self.exec_scope_resolution(&opcode, ident)?,
         }
 
@@ -598,16 +601,7 @@ impl Vm {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
-            if let Some(obj) = obj.as_struct_mut() {
-              obj.set(name, value);
-              Ok(())
-            } else if let Some(obj) = obj.as_instance_mut() {
-              obj.set(&mut self.gc, name, value).map_err(|e| self.error(opcode, e))
-            } else if let Some(obj) = obj.as_module_mut() {
-              obj.set(&mut self.gc, name, value).map_err(|e| self.error(opcode, e))
-            } else {
-              Err(self.error(opcode, String::from("invalid type for member initialization")))
-            }
+            obj.assign(&mut self.gc, name, value).map_err(|e| self.error(opcode, e))
           } else {
             Err(self.error(opcode, String::from("invalid name for member")))
           }
@@ -989,6 +983,26 @@ impl Vm {
       }
     } else {
       Err(self.error(opcode, "no value on stack to perform lookup on"))
+    }
+  }
+
+  fn exec_define(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
+    if let Some(value) = self.stack_pop() {
+      if let Some(mut obj) = self.stack_peek() {
+        if let Some(name) = self.current_frame.ctx.const_at(location) {
+          if let ConstantValue::String(name) = name {
+            obj.define(name, value).map_err(|e| self.error(opcode, e))
+          } else {
+            Err(self.error(opcode, String::from("invalid name for member")))
+          }
+        } else {
+          Err(self.error(opcode, String::from("no identifier found at index")))
+        }
+      } else {
+        Err(self.error(opcode, String::from("no value on stack to assign to member")))
+      }
+    } else {
+      Err(self.error(opcode, String::from("no value on stack to assign a member to")))
     }
   }
 

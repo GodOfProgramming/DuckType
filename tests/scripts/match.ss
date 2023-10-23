@@ -1,6 +1,6 @@
 req "./../../lib/sspec/sspec" as sspec;
 
-use sspec.describe;
+use sspec::describe;
 
 describe("random match", |t| {
   let choices = [1, 2, 3, 4];

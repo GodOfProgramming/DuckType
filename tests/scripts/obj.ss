@@ -1,27 +1,23 @@
 let sspec = req "lib/sspec/sspec.ss";
 
-use sspec.describe;
-
-use std.Object;
+use sspec::describe;
+use std::obj;
 
 describe("empty structs", |t| {
-  print t;
-  let obj = struct {};
-  print obj;
-  let fields = Object.fields(obj);
-  print fields;
+  let thing = struct {};
+  let fields = obj::fields(thing);
   t.expect(fields.len()).to_be(0);
 });
 
 describe("struct fields", |t| {
   let num = 1;
-  let obj = struct { num, str: "some string" };
-  obj.foo = "bar";
-  let fields = Object.fields(obj);
+  let thing = struct { num, str: "some string" };
+  thing.foo = "bar";
+  let fields = obj::fields(thing);
   t.expect(fields.len()).to_be(3);
-  t.expect(obj.num).to_be(1);
-  t.expect(obj.str).to_be("some string");
-  t.expect(obj.foo).to_be("bar");
+  t.expect(thing.num).to_be(1);
+  t.expect(thing.str).to_be("some string");
+  t.expect(thing.foo).to_be("bar");
 
   let foo = struct {
     this: "this"

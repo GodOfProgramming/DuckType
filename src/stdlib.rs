@@ -78,7 +78,7 @@ fn load_std(gc: &mut Gc) -> Value {
     let object = ModuleBuilder::initialize(gc, |gc, object_module| {
       object_module.set(gc, "fields", Value::native(fields)).ok();
     });
-    lib.set(gc, "Object", object).ok();
+    lib.set(gc, "obj", object).ok();
     let reflect = ModuleBuilder::initialize(gc, |gc, lib| {
       lib.set(gc, "defined", Value::native(defined)).ok();
     });

@@ -441,6 +441,10 @@ impl Value {
     }
   }
 
+  pub fn define(&mut self, name: &str, value: Value) -> ValueResult<()> {
+    (self.vtable().define)(self.pointer_mut(), name, value)
+  }
+
   pub fn resolve(&self, name: &str) -> ValueResult {
     (self.vtable().resolve)(self.pointer(), name)
   }
@@ -927,6 +931,7 @@ impl Not for Value {
 pub struct VTable {
   lookup: fn(&Value, MutVoid, &str) -> ValueResult,
   assign: fn(MutVoid, MutVoid, &str, Value) -> ValueResult<()>,
+  define: fn(MutVoid, &str, Value) -> ValueResult<()>,
   resolve: fn(ConstVoid, &str) -> ValueResult,
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
@@ -941,6 +946,7 @@ impl VTable {
     Self {
       lookup: |this, gc, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::cast_mut(gc), this, name),
       assign: |this, gc, name, value| <T as Usertype>::set(Self::cast_mut(this), Self::cast_mut(gc), name, value),
+      define: |this, name, value| <T as ResolvableValue>::__def__(Self::cast_mut(this), name, value),
       resolve: |this, field| <T as ResolvableValue>::__res__(Self::cast(this), field),
       display_string: |this| <T as DisplayValue>::__str__(Self::cast(this)),
       debug_string: |this| <T as DebugValue>::__dbg__(Self::cast(this)),

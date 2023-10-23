@@ -335,7 +335,7 @@ impl AstGenerator {
     while let Some(current) = self.current() {
       match current {
         Token::Identifier(ident) => parts.push(Ident::new(ident)),
-        Token::Dot => (/* intentionally do nothing */),
+        Token::ColonColon => (/* intentionally do nothing */),
         _ => break,
       }
       self.advance();

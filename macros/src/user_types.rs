@@ -100,6 +100,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
   let mut statics = Vec::new();
 
   let mut constructor = None;
+  let mut define_fn = None;
   let mut resolve_fn = None;
   let mut display_fn = None;
   let mut debug_fn = None;
@@ -123,6 +124,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         "__new__" => constructor = Some(method),
         "__str__" => display_fn = Some(method),
         "__dbg__" => debug_fn = Some(method),
+        "__def__" => define_fn = Some(method),
         "__res__" => resolve_fn = Some(method),
         _ => {
           let nargs = common::count_args!(method);
@@ -246,16 +248,24 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     })
     .unwrap_or_default();
 
-  let resolve_impl = if let Some(resolve_fn) = resolve_fn {
-    quote! {
-      impl ResolvableValue for #me {
-        #resolve_fn
-      }
-    }
+  let define_impl = if let Some(define_fn) = define_fn {
+    quote! { #define_fn }
   } else {
-    quote! {
-      impl ResolvableValue for #me {}
-    }
+    TokenStream::default()
+  };
+
+  let resolve_impl = if let Some(resolve_fn) = resolve_fn {
+    quote! { #resolve_fn }
+  } else {
+    TokenStream::default()
+  };
+
+  let resolvable_impl = quote! {
+      impl ResolvableValue for #me {
+        #define_impl
+
+        #resolve_impl
+      }
   };
 
   let debug_impl = if let Some(debug_fn) = debug_fn {
@@ -314,7 +324,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       }
     }
 
-    #resolve_impl
+    #resolvable_impl
 
     #display_impl
 

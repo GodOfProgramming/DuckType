@@ -90,7 +90,7 @@ impl Statement {
       Statement::Ret(_) => (),
       Statement::Use(u) => {
         html! {
-          span(class="bubble") : itertools::join(u.path.iter(), ".");
+          span(class="bubble") : itertools::join(u.path.iter(), "::");
         }
         .render(tmpl);
       }

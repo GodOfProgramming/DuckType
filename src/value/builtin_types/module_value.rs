@@ -18,8 +18,8 @@ impl ModuleValue {
     }
   }
 
-  pub fn set(&mut self, gc: &mut Gc, field: &str, value: impl Into<Value>) -> ValueResult<()> {
-    <Self as Usertype>::set(self, gc, field, value.into())
+  pub fn set(&mut self, _gc: &mut Gc, field: &str, value: impl Into<Value>) -> ValueResult<()> {
+    <Self as ResolvableValue>::__def__(self, field, value.into())
   }
 }
 
@@ -42,6 +42,11 @@ impl UsertypeFields for ModuleValue {
 
 #[methods]
 impl ModuleValue {
+  fn __def__(&mut self, field: &str, value: Value) -> ValueResult<()> {
+    self.env.define(field, value);
+    Ok(())
+  }
+
   fn __res__(&self, field: &str) -> ValueResult {
     self.env.lookup(field).ok_or(ValueError::NameError(field.to_string()))
   }
