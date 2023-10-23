@@ -1,3 +1,5 @@
+use ptr::SmartPtr;
+
 use crate::{
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
@@ -12,21 +14,17 @@ use super::StackFrame;
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
-// TODO this needs to hold a reference to the gc
-// so that when it's dropped it can remove itself
-// from the list of native handles
-// gc will need this so that values that only exist in native code
-// and are children of a root don't get garbage collected
 pub struct ValueHandle {
   pub(crate) value: Value,
+  gc: SmartPtr<Gc>,
 }
 
 impl ValueHandle {
-  pub fn new(mut value: Value) -> Self {
+  pub fn new(gc: SmartPtr<Gc>, mut value: Value) -> ValueHandle {
     if value.is_ptr() {
       value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
     }
-    Self { value }
+    Self { value, gc }
   }
 }
 
@@ -38,6 +36,7 @@ impl Clone for ValueHandle {
 
     Self {
       value: self.value.clone(),
+      gc: self.gc.clone(),
     }
   }
 }
@@ -47,16 +46,13 @@ impl Drop for ValueHandle {
     if self.value.is_ptr() {
       let meta = self.value.meta();
 
-      if meta.ref_count.load(Ordering::Relaxed) > 0 {
-        meta.ref_count.fetch_sub(1, Ordering::Relaxed);
+      let ref_count = meta.ref_count.load(Ordering::Relaxed).saturating_sub(1);
+      meta.ref_count.store(ref_count, Ordering::Relaxed);
+      if ref_count == 0 {
+        self.gc.drop_handle(self.value.clone());
       }
     }
   }
-}
-
-#[derive(Default)]
-pub struct Gc {
-  allocations: HashSet<u64>,
 }
 
 #[derive(Default)]
@@ -79,6 +75,12 @@ impl From<Marker> for HashSet<u64> {
   }
 }
 
+#[derive(Default)]
+pub struct Gc {
+  allocations: HashSet<u64>,
+  handles: HashSet<u64>,
+}
+
 impl Gc {
   pub fn clean<'v>(
     &mut self,
@@ -92,6 +94,10 @@ impl Gc {
 
     for value in cached_values {
       marked_allocations.trace(value);
+    }
+
+    for value in &self.handles {
+      marked_allocations.trace(&Value { bits: *value });
     }
 
     for value in &current_frame.stack {
@@ -125,9 +131,11 @@ impl Gc {
     cleaned
   }
 
-  pub fn allocate_handle<T: Usertype>(&mut self, item: T) -> ValueHandle {
-    let value = self.allocate(item);
-    ValueHandle::new(value)
+  pub fn allocate_handle<T: Usertype>(this: &mut SmartPtr<Self>, item: T) -> ValueHandle {
+    let value = this.allocate(item);
+    let new = this.handles.insert(value.bits);
+    debug_assert!(new);
+    ValueHandle::new(this.clone(), value)
   }
 
   fn allocate_usertype<T: Usertype>(&mut self, item: T) -> Value {
@@ -158,6 +166,11 @@ impl Gc {
 
   fn allocate_type<T>(item: T) -> *mut T {
     Box::into_raw(Box::new(item))
+  }
+
+  fn drop_handle(&mut self, value: Value) {
+    let present = self.handles.remove(&value.bits);
+    debug_assert!(present);
   }
 
   fn drop_value(&self, mut value: Value) {
@@ -345,137 +358,23 @@ mod tests {
     let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []);
     assert_eq!(cleaned, 1);
   }
-}
 
-// old stuff
-/*
+  #[test]
+  fn gc_does_not_clean_open_handles() {
+    let mut gc = SmartPtr::new(Gc::default());
+    let ctx = new_ctx(&mut gc);
 
-use crate::prelude::*;
-use crate::value::{tags::*, ValueMeta};
-use std::mem;
+    let mut value = StructValue::default();
+    let child = gc.allocate(SomeType {});
+    value.set("child", child);
 
-pub const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
-
-pub type ConstVoid = *const ();
-pub type MutVoid = *mut ();
-
-pub trait Allocator: Sized {
-  fn allocate<'gc, T>(&'gc mut self, item: T) -> Handle<'gc, Self, T>
-  where
-    T: Usertype;
-
-  fn free_memory(&mut self, vm: &Vm<Self>);
-}
-
-pub struct Handle<'gc, A, T>
-where
-  A: Allocator,
-  T: Usertype,
-{
-  gc: &'gc mut A,
-  data: &'gc mut AllocatedValue<T>,
-}
-
-impl<'gc, A, T> Handle<'gc, A, T>
-where
-  A: Allocator,
-  T: Usertype,
-{
-  fn new(gc: &'gc mut A, data: &'gc mut AllocatedValue<T>) -> Self {
-    data.meta.add_ref();
-    Self { gc, data }
-  }
-}
-
-impl<'gc, A, T> Clone for Handle<'gc, A, T>
-where
-  A: Allocator,
-  T: Usertype,
-{
-  fn clone(&self) -> Self {
-    Self::new(self.gc, self.data)
-  }
-}
-
-impl<'gc, A, T> Drop for Handle<'gc, A, T>
-where
-  A: Allocator,
-  T: Usertype,
-{
-  fn drop(&mut self) {
-    self.data.meta.drop_ref();
-  }
-}
-
-pub struct GC {
-  allocations: Vec<usize>,
-}
-
-impl GC {
-  fn allocate_any<T>(item: T) -> *mut T {
-    Box::into_raw(Box::new(item))
-  }
-
-  fn deallocate<T: Usertype>(this: *mut T) -> Box<AllocatedValue<T>> {
-    unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedValue<T>) }
-  }
-}
-
-impl Allocator for GC {
-  fn allocate<'gc, T>(&'gc mut self, item: T) -> Handle<'gc, Self, T>
-  where
-    T: Usertype,
-  {
-    let allocated_ptr = Self::allocate_any(AllocatedValue::new(item));
-    let allocated = unsafe { &mut *allocated_ptr };
-    let obj_ptr = &mut allocated.obj as *mut T as MutVoid;
-
-    // ensure the pointer to the allocated object is offset by the right distance
-    debug_assert_eq!(allocated as *const _ as *const (), &allocated.meta as *const _ as *const ());
-    debug_assert_eq!(
-      unsafe { (obj_ptr as *const u8).offset(META_OFFSET) as *const () },
-      allocated as *const _ as *const ()
-    );
-
-    // ensure the pointer fits in 48 bits
-    debug_assert_eq!(obj_ptr as u64 & POINTER_TAG, 0);
-
-    self.allocations.push(allocated_ptr);
-
-    // return a handle to the object
-    Handle::new(self, allocated)
-  }
-
-  fn free_memory(&mut self, vm: &Vm<Self>) {
-    let i = 0usize;
-    while i < self.allocations.len() {
-      if vm.addr_in_use(self.allocations[i]) {
-        i += 1;
-      } else {
-        let addr = self.allocations.swap_remove(i);
-      }
+    {
+      let _handle = Gc::allocate_handle(&mut gc, value);
+      let cleaned = gc.clean(&StackFrame::new(ctx.clone()), &Default::default(), []);
+      assert_eq!(cleaned, 0);
     }
+
+    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []);
+    assert_eq!(cleaned, 2);
   }
 }
-
-#[repr(C)]
-struct AllocatedValue<T: Usertype> {
-  meta: ValueMeta,
-  obj: T,
-}
-
-impl<T: Usertype> AllocatedValue<T> {
-  fn new(obj: T) -> Self {
-    let meta = ValueMeta {
-      ref_count: 1,
-      vtable: &T::VTABLE,
-    };
-    Self { obj, meta }
-  }
-
-  fn ref_count(&self) -> usize {
-    self.meta.ref_count()
-  }
-}
-
-*/
