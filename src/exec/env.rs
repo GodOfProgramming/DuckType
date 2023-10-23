@@ -310,6 +310,7 @@ impl Context {
   }
 }
 
+#[derive(Default)]
 pub struct Env {
   vars: BTreeMap<String, Value>,
 }

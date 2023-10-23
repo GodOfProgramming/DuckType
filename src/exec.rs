@@ -134,6 +134,8 @@ pub enum Opcode {
   Breakpoint,
   /** Mark the current value as exported */
   Export,
+  /** Resolve the specified identifier */
+  Resolve(usize),
 }
 
 #[cfg(test)]
@@ -439,6 +441,7 @@ impl Vm {
               self.error(&opcode, "no value on stack to export");
             }
           }
+          Opcode::Resolve(ident) => self.exec_scope_resolution(&opcode, ident)?,
         }
 
         self.current_frame.ip += 1;
@@ -969,6 +972,24 @@ impl Vm {
   fn exec_create_module(&mut self) {
     let v = self.gc.allocate(ModuleValue::new());
     self.stack_push(v);
+  }
+
+  fn exec_scope_resolution(&mut self, opcode: &Opcode, ident: usize) -> ExecResult {
+    if let Some(obj) = self.stack_pop() {
+      if let Some(name) = self.current_frame.ctx.const_at(ident) {
+        if let ConstantValue::String(name) = name {
+          let value = obj.resolve(name).map_err(|e| self.error(opcode, e))?;
+          self.stack_push(value);
+          Ok(())
+        } else {
+          Err(self.error(opcode, "member identifier is not a string"))
+        }
+      } else {
+        Err(self.error(opcode, "no identifier at index"))
+      }
+    } else {
+      Err(self.error(opcode, "no value on stack to perform lookup on"))
+    }
   }
 
   /* Utility Functions */

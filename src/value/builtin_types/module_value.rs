@@ -6,12 +6,15 @@ use std::collections::BTreeMap;
 pub struct ModuleValue {
   #[trace]
   pub members: BTreeMap<String, Value>,
+  #[trace]
+  pub env: Env,
 }
 
 impl ModuleValue {
   pub(crate) fn new() -> Self {
     Self {
       members: Default::default(),
+      env: Env::default(),
     }
   }
 
@@ -39,6 +42,10 @@ impl UsertypeFields for ModuleValue {
 
 #[methods]
 impl ModuleValue {
+  fn __res__(&self, field: &str) -> ValueResult {
+    self.env.lookup(field).ok_or(ValueError::NameError(field.to_string()))
+  }
+
   fn __dbg__(&self) -> String {
     format!("mod {:#?}", self.members)
   }

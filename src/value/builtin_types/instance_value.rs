@@ -55,3 +55,5 @@ impl DebugValue for InstanceValue {
     self.__str__()
   }
 }
+
+impl ResolvableValue for InstanceValue {}

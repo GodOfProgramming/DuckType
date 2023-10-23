@@ -21,7 +21,6 @@ pub enum Token {
   RightBracket,
   Comma,
   Dot,
-  Colon,
   Semicolon,
   At,
   Pipe,
@@ -47,6 +46,8 @@ pub enum Token {
   SlashEqual,
   Percent,
   PercentEqual,
+  Colon,
+  ColonColon,
 
   // Literals.
   Identifier(String),
@@ -201,7 +202,13 @@ impl<'src> Scanner<'src> {
           ']' => Token::RightBracket,
           ',' => Token::Comma,
           '.' => Token::Dot,
-          ':' => Token::Colon,
+          ':' => {
+            if self.advance_if_match(':') {
+              Token::ColonColon
+            } else {
+              Token::Colon
+            }
+          }
           ';' => Token::Semicolon,
           '@' => Token::At,
           '|' => Token::Pipe,

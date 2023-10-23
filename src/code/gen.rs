@@ -574,6 +574,12 @@ impl BytecodeGenerator {
     self.emit(Opcode::Req, expr.loc.clone());
   }
 
+  fn scope_resolution_expr(&mut self, expr: ScopeResolutionExpression) {
+    let ident = self.add_const_ident(expr.ident);
+    self.emit_expr(*expr.obj);
+    self.emit(Opcode::Resolve(ident), expr.loc);
+  }
+
   /* Utility Functions */
 
   fn emit(&mut self, op: Opcode, loc: SourceLocation) {
@@ -616,25 +622,26 @@ impl BytecodeGenerator {
       println!("expr {}", expr);
     }
     match expr {
-      Expression::Literal(expr) => self.literal_expr(expr),
-      Expression::Unary(expr) => self.unary_expr(expr),
-      Expression::Binary(expr) => self.binary_expr(expr),
       Expression::And(expr) => self.and_expr(expr),
-      Expression::Or(expr) => self.or_expr(expr),
+      Expression::Assign(expr) => self.assign_expr(expr),
+      Expression::Binary(expr) => self.binary_expr(expr),
+      Expression::Call(expr) => self.call_expr(expr),
+      Expression::Class(expr) => self.class_expr(expr),
+      Expression::Closure(expr) => self.closure_expr(expr),
       Expression::Group(expr) => self.group_expr(expr),
       Expression::Ident(expr) => self.ident_expr(expr),
-      Expression::Assign(expr) => self.assign_expr(expr),
-      Expression::MemberAccess(expr) => self.member_access_expr(expr),
-      Expression::Call(expr) => self.call_expr(expr),
-      Expression::List(expr) => self.list_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
-      Expression::Struct(expr) => self.struct_expr(expr),
-      Expression::Class(expr) => self.class_expr(expr),
-      Expression::Mod(expr) => self.mod_expr(expr),
       Expression::Lambda(expr) => self.lambda_expr(expr),
-      Expression::Closure(expr) => self.closure_expr(expr),
+      Expression::List(expr) => self.list_expr(expr),
+      Expression::Literal(expr) => self.literal_expr(expr),
+      Expression::MemberAccess(expr) => self.member_access_expr(expr),
       Expression::Method(expr) => self.method_expr(expr),
+      Expression::Mod(expr) => self.mod_expr(expr),
+      Expression::Or(expr) => self.or_expr(expr),
       Expression::Req(expr) => self.req_expr(expr),
+      Expression::ScopeResolution(expr) => self.scope_resolution_expr(expr),
+      Expression::Struct(expr) => self.struct_expr(expr),
+      Expression::Unary(expr) => self.unary_expr(expr),
     }
   }
 

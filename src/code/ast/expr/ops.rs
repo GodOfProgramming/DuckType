@@ -437,6 +437,36 @@ impl AstExpression for ReqExpression {
 }
 
 #[derive(Debug)]
+pub struct ScopeResolutionExpression {
+  pub obj: Box<Expression>,
+  pub ident: Ident,
+  pub loc: SourceLocation,
+}
+
+impl ScopeResolutionExpression {
+  fn new(obj: Expression, ident: Ident, loc: SourceLocation) -> Self {
+    Self {
+      obj: Box::new(obj),
+      ident,
+      loc,
+    }
+  }
+}
+
+impl AstExpression for ScopeResolutionExpression {
+  fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
+    let ident_meta = ast.meta_at::<0>()?;
+    if let Token::Identifier(member) = ast.expect_current()? {
+      ast.advance();
+      Some(Expression::from(Self::new(left, Ident::new(member), ident_meta)))
+    } else {
+      ast.error::<1>(String::from("expected identifier after scope"));
+      None
+    }
+  }
+}
+
+#[derive(Debug)]
 pub enum UnaryOperator {
   Not,
   Negate,

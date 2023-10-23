@@ -59,7 +59,7 @@ pub struct Nil;
 
 pub trait Usertype
 where
-  Self: UsertypeFields + UsertypeMethods + DisplayValue + DebugValue + TraceableValue + Sized + 'static,
+  Self: UsertypeFields + UsertypeMethods + ResolvableValue + DisplayValue + DebugValue + TraceableValue + Sized + 'static,
 {
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
@@ -91,6 +91,13 @@ pub trait UsertypeMethods {
     Err(ValueError::UndefinedInitializer)
   }
   fn get_method(&self, gc: &mut Gc, this: &Value, field: &str) -> ValueResult<Option<Value>>;
+}
+
+pub trait ResolvableValue: DisplayValue {
+  #[allow(unused_variables)]
+  fn __res__(&self, field: &str) -> ValueResult {
+    Err(ValueError::TypeError(self.__str__(), String::from("module")))
+  }
 }
 
 pub trait DisplayValue {
@@ -280,6 +287,13 @@ pub enum ValueError {
   /// Default return value for usertype initializers
   #[error("Undefined initializer reached")]
   UndefinedInitializer,
+
+  /// actual, expected
+  #[error("{0} is not a {1}")]
+  TypeError(String, String),
+
+  #[error("uninitialized name {0}")]
+  NameError(String),
 
   /// meant to be a placeholder for me being lazy
   #[error("{0}")]

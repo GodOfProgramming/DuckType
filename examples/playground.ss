@@ -1,6 +1,7 @@
-print(std.debug(io));
+mod Foo {
+  mod Bar {
 
-let path = io.Path("C:\");
-let composed = path/"Windows"/"System32";
+  }
+}
 
-print(composed);
+Foo::Bar;
