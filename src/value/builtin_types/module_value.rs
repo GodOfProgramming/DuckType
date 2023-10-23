@@ -6,14 +6,12 @@ use std::collections::BTreeMap;
 pub struct ModuleValue {
   #[trace]
   pub members: BTreeMap<String, Value>,
-  pub locked: bool,
 }
 
 impl ModuleValue {
   pub(crate) fn new() -> Self {
     Self {
       members: Default::default(),
-      locked: false,
     }
   }
 
@@ -34,33 +32,24 @@ impl UsertypeFields for ModuleValue {
   }
 
   fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
-    if self.locked {
-      Err(ValueError::Immutable(self.__str__()))
-    } else {
-      self.members.insert(field.to_string(), value);
-      Ok(())
-    }
+    self.members.insert(field.to_string(), value);
+    Ok(())
   }
 }
 
 #[methods]
 impl ModuleValue {
-  fn __lock__(&mut self) {
-    self.locked = true;
-  }
-
   fn __dbg__(&self) -> String {
     format!("mod {:#?}", self.members)
   }
 }
 
-pub struct LockedModule(ModuleValue);
+pub struct ModuleBuilder(ModuleValue);
 
-impl LockedModule {
+impl ModuleBuilder {
   pub fn initialize(gc: &mut Gc, f: impl FnOnce(&mut Gc, &mut ModuleValue)) -> Value {
     let mut module = ModuleValue::new();
     f(gc, &mut module);
-    module.__lock__();
     gc.allocate(module)
   }
 }

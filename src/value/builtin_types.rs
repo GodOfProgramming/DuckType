@@ -39,7 +39,7 @@ pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
 use macros::{methods, Fields};
 pub use method_value::MethodValue;
-pub use module_value::{LockedModule, ModuleValue};
+pub use module_value::{ModuleBuilder, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
 use ptr::SmartPtr;
 use std::{
@@ -59,7 +59,7 @@ pub struct Nil;
 
 pub trait Usertype
 where
-  Self: UsertypeFields + UsertypeMethods + DisplayValue + DebugValue + LockableValue + TraceableValue + Sized + 'static,
+  Self: UsertypeFields + UsertypeMethods + DisplayValue + DebugValue + TraceableValue + Sized + 'static,
 {
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
@@ -99,10 +99,6 @@ pub trait DisplayValue {
 
 pub trait DebugValue {
   fn __dbg__(&self) -> String;
-}
-
-pub trait LockableValue {
-  fn __lock__(&mut self) {}
 }
 
 pub trait TraceableValue {

@@ -5,8 +5,8 @@ pub struct LibTime;
 
 impl LibTime {
   pub fn load(gc: &mut Gc) -> Value {
-    LockedModule::initialize(gc, |gc, lib| {
-      let mono = LockedModule::initialize(gc, |gc, mono| {
+    ModuleBuilder::initialize(gc, |gc, lib| {
+      let mono = ModuleBuilder::initialize(gc, |gc, mono| {
         mono
           .set(gc, "now", Value::native(|vm, _| Ok(vm.gc.allocate(TimestampValue::new()))))
           .ok();

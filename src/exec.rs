@@ -128,8 +128,6 @@ pub enum Opcode {
   CreateStruct,
   /** Create a new module */
   CreateModule,
-  /** Locks a value making it immutable: REQUIRES THE UNDERLYING TYPE TO IMPLEMENT SAID FUNCTIONALITY WHEN __lock__() is invoked */
-  Lock,
   /** Yield at the current location */
   Yield,
   /** Halt the VM when this instruction is reached and enter repl mode */
@@ -418,7 +416,6 @@ impl Vm {
           Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
           Opcode::CreateStruct => self.exec_create_struct(),
           Opcode::CreateModule => self.exec_create_module(),
-          Opcode::Lock => self.exec_lock()?,
           Opcode::Yield => {
             self.current_frame.ip += 1;
 
@@ -972,15 +969,6 @@ impl Vm {
   fn exec_create_module(&mut self) {
     let v = self.gc.allocate(ModuleValue::new());
     self.stack_push(v);
-  }
-
-  fn exec_lock(&mut self) -> ExecResult {
-    if let Some(mut value) = self.stack_peek() {
-      value.lock();
-      Ok(())
-    } else {
-      Err(self.error(&Opcode::Lock, "no item on the stack to lock"))
-    }
   }
 
   /* Utility Functions */

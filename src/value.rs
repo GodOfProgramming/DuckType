@@ -449,10 +449,6 @@ impl Value {
     (self.vtable().debug_string)(self.pointer())
   }
 
-  pub fn lock(&mut self) {
-    (self.vtable().lock)(self.pointer_mut())
-  }
-
   pub fn trace(&self, marks: &mut Marker) {
     marks.trace(self);
   }
@@ -929,7 +925,6 @@ pub struct VTable {
   assign: fn(MutVoid, MutVoid, &str, Value) -> ValueResult<()>,
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
-  lock: fn(MutVoid),
   trace: fn(ConstVoid, MutVoid),
   pub(crate) dealloc: fn(MutVoid),
   type_id: fn() -> &'static Uuid,
@@ -943,7 +938,6 @@ impl VTable {
       assign: |this, gc, name, value| <T as Usertype>::set(Self::cast_mut(this), Self::cast_mut(gc), name, value),
       display_string: |this| <T as DisplayValue>::__str__(Self::cast(this)),
       debug_string: |this| <T as DebugValue>::__dbg__(Self::cast(this)),
-      lock: |this| <T as LockableValue>::__lock__(Self::cast_mut(this)),
       trace: |this, marks| <T as TraceableValue>::trace(Self::cast(this), Self::cast_mut(marks)),
       dealloc: |this| Gc::consume(this as *mut T),
       type_id: || &<T as Usertype>::ID,

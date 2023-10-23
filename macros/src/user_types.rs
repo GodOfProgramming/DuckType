@@ -102,7 +102,6 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
   let mut constructor = None;
   let mut display_fn = None;
   let mut debug_fn = None;
-  let mut lock_fn = None;
 
   for item in &struct_impl.items {
     struct Method {
@@ -123,7 +122,6 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         "__new__" => constructor = Some(method),
         "__str__" => display_fn = Some(method),
         "__dbg__" => debug_fn = Some(method),
-        "__lock__" => lock_fn = Some(method),
         _ => {
           let nargs = common::count_args!(method);
 
@@ -246,18 +244,6 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     })
     .unwrap_or_default();
 
-  let lock_impl = if let Some(lock_fn) = lock_fn {
-    quote! {
-      impl LockableValue for #me {
-        #lock_fn
-      }
-    }
-  } else {
-    quote! {
-      impl LockableValue for #me {}
-    }
-  };
-
   let debug_impl = if let Some(debug_fn) = debug_fn {
     quote! {
       impl DebugValue for #me {
@@ -317,7 +303,5 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     #display_impl
 
     #debug_impl
-
-    #lock_impl
   }
 }

@@ -4,7 +4,7 @@ pub struct LibString;
 
 impl LibString {
   pub fn load(gc: &mut Gc) -> Value {
-    LockedModule::initialize(gc, |gc, lib| {
+    ModuleBuilder::initialize(gc, |gc, lib| {
       lib.set(gc, "parse_number", Value::native(parse_number)).ok();
       lib.set(gc, "contains", Value::native(contains)).ok();
       lib.set(gc, "is_prefix", Value::native(is_prefix)).ok();

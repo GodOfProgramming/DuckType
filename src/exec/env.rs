@@ -331,7 +331,7 @@ impl Env {
       lib_paths.extend(paths.split_terminator(Self::PATH_SEPARATOR).map(|v| gc.allocate(v)));
     }
 
-    let module = LockedModule::initialize(gc, |gc, module| {
+    let module = ModuleBuilder::initialize(gc, |gc, module| {
       let lib_paths = gc.allocate(lib_paths);
 
       module.set(gc, Self::PATHS_MEMBER, lib_paths).ok();

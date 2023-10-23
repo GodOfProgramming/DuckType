@@ -73,13 +73,13 @@ fn load_lib(gc: &mut Gc, args: &[String], lib: &Lib) -> (&'static str, Value) {
 }
 
 fn load_std(gc: &mut Gc) -> Value {
-  LockedModule::initialize(gc, |gc, lib| {
+  ModuleBuilder::initialize(gc, |gc, lib| {
     lib.set(gc, "debug", Value::native(debug)).ok();
-    let object = LockedModule::initialize(gc, |gc, object_module| {
+    let object = ModuleBuilder::initialize(gc, |gc, object_module| {
       object_module.set(gc, "fields", Value::native(fields)).ok();
     });
     lib.set(gc, "Object", object).ok();
-    let reflect = LockedModule::initialize(gc, |gc, lib| {
+    let reflect = ModuleBuilder::initialize(gc, |gc, lib| {
       lib.set(gc, "defined", Value::native(defined)).ok();
     });
     lib.set(gc, "reflect", reflect).ok();

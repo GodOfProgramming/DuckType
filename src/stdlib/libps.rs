@@ -4,7 +4,7 @@ pub struct LibPs;
 
 impl LibPs {
   pub fn load(gc: &mut Gc) -> Value {
-    LockedModule::initialize(gc, |gc, lib| {
+    ModuleBuilder::initialize(gc, |gc, lib| {
       lib.set(gc, "exit", Value::native(exit)).ok();
     })
   }

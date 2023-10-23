@@ -127,7 +127,7 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
       use super::*;
 
       pub fn simple_script_autogen_create_module(gc: &mut Gc) -> Value {
-        let module = LockedModule::initialize(gc, |gc, module| {
+        let module = ModuleBuilder::initialize(gc, |gc, module| {
           #fn_defs
           #struct_defs
         });
