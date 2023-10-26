@@ -24,16 +24,18 @@ impl NativeClosureValue {
       callee: Box::new(callee),
     }
   }
-
-  pub fn call(&mut self, vm: &mut Vm, args: Args) -> ValueResult {
-    (*self.callee)(vm, args)
-  }
 }
 
 #[methods]
 impl NativeClosureValue {
   fn __str__(&self) -> String {
     format!("{}", self)
+  }
+
+  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, args: Args) -> ValueResult<()> {
+    let output = (*self.callee)(vm, args)?;
+    vm.stack_push(output);
+    Ok(())
   }
 }
 
@@ -43,59 +45,30 @@ impl Display for NativeClosureValue {
   }
 }
 
-pub enum NativeCallable {
-  NativeFn(NativeFn),
-  NativeClosure(NativeClosureValue),
-}
-
-impl NativeCallable {
-  pub fn call(&mut self, vm: &mut Vm, args: Args) -> ValueResult {
-    match self {
-      NativeCallable::NativeFn(f) => f(vm, args),
-      NativeCallable::NativeClosure(c) => c.call(vm, args),
-    }
-  }
-}
-
-impl Display for NativeCallable {
-  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    match self {
-      NativeCallable::NativeFn(nf) => write!(f, "<native fn {:p}>", &nf),
-      NativeCallable::NativeClosure(c) => write!(f, "{}", c),
-    }
-  }
-}
-
 #[derive(Usertype, Fields)]
 #[uuid("846eb503-820d-446a-9b54-7a274d85cd32")]
 pub struct NativeMethodValue {
   #[trace]
   pub this: Value,
-  callee: NativeCallable,
+  callee: Value,
 }
 
 impl NativeMethodValue {
   pub fn new_native_fn(this: Value, callee: NativeFn) -> Self {
     Self {
       this,
-      callee: NativeCallable::NativeFn(callee),
+      callee: Value::native(callee),
     }
-  }
-
-  pub fn new_native_closure(this: Value, callee: NativeClosureValue) -> Self {
-    Self {
-      this,
-      callee: NativeCallable::NativeClosure(callee),
-    }
-  }
-
-  pub fn call(&mut self, vm: &mut Vm, args: Args) -> ValueResult {
-    self.callee.call(vm, args)
   }
 }
 
 #[methods]
 impl NativeMethodValue {
+  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, mut args: Args) -> ValueResult<()> {
+    args.list.push(self.this.clone());
+    self.callee.call(vm, args)
+  }
+
   fn __str__(&self) -> String {
     format!("{}", self)
   }

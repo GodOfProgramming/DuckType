@@ -31,7 +31,6 @@ pub enum Statement {
   Ret(RetStatement),
   Use(UseStatement),
   While(WhileStatement),
-  Yield(YieldStatement),
   Expression(ExpressionStatement),
   Breakpoint(SourceLocation),
 }
@@ -90,12 +89,11 @@ impl Statement {
       Statement::Ret(_) => (),
       Statement::Use(u) => {
         html! {
-          span(class="bubble") : itertools::join(u.path.iter(), ".");
+          span(class="bubble") : itertools::join(u.path.iter(), "::");
         }
         .render(tmpl);
       }
       Statement::While(_) => (),
-      Statement::Yield(_) => (),
       Statement::Breakpoint(_) => (),
       Statement::Expression(e) => e.expr.dump(tmpl),
     }
@@ -123,7 +121,6 @@ impl Display for Statement {
       Self::Ret(_) => write!(f, "ret"),
       Self::While(_) => write!(f, "while"),
       Self::Use(_) => write!(f, "use"),
-      Self::Yield(_) => write!(f, "yield"),
       Self::Breakpoint(_) => write!(f, "__breakpoint__"),
       Self::Expression(_) => write!(f, "expression"),
     }
@@ -235,12 +232,6 @@ impl From<UseStatement> for Statement {
 impl From<WhileStatement> for Statement {
   fn from(stmt: WhileStatement) -> Self {
     Self::While(stmt)
-  }
-}
-
-impl From<YieldStatement> for Statement {
-  fn from(stmt: YieldStatement) -> Self {
-    Self::Yield(stmt)
   }
 }
 

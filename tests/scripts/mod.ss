@@ -1,6 +1,6 @@
 let sspec = req "lib/sspec/sspec.ss";
 
-use sspec.describe;
+use sspec::describe;
 
 let $TEST_STRING = "foobarbaz";
 
@@ -24,7 +24,7 @@ mod Foo {
 
 describe("modules", |t| {
   let test_string = "foobar";
-  let bar = Foo.Bar(test_string);
+  let bar = Foo::Bar(test_string);
   t.expect(bar.display_string()).to_be(test_string);
-  t.expect(Foo.Baz.foobarbaz()).to_be($TEST_STRING);
+  t.expect(Foo::Baz::foobarbaz()).to_be($TEST_STRING);
 });

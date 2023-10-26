@@ -15,10 +15,6 @@ impl MethodValue {
     Self { this, function }
   }
 
-  pub fn call(&self, vm: &mut Vm, args: Args) {
-    self.function.call(vm, args);
-  }
-
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
     self.function.context_ptr()
   }
@@ -34,6 +30,11 @@ impl MethodValue {
 
 #[methods]
 impl MethodValue {
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, mut args: Args) -> ValueResult<()> {
+    args.list.push(self.this.clone());
+    self.function.__ivk__(vm, this, args)
+  }
+
   fn __str__(&self) -> String {
     format!("method {}", self.function.__str__())
   }

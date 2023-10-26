@@ -174,10 +174,6 @@ impl AstGenerator {
         self.advance();
         WhileStatement::stmt(self);
       }
-      Token::Yield => {
-        self.advance();
-        YieldStatement::stmt(self);
-      }
       Token::Breakpoint => {
         self.advance();
         self.breakpoint_stmt();
@@ -224,6 +220,14 @@ impl AstGenerator {
 
   fn current(&self) -> Option<Token> {
     self.peek_after::<0>()
+  }
+
+  fn expect_current(&mut self) -> Option<Token> {
+    let current = self.current();
+    if current.is_none() {
+      self.error::<0>("unexpected end of file");
+    }
+    current
   }
 
   fn previous(&self) -> Option<Token> {
@@ -327,7 +331,7 @@ impl AstGenerator {
     while let Some(current) = self.current() {
       match current {
         Token::Identifier(ident) => parts.push(Ident::new(ident)),
-        Token::Dot => (/* intentionally do nothing */),
+        Token::ColonColon => (/* intentionally do nothing */),
         _ => break,
       }
       self.advance();
@@ -591,7 +595,6 @@ impl AstGenerator {
       Token::Comma => ParseRule::new(None, None, Precedence::None),
       Token::Dot => ParseRule::new(None, Some(MemberAccessExpression::infix), Precedence::Call),
       Token::Semicolon => ParseRule::new(None, None, Precedence::None),
-      Token::Colon => ParseRule::new(None, None, Precedence::None),
       Token::At => ParseRule::new(None, None, Precedence::None),
       Token::Pipe => ParseRule::new(Some(LambdaExpression::prefix), None, Precedence::Primary),
       Token::Plus => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Term),
@@ -614,6 +617,8 @@ impl AstGenerator {
       Token::LessEqual => ParseRule::new(None, Some(BinaryExpression::infix), Precedence::Comparison),
       Token::Arrow => ParseRule::new(None, None, Precedence::None),
       Token::BackArrow => ParseRule::new(None, None, Precedence::None),
+      Token::Colon => ParseRule::new(None, None, Precedence::None),
+      Token::ColonColon => ParseRule::new(None, Some(ScopeResolutionExpression::infix), Precedence::Call),
       Token::Identifier(_) => ParseRule::new(Some(IdentExpression::prefix), None, Precedence::None),
       Token::String(_) => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
       Token::Number(_) => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
@@ -642,7 +647,6 @@ impl AstGenerator {
       Token::True => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
       Token::Use => ParseRule::new(None, None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
-      Token::Yield => ParseRule::new(None, None, Precedence::None),
       Token::Breakpoint => ParseRule::new(None, None, Precedence::None),
     }
   }

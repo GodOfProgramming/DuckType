@@ -1,5 +1,5 @@
 use crate::{common, StrAttr};
-use proc_macro2::{Ident, Literal, TokenStream};
+use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::{quote, TokenStreamExt};
 use syn::{FnArg, Item, ItemFn, ItemMod, ItemStruct};
 
@@ -99,7 +99,7 @@ impl TryFrom<Vec<Item>> for ModuleDef {
   }
 }
 
-pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
+pub(crate) fn native_mod(item: ItemMod, no_entry: bool) -> TokenStream {
   let mod_name = &item.ident;
 
   let module_def = match item.content.map(|(_, content)| ModuleDef::try_from(content)).transpose() {
@@ -112,27 +112,43 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
     Err(e) => return e,
   };
 
-  let (fn_defs, functions) = collect_fn_defs(module_def.functions);
-  let (struct_defs, structs) = collect_struct_defs(module_def.structs);
+  let collect_idents = CollectDefIdents {
+    module_ident: Ident::new("env", Span::call_site()),
+    gc_ident: Ident::new("gc", Span::call_site()),
+  };
+
+  let (fn_defs, functions) = collect_fn_defs(&collect_idents, module_def.functions);
+  let (struct_defs, structs) = collect_struct_defs(&collect_idents, module_def.structs);
   let unchanged = module_def.unchanged;
 
-  quote! {
-    #[no_mangle]
-    pub fn simple_script_load_module(vm: &mut Vm) -> ValueResult {
-      let module = #mod_name::simple_script_autogen_create_module(&mut vm.gc);
-      Ok(module)
+  let CollectDefIdents { module_ident, gc_ident } = collect_idents;
+
+  let entry_point = if no_entry {
+    TokenStream::default()
+  } else {
+    quote! {
+      #[no_mangle]
+      pub fn simple_script_load_module(vm: &mut Vm) -> ValueResult {
+        let #module_ident = vm.current_env_leaf()?;
+        let #gc_ident = vm.gc();
+        let module = #mod_name::simple_script_autogen_create_module(#gc_ident, #module_ident);
+        let value = #gc_ident.allocate(module);
+        Ok(value)
+      }
     }
+  };
+
+  quote! {
+    #entry_point
 
     mod #mod_name {
       use super::*;
 
-      pub fn simple_script_autogen_create_module(gc: &mut Gc) -> Value {
-        let module = LockedModule::initialize(gc, |gc, module| {
+      pub fn simple_script_autogen_create_module(gc: &mut SmartPtr<Gc>, env: Value) -> UsertypeHandle<ModuleValue> {
+        ModuleBuilder::initialize(gc, Some(env), |gc, mut #module_ident| {
           #fn_defs
           #struct_defs
-        });
-
-        gc.allocate(module)
+        })
       }
 
       #(#functions)*
@@ -144,21 +160,34 @@ pub(crate) fn native_mod(item: ItemMod) -> TokenStream {
   }
 }
 
-fn collect_fn_defs(functions: Vec<FnDef>) -> (TokenStream, Vec<ItemFn>) {
+struct CollectDefIdents {
+  module_ident: Ident,
+  gc_ident: Ident,
+}
+
+fn collect_fn_defs(idents: &CollectDefIdents, functions: Vec<FnDef>) -> (TokenStream, Vec<ItemFn>) {
+  let CollectDefIdents {
+    module_ident,
+    gc_ident: _gc,
+  } = &idents;
   let mut fn_defs = TokenStream::default();
   fn_defs.append_all(functions.iter().map(|native_fn| {
     let native_fn_name = &native_fn.name;
     let native_fn_name_str = native_fn_name.to_string();
     let native_fn_name_lit = Literal::string(&native_fn_name_str);
     quote! {
-      module.set(gc, #native_fn_name_lit, Value::native(#native_fn_name)).ok();
+      #module_ident.define(#native_fn_name_lit, Value::native(#native_fn_name));
     }
   }));
 
   (fn_defs, functions.into_iter().map(|f| f.item).collect())
 }
 
-fn collect_struct_defs(structs: Vec<StructDef>) -> (TokenStream, Vec<ItemStruct>) {
+fn collect_struct_defs(idents: &CollectDefIdents, structs: Vec<StructDef>) -> (TokenStream, Vec<ItemStruct>) {
+  let CollectDefIdents {
+    module_ident,
+    gc_ident: _gc,
+  } = &idents;
   let mut struct_defs = TokenStream::default();
   struct_defs.append_all(structs.iter().map(|native_struct| {
     let struct_name = &native_struct.name;
@@ -166,7 +195,7 @@ fn collect_struct_defs(structs: Vec<StructDef>) -> (TokenStream, Vec<ItemStruct>
     let struct_name_lit = &Literal::string(&struct_name_str);
     let struct_name_lit = native_struct.rename.as_ref().unwrap_or(struct_name_lit);
     quote! {
-      module.set(gc, #struct_name_lit, Value::native(<#struct_name as UsertypeMethods>::__new__)).ok();
+      #module_ident.define(#struct_name_lit, Value::native(<#struct_name as UsertypeMethods>::__new__));
     }
   }));
 

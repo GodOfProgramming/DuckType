@@ -56,4 +56,11 @@ impl DebugValue for InstanceValue {
   }
 }
 
-impl LockableValue for InstanceValue {}
+impl ResolvableValue for InstanceValue {}
+
+impl InvocableValue for InstanceValue {
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, args: Args) -> ValueResult<()> {
+    let mut callable = self.get(&mut vm.gc, &this, "__ivk__")?;
+    callable.call(vm, args)
+  }
+}

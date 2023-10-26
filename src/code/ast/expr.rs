@@ -10,48 +10,36 @@ pub use ops::*;
 
 #[derive(Debug)]
 pub enum Expression {
-  Literal(LiteralExpression),
-  Unary(UnaryExpression),
-  Binary(BinaryExpression),
   And(AndExpression),
-  Or(OrExpression),
+  Assign(AssignExpression),
+  Binary(BinaryExpression),
+  Call(CallExpression),
+  Class(ClassExpression),
+  Closure(ClosureExpression),
   Group(GroupExpression),
   Ident(IdentExpression),
-  Assign(AssignExpression),
-  Call(CallExpression),
-  List(ListExpression),
   Index(IndexExpression),
-  Struct(StructExpression),
-  Class(ClassExpression),
-  Mod(ModExpression),
-  MemberAccess(MemberAccessExpression),
   Lambda(LambdaExpression),
-  Closure(ClosureExpression),
+  List(ListExpression),
+  Literal(LiteralExpression),
+  MemberAccess(MemberAccessExpression),
   Method(MethodExpression),
+  Mod(ModExpression),
+  Or(OrExpression),
   Req(ReqExpression),
+  ScopeResolution(ScopeResolutionExpression),
+  Struct(StructExpression),
+  Unary(UnaryExpression),
 }
 
 impl Expression {
   #[cfg(feature = "visit-ast")]
   pub(super) fn dump(&self, tmpl: &mut TemplateBuffer) {
     match self {
-      Expression::Literal(l) => {
-        html! {
-          : l.value.to_string();
-        }
-        .render(tmpl);
-      }
-      Expression::Unary(_) => (),
-      Expression::Binary(_) => (),
       Expression::And(_) => (),
-      Expression::Or(_) => (),
-      Expression::Group(_) => (),
-      Expression::Ident(_) => (),
       Expression::Assign(_) => (),
+      Expression::Binary(_) => (),
       Expression::Call(_) => (),
-      Expression::List(_) => (),
-      Expression::Index(_) => (),
-      Expression::Struct(_) => (),
       Expression::Class(c) => {
         if let Some(init) = &c.initializer {
           html! {
@@ -83,12 +71,26 @@ impl Expression {
           .render(tmpl);
         }
       }
-      Expression::Mod(_) => (),
-      Expression::MemberAccess(_) => (),
-      Expression::Lambda(l) => l.body.dump(tmpl),
       Expression::Closure(c) => c.body.dump(tmpl),
+      Expression::Group(_) => (),
+      Expression::Ident(_) => (),
+      Expression::Index(_) => (),
+      Expression::Lambda(l) => l.body.dump(tmpl),
+      Expression::List(_) => (),
+      Expression::Literal(l) => {
+        html! {
+          : l.value.to_string();
+        }
+        .render(tmpl);
+      }
+      Expression::MemberAccess(_) => (),
       Expression::Method(m) => m.body.dump(tmpl),
+      Expression::Mod(_) => (),
+      Expression::Or(_) => (),
       Expression::Req(_) => (),
+      Expression::ScopeResolution(_) => (),
+      Expression::Struct(_) => (),
+      Expression::Unary(_) => (),
     }
   }
 }
@@ -96,25 +98,26 @@ impl Expression {
 impl Display for Expression {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     match self {
-      Self::Literal(l) => write!(f, "literal {}", l.value),
-      Self::Unary(u) => write!(f, "unary {:?}", u.op),
-      Self::Binary(_) => write!(f, "binary"),
       Self::And(_) => write!(f, "and"),
-      Self::Or(_) => write!(f, "or"),
+      Self::Assign(_) => write!(f, "assign"),
+      Self::Binary(_) => write!(f, "binary"),
+      Self::Call(_) => write!(f, "call"),
+      Self::Class(_) => write!(f, "class"),
+      Self::Closure(_) => write!(f, "closure"),
       Self::Group(_) => write!(f, "group"),
       Self::Ident(i) => write!(f, "ident {}", i.ident.name),
-      Self::Assign(_) => write!(f, "assign"),
-      Self::MemberAccess(_) => write!(f, "member access"),
-      Self::Call(_) => write!(f, "call"),
-      Self::List(_) => write!(f, "list"),
       Self::Index(_) => write!(f, "index"),
-      Self::Struct(_) => write!(f, "struct"),
-      Self::Class(_) => write!(f, "class"),
-      Self::Mod(_) => write!(f, "mod"),
       Self::Lambda(_) => write!(f, "lambda"),
-      Self::Closure(_) => write!(f, "closure"),
+      Self::List(_) => write!(f, "list"),
+      Self::Literal(l) => write!(f, "literal {}", l.value),
+      Self::MemberAccess(_) => write!(f, "member access"),
       Self::Method(_) => write!(f, "method"),
+      Self::Mod(_) => write!(f, "mod"),
+      Self::Or(_) => write!(f, "or"),
       Self::Req(_) => write!(f, "req"),
+      Self::ScopeResolution(_) => write!(f, "scope resolution"),
+      Self::Struct(_) => write!(f, "struct"),
+      Self::Unary(u) => write!(f, "unary {:?}", u.op),
     }
   }
 }
@@ -230,5 +233,11 @@ impl From<MethodExpression> for Expression {
 impl From<ReqExpression> for Expression {
   fn from(expr: ReqExpression) -> Self {
     Self::Req(expr)
+  }
+}
+
+impl From<ScopeResolutionExpression> for Expression {
+  fn from(expr: ScopeResolutionExpression) -> Self {
+    Self::ScopeResolution(expr)
   }
 }

@@ -1,4 +1,4 @@
-use ptr::SmartPtr;
+use ptr::{MutPtr, SmartPtr};
 
 use crate::{
   prelude::*,
@@ -7,6 +7,7 @@ use crate::{
 use std::{
   collections::HashSet,
   mem,
+  ops::{Deref, DerefMut},
   sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -14,17 +15,108 @@ use super::StackFrame;
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
+pub struct UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  pub(crate) usertype: MutPtr<T>,
+  pub handle: ValueHandle,
+}
+
+impl<T> UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  pub fn new(mut handle: ValueHandle) -> Self {
+    Self {
+      usertype: handle.value.reinterpret_cast::<T>(),
+      handle,
+    }
+  }
+}
+
+impl<T> Clone for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn clone(&self) -> Self {
+    Self {
+      usertype: self.usertype.clone(),
+      handle: self.handle.clone(),
+    }
+  }
+}
+
+impl<T> From<UsertypeHandle<T>> for ValueHandle
+where
+  T: Usertype,
+{
+  fn from(utype: UsertypeHandle<T>) -> Self {
+    utype.handle
+  }
+}
+
+impl<T> MaybeFrom<ValueHandle> for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn maybe_from(handle: ValueHandle) -> Option<Self> {
+    if handle.value.is::<T>() {
+      Some(UsertypeHandle::new(handle))
+    } else {
+      None
+    }
+  }
+}
+
+impl<T> Deref for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  type Target = T;
+  fn deref(&self) -> &Self::Target {
+    &self.usertype
+  }
+}
+
+impl<T> DerefMut for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.usertype
+  }
+}
+
 pub struct ValueHandle {
-  pub(crate) value: Value,
+  pub value: Value,
   gc: SmartPtr<Gc>,
 }
 
 impl ValueHandle {
   pub fn new(gc: SmartPtr<Gc>, mut value: Value) -> ValueHandle {
-    if value.is_ptr() {
-      value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
-    }
+    value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
+
     Self { value, gc }
+  }
+}
+
+impl Deref for ValueHandle {
+  type Target = Value;
+  fn deref(&self) -> &Self::Target {
+    &self.value
+  }
+}
+
+impl DerefMut for ValueHandle {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.value
+  }
+}
+
+impl From<ValueHandle> for Value {
+  fn from(handle: ValueHandle) -> Self {
+    handle.value.clone()
   }
 }
 
@@ -104,14 +196,14 @@ impl Gc {
       marked_allocations.trace(value);
     }
 
-    current_frame.ctx.env.trace(&mut marked_allocations);
-
     for frame in stack_frames {
       for value in &frame.stack {
         marked_allocations.trace(value);
       }
+    }
 
-      frame.ctx.env.trace(&mut marked_allocations);
+    for handle in &self.handles {
+      marked_allocations.trace(&Value { bits: *handle })
     }
 
     let marked_allocations = marked_allocations.into();
@@ -131,11 +223,16 @@ impl Gc {
     cleaned
   }
 
-  pub fn allocate_handle<T: Usertype>(this: &mut SmartPtr<Self>, item: T) -> ValueHandle {
+  pub fn handle_from(this: &mut SmartPtr<Self>, value: Value) -> ValueHandle {
+    this.handles.insert(value.bits);
+    ValueHandle::new(this.clone(), value)
+  }
+
+  pub fn allocate_handle<T: Usertype>(this: &mut SmartPtr<Self>, item: T) -> UsertypeHandle<T> {
     let value = this.allocate(item);
     let new = this.handles.insert(value.bits);
     debug_assert!(new);
-    ValueHandle::new(this.clone(), value)
+    UsertypeHandle::new(ValueHandle::new(this.clone(), value))
   }
 
   fn allocate_usertype<T: Usertype>(&mut self, item: T) -> Value {
@@ -324,10 +421,9 @@ mod tests {
   #[methods]
   impl SomeType {}
 
-  fn new_ctx(gc: &mut Gc) -> SmartPtr<Context> {
+  fn new_ctx() -> SmartPtr<Context> {
     SmartPtr::new(Context::new(
       Some("main"),
-      SmartPtr::new(Env::initialize(gc, None)),
       Reflection::new(Rc::new(Default::default()), Rc::new(Default::default())),
     ))
   }
@@ -335,7 +431,7 @@ mod tests {
   #[test]
   fn gc_can_allocate_and_clean() {
     let mut gc = Gc::default();
-    let ctx = new_ctx(&mut gc);
+    let ctx = new_ctx();
 
     gc.allocate(SomeType {});
 
@@ -346,7 +442,7 @@ mod tests {
   #[test]
   fn gc_does_not_clean_more_than_it_needs_to() {
     let mut gc = Gc::default();
-    let ctx = new_ctx(&mut gc);
+    let ctx = new_ctx();
 
     let _x = gc.allocate(1);
     let _y = gc.allocate(1.0);
@@ -362,7 +458,7 @@ mod tests {
   #[test]
   fn gc_does_not_clean_open_handles() {
     let mut gc = SmartPtr::new(Gc::default());
-    let ctx = new_ctx(&mut gc);
+    let ctx = new_ctx();
 
     let mut value = StructValue::default();
     let child = gc.allocate(SomeType {});

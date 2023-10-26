@@ -1,6 +1,19 @@
-print(std.debug(io));
+mod Bar {
+  class Baz {
+    fn make_new(self) {
+      ret Bar::Baz();
+    }
+  }
+}
 
-let path = io.Path("C:\");
-let composed = path/"Windows"/"System32";
+class Foo {
+  fn make_new(self) {
+    ret Foo();
+  }
+}
 
-print(composed);
+let foo = Foo();
+print foo.make_new();
+
+let baz = Bar::Baz();
+print baz.make_new();

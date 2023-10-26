@@ -145,7 +145,7 @@ pub enum EnvCmd {
 impl EnvCmd {
   fn exec(self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
     let output = match self {
-      EnvCmd::Get { name } => Some(if let Some(value) = vm.env().lookup(&name) {
+      EnvCmd::Get { name } => Some(if let Some(value) = vm.current_env().lookup(&name) {
         format!("{:?}", value)
       } else {
         format!("no item in the env with the name '{}'", name)
@@ -159,7 +159,7 @@ impl EnvCmd {
           ValueCommand::String { value } => vm.gc.allocate(value),
         };
 
-        vm.env().assign(name, value);
+        vm.current_env_mut().define(name, value);
         None
       }
     };

@@ -4,19 +4,22 @@ use std::time::Instant;
 pub struct LibTime;
 
 impl LibTime {
-  pub fn load(gc: &mut Gc) -> Value {
-    LockedModule::initialize(gc, |gc, lib| {
-      let mono = LockedModule::initialize(gc, |gc, mono| {
-        mono
-          .set(gc, "now", Value::native(|vm, _| Ok(vm.gc.allocate(TimestampValue::new()))))
-          .ok();
+  pub fn load(gc: &mut SmartPtr<Gc>, gmod: Value) -> UsertypeHandle<ModuleValue> {
+    ModuleBuilder::initialize(gc, Some(gmod), |gc, mut lib| {
+      let mono = ModuleBuilder::initialize(gc, Some(lib.handle.value.clone()), |_, mut mono| {
+        mono.define("now", Value::native(now));
 
-        mono.set(gc, "elapsed", Value::native(elapsed)).ok();
+        mono.define("elapsed", Value::native(elapsed));
       });
 
-      lib.set(gc, "mono", mono).ok();
+      lib.define("mono", mono);
     })
   }
+}
+
+#[native]
+fn now() -> ValueResult<TimestampValue> {
+  Ok(TimestampValue::new())
 }
 
 #[native]

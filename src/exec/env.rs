@@ -3,13 +3,10 @@ use crate::{
   prelude::*,
 };
 use ptr::SmartPtr;
-use std::{
-  collections::{btree_map::Iter, BTreeMap},
-  env,
-};
+use std::collections::BTreeMap;
 
 pub mod prelude {
-  pub use super::{Context, Env};
+  pub use super::Context;
 }
 
 pub struct Context {
@@ -24,12 +21,11 @@ pub struct Context {
   // map of string to const vec location to save memory
   strings: BTreeMap<String, usize>,
 
-  pub env: SmartPtr<Env>,
   pub meta: Reflection,
 }
 
 impl Context {
-  pub(crate) fn new(name: Option<impl Into<String>>, env: SmartPtr<Env>, reflection: Reflection) -> Self {
+  pub(crate) fn new(name: Option<impl Into<String>>, reflection: Reflection) -> Self {
     Self {
       name: name.map(|n| n.into()),
       id: Default::default(),
@@ -37,7 +33,6 @@ impl Context {
       instructions: Default::default(),
       consts: Default::default(),
       strings: Default::default(),
-      env,
       meta: reflection,
     }
   }
@@ -46,11 +41,9 @@ impl Context {
     if self.global.valid() {
       self.global.trace(marks);
     }
-    self.env.trace(marks);
   }
 
   pub(crate) fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
-    let env = ctx.env.clone();
     let global = if ctx.global.valid() {
       ctx.global.clone()
     } else {
@@ -65,7 +58,6 @@ impl Context {
       consts: Default::default(),
       strings: Default::default(),
       instructions: Default::default(),
-      env,
       meta: reflection,
     }
   }
@@ -158,19 +150,6 @@ impl Context {
       match value {
         ConstantValue::Fn(f) => {
           f.ctx.disassemble();
-        }
-        ConstantValue::Class(c) => {
-          if let Some(i) = &c.initializer {
-            i.ctx.disassemble();
-          }
-
-          for value in c.methods.values() {
-            value.ctx.disassemble();
-          }
-
-          for value in c.statics.values() {
-            value.ctx.disassemble();
-          }
         }
         _ => (),
       }
@@ -276,8 +255,20 @@ impl Context {
       Opcode::Loop(count) => println!("{} {: >14}", Self::opcode_column("Loop"), Self::address_of(offset - count)),
       Opcode::Or(count) => println!("{} {: >14}", Self::opcode_column("Or"), Self::address_of(offset + count)),
       Opcode::And(count) => println!("{} {: >14}", Self::opcode_column("And"), Self::address_of(offset + count)),
-      Opcode::Call(count) => println!("{} {}", Self::opcode_column("Call"), Self::value_column(*count)),
+      Opcode::Invoke(count) => println!("{} {}", Self::opcode_column("Call"), Self::value_column(*count)),
       Opcode::CreateList(count) => println!("{} {}", Self::opcode_column("CreateList"), Self::value_column(*count)),
+      Opcode::Define(ident) => println!(
+        "{} {} {}",
+        Self::opcode_column("Define"),
+        Self::value_column(*ident),
+        self.const_at_column(*ident)
+      ),
+      Opcode::Resolve(ident) => println!(
+        "{} {} {}",
+        Self::opcode_column("Resolve"),
+        Self::value_column(*ident),
+        self.const_at_column(*ident)
+      ),
       x => println!("{}", Self::opcode_column(format!("{:?}", x))),
     }
   }
@@ -307,69 +298,5 @@ impl Context {
 
   pub fn address_of(offset: usize) -> String {
     format!("{:#010X} ", offset)
-  }
-}
-
-pub struct Env {
-  vars: BTreeMap<String, Value>,
-}
-
-impl Env {
-  pub const PATHS_ENV_VAR: &str = "SS_LIBRARY_PATHS";
-  pub const LIB_GLOBAL: &str = "LIBRARY";
-  pub const PATHS_MEMBER: &str = "paths";
-  pub const PATH_SEPARATOR: char = ';';
-
-  pub fn initialize(gc: &mut Gc, initial_vars: Option<BTreeMap<String, Value>>) -> Self {
-    let mut env = Env {
-      vars: initial_vars.unwrap_or_default(),
-    };
-
-    let mut lib_paths = Vec::default();
-
-    if let Ok(paths) = env::var(Self::PATHS_ENV_VAR) {
-      lib_paths.extend(paths.split_terminator(Self::PATH_SEPARATOR).map(|v| gc.allocate(v)));
-    }
-
-    let module = LockedModule::initialize(gc, |gc, module| {
-      let lib_paths = gc.allocate(lib_paths);
-
-      module.set(gc, Self::PATHS_MEMBER, lib_paths).ok();
-    });
-
-    env.define(Self::LIB_GLOBAL, module);
-
-    env
-  }
-
-  /// Defines a new variable. Returns true if the variable is new, false otherwise
-  pub fn define<T: ToString>(&mut self, name: T, value: impl Into<Value>) -> bool {
-    self.vars.insert(name.to_string(), value.into()).is_none()
-  }
-
-  pub fn is_available(&self, name: &str) -> bool {
-    !self.is_defined(name)
-  }
-
-  pub fn is_defined(&self, name: &str) -> bool {
-    self.vars.contains_key(name)
-  }
-
-  pub fn assign<T: ToString>(&mut self, name: T, value: Value) -> bool {
-    self.vars.insert(name.to_string(), value).is_some()
-  }
-
-  pub fn lookup<T: AsRef<str>>(&self, name: T) -> Option<Value> {
-    self.vars.get(name.as_ref()).cloned()
-  }
-
-  pub fn iter(&self) -> Iter<'_, String, Value> {
-    self.vars.iter()
-  }
-
-  pub fn trace(&self, marks: &mut Marker) {
-    for value in self.vars.values() {
-      marks.trace(value);
-    }
   }
 }

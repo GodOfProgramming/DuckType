@@ -100,9 +100,11 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
   let mut statics = Vec::new();
 
   let mut constructor = None;
+  let mut define_fn = None;
+  let mut resolve_fn = None;
+  let mut ivk_fn = None;
   let mut display_fn = None;
   let mut debug_fn = None;
-  let mut lock_fn = None;
 
   for item in &struct_impl.items {
     struct Method {
@@ -121,9 +123,11 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       let name_str = name.to_string();
       match name_str.as_str() {
         "__new__" => constructor = Some(method),
+        "__def__" => define_fn = Some(method),
+        "__res__" => resolve_fn = Some(method),
+        "__ivk__" => ivk_fn = Some(method),
         "__str__" => display_fn = Some(method),
         "__dbg__" => debug_fn = Some(method),
-        "__lock__" => lock_fn = Some(method),
         _ => {
           let nargs = common::count_args!(method);
 
@@ -246,15 +250,35 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     })
     .unwrap_or_default();
 
-  let lock_impl = if let Some(lock_fn) = lock_fn {
+  let define_impl = if let Some(define_fn) = define_fn {
+    quote! { #define_fn }
+  } else {
+    TokenStream::default()
+  };
+
+  let resolve_impl = if let Some(resolve_fn) = resolve_fn {
+    quote! { #resolve_fn }
+  } else {
+    TokenStream::default()
+  };
+
+  let resolvable_impl = quote! {
+      impl ResolvableValue for #me {
+        #define_impl
+
+        #resolve_impl
+      }
+  };
+
+  let invocable_impl = if let Some(invoke_fn) = ivk_fn {
     quote! {
-      impl LockableValue for #me {
-        #lock_fn
+      impl InvocableValue for #me {
+        #invoke_fn
       }
     }
   } else {
     quote! {
-      impl LockableValue for #me {}
+      impl InvocableValue for #me { }
     }
   };
 
@@ -314,10 +338,12 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       }
     }
 
+    #resolvable_impl
+
+    #invocable_impl
+
     #display_impl
 
     #debug_impl
-
-    #lock_impl
   }
 }
