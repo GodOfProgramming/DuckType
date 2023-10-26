@@ -508,7 +508,8 @@ impl BytecodeGenerator {
     for (member, assign) in expr.items {
       let ident = self.add_const_ident(member);
       self.emit_expr(assign);
-      self.emit(Opcode::Define(ident), expr.loc.clone());
+      self.emit(Opcode::DefineGlobal(ident), expr.loc.clone());
+      self.emit(Opcode::Pop, expr.loc.clone());
     }
     self.emit(Opcode::PopScope, expr.loc);
   }
