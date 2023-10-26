@@ -409,24 +409,3 @@ impl AstStatement for WhileStatement {
     });
   }
 }
-
-#[derive(Debug)]
-pub struct YieldStatement {
-  pub loc: SourceLocation,
-}
-
-impl YieldStatement {
-  pub(super) fn new(loc: SourceLocation) -> Self {
-    Self { loc }
-  }
-}
-
-impl AstStatement for YieldStatement {
-  fn stmt(ast: &mut AstGenerator) {
-    ast.meta_at::<0>().unwrap_and(|loc| {
-      if ast.consume(Token::Semicolon, "expected ';' after yield") {
-        ast.statements.push(Statement::from(YieldStatement::new(loc)));
-      }
-    });
-  }
-}

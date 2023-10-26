@@ -1,4 +1,5 @@
 use crate::{code::ConstantValue, prelude::*};
+use ptr::MutPtr;
 use static_assertions::assert_eq_size;
 use std::{
   cmp::Ordering,
@@ -66,7 +67,7 @@ impl Value {
     self.is_nil() || self.is_bool() && self.bits & VALUE_BITMASK == 0
   }
 
-  pub fn from_constant(gc: &mut Gc, v: &ConstantValue) -> Self {
+  pub fn from_constant(gc: &mut Gc, env: Value, v: &ConstantValue) -> Self {
     match v {
       ConstantValue::Nil => Self::nil,
       ConstantValue::Bool(v) => Self::from(*v),
@@ -74,8 +75,10 @@ impl Value {
       ConstantValue::Float(v) => Self::from(*v),
       ConstantValue::String(v) => gc.allocate(v),
       ConstantValue::StaticString(v) => gc.allocate(*v),
-      ConstantValue::Fn(v) => gc.allocate(FunctionValue::from(v)),
-      ConstantValue::Class(v) => ClassValue::from_constant(gc, v),
+      ConstantValue::Fn(v) => {
+        let env = gc.allocate(ModuleValue::new_child(env));
+        gc.allocate(FunctionValue::from_constant(v, env))
+      }
     }
   }
 
@@ -314,7 +317,7 @@ impl Value {
   }
 
   pub fn is_native_fn(&self) -> bool {
-    self.is_type::<FN_TAG>()
+    self.is_type::<NATIVE_FN_TAG>()
   }
 
   pub fn as_native_fn(&self) -> Option<NativeFn> {
@@ -411,42 +414,55 @@ impl Value {
     }
   }
 
+  pub fn reinterpret_cast<T: Usertype>(&mut self) -> MutPtr<T> {
+    MutPtr::new(self.convert_mut())
+  }
+
   // nil
 
   pub fn is_nil(&self) -> bool {
     self.is_type::<NIL_TAG>()
   }
 
-  // Into Callable
-
-  pub fn as_callable(&self) -> Option<Callable> {
-    Callable::from_value(self.clone())
+  pub fn call(&mut self, vm: &mut Vm, args: Args) -> ValueResult<()> {
+    if self.tag() == Tag::NativeFn {
+      let f = self.as_native_fn_unchecked();
+      let output = f(vm, args)?;
+      vm.stack_push(output);
+      Ok(())
+    } else {
+      (self.vtable().invoke)(self.pointer_mut(), vm as *mut Vm as MutVoid, self.clone(), args)
+    }
   }
 
   // value methods
 
-  pub fn lookup(&self, gc: &mut Gc, name: &str) -> ValueResult {
+  pub fn get_member(&self, gc: &mut Gc, name: &str) -> ValueResult {
     if self.is_ptr() {
-      (self.vtable().lookup)(self, gc as *mut Gc as MutVoid, name)
+      (self.vtable().get_member)(self, gc as *mut Gc as MutVoid, name)
     } else {
       Err(ValueError::InvalidLookup(self.clone()))
     }
   }
 
-  pub fn assign(&mut self, gc: &mut Gc, name: &str, value: Value) -> ValueResult<()> {
+  pub fn set_member(&mut self, gc: &mut Gc, name: &str, value: Value) -> ValueResult<()> {
     if self.is_ptr() {
-      (self.vtable().assign)(self.pointer_mut(), gc as *mut Gc as MutVoid, name, value)
+      (self.vtable().set_member)(self.pointer_mut(), gc as *mut Gc as MutVoid, name, value)
     } else {
       Err(ValueError::InvalidLookup(self.clone()))
     }
   }
 
-  pub fn define(&mut self, name: &str, value: Value) -> ValueResult<()> {
-    (self.vtable().define)(self.pointer_mut(), name, value)
+  pub fn define(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> ValueResult<bool> {
+    (self.vtable().define)(self.pointer_mut(), name.as_ref(), value.into())
   }
 
-  pub fn resolve(&self, name: &str) -> ValueResult {
-    (self.vtable().resolve)(self.pointer(), name)
+  pub fn assign(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> ValueResult<bool> {
+    (self.vtable().assign)(self.pointer_mut(), name.as_ref(), value.into())
+  }
+
+  pub fn resolve(&self, name: impl AsRef<str>) -> ValueResult {
+    (self.vtable().resolve)(self.pointer(), name.as_ref())
   }
 
   pub fn display_string(&self) -> String {
@@ -598,7 +614,7 @@ impl From<char> for Value {
 impl From<NativeFn> for Value {
   fn from(f: NativeFn) -> Self {
     Self {
-      bits: f as usize as u64 | FN_TAG,
+      bits: f as usize as u64 | NATIVE_FN_TAG,
     }
   }
 }
@@ -617,6 +633,7 @@ impl Display for Value {
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
       Tag::NativeFn => write!(f, "<native fn {:p}>", &self.as_native_fn_unchecked()),
+      Tag::NativeVTable => todo!(),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
     }
@@ -639,6 +656,7 @@ impl Debug for Value {
         addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
         width = PTR_DISPLAY_WIDTH,
       ),
+      Tag::NativeVTable => todo!(),
       Tag::Pointer => write!(
         f,
         "<@{addr:<width$} {} : {}>",
@@ -929,14 +947,21 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  lookup: fn(&Value, MutVoid, &str) -> ValueResult,
-  assign: fn(MutVoid, MutVoid, &str, Value) -> ValueResult<()>,
-  define: fn(MutVoid, &str, Value) -> ValueResult<()>,
+  get_member: fn(&Value, MutVoid, &str) -> ValueResult,
+  set_member: fn(MutVoid, MutVoid, &str, Value) -> ValueResult<()>,
+
+  define: fn(MutVoid, &str, Value) -> ValueResult<bool>,
+  assign: fn(MutVoid, &str, Value) -> ValueResult<bool>,
   resolve: fn(ConstVoid, &str) -> ValueResult,
+
+  invoke: fn(MutVoid, MutVoid, Value, Args) -> ValueResult<()>,
+
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
+
   trace: fn(ConstVoid, MutVoid),
   pub(crate) dealloc: fn(MutVoid),
+
   type_id: fn() -> &'static Uuid,
   type_name: fn() -> String,
 }
@@ -944,14 +969,23 @@ pub struct VTable {
 impl VTable {
   pub const fn new<T: Usertype>() -> Self {
     Self {
-      lookup: |this, gc, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::cast_mut(gc), this, name),
-      assign: |this, gc, name, value| <T as Usertype>::set(Self::cast_mut(this), Self::cast_mut(gc), name, value),
+      get_member: |this, gc, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::cast_mut(gc), this, name),
+      set_member: |this, gc, name, value| <T as Usertype>::set(Self::cast_mut(this), Self::cast_mut(gc), name, value),
+
       define: |this, name, value| <T as ResolvableValue>::__def__(Self::cast_mut(this), name, value),
+      assign: |this, name, value| <T as ResolvableValue>::__def__(Self::cast_mut(this), name, value).map(|new| !new),
       resolve: |this, field| <T as ResolvableValue>::__res__(Self::cast(this), field),
+
+      invoke: |this, vm, this_value, args| {
+        <T as InvocableValue>::__ivk__(Self::cast_mut(this), Self::cast_mut(vm), this_value, args)
+      },
+
       display_string: |this| <T as DisplayValue>::__str__(Self::cast(this)),
       debug_string: |this| <T as DebugValue>::__dbg__(Self::cast(this)),
+
       trace: |this, marks| <T as TraceableValue>::trace(Self::cast(this), Self::cast_mut(marks)),
       dealloc: |this| Gc::consume(this as *mut T),
+
       type_id: || &<T as Usertype>::ID,
       type_name: || std::any::type_name::<T>().to_string(),
     }
@@ -963,84 +997,6 @@ impl VTable {
 
   fn cast_mut<'t, T>(ptr: MutVoid) -> &'t mut T {
     unsafe { &mut *(ptr as *mut T) }
-  }
-}
-
-pub enum Callable {
-  Fn(Value),
-  Closure(Value),
-  Method(Value),
-  NativeFn(NativeFn),
-  NativeClosure(Value),
-  NativeMethod(Value),
-}
-
-impl Debug for Callable {
-  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    match self {
-      Self::Fn(arg0) => f.debug_tuple("Fn").field(arg0).finish(),
-      Self::Closure(arg0) => f.debug_tuple("Closure").field(arg0).finish(),
-      Self::Method(arg0) => f.debug_tuple("Method").field(arg0).finish(),
-      Self::NativeFn(arg0) => write!(f, "{:p}", &arg0),
-      Self::NativeClosure(arg0) => f.debug_tuple("NativeClosure").field(arg0).finish(),
-      Self::NativeMethod(arg0) => f.debug_tuple("NativeMethod").field(arg0).finish(),
-    }
-  }
-}
-
-impl Callable {
-  fn from_value(value: Value) -> Option<Self> {
-    match value.tag() {
-      Tag::NativeFn => Some(Callable::NativeFn(value.as_native_fn_unchecked())),
-      Tag::Pointer => {
-        if value.is_fn() {
-          Some(Callable::Fn(value))
-        } else if value.is_closure() {
-          Some(Callable::Closure(value))
-        } else if value.is_method() {
-          Some(Callable::Method(value))
-        } else if value.is_native_closure() {
-          Some(Callable::NativeClosure(value))
-        } else if value.is_native_method() {
-          Some(Callable::NativeMethod(value))
-        } else {
-          None
-        }
-      }
-      _ => None,
-    }
-  }
-
-  pub fn call(&mut self, vm: &mut Vm, args: Args) -> ValueResult<()> {
-    match self {
-      Callable::Fn(f) => {
-        f.as_fn_unchecked().call(vm, args);
-        Ok(())
-      }
-      Callable::Closure(c) => {
-        c.as_closure_unchecked().call(vm, args);
-        Ok(())
-      }
-      Callable::Method(m) => {
-        m.as_method_unchecked().call(vm, args);
-        Ok(())
-      }
-      Callable::NativeFn(f) => {
-        let value = f(vm, args)?;
-        vm.stack_push(value);
-        Ok(())
-      }
-      Callable::NativeClosure(c) => {
-        let value = c.as_native_closure_unchecked_mut().call(vm, args)?;
-        vm.stack_push(value);
-        Ok(())
-      }
-      Callable::NativeMethod(m) => {
-        let value = m.as_native_method_unchecked_mut().call(vm, args)?;
-        vm.stack_push(value);
-        Ok(())
-      }
-    }
   }
 }
 

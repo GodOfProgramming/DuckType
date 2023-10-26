@@ -174,10 +174,6 @@ impl AstGenerator {
         self.advance();
         WhileStatement::stmt(self);
       }
-      Token::Yield => {
-        self.advance();
-        YieldStatement::stmt(self);
-      }
       Token::Breakpoint => {
         self.advance();
         self.breakpoint_stmt();
@@ -651,7 +647,6 @@ impl AstGenerator {
       Token::True => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
       Token::Use => ParseRule::new(None, None, Precedence::None),
       Token::While => ParseRule::new(None, None, Precedence::None),
-      Token::Yield => ParseRule::new(None, None, Precedence::None),
       Token::Breakpoint => ParseRule::new(None, None, Precedence::None),
     }
   }

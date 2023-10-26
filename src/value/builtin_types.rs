@@ -59,7 +59,15 @@ pub struct Nil;
 
 pub trait Usertype
 where
-  Self: UsertypeFields + UsertypeMethods + ResolvableValue + DisplayValue + DebugValue + TraceableValue + Sized + 'static,
+  Self: UsertypeFields
+    + UsertypeMethods
+    + InvocableValue
+    + ResolvableValue
+    + DisplayValue
+    + DebugValue
+    + TraceableValue
+    + Sized
+    + 'static,
 {
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
@@ -95,13 +103,20 @@ pub trait UsertypeMethods {
 
 pub trait ResolvableValue: DisplayValue {
   #[allow(unused_variables)]
-  fn __def__(&mut self, field: &str, value: Value) -> ValueResult<()> {
+  fn __def__(&mut self, field: &str, value: Value) -> ValueResult<bool> {
     Err(ValueError::TypeError(self.__str__(), String::from("module")))
   }
 
   #[allow(unused_variables)]
   fn __res__(&self, field: &str) -> ValueResult {
     Err(ValueError::TypeError(self.__str__(), String::from("module")))
+  }
+}
+
+pub trait InvocableValue {
+  #[allow(unused_variables)]
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, args: Args) -> ValueResult<()> {
+    Err(ValueError::UndefinedMethod("__call__"))
   }
 }
 
@@ -114,6 +129,7 @@ pub trait DebugValue {
 }
 
 pub trait TraceableValue {
+  #[allow(unused_variables)]
   fn trace(&self, marks: &mut Marker);
 }
 
@@ -272,6 +288,8 @@ pub enum ValueError {
   /// method, value
   #[error("{0} not implemented for {1}")]
   UnimplementedError(&'static str, Value),
+  #[error("{0} is undefined")]
+  UndefinedMethod(&'static str),
   /// member name
   #[error("Tried assigning a value to unimplemented member {0}")]
   InvalidAssignment(String),
@@ -289,26 +307,30 @@ pub enum ValueError {
   #[error("{0}")]
   RuntimeError(String),
 
-  /// Default return value for usertype initializers
-  #[error("Undefined initializer reached")]
-  UndefinedInitializer,
-
   /// actual, expected
   #[error("{0} is not a {1}")]
   TypeError(String, String),
 
-  #[error("uninitialized name {0}")]
+  /// ident
+  #[error("use of undefined variable {0}")]
   NameError(String),
+
+  /// Native function produced an error
+  /// fn name
+  #[error("error in native function: {0}")]
+  NativeApi(String),
+
+  /// Default return value for usertype initializers
+  #[error("Undefined initializer reached")]
+  UndefinedInitializer,
+
+  /// Can only be reached from a bug
+  #[error("Infallible")]
+  Infallible,
 
   /// meant to be a placeholder for me being lazy
   #[error("{0}")]
   Todo(String),
-
-  #[error("error in native function: {0}")]
-  NativeApi(String),
-
-  #[error("Infallible")]
-  Infallible,
 }
 
 impl ValueError {
@@ -324,3 +346,18 @@ impl From<Infallible> for ValueError {
 }
 
 pub type ValueResult<T = Value> = Result<T, ValueError>;
+
+pub(crate) trait ConsumeResult<T> {
+  fn consume<F, O>(self, f: F) -> ValueResult<O>
+  where
+    F: FnOnce(T) -> O;
+}
+
+impl<T> ConsumeResult<T> for ValueResult<T> {
+  fn consume<F, O>(self, f: F) -> ValueResult<O>
+  where
+    F: FnOnce(T) -> O,
+  {
+    Ok(f(self?))
+  }
+}

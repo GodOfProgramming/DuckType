@@ -15,7 +15,7 @@ use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
   collections::BTreeMap,
-  fmt::{self, Display, Formatter},
+  fmt::{self, Debug, Formatter},
   fs,
   path::{Path, PathBuf},
   rc::Rc,
@@ -30,11 +30,11 @@ struct NativeApi {
 pub mod prelude {
   pub use super::env::prelude::*;
   pub use super::memory::*;
-  pub use super::{Opcode, Return, Vm};
+  pub use super::{Opcode, Vm};
 }
 
-type ExecResult<'file> = Result<(), Vec<RuntimeError>>;
-type ExecBoolResult<'file> = Result<bool, Vec<RuntimeError>>;
+type ExecResult<T = ()> = Result<T, Vec<RuntimeError>>;
+type ExecBoolResult = Result<bool, Vec<RuntimeError>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Opcode {
@@ -68,6 +68,10 @@ pub enum Opcode {
   AssignMember(usize),
   /** Initializes a member of an object, keeping the object on the stack for further assignments */
   InitializeMember(usize),
+  /** Initializes a method on a class, keeping the class on the stack for further assignments */
+  InitializeMethod(usize),
+  /** Initializes the constructor on a class, keeping the class on the stack for further assignments */
+  InitializeConstructor,
   /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
   LookupMember(usize),
   /** Uses the constant pointed to by the modifying bits to peek at a value on the next item on the stack */
@@ -112,8 +116,8 @@ pub enum Opcode {
   JumpIfFalse(usize),
   /** Jumps the instruction pointer backwards N instructions. N specified by the tuple */
   Loop(usize),
-  /** Calls the instruction on the stack. Number of arguments is specified by the modifying bits */
-  Call(usize),
+  /** Calls the value on the stack. Number of arguments is specified by the modifying bits */
+  Invoke(usize),
   /** Exits from a function, returning nil on the previous frame */
   Ret,
   /** Exits from a function, returning the last value on the stack to the previous frame */
@@ -126,10 +130,10 @@ pub enum Opcode {
   CreateClosure,
   /** Create a new struct */
   CreateStruct,
+  /** Create a new class */
+  CreateClass,
   /** Create a new module */
   CreateModule,
-  /** Yield at the current location */
-  Yield,
   /** Halt the VM when this instruction is reached and enter repl mode */
   Breakpoint,
   /** Mark the current value as exported */
@@ -138,6 +142,10 @@ pub enum Opcode {
   Define(usize),
   /** Resolve the specified identifier */
   Resolve(usize),
+  /** Push a new env */
+  EnterBlock,
+  /** Pop an env */
+  PopScope,
 }
 
 #[cfg(test)]
@@ -146,6 +154,63 @@ const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(100);
 #[cfg(not(test))]
 const DEFAULT_GC_FREQUENCY: Duration = Duration::from_millis(16);
 
+#[derive(Default)]
+pub(crate) struct EnvStack {
+  envs: Vec<EnvEntry>,
+}
+
+impl EnvStack {
+  fn new(env: UsertypeHandle<ModuleValue>) -> Self {
+    Self {
+      envs: vec![EnvEntry::File(env)],
+    }
+  }
+
+  pub(crate) fn push(&mut self, entry: EnvEntry) {
+    self.envs.push(entry);
+  }
+
+  fn pop(&mut self) -> EnvEntry {
+    self.envs.pop().expect("pop: the env stack should never be empty")
+  }
+
+  fn last(&self) -> &UsertypeHandle<ModuleValue> {
+    match self.envs.last().expect("last: the env stack should never be empty") {
+      EnvEntry::Fn(e) => e,
+      EnvEntry::Mod(e) => e,
+      EnvEntry::File(e) => e,
+      EnvEntry::Block(e) => e,
+    }
+  }
+
+  fn last_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
+    match self.envs.last_mut().expect("last_mut: the env stack should never be empty") {
+      EnvEntry::Fn(e) => e,
+      EnvEntry::Mod(e) => e,
+      EnvEntry::File(e) => e,
+      EnvEntry::Block(e) => e,
+    }
+  }
+}
+
+pub(crate) enum EnvEntry {
+  Fn(UsertypeHandle<ModuleValue>),
+  Mod(UsertypeHandle<ModuleValue>),
+  File(UsertypeHandle<ModuleValue>),
+  Block(UsertypeHandle<ModuleValue>),
+}
+
+impl Debug for EnvEntry {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Fn(_) => f.debug_tuple("Fn").finish(),
+      Self::Mod(_) => f.debug_tuple("Mod").finish(),
+      Self::File(_) => f.debug_tuple("File").finish(),
+      Self::Block(_) => f.debug_tuple("Block").finish(),
+    }
+  }
+}
+
 pub struct Vm {
   // Don't get rid of current_frame in favor of the vec of stack frames
   // current_frame will be needed for repl so locals at the 0 depth scope
@@ -153,6 +218,8 @@ pub struct Vm {
   pub(crate) current_frame: StackFrame,
   pub(crate) stack_frames: Vec<StackFrame>,
   pub gc: SmartPtr<Gc>,
+
+  pub(crate) envs: EnvStack,
 
   args: Vec<String>,
   libs: Library,
@@ -167,11 +234,12 @@ pub struct Vm {
 }
 
 impl Vm {
-  pub fn new(args: impl Into<Vec<String>>, libs: Library) -> Self {
+  pub fn new(gc: SmartPtr<Gc>, args: impl Into<Vec<String>>, libs: Library) -> Self {
     Self {
       current_frame: Default::default(),
       stack_frames: Default::default(),
-      gc: SmartPtr::new(Gc::default()),
+      gc,
+      envs: Default::default(),
       args: args.into(),
       libs,
       lib_cache: Default::default(),
@@ -209,18 +277,16 @@ impl Vm {
     }
   }
 
-  pub fn load(&self, file: impl Into<PathBuf>, code: &str, env: Env) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    Compiler::compile(file.into(), code, SmartPtr::new(env))
+  pub fn load(&self, file: impl Into<PathBuf>, code: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+    Compiler::compile(file.into(), code)
   }
 
-  pub fn resume(&mut self, y: Yield) -> Result<Return, Vec<RuntimeError>> {
-    self.current_frame = y.current_frame;
-    self.stack_frames = y.stack_frames;
-    self.opened_files = y.opened_files;
-    self.execute()
-  }
-
-  pub fn run(&mut self, file: impl Into<PathBuf>, ctx: SmartPtr<Context>) -> Result<Return, Vec<RuntimeError>> {
+  pub fn run(
+    &mut self,
+    file: impl Into<PathBuf>,
+    ctx: SmartPtr<Context>,
+    env: UsertypeHandle<ModuleValue>,
+  ) -> Result<Value, Vec<RuntimeError>> {
     #[cfg(feature = "disassemble")]
     {
       ctx.disassemble();
@@ -235,13 +301,14 @@ impl Vm {
     let id = PlatformMetadata::id_of(&file).unwrap_or(0);
 
     self.opened_files = vec![FileInfo::new(file, id, 0)];
-    self.reinitialize(ctx);
+    self.reinitialize(ctx, env);
     self.execute()
   }
 
-  fn reinitialize(&mut self, ctx: SmartPtr<Context>) {
+  fn reinitialize(&mut self, ctx: SmartPtr<Context>, env: UsertypeHandle<ModuleValue>) {
     self.current_frame = StackFrame::new(ctx);
     self.stack_frames = Default::default();
+    self.envs = EnvStack::new(env);
   }
 
   fn unary_op<F>(&mut self, opcode: &Opcode, f: F) -> ExecResult
@@ -256,7 +323,7 @@ impl Vm {
           op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
         };
 
-        let callable = v.lookup(&mut self.gc, key).map_err(|e| self.error(opcode, e))?;
+        let callable = v.get_member(&mut self.gc, key).map_err(|e| self.error(opcode, e))?;
         self.call_value(opcode, callable, [])
       } else {
         self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
@@ -289,7 +356,7 @@ impl Vm {
             op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
           };
 
-          let callable = av.lookup(&mut self.gc, key).map_err(|e| self.error(opcode, e))?;
+          let callable = av.get_member(&mut self.gc, key).map_err(|e| self.error(opcode, e))?;
           self.call_value(opcode, callable, [bv])
         } else {
           self.stack_push(f(av, bv).map_err(|e| self.error(opcode, e))?);
@@ -319,7 +386,7 @@ impl Vm {
     vec![self.error_at(|opcode_ref| RuntimeError::from_ref(msg, opcode, opcode_ref))]
   }
 
-  fn execute(&mut self) -> Result<Return, Vec<RuntimeError>> {
+  fn execute(&mut self) -> Result<Value, Vec<RuntimeError>> {
     self.next_gc = Instant::now() + DEFAULT_GC_FREQUENCY;
 
     'file: loop {
@@ -358,6 +425,8 @@ impl Vm {
           Opcode::LookupLocal(index) => self.exec_lookup_local(&opcode, index)?,
           Opcode::AssignLocal(index) => self.exec_assign_local(&opcode, index)?,
           Opcode::InitializeMember(index) => self.exec_initialize_member(&opcode, index)?,
+          Opcode::InitializeMethod(index) => self.exec_initialize_method(&opcode, index)?,
+          Opcode::InitializeConstructor => self.exec_initialize_constructor(&opcode)?,
           Opcode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
           Opcode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
           Opcode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
@@ -399,7 +468,7 @@ impl Vm {
             self.loop_back(count);
             continue 'ctx;
           }
-          Opcode::Call(airity) => {
+          Opcode::Invoke(airity) => {
             self.current_frame.ip += 1;
             self.exec_call(&opcode, airity)?;
             continue 'ctx;
@@ -419,20 +488,8 @@ impl Vm {
           Opcode::CreateList(num_items) => self.exec_create_list(num_items),
           Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
           Opcode::CreateStruct => self.exec_create_struct(),
+          Opcode::CreateClass => self.exec_create_class(),
           Opcode::CreateModule => self.exec_create_module(),
-          Opcode::Yield => {
-            self.current_frame.ip += 1;
-
-            let current_frame = self.current_frame.clear_out();
-
-            let mut stack_frames = Vec::default();
-            std::mem::swap(&mut stack_frames, &mut self.stack_frames);
-
-            let mut opened_files = Vec::default();
-            std::mem::swap(&mut opened_files, &mut self.opened_files);
-
-            return Ok(Return::Yield(Yield::new(current_frame, stack_frames, opened_files)));
-          }
           Opcode::Breakpoint => {
             self.ssdb().ok();
           }
@@ -445,6 +502,8 @@ impl Vm {
           }
           Opcode::Define(ident) => self.exec_define(&opcode, ident)?,
           Opcode::Resolve(ident) => self.exec_scope_resolution(&opcode, ident)?,
+          Opcode::EnterBlock => self.push_scope(),
+          Opcode::PopScope => self.pop_scope(),
         }
 
         self.current_frame.ip += 1;
@@ -464,28 +523,41 @@ impl Vm {
         // if implicit/void return nil
         .unwrap_or_default();
 
+      let mut returning_from_function = true;
+
       // if executing at the stack frame that required this file, pop it as we're exiting the file
       // repl isn't an opened file therefore have to check for Some
       if let Some(last_file) = self.opened_files.last() {
         if last_file.frame == self.stack_frames.len() {
           if let Some(info) = self.opened_files.pop() {
             self.lib_cache.insert(info.id, output.clone());
+            returning_from_function = false;
+
+            // pop until a file env is found
+            while !matches!(self.envs.pop(), EnvEntry::File(_)) {}
           }
         }
       }
 
       if let Some(stack_frame) = self.stack_frames.pop() {
         if stack_frame.ip < stack_frame.ctx.num_instructions() {
+          // the vm is returning from a function call or req
           self.current_frame = stack_frame;
           self.stack_push(output);
+
+          if returning_from_function {
+            // pop until a fn env is found
+            while !matches!(self.envs.pop(), EnvEntry::Fn(_)) {}
+          }
         } else {
-          break 'file Ok(Return::Value(output));
+          // the vm is exiting the main script
+          break 'file Ok(output);
         }
       } else {
         // possible to reach with repl
         // since it will run out of instructions
         // but keep the stack/ip
-        break 'file Ok(Return::Value(output));
+        break 'file Ok(output);
       }
     }
   }
@@ -498,7 +570,8 @@ impl Vm {
 
   fn exec_const(&mut self, opcode: &Opcode, index: usize) -> ExecResult {
     if let Some(c) = self.current_frame.ctx.const_at(index) {
-      let value = Value::from_constant(&mut self.gc, c);
+      let env = self.current_env().into();
+      let value = Value::from_constant(&mut self.gc, env, c);
       self.stack_push(value);
     } else {
       Err(self.error(opcode, String::from("could not lookup constant")))?;
@@ -547,7 +620,7 @@ impl Vm {
 
   fn exec_lookup_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
-      if let Some(global) = this.env().lookup(name) {
+      if let Some(global) = this.current_env().lookup(name) {
         this.stack_push(global);
         Ok(())
       } else {
@@ -558,12 +631,12 @@ impl Vm {
 
   fn exec_force_assign_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
-      // used with functions & classes only, so pop
+      // used with declarations only, so pop because it can't be chained
       if let Some(v) = this.stack_pop() {
-        this.env().assign(name, v);
+        this.current_env_mut().define(name, v);
         Ok(())
       } else {
-        Err(this.error(opcode, String::from("can not define global using empty stack")))
+        Err(this.error(opcode, "can not define global using empty stack"))
       }
     })
   }
@@ -571,13 +644,14 @@ impl Vm {
   fn exec_define_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(v) = this.stack_peek() {
-        if this.env().define(name, v) {
+        if this.current_env_mut().define(name.clone(), v) {
           Ok(())
         } else {
-          Err(this.error(opcode, String::from("tried redefining global variable")))
+          let level = this.current_env().search_for(0, &name);
+          Err(this.error(opcode, format!("tried redefining a global variable at {level:?}: {name}")))
         }
       } else {
-        Err(this.error(opcode, String::from("can not define global using empty stack")))
+        Err(this.error(opcode, "can not define global using empty stack"))
       }
     })
   }
@@ -585,13 +659,13 @@ impl Vm {
   fn exec_assign_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
     self.global_op(opcode, location, |this, name| {
       if let Some(v) = this.stack_peek() {
-        if this.env().assign(name, v) {
+        if this.current_env_mut().assign(name, v) {
           Ok(())
         } else {
-          Err(this.error(opcode, String::from("tried to assign to nonexistent global")))
+          Err(this.error(opcode, "tried to assign to nonexistent global"))
         }
       } else {
-        Err(this.error(opcode, String::from("can not assign to global using empty stack")))
+        Err(this.error(opcode, "can not assign to global using empty stack"))
       }
     })
   }
@@ -601,18 +675,64 @@ impl Vm {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
-            obj.assign(&mut self.gc, name, value).map_err(|e| self.error(opcode, e))
+            obj.set_member(&mut self.gc, name, value).map_err(|e| self.error(opcode, e))
           } else {
-            Err(self.error(opcode, String::from("invalid name for member")))
+            Err(self.error(opcode, "invalid name for member"))
           }
         } else {
-          Err(self.error(opcode, String::from("no identifier found at index")))
+          Err(self.error(opcode, "no identifier found at index"))
         }
       } else {
-        Err(self.error(opcode, String::from("no value on stack to assign to member")))
+        Err(self.error(opcode, "no value on stack to initialize a member to"))
       }
     } else {
-      Err(self.error(opcode, String::from("no value on stack to assign a member to")))
+      Err(self.error(opcode, "no value on stack to initialize to member"))
+    }
+  }
+
+  fn exec_initialize_method(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
+    if let Some(value) = self.stack_pop() {
+      if let Some(mut obj) = self.stack_peek() {
+        if let Some(name) = self.current_frame.ctx.const_at(location) {
+          if let ConstantValue::String(name) = name {
+            if let Some(class) = obj.as_class_mut() {
+              if let Some(f) = value.as_fn() {
+                class.set_method(name, f.clone());
+                Ok(())
+              } else {
+                Err(self.error(opcode, "methods can only be functions"))
+              }
+            } else {
+              Err(self.error(opcode, "can only create methods on classes"))
+            }
+          } else {
+            Err(self.error(opcode, "invalid name for member"))
+          }
+        } else {
+          Err(self.error(opcode, "no identifier found at index"))
+        }
+      } else {
+        Err(self.error(opcode, "no value on stack to assign a method to"))
+      }
+    } else {
+      Err(self.error(opcode, "no value on stack to assign to method"))
+    }
+  }
+
+  fn exec_initialize_constructor(&mut self, opcode: &Opcode) -> ExecResult {
+    if let Some(value) = self.stack_pop() {
+      if let Some(mut obj) = self.stack_peek() {
+        if let Some(class) = obj.as_class_mut() {
+          class.set_constructor(value);
+          Ok(())
+        } else {
+          Err(self.error(opcode, "can only set constructors on classes"))
+        }
+      } else {
+        Err(self.error(opcode, "no value on stack to assign a member to"))
+      }
+    } else {
+      Err(self.error(opcode, "no value on stack to assign to constructor"))
     }
   }
 
@@ -622,7 +742,7 @@ impl Vm {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
             obj
-              .assign(&mut self.gc, name, value.clone())
+              .set_member(&mut self.gc, name, value.clone())
               .map_err(|e| self.error(opcode, e))?;
             self.stack_push(value);
             Ok(())
@@ -644,7 +764,7 @@ impl Vm {
     if let Some(obj) = self.stack_pop() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
-          let value = obj.lookup(&mut self.gc, name).map_err(|e| self.error(opcode, e))?;
+          let value = obj.get_member(&mut self.gc, name).map_err(|e| self.error(opcode, e))?;
           self.stack_push(value);
           Ok(())
         } else {
@@ -856,10 +976,10 @@ impl Vm {
 
       // if still not found, try searching library paths
       if found_file.is_none() {
-        if let Some(library_mod) = self.env().lookup(Env::LIB_GLOBAL) {
+        if let Some(library_mod) = self.current_env().lookup(module_value::LIB_GLOBAL) {
           if let Some(library_mod) = library_mod.as_struct() {
             if let Ok(Some(list)) = library_mod
-              .get_field(&mut self.gc, Env::PATHS_MEMBER)
+              .get_field(&mut self.gc, module_value::PATHS_MEMBER)
               .map(|l| l.map(|l| l.as_array()))
             {
               for item in list.iter() {
@@ -901,9 +1021,10 @@ impl Vm {
               if let Some(value) = self.lib_cache.get(&id) {
                 self.stack_push(value.clone());
               } else {
-                let libs = stdlib::load_libs(&mut self.gc, &self.args, &self.libs.clone());
-                let env = SmartPtr::new(Env::initialize(&mut self.gc, Some(libs)));
-                let new_ctx = Compiler::compile(found_file.clone(), &data, env)?;
+                let new_ctx = Compiler::compile(found_file.clone(), &data)?;
+                let gmod = ModuleBuilder::initialize(&mut self.gc, None, |gc, mut lib| {
+                  lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &self.args, &self.libs.clone());
+                });
 
                 #[cfg(feature = "disassemble")]
                 {
@@ -913,6 +1034,7 @@ impl Vm {
                 }
 
                 self.new_frame(new_ctx);
+                self.envs.push(EnvEntry::File(gmod));
 
                 self.opened_files.push(FileInfo::new(found_file, id, self.stack_frames.len()));
               }
@@ -963,9 +1085,18 @@ impl Vm {
     self.stack_push(v);
   }
 
-  fn exec_create_module(&mut self) {
-    let v = self.gc.allocate(ModuleValue::new());
+  fn exec_create_class(&mut self) {
+    let v = self.gc.allocate(ClassValue::default());
     self.stack_push(v);
+  }
+
+  /// Create a module and make it the current env
+  fn exec_create_module(&mut self) {
+    let leaf = self.current_env();
+    let module = ModuleValue::new_child(leaf.handle.value.clone());
+    let uhandle = Gc::allocate_handle(&mut self.gc, module);
+    self.envs.push(EnvEntry::Mod(uhandle.clone()));
+    self.stack_push(uhandle.handle.value.clone());
   }
 
   fn exec_scope_resolution(&mut self, opcode: &Opcode, ident: usize) -> ExecResult {
@@ -982,8 +1113,19 @@ impl Vm {
         Err(self.error(opcode, "no identifier at index"))
       }
     } else {
-      Err(self.error(opcode, "no value on stack to perform lookup on"))
+      Err(self.error(opcode, "no value on stack to resolve"))
     }
+  }
+
+  fn push_scope(&mut self) {
+    let mut gc = self.gc.clone();
+    let leaf = self.current_env();
+    let handle = Gc::allocate_handle(&mut gc, ModuleValue::new_child(leaf.handle.value.clone()));
+    self.envs.push(EnvEntry::Block(handle));
+  }
+
+  fn pop_scope(&mut self) {
+    self.envs.pop();
   }
 
   fn exec_define(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
@@ -991,7 +1133,8 @@ impl Vm {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
-            obj.define(name, value).map_err(|e| self.error(opcode, e))
+            obj.define(name, value).map_err(|e| self.error(opcode, e))?;
+            Ok(())
           } else {
             Err(self.error(opcode, String::from("invalid name for member")))
           }
@@ -999,10 +1142,10 @@ impl Vm {
           Err(self.error(opcode, String::from("no identifier found at index")))
         }
       } else {
-        Err(self.error(opcode, String::from("no value on stack to assign to member")))
+        Err(self.error(opcode, String::from("no value on stack to define a member to")))
       }
     } else {
-      Err(self.error(opcode, String::from("no value on stack to assign a member to")))
+      Err(self.error(opcode, String::from("no value on stack to define a member on")))
     }
   }
 
@@ -1078,60 +1221,12 @@ impl Vm {
   }
 
   fn call_value(&mut self, opcode: &Opcode, mut callable: Value, args: impl Into<Vec<Value>>) -> ExecResult {
-    let args = args.into();
-    let res = if let Some(f) = callable.as_fn() {
-      let args = Args::new(args);
-      f.call(self, args);
-      Ok(())
-    } else if let Some(f) = callable.as_closure() {
-      let args = Args::new(args);
-      f.call(self, args);
-      Ok(())
-    } else if let Some(f) = callable.as_method() {
-      let args = Args::new_with_this(f.this.clone(), args);
-      f.call(self, args);
-      Ok(())
-    } else if let Some(f) = callable.as_native_fn() {
-      let args = Args::new(args);
-      let v = f(self, args).map_err(|e| self.error(opcode, e))?;
-      self.stack_push(v);
-      Ok(())
-    } else if let Some(f) = callable.as_native_closure_mut() {
-      let args = Args::new(args);
-      let v = f.call(self, args).map_err(|e| self.error(opcode, e))?;
-      self.stack_push(v);
-      Ok(())
-    } else if let Some(f) = callable.as_native_method_mut() {
-      let args = Args::new_with_this(f.this.clone(), args);
-      let v = f.call(self, args).map_err(|e| self.error(opcode, e))?;
-      self.stack_push(v);
-      Ok(())
-    } else if callable.is_class() {
-      let args = Args::new(args);
-      ClassValue::construct(self, callable, args).map_err(|e| self.error(opcode, e))?;
-      Ok(())
-    } else {
-      Err(vec![format!(
-        "unable to call non callable '{}', perhaps an operator overload was undefined?",
-        callable
-      )])
-    }
-    .map_err(|errors| {
-      errors
-        .into_iter()
-        .map(|e| self.error_at(|opcode_ref| RuntimeError::from_ref(e, opcode, opcode_ref)))
-        .collect()
-    });
+    callable.call(self, Args::new(args)).map_err(|e| self.error(opcode, e))?;
 
-    if cfg!(feature = "runtime-disassembly") {
-      println!("<< entering {} >>", self.current_frame.ctx.id);
-    }
+    #[cfg(feature = "runtime-disassembly")]
+    println!("<< entering {} >>", self.current_frame.ctx.id);
 
-    res
-  }
-
-  pub fn gc_env(&mut self) -> (&mut Gc, &mut Env) {
-    (&mut self.gc, &mut self.current_frame.ctx.env)
+    Ok(())
   }
 
   pub fn ctx(&mut self) -> &Context {
@@ -1142,8 +1237,12 @@ impl Vm {
     &mut self.current_frame.ctx
   }
 
-  pub fn env(&mut self) -> &mut Env {
-    &mut self.ctx_mut().env
+  pub fn current_env(&self) -> &UsertypeHandle<ModuleValue> {
+    self.envs.last()
+  }
+
+  pub fn current_env_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
+    self.envs.last_mut()
   }
 
   pub fn run_gc(&mut self) {
@@ -1203,33 +1302,6 @@ impl StackFrame {
     std::mem::swap(&mut old, self);
     old
   }
-}
-
-pub struct Yield {
-  pub current_frame: StackFrame,
-  pub stack_frames: Vec<StackFrame>,
-  pub(crate) opened_files: Vec<FileInfo>,
-}
-
-impl Yield {
-  pub(crate) fn new(current_frame: StackFrame, stack_frames: Vec<StackFrame>, opened_files: Vec<FileInfo>) -> Self {
-    Self {
-      current_frame,
-      stack_frames,
-      opened_files,
-    }
-  }
-}
-
-impl Display for Yield {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "yield")
-  }
-}
-
-pub enum Return {
-  Value(Value),
-  Yield(Yield),
 }
 
 pub(crate) struct FileInfo {

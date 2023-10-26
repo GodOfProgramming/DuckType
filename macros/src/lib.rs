@@ -83,7 +83,16 @@ pub fn native(args: TokenStream, input: TokenStream) -> TokenStream {
       };
       native_types::native_fn(&item, with_vm)
     }
-    Item::Mod(item) => native_types::native_mod(item),
+    Item::Mod(item) => {
+      let have_args = !args.is_empty();
+      let no_entry = if have_args {
+        let args: Ident = parse_macro_input!(args as Ident);
+        args == "no_entry"
+      } else {
+        false
+      };
+      native_types::native_mod(item, no_entry)
+    }
     thing => {
       syn::Error::new_spanned(thing, "cannot impl method for fn signature not taking self reference").into_compile_error()
     }

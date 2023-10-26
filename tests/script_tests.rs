@@ -11,17 +11,19 @@ impl ScriptTest {
   pub fn run(&mut self, script: &Path) {
     println!("running {:?}", script);
     let src = fs::read_to_string(script).unwrap();
-    let libs = stdlib::load_libs(&mut self.vm.gc, &[], &Library::All);
-    let env = Env::initialize(&mut self.vm.gc, Some(libs));
-    let ctx = self.vm.load(script.to_string_lossy().to_string(), &src, env).unwrap();
-    self.vm.run(script.to_string_lossy().to_string(), ctx).unwrap();
+    let ctx = self.vm.load(script.to_string_lossy().to_string(), &src).unwrap();
+    let env = ModuleBuilder::initialize(&mut self.vm.gc, None, |gc, mut lib| {
+      lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &[], &Library::All);
+    });
+    self.vm.run(script.to_string_lossy().to_string(), ctx, env).unwrap();
   }
 }
 
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
+    let mut gc = SmartPtr::new(Gc::default());
     Self {
-      vm: Vm::new(vec![], Library::All),
+      vm: Vm::new(gc, vec![], Library::All),
     }
   }
 }
@@ -63,9 +65,7 @@ mod tests {
 
     const SCRIPT: &str = "{ let leaker = make_leaker(); leaker.this = leaker; }";
 
-    let libs = stdlib::load_libs(&mut t.vm.gc, &[], &Library::All);
-    let env = Env::initialize(&mut t.vm.gc, Some(libs));
-    let mut ctx = t.vm.load("test", SCRIPT, env).unwrap();
+    let ctx = t.vm.load("test", SCRIPT).unwrap();
 
     #[native]
     fn make_leaker() -> ValueResult<Leaker> {
@@ -75,9 +75,13 @@ mod tests {
       })
     }
 
-    ctx.env.define("make_leaker", Value::native(make_leaker));
+    let mut env = ModuleBuilder::initialize(&mut t.vm.gc, None, |gc, mut lib| {
+      lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &[], &Library::All);
+    });
 
-    t.vm.run("test", ctx).unwrap();
+    env.define("make_leaker", Value::native(make_leaker));
+
+    t.vm.run("test", ctx, env).unwrap();
 
     assert!(unsafe { !B });
 

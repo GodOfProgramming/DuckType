@@ -3,9 +3,9 @@ use crate::prelude::*;
 pub struct LibPs;
 
 impl LibPs {
-  pub fn load(gc: &mut Gc) -> Value {
-    ModuleBuilder::initialize(gc, |gc, lib| {
-      lib.set(gc, "exit", Value::native(exit)).ok();
+  pub fn load(gc: &mut SmartPtr<Gc>, gmod: Value) -> UsertypeHandle<ModuleValue> {
+    ModuleBuilder::initialize(gc, Some(gmod), |_, mut lib| {
+      lib.define("exit", Value::native(exit));
     })
   }
 }

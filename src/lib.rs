@@ -17,12 +17,13 @@ pub mod prelude {
   pub use super::stdlib::prelude::*;
   pub use super::value::prelude::*;
   pub use macros::*;
+  pub use ptr::SmartPtr;
 }
 
 pub mod macro_requirements {
   pub use crate::prelude::{
-    methods, native, Args, DebugValue, DisplayValue, Env, Fields, MaybeFrom, ModuleBuilder, TryUnwrapArg, Usertype,
-    UsertypeFields, UsertypeMethods, Value, ValueError, ValueResult, Vm,
+    methods, native, Args, DebugValue, DisplayValue, Fields, MaybeFrom, ModuleBuilder, TryUnwrapArg, Usertype, UsertypeFields,
+    UsertypeMethods, Value, ValueError, ValueResult, Vm,
   };
   pub use uuid;
 }

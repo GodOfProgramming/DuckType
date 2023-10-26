@@ -1,12 +1,11 @@
-use std::{fs, io::Read, ops::Deref, path::PathBuf};
-
 use crate::prelude::*;
+use std::{fs, io::Read, ops::Deref, path::PathBuf};
 
 pub struct LibIo;
 
 impl LibIo {
-  pub fn load(gc: &mut Gc) -> Value {
-    io::simple_script_autogen_create_module(gc)
+  pub fn load(gc: &mut SmartPtr<Gc>, gmod: Value) -> UsertypeHandle<ModuleValue> {
+    io::simple_script_autogen_create_module(gc, gmod)
   }
 }
 
@@ -22,7 +21,7 @@ fn open_file(path: (Option<&String>, Option<&io::PathValue>)) -> ValueResult<fs:
   Ok(file)
 }
 
-#[native]
+#[native(no_entry)]
 mod io {
   #[native]
   fn open(path: (Option<&String>, Option<&io::PathValue>)) -> ValueResult<FileValue> {

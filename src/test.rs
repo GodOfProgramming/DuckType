@@ -7,22 +7,27 @@ const TEST_FILE: &'static str = "test";
 struct IntegrationTest {
   script: String,
   vm: Vm,
+  env: UsertypeHandle<ModuleValue>,
 }
 
 impl IntegrationTest {
   fn new() -> Self {
-    let vm = Vm::new([], Default::default());
+    let mut gc = SmartPtr::new(Gc::default());
+    let env = ModuleBuilder::initialize(&mut gc, None, |gc, mut lib| {
+      lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &[], &Library::All);
+    });
+
+    let vm = Vm::new(gc, [], Default::default());
 
     Self {
       script: Default::default(),
       vm,
+      env,
     }
   }
 
   fn load<F: FnOnce(&mut Self, SmartPtr<Context>)>(&mut self, f: F) {
-    let libs = stdlib::load_libs(&mut self.vm.gc, &[], &Library::All);
-    let env = Env::initialize(&mut self.vm.gc, Some(libs));
-    match self.vm.load(TEST_FILE, &self.script, env) {
+    match self.vm.load(TEST_FILE, &self.script) {
       Ok(ctx) => {
         f(self, ctx);
       }
@@ -35,12 +40,10 @@ impl IntegrationTest {
     }
   }
 
-  fn run<F: FnOnce(SmartPtr<Context>, Value)>(&mut self, f: F) {
-    self.load(|this, ctx| match this.vm.run(TEST_FILE, ctx.clone()) {
-      Ok(v) => match v {
-        Return::Value(v) => f(ctx, v),
-        Return::Yield(_) => panic!("this test function should not be used for yields"),
-      },
+  fn run<F: FnOnce(&mut Self, Value)>(&mut self, f: F) {
+    let env = self.env.clone();
+    self.load(|this, ctx| match this.vm.run(TEST_FILE, ctx.clone(), env) {
+      Ok(v) => f(this, v),
       Err(err) => panic!("{:#?}", err),
     });
   }
@@ -61,19 +64,13 @@ mod integration_tests {
   fn adding_a_global(test: &mut IntegrationTest) {
     test.script = "export foo;".into();
 
-    test.load(|this, mut ctx| {
-      ctx.env.assign(String::from("foo"), this.vm.gc.allocate("foo"));
-      match this.vm.run(TEST_FILE, ctx) {
-        Ok(res) => match res {
-          Return::Value(v) => {
-            if let Some(v) = v.as_str() {
-              assert_eq!("foo", **v);
-            } else {
-              panic!("value is not a string");
-            }
-          }
-          Return::Yield(_) => panic!("should not use yields"),
-        },
+    test.load(|this, ctx| {
+      this.env.define(String::from("foo"), this.vm.gc.allocate("foo"));
+      match this.vm.run(TEST_FILE, ctx, this.env.clone()) {
+        Ok(res) => {
+          assert_eq!("foo", **res.as_str().expect("value is not a string"));
+        }
+
         Err(err) => panic!("{:#?}", err),
       }
     });
@@ -83,8 +80,8 @@ mod integration_tests {
   fn calling_a_native_function(test: &mut IntegrationTest) {
     test.script = "let x = 1; export test_func(x, 2);".into();
 
-    test.load(|this, mut ctx| {
-      ctx.env.define(
+    test.load(|this, ctx| {
+      this.env.define(
         "test_func",
         Value::native(|_, args| {
           let args = &args.list;
@@ -94,11 +91,8 @@ mod integration_tests {
           Ok(Value::from(3f64))
         }),
       );
-      match this.vm.run("test", ctx) {
-        Ok(res) => match res {
-          Return::Value(v) => assert_eq!(Value::from(3f64), v),
-          Return::Yield(_) => panic!("should not yield"),
-        },
+      match this.vm.run("test", ctx, this.env.clone()) {
+        Ok(res) => assert_eq!(Value::from(3f64), res),
         Err(err) => panic!("{:#?}", err),
       }
     });
@@ -111,8 +105,8 @@ mod integration_tests {
   fn let_0(test: &mut IntegrationTest) {
     test.script = "let $foo;".into();
 
-    test.run(|ctx, _| {
-      let val = ctx.env.lookup("$foo").unwrap();
+    test.run(|this, _| {
+      let val = this.env.lookup("$foo").unwrap();
       assert_eq!(val, Value::nil);
     });
   }
@@ -124,8 +118,8 @@ mod integration_tests {
   fn let_1(test: &mut IntegrationTest) {
     test.script = "let $foo = true;".into();
 
-    test.run(|ctx, _| {
-      let val = ctx.env.lookup("$foo").unwrap();
+    test.run(|this, _| {
+      let val = this.env.lookup("$foo").unwrap();
       assert_eq!(val, Value::from(true));
     });
   }
@@ -136,8 +130,8 @@ mod integration_tests {
     let value = eval(math).unwrap().as_float().unwrap();
     test.script = format!("let $foo = {math};");
 
-    test.run(|ctx, _| {
-      let val = ctx.env.lookup("$foo").unwrap();
+    test.run(|this, _| {
+      let val = this.env.lookup("$foo").unwrap();
       assert_eq!(val, Value::from(value));
     });
   }
@@ -148,8 +142,8 @@ mod integration_tests {
     let value = eval(math).unwrap().as_float().unwrap();
     test.script = format!("let $foo; $foo = {math};");
 
-    test.run(|ctx, _| {
-      let val = ctx.env.lookup("$foo").unwrap();
+    test.run(|this, _| {
+      let val = this.env.lookup("$foo").unwrap();
       assert_eq!(val, Value::from(value));
     });
   }
@@ -158,8 +152,8 @@ mod integration_tests {
   fn block_0(test: &mut IntegrationTest) {
     test.script = "let $foo; { $foo = 1; }".into();
 
-    test.run(|ctx, _| {
-      let val = ctx.env.lookup("$foo").unwrap();
+    test.run(|this, _| {
+      let val = this.env.lookup("$foo").unwrap();
       assert_eq!(val, Value::from(1));
     });
   }
@@ -168,10 +162,10 @@ mod integration_tests {
   fn block_1(test: &mut IntegrationTest) {
     test.script = "let $foo; { $foo = 1; let bar; bar = 0; }".into();
 
-    test.run(|ctx, _| {
-      let val = ctx.env.lookup("$foo").unwrap();
+    test.run(|this, _| {
+      let val = this.env.lookup("$foo").unwrap();
       assert_eq!(val, Value::from(1));
-      assert!(ctx.env.lookup("bar").is_none());
+      assert!(this.env.lookup("bar").is_none());
     });
   }
 
@@ -179,8 +173,8 @@ mod integration_tests {
   fn if_0(test: &mut IntegrationTest) {
     test.script = "let $foo = true; if $foo { $foo = 1; }".into();
 
-    test.run(|ctx, _| {
-      let val = ctx.env.lookup("$foo").unwrap();
+    test.run(|this, _| {
+      let val = this.env.lookup("$foo").unwrap();
       assert_eq!(val, Value::from(1));
     });
   }
@@ -192,8 +186,8 @@ mod integration_tests {
   fn if_1(test: &mut IntegrationTest) {
     test.script = "let $foo = true; if $foo { $foo = 1; } else { $foo = 2; }".into();
 
-    test.run(|ctx, _| {
-      let val = ctx.env.lookup("$foo").unwrap();
+    test.run(|this, _| {
+      let val = this.env.lookup("$foo").unwrap();
       assert_eq!(val, Value::from(1));
     });
   }
@@ -202,8 +196,8 @@ mod integration_tests {
   fn if_2(test: &mut IntegrationTest) {
     test.script = "let $foo = false; if $foo { $foo = 1; } else { $foo = 2; }".into();
 
-    test.run(|ctx, _| {
-      let val = ctx.env.lookup("$foo").unwrap();
+    test.run(|this, _| {
+      let val = this.env.lookup("$foo").unwrap();
       assert_eq!(val, Value::from(2));
     });
   }

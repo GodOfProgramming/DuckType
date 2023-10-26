@@ -3,11 +3,11 @@ use crate::prelude::*;
 pub struct LibConsole;
 
 impl LibConsole {
-  pub fn load(gc: &mut Gc) -> Value {
-    ModuleBuilder::initialize(gc, |gc, lib| {
-      lib.set(gc, "write", Value::native(Self::print)).ok();
-      lib.set(gc, "writeln", Value::native(Self::println)).ok();
-      lib.set(gc, "flushln", Value::native(Self::flushln)).ok();
+  pub fn load(gc: &mut SmartPtr<Gc>, gmod: Value) -> UsertypeHandle<ModuleValue> {
+    ModuleBuilder::initialize(gc, Some(gmod), |_, mut lib| {
+      lib.define("write", Value::native(Self::print));
+      lib.define("writeln", Value::native(Self::println));
+      lib.define("flushln", Value::native(Self::flushln));
     })
   }
 

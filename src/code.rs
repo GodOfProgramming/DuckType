@@ -6,7 +6,6 @@ use lex::Scanner;
 use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
-  collections::BTreeMap,
   convert::TryFrom,
   error::Error,
   fmt::{self, Debug, Display, Formatter, Result as FmtResult},
@@ -24,7 +23,7 @@ pub mod opt;
 pub struct Compiler;
 
 impl Compiler {
-  pub fn compile(file: PathBuf, source: &str, env: SmartPtr<Env>) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+  pub fn compile(file: PathBuf, source: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
     let file = Rc::new(file);
     let mut scanner = Scanner::new(Rc::clone(&file), source);
 
@@ -47,7 +46,7 @@ impl Compiler {
 
     let source = Rc::new(source.to_string());
     let reflection = Reflection::new(file, Rc::clone(&source));
-    let ctx = SmartPtr::new(Context::new(Some("*main*"), env, reflection));
+    let ctx = SmartPtr::new(Context::new(Some("*main*"), reflection));
 
     let generator = BytecodeGenerator::new(ctx);
 
@@ -97,7 +96,6 @@ pub enum ConstantValue {
   String(String),
   StaticString(&'static str),
   Fn(FunctionConstant),
-  Class(ClassConstant),
 }
 
 #[derive(Clone, StructMerge)]
@@ -124,37 +122,6 @@ impl Debug for FunctionConstant {
   }
 }
 
-#[derive(Debug)]
-pub struct ClassConstant {
-  pub name: Option<String>,
-  pub initializer: Option<FunctionConstant>,
-  pub methods: BTreeMap<String, FunctionConstant>,
-  pub statics: BTreeMap<String, FunctionConstant>,
-}
-
-impl ClassConstant {
-  fn new(name: Option<String>) -> Self {
-    Self {
-      name,
-      initializer: None,
-      methods: Default::default(),
-      statics: Default::default(),
-    }
-  }
-
-  fn set_constructor(&mut self, c: FunctionConstant) {
-    self.initializer = Some(c);
-  }
-
-  fn set_static(&mut self, key: String, value: FunctionConstant) {
-    self.statics.insert(key, value);
-  }
-
-  fn set_method(&mut self, key: String, value: FunctionConstant) {
-    self.methods.insert(key, value);
-  }
-}
-
 impl Display for ConstantValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     match self {
@@ -165,15 +132,6 @@ impl Display for ConstantValue {
       Self::String(v) => write!(f, "{}", v),
       Self::StaticString(v) => write!(f, "{}", v),
       Self::Fn(v) => write!(f, "{}", v.name()),
-      Self::Class(v) => write!(
-        f,
-        "{}",
-        if let Some(name) = &v.name {
-          name.as_str()
-        } else {
-          "<unnamed class>"
-        }
-      ),
     }
   }
 }

@@ -38,51 +38,51 @@ pub enum Library {
   List(Vec<Lib>),
 }
 
-pub fn load_libs(gc: &mut Gc, args: &[String], library: &Library) -> BTreeMap<String, Value> {
+pub fn load_libs(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String], library: &Library) -> BTreeMap<String, Value> {
   let mut loaded_libs = BTreeMap::default();
 
   match library {
     Library::All => {
       for lib in all::<Lib>() {
-        let (key, value) = load_lib(gc, args, &lib);
+        let (key, value) = load_lib(gc, gmod.clone(), args, &lib);
         loaded_libs.insert(key.to_string(), value);
       }
     }
     Library::List(list) => {
       for lib in list {
-        let (key, value) = load_lib(gc, args, lib);
+        let (key, value) = load_lib(gc, gmod.clone(), args, lib);
         loaded_libs.insert(key.to_string(), value);
       }
     }
     Library::None => (),
   }
 
-  loaded_libs
+  loaded_libs.into_iter().map(|(n, u)| (n, u.into())).collect()
 }
 
-fn load_lib(gc: &mut Gc, args: &[String], lib: &Lib) -> (&'static str, Value) {
+fn load_lib(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String], lib: &Lib) -> (&'static str, UsertypeHandle<ModuleValue>) {
   match lib {
-    Lib::Std => ("std", load_std(gc)),
-    Lib::Env => ("env", LibEnv::load(gc, args)),
-    Lib::Time => ("time", LibTime::load(gc)),
-    Lib::String => ("str", LibString::load(gc)),
-    Lib::Console => ("console", LibConsole::load(gc)),
-    Lib::Ps => ("ps", LibPs::load(gc)),
-    Lib::Io => ("io", LibIo::load(gc)),
+    Lib::Std => ("std", load_std(gc, gmod)),
+    Lib::Env => ("env", LibEnv::load(gc, gmod, args)),
+    Lib::Time => ("time", LibTime::load(gc, gmod)),
+    Lib::String => ("str", LibString::load(gc, gmod)),
+    Lib::Console => ("console", LibConsole::load(gc, gmod)),
+    Lib::Ps => ("ps", LibPs::load(gc, gmod)),
+    Lib::Io => ("io", LibIo::load(gc, gmod)),
   }
 }
 
-fn load_std(gc: &mut Gc) -> Value {
-  ModuleBuilder::initialize(gc, |gc, lib| {
-    lib.set(gc, "debug", Value::native(debug)).ok();
-    let object = ModuleBuilder::initialize(gc, |gc, object_module| {
-      object_module.set(gc, "fields", Value::native(fields)).ok();
+fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value) -> UsertypeHandle<ModuleValue> {
+  ModuleBuilder::initialize(gc, Some(gmod), |gc, mut lib| {
+    lib.define("debug", Value::native(debug));
+    let object = ModuleBuilder::initialize(gc, Some(lib.handle.value.clone()), |_, mut lib| {
+      lib.define("fields", Value::native(fields));
     });
-    lib.set(gc, "obj", object).ok();
-    let reflect = ModuleBuilder::initialize(gc, |gc, lib| {
-      lib.set(gc, "defined", Value::native(defined)).ok();
+    lib.define("obj", object);
+    let reflect = ModuleBuilder::initialize(gc, Some(lib.handle.value.clone()), |_, mut lib| {
+      lib.define("defined", Value::native(defined));
     });
-    lib.set(gc, "reflect", reflect).ok();
+    lib.define("reflect", reflect);
   })
 }
 
@@ -110,5 +110,5 @@ fn fields(value: Value) -> ValueResult<Vec<StringValue>> {
 
 #[native(with_vm)]
 fn defined(vm: &mut Vm, name: &StringValue) -> ValueResult<bool> {
-  Ok(vm.env().lookup(name.as_str()).is_some())
+  Ok(vm.current_env().lookup(name.as_str()).is_some())
 }

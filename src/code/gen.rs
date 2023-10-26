@@ -4,7 +4,7 @@ use ptr::SmartPtr;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use super::{ClassConstant, ConstantValue, FunctionConstant};
+use super::{ConstantValue, FunctionConstant};
 
 #[cfg(test)]
 mod test;
@@ -88,13 +88,17 @@ impl BytecodeGenerator {
   fn block_stmt(&mut self, stmt: BlockStatement) {
     let loc = stmt.loc;
 
+    self.emit(Opcode::EnterBlock, loc.clone());
+
     self.new_scope(|this| {
       for statement in stmt.statements {
         this.emit_stmt(statement);
       }
     });
 
-    self.reduce_locals_to_depth(self.scope_depth, loc);
+    self.reduce_locals_to_depth(self.scope_depth, loc.clone());
+
+    self.emit(Opcode::PopScope, loc);
   }
 
   fn break_stmt(&mut self, stmt: BreakStatement) {
@@ -142,7 +146,8 @@ impl BytecodeGenerator {
 
     let var = self.declare_global(stmt.ident.clone());
 
-    self.emit_fn(Some(stmt.ident), stmt.params, *stmt.body, stmt.loc.clone());
+    let param_count = stmt.params.len();
+    self.emit_fn(Some(stmt.ident), stmt.params, param_count, *stmt.body, stmt.loc.clone());
 
     self.define_function(var, stmt.loc);
   }
@@ -318,10 +323,6 @@ impl BytecodeGenerator {
     self.patch_inst(end_jump, Opcode::JumpIfFalse);
   }
 
-  fn yield_stmt(&mut self, stmt: YieldStatement) {
-    self.emit(Opcode::Yield, stmt.loc);
-  }
-
   fn breakpoint_stmt(&mut self, loc: SourceLocation) {
     self.emit(Opcode::Breakpoint, loc)
   }
@@ -442,7 +443,7 @@ impl BytecodeGenerator {
       self.emit_expr(arg)
     }
 
-    self.emit(Opcode::Call(arg_count), expr.loc);
+    self.emit(Opcode::Invoke(arg_count), expr.loc);
   }
 
   fn list_expr(&mut self, expr: ListExpression) {
@@ -458,7 +459,7 @@ impl BytecodeGenerator {
     self.emit_expr(*expr.indexable);
     self.emit(Opcode::LookupMember(ident), expr.loc.clone());
     self.emit_expr(*expr.index);
-    self.emit(Opcode::Call(1), expr.loc);
+    self.emit(Opcode::Invoke(1), expr.loc);
   }
 
   fn struct_expr(&mut self, expr: StructExpression) {
@@ -471,12 +472,13 @@ impl BytecodeGenerator {
   }
 
   fn class_expr(&mut self, expr: ClassExpression) {
-    let mut class = ClassConstant::new(expr.name.map(|i| i.name).clone());
+    self.emit(Opcode::CreateClass, expr.loc.clone());
 
     if let Some(initializer) = expr.initializer {
       if let Some((function, is_static)) = self.create_class_fn(Ident::new("<constructor>"), *initializer) {
         if is_static {
-          class.set_constructor(function);
+          self.emit_const(ConstantValue::Fn(function), expr.loc.clone());
+          self.emit(Opcode::InitializeConstructor, expr.loc.clone());
         } else {
           self.error(expr.loc.clone(), "method was used as initializer somehow (logic error)");
         }
@@ -487,17 +489,18 @@ impl BytecodeGenerator {
 
     for (method_name, method) in expr.methods {
       if let Some((function, is_static)) = self.create_class_fn(method_name.clone(), method) {
+        let ident = self.add_const_ident(method_name);
         if is_static {
-          class.set_static(method_name.name, function);
+          self.emit_const(ConstantValue::Fn(function), expr.loc.clone());
+          self.emit(Opcode::InitializeMember(ident), expr.loc.clone());
         } else {
-          class.set_method(method_name.name, function);
+          self.emit_const(ConstantValue::Fn(function), expr.loc.clone());
+          self.emit(Opcode::InitializeMethod(ident), expr.loc.clone());
         }
       } else {
         self.error(expr.loc.clone(), format!("unable to create method {}", method_name.name));
       }
     }
-
-    self.emit_const(ConstantValue::Class(class), expr.loc.clone());
   }
 
   fn mod_expr(&mut self, expr: ModExpression) {
@@ -507,10 +510,12 @@ impl BytecodeGenerator {
       self.emit_expr(assign);
       self.emit(Opcode::Define(ident), expr.loc.clone());
     }
+    self.emit(Opcode::PopScope, expr.loc);
   }
 
   fn lambda_expr(&mut self, expr: LambdaExpression) {
-    self.emit_fn(None, expr.params, *expr.body, expr.loc);
+    let param_count = expr.params.len();
+    self.emit_fn(None, expr.params, param_count, *expr.body, expr.loc);
   }
 
   fn closure_expr(&mut self, expr: ClosureExpression) {
@@ -528,9 +533,10 @@ impl BytecodeGenerator {
 
         this.emit(Opcode::CreateList(params.len()), expr.loc.clone());
 
+        let param_count = expr.params.len();
         params.extend(expr.params);
 
-        this.emit_fn(None, params, *expr.body, expr.loc.clone());
+        this.emit_fn(None, params, param_count, *expr.body, expr.loc.clone());
 
         this.emit(Opcode::CreateClosure, expr.loc);
       });
@@ -538,7 +544,8 @@ impl BytecodeGenerator {
   }
 
   fn method_expr(&mut self, expr: MethodExpression) {
-    self.emit_fn(Some(expr.name), expr.params, *expr.body, expr.loc);
+    let param_count = expr.params.len();
+    self.emit_fn(Some(expr.name), expr.params, param_count, *expr.body, expr.loc);
   }
 
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
@@ -610,7 +617,6 @@ impl BytecodeGenerator {
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::Use(stmt) => self.use_stmt(stmt),
       Statement::While(stmt) => self.while_stmt(stmt),
-      Statement::Yield(stmt) => self.yield_stmt(stmt),
       Statement::Breakpoint(loc) => self.breakpoint_stmt(loc),
       Statement::Expression(stmt) => self.expr_stmt(stmt),
     }
@@ -671,8 +677,8 @@ impl BytecodeGenerator {
     self.loop_depth = loop_depth;
   }
 
-  fn emit_fn(&mut self, name: Option<Ident>, args: Vec<Ident>, body: Statement, loc: SourceLocation) {
-    let function = self.create_fn(name, args, body, loc.clone());
+  fn emit_fn(&mut self, name: Option<Ident>, args: Vec<Ident>, airity: usize, body: Statement, loc: SourceLocation) {
+    let function = self.create_fn(name, args, airity, body, loc.clone());
     self.emit_const(ConstantValue::Fn(function), loc);
   }
 
@@ -886,13 +892,26 @@ impl BytecodeGenerator {
 
   fn create_class_fn(&mut self, ident: Ident, expr: Expression) -> Option<(FunctionConstant, bool)> {
     match expr {
-      Expression::Method(m) => Some((self.create_fn(Some(ident), m.params, *m.body, m.loc), false)),
-      Expression::Lambda(l) => Some((self.create_fn(Some(ident), l.params, *l.body, l.loc), true)),
+      Expression::Method(m) => {
+        let param_count = m.params.len();
+        Some((self.create_fn(Some(ident), m.params, param_count, *m.body, m.loc), false))
+      }
+      Expression::Lambda(l) => {
+        let param_count = l.params.len();
+        Some((self.create_fn(Some(ident), l.params, param_count, *l.body, l.loc), true))
+      }
       _ => None,
     }
   }
 
-  fn create_fn(&mut self, ident: Option<Ident>, args: Vec<Ident>, body: Statement, loc: SourceLocation) -> FunctionConstant {
+  fn create_fn(
+    &mut self,
+    ident: Option<Ident>,
+    args: Vec<Ident>,
+    airity: usize,
+    body: Statement,
+    loc: SourceLocation,
+  ) -> FunctionConstant {
     self.function_id += 1;
 
     let mut locals = Vec::default();
@@ -911,8 +930,6 @@ impl BytecodeGenerator {
     )));
 
     self.new_scope(|this| {
-      let airity = args.len();
-
       for arg in args {
         let loc = loc.clone();
         if arg.global {

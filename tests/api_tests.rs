@@ -5,12 +5,19 @@ const TEST_FILE: &str = "test";
 
 struct ApiTest {
   vm: Vm,
+  env: UsertypeHandle<ModuleValue>,
 }
 
 impl TestFixture for ApiTest {
   fn set_up() -> Self {
+    let mut gc = SmartPtr::new(Gc::default());
+    let env = ModuleBuilder::initialize(&mut gc, None, |gc, mut lib| {
+      lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &[], &Library::All);
+    });
+
     Self {
-      vm: Vm::new([], Default::default()),
+      vm: Vm::new(gc, [], Default::default()),
+      env,
     }
   }
 }
@@ -22,48 +29,18 @@ mod tests {
   #[test]
   fn can_register_global_variables(t: &mut ApiTest) {
     let script = "export some_var;";
-    let libs = stdlib::load_libs(&mut t.vm.gc, &[], &Library::All);
-    let env = Env::initialize(&mut t.vm.gc, Some(libs));
-    let mut ctx = t.vm.load(TEST_FILE, script, env).unwrap();
-    ctx.env.define("some_var", Value::from(true));
-    if let Return::Value(v) = t.vm.run(TEST_FILE, ctx).unwrap() {
-      assert!(v == Value::from(true));
-    } else {
-      panic!();
-    }
+    let ctx = t.vm.load(TEST_FILE, script).unwrap();
+    assert!(t.env.define("some_var", Value::from(true)));
+    let res = t.vm.run(TEST_FILE, ctx, t.env.clone()).unwrap();
+    assert!(res == Value::from(true));
   }
 
   #[test]
   fn can_register_lambda(t: &mut ApiTest) {
     let script = "export some_func();";
-    let libs = stdlib::load_libs(&mut t.vm.gc, &[], &Library::All);
-    let env = Env::initialize(&mut t.vm.gc, Some(libs));
-    let mut ctx = t.vm.load("test", script, env).unwrap();
-    ctx.env.define("some_func", Value::native(|_, _args| Ok(Value::from(true))));
-
-    if let Return::Value(v) = t.vm.run(TEST_FILE, ctx).unwrap() {
-      assert!(v == Value::from(true));
-    } else {
-      panic!();
-    }
-  }
-
-  #[test]
-  fn can_yield(t: &mut ApiTest) {
-    let script = "let x = true; yield; export x;";
-    let libs = stdlib::load_libs(&mut t.vm.gc, &[], &Library::All);
-    let env = Env::initialize(&mut t.vm.gc, Some(libs));
-    let ctx = t.vm.load("test", script, env).unwrap();
-    let result = t.vm.run(TEST_FILE, ctx).unwrap();
-
-    if let Return::Yield(y) = result {
-      if let Return::Value(v) = t.vm.resume(y).unwrap() {
-        assert!(v == Value::from(true));
-      } else {
-        panic!();
-      }
-    } else {
-      panic!("failed to yield in script");
-    }
+    let ctx = t.vm.load("test", script).unwrap();
+    assert!(t.env.define("some_func", Value::native(|_, _args| Ok(Value::from(true)))));
+    let res = t.vm.run(TEST_FILE, ctx, t.env.clone()).unwrap();
+    assert!(res == Value::from(true));
   }
 }

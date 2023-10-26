@@ -1,7 +1,7 @@
-use crate::{code::ClassConstant, prelude::*};
+use crate::prelude::*;
 use std::collections::BTreeMap;
 
-#[derive(Usertype)]
+#[derive(Default, Usertype)]
 #[uuid("2034facf-835a-495c-b504-26efc0ca3f95")]
 pub struct ClassValue {
   pub name: Option<String>,
@@ -21,40 +21,6 @@ impl ClassValue {
       methods: Default::default(),
       static_members: Default::default(),
     }
-  }
-
-  pub fn from_constant(gc: &mut Gc, c: &ClassConstant) -> Value {
-    let class = Self {
-      name: c.name.clone(),
-      initializer: c.initializer.as_ref().map(|i| gc.allocate(FunctionValue::from(i))),
-      methods: c.methods.iter().map(|(k, v)| (k.clone(), FunctionValue::from(v))).collect(),
-      static_members: c
-        .statics
-        .iter()
-        .map(|(k, v)| (k.clone(), gc.allocate(FunctionValue::from(v))))
-        .collect(),
-    };
-    gc.allocate(class)
-  }
-
-  pub fn construct(vm: &mut Vm, mut class_value: Value, mut args: Args) -> ValueResult<()> {
-    let class_clone = class_value.clone();
-    if let Some(class) = class_value.as_class_mut() {
-      let instance = vm.gc.allocate(InstanceValue::new(StructValue::default(), class_clone));
-      if let Some(initializer) = &mut class.initializer {
-        if let Some(initializer) = initializer.as_fn() {
-          args.list.push(instance);
-          initializer.call(vm, args);
-        } else {
-          Err(ValueError::Todo(format!("invalid type for constructor {}", initializer)))?;
-        }
-      } else {
-        vm.stack_push(instance);
-      }
-    } else {
-      Err(ValueError::Todo("unable to construct instance from non-class".to_string()))?;
-    };
-    Ok(())
   }
 
   pub fn set_constructor(&mut self, value: Value) {
@@ -95,6 +61,21 @@ impl UsertypeFields for ClassValue {
 
 #[methods]
 impl ClassValue {
+  fn __ivk__(&mut self, vm: &mut Vm, class: Value, mut args: Args) -> ValueResult<()> {
+    let instance = vm.gc.allocate(InstanceValue::new(StructValue::default(), class.clone()));
+    if let Some(initializer) = &mut self.initializer {
+      if let Some(initializer) = initializer.as_fn_mut() {
+        args.list.push(instance.clone());
+        initializer.__ivk__(vm, instance, args)?;
+      } else {
+        Err(ValueError::Todo(format!("invalid type for constructor {}", initializer)))?;
+      }
+    } else {
+      vm.stack_push(instance);
+    };
+    Ok(())
+  }
+
   fn __str__(&self) -> String {
     if let Some(name) = &self.name {
       format!("<class {}>", name.clone())

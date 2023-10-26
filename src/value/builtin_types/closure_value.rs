@@ -18,23 +18,6 @@ impl ClosureValue {
     }
   }
 
-  pub fn call(&self, vm: &mut Vm, mut args: Args) {
-    if args.list.len() > self.function.airity {
-      args.list.drain(0..self.function.airity);
-    } else {
-      while args.list.len() < self.function.airity {
-        args.list.push(Value::nil);
-      }
-    }
-
-    let mut captures_with_args = Vec::with_capacity(self.captures.len() + args.list.len());
-    captures_with_args.extend(self.captures.clone());
-    captures_with_args.extend(args.list);
-
-    vm.new_frame(self.function.context_ptr().clone());
-    vm.set_stack(captures_with_args);
-  }
-
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
     self.function.context_ptr()
   }
@@ -46,6 +29,18 @@ impl ClosureValue {
 
 #[methods]
 impl ClosureValue {
+  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, args: Args) -> ValueResult<()> {
+    println!("closure val exp {} act {}", self.function.airity, args.list.len());
+    self.function.check_args(&args)?;
+
+    let mut captures_with_args = Vec::with_capacity(self.captures.len() + args.list.len());
+    captures_with_args.extend(self.captures.clone());
+    captures_with_args.extend(args.list);
+
+    self.function.invoke(vm, Args::new(captures_with_args));
+    Ok(())
+  }
+
   fn __str__(&self) -> String {
     format!("closure {}", self.function.__str__())
   }

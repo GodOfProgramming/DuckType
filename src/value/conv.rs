@@ -1,5 +1,23 @@
 use crate::prelude::*;
 
+impl<T> From<UsertypeHandle<T>> for Value
+where
+  T: Usertype,
+{
+  fn from(utype: UsertypeHandle<T>) -> Self {
+    Value::from(&utype)
+  }
+}
+
+impl<T> From<&UsertypeHandle<T>> for Value
+where
+  T: Usertype,
+{
+  fn from(utype: &UsertypeHandle<T>) -> Self {
+    Value::from(utype.handle.clone())
+  }
+}
+
 pub trait MaybeFrom<T>
 where
   Self: Sized,

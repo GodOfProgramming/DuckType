@@ -1,7 +1,8 @@
-mod Foo {
-  mod Bar {
-
+class Foo {
+  fn bar(self, x) {
+    ret x;
   }
 }
 
-Foo::Bar;
+let foo = Foo();
+print foo.bar(1);

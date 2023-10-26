@@ -80,7 +80,6 @@ pub enum Token {
   True,
   Use,
   While,
-  Yield,
 
   // Special
   Breakpoint,
@@ -146,7 +145,6 @@ impl TryFrom<&[u8]> for Token {
       "true" => Self::True,
       "use" => Self::Use,
       "while" => Self::While,
-      "yield" => Self::Yield,
       "__breakpoint__" => Self::Breakpoint,
       word => Self::Identifier(String::from(word)),
     })
