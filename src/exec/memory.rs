@@ -41,7 +41,7 @@ where
 {
   fn clone(&self) -> Self {
     Self {
-      usertype: self.usertype.clone(),
+      usertype: self.usertype,
       handle: self.handle.clone(),
     }
   }

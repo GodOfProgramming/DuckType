@@ -34,6 +34,14 @@ pub fn _here(file: &str, line: u32) {
   stdout().flush().unwrap();
 }
 
+pub struct RuntimeErrors(Vec<RuntimeError>);
+
+impl RuntimeErrors {
+  pub(crate) fn single(err: RuntimeError) -> Self {
+    Self(vec![err])
+  }
+}
+
 #[derive(PartialEq, Eq)]
 pub struct RuntimeError {
   pub msg: String,
@@ -52,7 +60,7 @@ impl RuntimeError {
     }
   }
 
-  pub fn from_ref<M: ToString>(msg: M, opcode: &Opcode, opcode_ref: OpCodeReflection) -> Self {
+  pub fn from_ref<M: ToString>(msg: M, opcode: Opcode, opcode_ref: OpCodeReflection) -> Self {
     let mut err = Self {
       msg: msg.to_string(),
       file: Rc::clone(&opcode_ref.file),
@@ -69,15 +77,42 @@ impl RuntimeError {
   }
 }
 
-impl Debug for RuntimeError {
+impl Display for RuntimeError {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     writeln!(f, "{} ({}, {}): {}", self.file.display(), self.line, self.column, self.msg)
   }
 }
 
-impl Display for RuntimeError {
+impl Debug for RuntimeError {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    writeln!(f, "{} ({}, {}): {}", self.file.display(), self.line, self.column, self.msg)
+    <Self as Display>::fmt(self, f)
+  }
+}
+
+impl Display for RuntimeErrors {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    for err in &self.0 {
+      writeln!(f, "{} ({}, {}): {}", err.file.display(), err.line, err.column, err.msg)?;
+    }
+    Ok(())
+  }
+}
+
+impl Debug for RuntimeErrors {
+  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    <Self as Display>::fmt(self, f)
+  }
+}
+
+impl From<Vec<RuntimeError>> for RuntimeErrors {
+  fn from(value: Vec<RuntimeError>) -> Self {
+    Self(value)
+  }
+}
+
+impl From<RuntimeErrors> for Vec<RuntimeError> {
+  fn from(value: RuntimeErrors) -> Self {
+    value.0
   }
 }
 

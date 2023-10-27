@@ -122,11 +122,11 @@ impl BytecodeGenerator {
 
     self.emit_expr(stmt.body);
 
-    self.force_define_global(var, stmt.loc);
+    self.define_global(var, stmt.loc);
   }
 
   fn default_constructor_ret(&mut self, stmt: DefaultConstructorRet) {
-    self.emit(Opcode::RetValue, stmt.loc);
+    self.emit(Opcode::RetSelf, stmt.loc);
   }
 
   fn export_stmt(&mut self, stmt: ExportStatement) {
@@ -249,7 +249,7 @@ impl BytecodeGenerator {
 
     self.emit_expr(stmt.body);
 
-    self.force_define_global(var, stmt.loc);
+    self.define_global(var, stmt.loc);
   }
 
   fn print_stmt(&mut self, stmt: PrintStatement) {
@@ -265,7 +265,7 @@ impl BytecodeGenerator {
 
     let var = self.declare_global(stmt.ident);
     self.emit_expr(stmt.expr);
-    self.force_define_global(var, stmt.loc);
+    self.define_global(var, stmt.loc);
   }
 
   fn ret_stmt(&mut self, stmt: RetStatement) {
@@ -818,11 +818,7 @@ impl BytecodeGenerator {
   }
 
   fn define_function(&mut self, var: usize, loc: SourceLocation) {
-    self.emit(Opcode::ForceAssignGlobal(var), loc);
-  }
-
-  fn force_define_global(&mut self, var: usize, loc: SourceLocation) {
-    self.emit(Opcode::ForceAssignGlobal(var), loc);
+    self.emit(Opcode::DefineGlobal(var), loc);
   }
 
   /**

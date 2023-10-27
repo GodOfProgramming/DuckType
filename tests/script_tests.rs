@@ -21,7 +21,7 @@ impl ScriptTest {
 
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
-    let mut gc = SmartPtr::new(Gc::default());
+    let gc = SmartPtr::new(Gc::default());
     Self {
       vm: Vm::new(gc, vec![], Library::All),
     }

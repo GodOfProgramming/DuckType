@@ -1,4 +1,8 @@
-use crate::{code::FunctionConstant, exec::EnvEntry, prelude::*};
+use crate::{
+  code::FunctionConstant,
+  exec::{EnvEntry, ExecType},
+  prelude::*,
+};
 use ptr::SmartPtr;
 
 #[derive(Clone, Usertype, Fields)]
@@ -38,7 +42,7 @@ impl FunctionValue {
     }
   }
 
-  pub fn invoke(&mut self, vm: &mut Vm, mut args: Args) {
+  pub fn invoke(&mut self, vm: &mut Vm, mut args: Args) -> ValueResult<()> {
     args.list.reserve(self.locals);
 
     let env = UsertypeHandle::new(Gc::handle_from(&mut vm.gc, self.env.clone()));
@@ -46,6 +50,9 @@ impl FunctionValue {
 
     vm.new_frame(self.ctx.clone());
     vm.set_stack(args.list);
+    let output = vm.execute(ExecType::Fn)?;
+    vm.stack_push(output);
+    Ok(())
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {
@@ -65,8 +72,7 @@ impl FunctionValue {
 impl FunctionValue {
   fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, args: Args) -> ValueResult<()> {
     self.check_args(&args)?;
-    self.invoke(vm, args);
-    Ok(())
+    self.invoke(vm, args)
   }
 
   fn __str__(&self) -> String {

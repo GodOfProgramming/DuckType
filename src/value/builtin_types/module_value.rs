@@ -1,5 +1,8 @@
 use crate::prelude::*;
-use std::{collections::BTreeMap, env};
+use std::{
+  collections::{btree_map::Entry, BTreeMap},
+  env,
+};
 
 pub const PATHS_ENV_VAR: &str = "SS_LIBRARY_PATHS";
 pub const LIB_GLOBAL: &str = "$G";
@@ -57,8 +60,8 @@ impl ModuleValue {
   /// Assigns to an existing variable. Returns true if the variable already exists, false otherwise
   pub fn assign(&mut self, name: impl Into<String>, value: impl Into<Value>) -> bool {
     let name = name.into();
-    if self.env.contains_key(&name) {
-      self.env.insert(name, value.into());
+    if let Entry::Occupied(mut e) = self.env.entry(name.clone()) {
+      e.insert(value.into());
       true
     } else {
       self
@@ -89,7 +92,7 @@ impl ModuleValue {
       .env
       .get(name.as_ref())
       .cloned()
-      .or_else(|| self.parent.cast_to::<Self>().map(|module| module.lookup(name)).flatten())
+      .or_else(|| self.parent.cast_to::<Self>().and_then(|module| module.lookup(name)))
   }
 }
 

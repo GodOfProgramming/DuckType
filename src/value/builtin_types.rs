@@ -31,7 +31,7 @@ pub mod ops {
 }
 
 use super::{VTable, Value};
-use crate::prelude::*;
+use crate::{dbg::RuntimeErrors, prelude::*};
 pub use array_value::ArrayValue;
 pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
@@ -116,7 +116,7 @@ pub trait ResolvableValue: DisplayValue {
 pub trait InvocableValue {
   #[allow(unused_variables)]
   fn __ivk__(&mut self, vm: &mut Vm, this: Value, args: Args) -> ValueResult<()> {
-    Err(ValueError::UndefinedMethod("__call__"))
+    Err(ValueError::UndefinedMethod("__ivk__"))
   }
 }
 
@@ -203,9 +203,11 @@ impl Args {
   }
 
   pub fn new_with_this(this: Value, args: impl Into<Vec<Value>>) -> Self {
-    let mut args = args.into();
-    args.push(this);
-    Self { list: args }
+    let args = args.into();
+    let mut new_args = Vec::with_capacity(1 + args.len());
+    new_args.push(this);
+    new_args.extend(args);
+    Self { list: new_args }
   }
 
   pub fn count(&self) -> usize {
@@ -305,7 +307,7 @@ pub enum ValueError {
 
   /// message
   #[error("{0}")]
-  RuntimeError(String),
+  RuntimeError(RuntimeErrors),
 
   /// actual, expected
   #[error("{0} is not a {1}")]
@@ -333,15 +335,15 @@ pub enum ValueError {
   Todo(String),
 }
 
-impl ValueError {
-  pub fn runtime_error(msg: impl Into<String>) -> Self {
-    Self::RuntimeError(msg.into())
-  }
-}
-
 impl From<Infallible> for ValueError {
   fn from(_: Infallible) -> Self {
     Self::Infallible
+  }
+}
+
+impl From<RuntimeErrors> for ValueError {
+  fn from(value: RuntimeErrors) -> Self {
+    Self::RuntimeError(value)
   }
 }
 
