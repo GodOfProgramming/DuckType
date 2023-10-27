@@ -124,7 +124,7 @@ impl ModuleValue {
   }
 
   fn __dbg__(&self) -> String {
-    format!("mod {:#?} {:#?}", self.env, self.members)
+    format!("mod")
   }
 }
 

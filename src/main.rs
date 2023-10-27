@@ -15,12 +15,15 @@ enum Command {
   Run {
     #[arg()]
     file: Option<PathBuf>,
+
     #[clap(last = true)]
     runargs: Vec<String>,
   },
 }
 
 fn main() {
+  let _client = profiling::tracy_client::Client::start();
+
   let args = Args::parse();
 
   match args.command {
@@ -47,6 +50,7 @@ fn main() {
   }
 }
 
+#[profiling::function]
 fn run_file(mut vm: Vm, file: PathBuf, env: UsertypeHandle<ModuleValue>) -> bool {
   if !file.exists() {
     println!("error: could not find source file '{}'", file.display());

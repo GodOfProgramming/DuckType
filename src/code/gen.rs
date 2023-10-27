@@ -122,7 +122,8 @@ impl BytecodeGenerator {
 
     self.emit_expr(stmt.body);
 
-    self.define_global(var, stmt.loc);
+    self.define_global(var, stmt.loc.clone());
+    self.emit(Opcode::Pop, stmt.loc);
   }
 
   fn default_constructor_ret(&mut self, stmt: DefaultConstructorRet) {
@@ -149,7 +150,8 @@ impl BytecodeGenerator {
     let param_count = stmt.params.len();
     self.emit_fn(Some(stmt.ident), stmt.params, param_count, *stmt.body, stmt.loc.clone());
 
-    self.define_function(var, stmt.loc);
+    self.define_global(var, stmt.loc.clone());
+    self.emit(Opcode::Pop, stmt.loc);
   }
 
   fn for_stmt(&mut self, stmt: ForStatement) {
@@ -249,7 +251,8 @@ impl BytecodeGenerator {
 
     self.emit_expr(stmt.body);
 
-    self.define_global(var, stmt.loc);
+    self.define_global(var, stmt.loc.clone());
+    self.emit(Opcode::Pop, stmt.loc);
   }
 
   fn print_stmt(&mut self, stmt: PrintStatement) {
@@ -265,7 +268,8 @@ impl BytecodeGenerator {
 
     let var = self.declare_global(stmt.ident);
     self.emit_expr(stmt.expr);
-    self.define_global(var, stmt.loc);
+    self.define_global(var, stmt.loc.clone());
+    self.emit(Opcode::Pop, stmt.loc);
   }
 
   fn ret_stmt(&mut self, stmt: RetStatement) {
@@ -508,7 +512,7 @@ impl BytecodeGenerator {
     for (member, assign) in expr.items {
       let ident = self.add_const_ident(member);
       self.emit_expr(assign);
-      self.emit(Opcode::DefineGlobal(ident), expr.loc.clone());
+      self.define_global(ident, expr.loc.clone());
       self.emit(Opcode::Pop, expr.loc.clone());
     }
     self.emit(Opcode::PopScope, expr.loc);
@@ -815,10 +819,6 @@ impl BytecodeGenerator {
     } else {
       false
     }
-  }
-
-  fn define_function(&mut self, var: usize, loc: SourceLocation) {
-    self.emit(Opcode::DefineGlobal(var), loc);
   }
 
   /**
