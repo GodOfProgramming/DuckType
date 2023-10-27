@@ -85,7 +85,7 @@ impl Display for RuntimeError {
 
 impl Debug for RuntimeError {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    <Self as Display>::fmt(&self, f)
+    <Self as Display>::fmt(self, f)
   }
 }
 
@@ -100,7 +100,7 @@ impl Display for RuntimeErrors {
 
 impl Debug for RuntimeErrors {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    <Self as Display>::fmt(&self, f)
+    <Self as Display>::fmt(self, f)
   }
 }
 

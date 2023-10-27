@@ -147,11 +147,8 @@ impl Context {
     self.display_opcodes();
 
     for value in self.consts() {
-      match value {
-        ConstantValue::Fn(f) => {
-          f.ctx.disassemble();
-        }
-        _ => (),
+      if let ConstantValue::Fn(f) = value {
+        f.ctx.disassemble();
       }
     }
   }
@@ -203,12 +200,6 @@ impl Context {
         Self::opcode_column("LookupGlobal"),
         Self::value_column(*name),
         self.global_const_at_column(*name),
-      ),
-      Opcode::ForceAssignGlobal(name) => println!(
-        "{} {} {}",
-        Self::opcode_column("ForceAssignGlobal"),
-        Self::value_column(*name),
-        self.global_const_at_column(*name)
       ),
       Opcode::DefineGlobal(name) => println!(
         "{} {} {}",

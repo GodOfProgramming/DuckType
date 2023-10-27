@@ -255,11 +255,11 @@ impl LambdaExpression {
     match (self_rules, params.found_self) {
       (SelfRules::Disallow, true) => {
         ast.error::<0>(String::from("found 'self' in invalid context"));
-        return None;
+        None
       }
       (SelfRules::Require, false) => {
         ast.error::<0>(String::from("missing 'self' in function"));
-        return None;
+        None
       }
       _ => ast.parse_lambda(params, f),
     }

@@ -56,8 +56,6 @@ pub enum Opcode {
   LookupLocal(usize),
   /** Assigns a value to the local variable indexed by the tuple. The value comes off the top of the stack */
   AssignLocal(usize),
-  /** Assigns to a global, defining it if it already doesn't exist. The name is stored in the enum. The value comes off the top of the stack */
-  ForceAssignGlobal(usize),
   /** Defines a new global variable. The name is stored in the enum. The value comes off the top of the stack */
   DefineGlobal(usize),
   /** Looks up a global variable. The name is stored in the enum */
@@ -328,7 +326,7 @@ impl Vm {
       let key = match opcode {
         Opcode::Negate => ops::NEG,
         Opcode::Not => ops::NOT,
-        _ => Err(self.error(format!("invalid unary operation")))?,
+        _ => Err(self.error("invalid unary operation"))?,
       };
 
       let callable = value.get_member(&mut self.gc, key).map_err(|e| self.error(e))?;
@@ -359,7 +357,7 @@ impl Vm {
         Opcode::LessEqual => ops::LESS_EQUAL,
         Opcode::Greater => ops::GREATER,
         Opcode::GreaterEqual => ops::GREATER_EQUAL,
-        _ => Err(self.error(format!("invalid binary operation")))?,
+        _ => Err(self.error("invalid binary operation"))?,
       };
 
       let callable = av.get_member(&mut self.gc, key).map_err(|e| self.error(e))?;
@@ -417,7 +415,6 @@ impl Vm {
         Opcode::False => self.exec_false(),
         Opcode::Pop => self.exec_pop(),
         Opcode::PopN(count) => self.exec_pop_n(count),
-        Opcode::ForceAssignGlobal(index) => self.exec_force_assign_global(index)?,
         Opcode::DefineGlobal(index) => self.exec_define_global(index)?,
         Opcode::LookupGlobal(index) => self.exec_lookup_global(index)?,
         Opcode::AssignGlobal(index) => self.exec_assign_global(index)?,
@@ -548,6 +545,7 @@ impl Vm {
 
   /* Operations */
 
+  #[cold]
   fn exec_noop(&self) -> ExecResult {
     Err(self.error("executed noop opcode, should not happen"))
   }
@@ -611,17 +609,6 @@ impl Vm {
         .ok_or_else(|| this.error("use of undefined variable"))?;
 
       this.stack_push(global);
-      Ok(())
-    })
-  }
-
-  fn exec_force_assign_global(&mut self, location: usize) -> ExecResult {
-    self.global_op(location, |this, name| {
-      let v = this
-        .stack_pop()
-        .ok_or_else(|| this.error("can not define global using empty stack"))?;
-
-      this.current_env_mut().define(name, v);
       Ok(())
     })
   }
@@ -841,7 +828,6 @@ impl Vm {
   }
 
   /// when f evaluates to true, short circuit
-
   fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, offset: usize, f: F) -> ExecResult<bool> {
     let value = self.stack_peek().ok_or_else(|| self.error("no item on the stack to peek"))?;
     if f(value) {
@@ -890,6 +876,103 @@ impl Vm {
     let args = self.stack_drain_from(airity);
     let callable = self.stack_pop().ok_or_else(|| self.error("cannot operate on empty stack"))?;
     self.call_value(callable, args)
+  }
+
+  fn exec_create_list(&mut self, num_items: usize) {
+    let list = self.stack_drain_from(num_items);
+    let list = self.gc.allocate(list);
+    self.stack_push(list);
+  }
+
+  fn exec_create_closure(&mut self) -> ExecResult {
+    let function = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no item on the stack to pop for closure function"))?;
+
+    let captures = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no item on the stack to pop for closure captures"))?;
+
+    let f = function.as_fn().ok_or_else(|| self.error("closure must be a function"))?;
+
+    let c = captures
+      .as_array()
+      .ok_or_else(|| self.error("capture list must be a struct"))?;
+
+    let closure = self.gc.allocate(ClosureValue::new(c, f.clone()));
+    self.stack_push(closure);
+    Ok(())
+  }
+
+  fn exec_create_struct(&mut self) {
+    let v = self.gc.allocate(StructValue::default());
+    self.stack_push(v);
+  }
+
+  fn exec_create_class(&mut self) {
+    let v = self.gc.allocate(ClassValue::default());
+    self.stack_push(v);
+  }
+
+  /// Create a module and make it the current env
+  fn exec_create_module(&mut self) {
+    let leaf = self.current_env();
+    let module = ModuleValue::new_child(leaf.handle.value.clone());
+    let uhandle = Gc::allocate_handle(&mut self.gc, module);
+    self.envs.push(EnvEntry::Mod(uhandle.clone()));
+    self.stack_push(uhandle.handle.value.clone());
+  }
+
+  fn exec_scope_resolution(&mut self, ident: usize) -> ExecResult {
+    let obj = self.stack_pop().ok_or_else(|| self.error("no value on stack to resolve"))?;
+
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(ident)
+      .ok_or_else(|| self.error("no identifier at index"))?;
+
+    if let ConstantValue::String(name) = name {
+      let value = obj.resolve(name).map_err(|e| self.error(e))?;
+      self.stack_push(value);
+      Ok(())
+    } else {
+      Err(self.error("member identifier is not a string"))
+    }
+  }
+
+  fn push_scope(&mut self) {
+    let mut gc = self.gc.clone();
+    let leaf = self.current_env();
+    let handle = Gc::allocate_handle(&mut gc, ModuleValue::new_child(leaf.handle.value.clone()));
+    self.envs.push(EnvEntry::Block(handle));
+  }
+
+  fn pop_scope(&mut self) {
+    self.envs.pop();
+  }
+
+  fn exec_define(&mut self, location: usize) -> ExecResult {
+    let value = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no value on stack to define a member on"))?;
+
+    let mut obj = self
+      .stack_peek()
+      .ok_or_else(|| self.error("no value on stack to define a member to"))?;
+
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(location)
+      .ok_or_else(|| self.error("no identifier found at index"))?;
+
+    if let ConstantValue::String(name) = name {
+      obj.define(name, value).map_err(|e| self.error(e))?;
+      Ok(())
+    } else {
+      Err(self.error("invalid name for member"))
+    }
   }
 
   fn exec_req(&mut self) -> ExecResult {
@@ -1009,103 +1092,6 @@ impl Vm {
 
         Ok(())
       }
-    }
-  }
-
-  fn exec_create_list(&mut self, num_items: usize) {
-    let list = self.stack_drain_from(num_items);
-    let list = self.gc.allocate(list);
-    self.stack_push(list);
-  }
-
-  fn exec_create_closure(&mut self) -> ExecResult {
-    let function = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no item on the stack to pop for closure function"))?;
-
-    let captures = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no item on the stack to pop for closure captures"))?;
-
-    let f = function.as_fn().ok_or_else(|| self.error("closure must be a function"))?;
-
-    let c = captures
-      .as_array()
-      .ok_or_else(|| self.error("capture list must be a struct"))?;
-
-    let closure = self.gc.allocate(ClosureValue::new(c, f.clone()));
-    self.stack_push(closure);
-    Ok(())
-  }
-
-  fn exec_create_struct(&mut self) {
-    let v = self.gc.allocate(StructValue::default());
-    self.stack_push(v);
-  }
-
-  fn exec_create_class(&mut self) {
-    let v = self.gc.allocate(ClassValue::default());
-    self.stack_push(v);
-  }
-
-  /// Create a module and make it the current env
-  fn exec_create_module(&mut self) {
-    let leaf = self.current_env();
-    let module = ModuleValue::new_child(leaf.handle.value.clone());
-    let uhandle = Gc::allocate_handle(&mut self.gc, module);
-    self.envs.push(EnvEntry::Mod(uhandle.clone()));
-    self.stack_push(uhandle.handle.value.clone());
-  }
-
-  fn exec_scope_resolution(&mut self, ident: usize) -> ExecResult {
-    let obj = self.stack_pop().ok_or_else(|| self.error("no value on stack to resolve"))?;
-
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(ident)
-      .ok_or_else(|| self.error("no identifier at index"))?;
-
-    if let ConstantValue::String(name) = name {
-      let value = obj.resolve(name).map_err(|e| self.error(e))?;
-      self.stack_push(value);
-      Ok(())
-    } else {
-      Err(self.error("member identifier is not a string"))
-    }
-  }
-
-  fn push_scope(&mut self) {
-    let mut gc = self.gc.clone();
-    let leaf = self.current_env();
-    let handle = Gc::allocate_handle(&mut gc, ModuleValue::new_child(leaf.handle.value.clone()));
-    self.envs.push(EnvEntry::Block(handle));
-  }
-
-  fn pop_scope(&mut self) {
-    self.envs.pop();
-  }
-
-  fn exec_define(&mut self, location: usize) -> ExecResult {
-    let value = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no value on stack to define a member on"))?;
-
-    let mut obj = self
-      .stack_peek()
-      .ok_or_else(|| self.error("no value on stack to define a member to"))?;
-
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or_else(|| self.error("no identifier found at index"))?;
-
-    if let ConstantValue::String(name) = name {
-      obj.define(name, value).map_err(|e| self.error(e))?;
-      Ok(())
-    } else {
-      Err(self.error("invalid name for member"))
     }
   }
 
