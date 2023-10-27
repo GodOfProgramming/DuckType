@@ -1,6 +1,11 @@
 use clap::{Parser, Subcommand};
 use simple_script::prelude::*;
-use std::{fs, path::PathBuf, process};
+use std::{
+  fs,
+  io::{stdin, stdout, Read, Write},
+  path::PathBuf,
+  process,
+};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -15,6 +20,7 @@ enum Command {
   Run {
     #[arg()]
     file: Option<PathBuf>,
+
     #[clap(last = true)]
     runargs: Vec<String>,
   },

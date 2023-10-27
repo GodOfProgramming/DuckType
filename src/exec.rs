@@ -306,14 +306,10 @@ impl Vm {
     let id = PlatformMetadata::id_of(&file).unwrap_or(0);
 
     self.opened_files = vec![FileInfo::new(file, id)];
-    self.reinitialize(ctx, env);
-    self.execute(ExecType::File)
-  }
-
-  fn reinitialize(&mut self, ctx: SmartPtr<Context>, env: UsertypeHandle<ModuleValue>) {
     self.current_frame = StackFrame::new(ctx);
     self.stack_frames = Default::default();
     self.envs = EnvStack::new(env);
+    self.execute(ExecType::File)
   }
 
   fn unary_op<F>(&mut self, opcode: &Opcode, f: F) -> ExecResult
