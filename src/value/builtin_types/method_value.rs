@@ -30,9 +30,9 @@ impl MethodValue {
 
 #[methods]
 impl MethodValue {
-  fn __ivk__(&mut self, vm: &mut Vm, this: Value, mut args: Args) -> ValueResult<()> {
-    args.list.push(self.this.clone());
-    self.function.__ivk__(vm, this, args)
+  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, args: Args) -> ValueResult<()> {
+    let args = Args::new_with_this(self.this.clone(), args.list);
+    self.function.__ivk__(vm, Value::nil, args)
   }
 
   fn __str__(&self) -> String {

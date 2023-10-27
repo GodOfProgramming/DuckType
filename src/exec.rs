@@ -121,6 +121,8 @@ pub enum Opcode {
   Ret,
   /** Exits from a function, returning the last value on the stack to the previous frame */
   RetValue,
+  /** Returns the first item on the stack which is self */
+  RetSelf,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
   /** Create a list of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
@@ -461,6 +463,10 @@ impl Vm {
           export = Some(self.stack_pop().expect("value must be on stack to return"));
           break 'ctx;
         }
+        Opcode::RetSelf => {
+          export = Some(self.stack_index_0().expect("value must be on the stack"));
+          break 'ctx;
+        }
         Opcode::Req => {
           self.current_frame.ip += 1;
           self.exec_req()?;
@@ -760,17 +766,9 @@ impl Vm {
     if let Some(value) = self.stack_peek() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
-          if let Some(obj) = value.as_struct() {
-            let member = obj.get(&mut self.gc, &value, name).map_err(|e| self.error(e))?;
-            self.stack_push(member);
-            Ok(())
-          } else if let Some(obj) = value.as_instance() {
-            let member = obj.get(&mut self.gc, &value, name).map_err(|e| self.error(e))?;
-            self.stack_push(member);
-            Ok(())
-          } else {
-            Err(self.error(format!("invalid type for member access: {}", value)))
-          }
+          let member = value.get_member(&mut self.gc, name).map_err(|e| self.error(e))?;
+          self.stack_push(member);
+          Ok(())
         } else {
           Err(self.error(format!("invalid lookup for member access: {}", value)))
         }

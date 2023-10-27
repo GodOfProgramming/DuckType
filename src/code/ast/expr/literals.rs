@@ -252,17 +252,17 @@ impl LambdaExpression {
   {
     let params = ast.parse_parameters(param_term)?;
 
-    if self_rules == SelfRules::Disallow && params.found_self {
-      ast.error::<0>(String::from("found 'self' in invalid context"));
-      return None;
+    match (self_rules, params.found_self) {
+      (SelfRules::Disallow, true) => {
+        ast.error::<0>(String::from("found 'self' in invalid context"));
+        return None;
+      }
+      (SelfRules::Require, false) => {
+        ast.error::<0>(String::from("missing 'self' in function"));
+        return None;
+      }
+      _ => ast.parse_lambda(params, f),
     }
-
-    if self_rules == SelfRules::Require && !params.found_self {
-      ast.error::<0>(String::from("missing 'self' in function"));
-      return None;
-    }
-
-    ast.parse_lambda(params, f)
   }
 }
 

@@ -116,7 +116,7 @@ pub trait ResolvableValue: DisplayValue {
 pub trait InvocableValue {
   #[allow(unused_variables)]
   fn __ivk__(&mut self, vm: &mut Vm, this: Value, args: Args) -> ValueResult<()> {
-    Err(ValueError::UndefinedMethod("__call__"))
+    Err(ValueError::UndefinedMethod("__ivk__"))
   }
 }
 
@@ -203,9 +203,11 @@ impl Args {
   }
 
   pub fn new_with_this(this: Value, args: impl Into<Vec<Value>>) -> Self {
-    let mut args = args.into();
-    args.push(this);
-    Self { list: args }
+    let args = args.into();
+    let mut new_args = Vec::with_capacity(1 + args.len());
+    new_args.push(this);
+    new_args.extend(args);
+    Self { list: new_args }
   }
 
   pub fn count(&self) -> usize {

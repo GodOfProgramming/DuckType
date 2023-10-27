@@ -61,12 +61,12 @@ impl UsertypeFields for ClassValue {
 
 #[methods]
 impl ClassValue {
-  fn __ivk__(&mut self, vm: &mut Vm, class: Value, mut args: Args) -> ValueResult<()> {
+  fn __ivk__(&mut self, vm: &mut Vm, class: Value, args: Args) -> ValueResult<()> {
     let instance = vm.gc.allocate(InstanceValue::new(StructValue::default(), class.clone()));
     if let Some(initializer) = &mut self.initializer {
       if let Some(initializer) = initializer.as_fn_mut() {
-        args.list.push(instance.clone());
-        initializer.__ivk__(vm, instance, args)?;
+        let args = Args::new_with_this(instance.clone(), args.list);
+        initializer.__ivk__(vm, Value::nil, args)?;
       } else {
         Err(ValueError::Todo(format!("invalid type for constructor {}", initializer)))?;
       }

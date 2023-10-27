@@ -16,6 +16,8 @@ use {
   std::path::Path,
 };
 
+const SELF_IDENT: &str = "self";
+
 trait AstStatement {
   fn stmt(ast: &mut AstGenerator);
 }
@@ -473,46 +475,40 @@ impl AstGenerator {
   }
 
   fn parse_parameters(&mut self, terminator: Token) -> Option<Params> {
+    let mut first_token = true;
     let mut found_self = false;
     let mut params = Vec::default();
 
-    if let Some(mut token) = self.current() {
-      if token != terminator {
-        loop {
-          if let Token::Identifier(ident) = token {
-            if params.contains(&ident) {
-              self.error::<0>(format!("duplicate identifier '{}' found in parameter list", ident));
-              return None;
-            }
+    'params: while let Some(token) = self.current() {
+      if token == terminator {
+        break 'params;
+      }
 
-            if ident == "self" {
-              if found_self {
-                self.error::<0>(String::from("self found twice in parameter list"));
-                return None;
-              } else {
-                found_self = true;
-              }
-            } else {
-              params.push(ident);
-            }
+      self.advance();
+
+      if let Token::Identifier(ident) = token {
+        if params.contains(&ident) {
+          self.error::<0>(format!("duplicate identifier '{}' found in parameter list", ident));
+          return None;
+        }
+
+        if ident == SELF_IDENT {
+          if first_token {
+            found_self = true;
           } else {
-            self.error::<0>(String::from("invalid token in parameter list"));
+            self.error::<0>("self must be the first parameter");
             return None;
           }
-
-          self.advance();
-
-          if !self.advance_if_matches(Token::Comma) {
-            break;
-          }
-
-          if let Some(next) = self.current() {
-            token = next;
-          } else {
-            break;
-          }
         }
+
+        params.push(ident);
+
+        first_token = false;
+      } else {
+        self.error::<0>("invalid token in parameter list");
       }
+
+      self.advance_if_matches(Token::Comma);
     }
 
     if self.consume(terminator, "expected terminator after parameters") {
@@ -847,10 +843,7 @@ struct Params {
 }
 
 impl From<(bool, Vec<Ident>)> for Params {
-  fn from((found_self, mut list): (bool, Vec<Ident>)) -> Self {
-    if found_self {
-      list.push(Ident::new("self"));
-    }
+  fn from((found_self, list): (bool, Vec<Ident>)) -> Self {
     Self { found_self, list }
   }
 }

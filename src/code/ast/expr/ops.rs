@@ -1,6 +1,6 @@
 use super::Expression;
 use crate::code::{
-  ast::{AstExpression, AstGenerator, Ident, Precedence},
+  ast::{AstExpression, AstGenerator, Ident, Precedence, SELF_IDENT},
   lex::Token,
   SourceLocation,
 };
@@ -86,7 +86,7 @@ impl AssignExpression {
 impl AstExpression for AssignExpression {
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
     if let Expression::Ident(expr) = &left {
-      if expr.ident.name == "self" {
+      if expr.ident.name == SELF_IDENT {
         ast.error::<0>(String::from("cannot change the value of self"));
       }
     }

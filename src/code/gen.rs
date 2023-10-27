@@ -126,7 +126,7 @@ impl BytecodeGenerator {
   }
 
   fn default_constructor_ret(&mut self, stmt: DefaultConstructorRet) {
-    self.emit(Opcode::RetValue, stmt.loc);
+    self.emit(Opcode::RetSelf, stmt.loc);
   }
 
   fn export_stmt(&mut self, stmt: ExportStatement) {
