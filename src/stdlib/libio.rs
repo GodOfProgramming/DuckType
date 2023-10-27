@@ -62,7 +62,7 @@ mod io {
 
         Ok(out)
       } else {
-        Err(ValueError::runtime_error("no file open for reading"))
+        Err(ValueError::NativeApi("no file open for reading".to_string()))
       }
     }
   }

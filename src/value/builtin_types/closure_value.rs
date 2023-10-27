@@ -37,8 +37,7 @@ impl ClosureValue {
     captures_with_args.extend(self.captures.clone());
     captures_with_args.extend(args.list);
 
-    self.function.invoke(vm, Args::new(captures_with_args));
-    Ok(())
+    self.function.invoke(vm, Args::new(captures_with_args))
   }
 
   fn __str__(&self) -> String {

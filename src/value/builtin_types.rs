@@ -31,7 +31,7 @@ pub mod ops {
 }
 
 use super::{VTable, Value};
-use crate::prelude::*;
+use crate::{dbg::RuntimeErrors, prelude::*};
 pub use array_value::ArrayValue;
 pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
@@ -305,7 +305,7 @@ pub enum ValueError {
 
   /// message
   #[error("{0}")]
-  RuntimeError(String),
+  RuntimeError(RuntimeErrors),
 
   /// actual, expected
   #[error("{0} is not a {1}")]
@@ -333,15 +333,15 @@ pub enum ValueError {
   Todo(String),
 }
 
-impl ValueError {
-  pub fn runtime_error(msg: impl Into<String>) -> Self {
-    Self::RuntimeError(msg.into())
-  }
-}
-
 impl From<Infallible> for ValueError {
   fn from(_: Infallible) -> Self {
     Self::Infallible
+  }
+}
+
+impl From<RuntimeErrors> for ValueError {
+  fn from(value: RuntimeErrors) -> Self {
+    Self::RuntimeError(value)
   }
 }
 

@@ -3,7 +3,7 @@ pub mod memory;
 
 use crate::{
   code::{Compiler, ConstantValue, OpCodeReflection},
-  dbg::Cli,
+  dbg::{Cli, RuntimeErrors},
   prelude::*,
   util::{FileIdType, FileMetadata, PlatformMetadata},
   UnwrapAnd,
@@ -33,8 +33,7 @@ pub mod prelude {
   pub use super::{Opcode, Vm};
 }
 
-type ExecResult<T = ()> = Result<T, Vec<RuntimeError>>;
-type ExecBoolResult = Result<bool, Vec<RuntimeError>>;
+type ExecResult<T = ()> = Result<T, RuntimeErrors>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Opcode {
@@ -211,6 +210,11 @@ impl Debug for EnvEntry {
   }
 }
 
+pub(crate) enum ExecType {
+  File,
+  Fn,
+}
+
 pub struct Vm {
   // Don't get rid of current_frame in favor of the vec of stack frames
   // current_frame will be needed for repl so locals at the 0 depth scope
@@ -286,7 +290,7 @@ impl Vm {
     file: impl Into<PathBuf>,
     ctx: SmartPtr<Context>,
     env: UsertypeHandle<ModuleValue>,
-  ) -> Result<Value, Vec<RuntimeError>> {
+  ) -> Result<Value, RuntimeErrors> {
     #[cfg(feature = "disassemble")]
     {
       ctx.disassemble();
@@ -302,7 +306,7 @@ impl Vm {
 
     self.opened_files = vec![FileInfo::new(file, id, 0)];
     self.reinitialize(ctx, env);
-    self.execute()
+    self.execute(ExecType::File)
   }
 
   fn reinitialize(&mut self, ctx: SmartPtr<Context>, env: UsertypeHandle<ModuleValue>) {
@@ -382,184 +386,159 @@ impl Vm {
   }
 
   #[cold]
-  fn error<M: ToString>(&self, opcode: &Opcode, msg: M) -> Vec<RuntimeError> {
-    vec![self.error_at(|opcode_ref| RuntimeError::from_ref(msg, opcode, opcode_ref))]
+  fn error<M: ToString>(&self, opcode: &Opcode, msg: M) -> RuntimeErrors {
+    RuntimeErrors::single(self.error_at(|opcode_ref| RuntimeError::from_ref(msg, opcode, opcode_ref)))
   }
 
-  fn execute(&mut self) -> Result<Value, Vec<RuntimeError>> {
+  pub(crate) fn execute(&mut self, exec_type: ExecType) -> Result<Value, RuntimeErrors> {
     self.next_gc = Instant::now() + DEFAULT_GC_FREQUENCY;
 
-    'file: loop {
-      #[cfg(feature = "runtime-disassembly")]
-      {
-        println!("<< {} >>", self.current_frame.ctx.id);
-      }
+    #[cfg(feature = "runtime-disassembly")]
+    {
+      println!("<< {} >>", self.current_frame.ctx.id);
+    }
 
-      let mut should_return_from_stack = false;
-      let mut export = None;
+    let mut export = None;
 
-      'ctx: while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
-        let now = Instant::now();
-        if now > self.next_gc {
-          self.run_gc();
-        }
-
-        #[cfg(feature = "runtime-disassembly")]
-        {
-          self.stack_display();
-          self.current_frame.ctx.display_instruction(&opcode, self.current_frame.ip);
-        }
-
-        match opcode {
-          Opcode::NoOp => self.exec_noop()?,
-          Opcode::Const(index) => self.exec_const(&opcode, index)?,
-          Opcode::Nil => self.exec_nil(),
-          Opcode::True => self.exec_true(),
-          Opcode::False => self.exec_false(),
-          Opcode::Pop => self.exec_pop(),
-          Opcode::PopN(count) => self.exec_pop_n(count),
-          Opcode::ForceAssignGlobal(index) => self.exec_force_assign_global(&opcode, index)?,
-          Opcode::DefineGlobal(index) => self.exec_define_global(&opcode, index)?,
-          Opcode::LookupGlobal(index) => self.exec_lookup_global(&opcode, index)?,
-          Opcode::AssignGlobal(index) => self.exec_assign_global(&opcode, index)?,
-          Opcode::LookupLocal(index) => self.exec_lookup_local(&opcode, index)?,
-          Opcode::AssignLocal(index) => self.exec_assign_local(&opcode, index)?,
-          Opcode::InitializeMember(index) => self.exec_initialize_member(&opcode, index)?,
-          Opcode::InitializeMethod(index) => self.exec_initialize_method(&opcode, index)?,
-          Opcode::InitializeConstructor => self.exec_initialize_constructor(&opcode)?,
-          Opcode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
-          Opcode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
-          Opcode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
-          Opcode::Equal => self.exec_equal(&opcode)?,
-          Opcode::NotEqual => self.exec_not_equal(&opcode)?,
-          Opcode::Greater => self.exec_greater(&opcode)?,
-          Opcode::GreaterEqual => self.exec_greater_equal(&opcode)?,
-          Opcode::Less => self.exec_less(&opcode)?,
-          Opcode::LessEqual => self.exec_less_equal(&opcode)?,
-          Opcode::Check => self.exec_check(&opcode)?,
-          Opcode::Add => self.exec_add(&opcode)?,
-          Opcode::Sub => self.exec_sub(&opcode)?,
-          Opcode::Mul => self.exec_mul(&opcode)?,
-          Opcode::Div => self.exec_div(&opcode)?,
-          Opcode::Rem => self.exec_rem(&opcode)?,
-          Opcode::Or(count) => {
-            if self.exec_or(&opcode, count)? {
-              continue 'ctx;
-            }
-          }
-          Opcode::And(count) => {
-            if self.exec_and(&opcode, count)? {
-              continue 'ctx;
-            }
-          }
-          Opcode::Not => self.exec_not(&opcode)?,
-          Opcode::Negate => self.exec_negate(&opcode)?,
-          Opcode::Print => self.exec_print(&opcode)?,
-          Opcode::Jump(count) => {
-            self.jump(count);
-            continue 'ctx;
-          }
-          Opcode::JumpIfFalse(count) => {
-            if self.exec_jump_if_false(&opcode, count)? {
-              continue 'ctx;
-            }
-          }
-          Opcode::Loop(count) => {
-            self.loop_back(count);
-            continue 'ctx;
-          }
-          Opcode::Invoke(airity) => {
-            self.current_frame.ip += 1;
-            self.exec_call(&opcode, airity)?;
-            continue 'ctx;
-          }
-          Opcode::Ret => {
-            break 'ctx;
-          }
-          Opcode::RetValue => {
-            should_return_from_stack = true;
-            break 'ctx;
-          }
-          Opcode::Req => {
-            self.current_frame.ip += 1;
-            self.exec_req(&opcode)?;
-            continue 'ctx;
-          }
-          Opcode::CreateList(num_items) => self.exec_create_list(num_items),
-          Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
-          Opcode::CreateStruct => self.exec_create_struct(),
-          Opcode::CreateClass => self.exec_create_class(),
-          Opcode::CreateModule => self.exec_create_module(),
-          Opcode::Breakpoint => {
-            self.ssdb().ok();
-          }
-          Opcode::Export => {
-            if let Some(value) = self.stack_pop() {
-              export = Some(value);
-            } else {
-              self.error(&opcode, "no value on stack to export");
-            }
-          }
-          Opcode::Define(ident) => self.exec_define(&opcode, ident)?,
-          Opcode::Resolve(ident) => self.exec_scope_resolution(&opcode, ident)?,
-          Opcode::EnterBlock => self.push_scope(),
-          Opcode::PopScope => self.pop_scope(),
-        }
-
-        self.current_frame.ip += 1;
+    'ctx: while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
+      let now = Instant::now();
+      if now > self.next_gc {
+        self.run_gc();
       }
 
       #[cfg(feature = "runtime-disassembly")]
       {
-        println!("<< END >>");
+        self.stack_display();
+        self.current_frame.ctx.display_instruction(&opcode, self.current_frame.ip);
       }
 
-      let output = export
-        // if there's an export, use this, only possible when exiting a file
-        .take()
-        // return from stack, not possible to hit outside of functions
-        // failure here is a logic error so unwrap
-        .or_else(|| should_return_from_stack.then(|| self.stack_pop().unwrap()))
-        // if implicit/void return nil
-        .unwrap_or_default();
-
-      let mut returning_from_function = true;
-
-      // if executing at the stack frame that required this file, pop it as we're exiting the file
-      // repl isn't an opened file therefore have to check for Some
-      if let Some(last_file) = self.opened_files.last() {
-        if last_file.frame == self.stack_frames.len() {
-          if let Some(info) = self.opened_files.pop() {
-            self.lib_cache.insert(info.id, output.clone());
-            returning_from_function = false;
-
-            // pop until a file env is found
-            while !matches!(self.envs.pop(), EnvEntry::File(_)) {}
+      match opcode {
+        Opcode::NoOp => self.exec_noop()?,
+        Opcode::Const(index) => self.exec_const(&opcode, index)?,
+        Opcode::Nil => self.exec_nil(),
+        Opcode::True => self.exec_true(),
+        Opcode::False => self.exec_false(),
+        Opcode::Pop => self.exec_pop(),
+        Opcode::PopN(count) => self.exec_pop_n(count),
+        Opcode::ForceAssignGlobal(index) => self.exec_force_assign_global(&opcode, index)?,
+        Opcode::DefineGlobal(index) => self.exec_define_global(&opcode, index)?,
+        Opcode::LookupGlobal(index) => self.exec_lookup_global(&opcode, index)?,
+        Opcode::AssignGlobal(index) => self.exec_assign_global(&opcode, index)?,
+        Opcode::LookupLocal(index) => self.exec_lookup_local(&opcode, index)?,
+        Opcode::AssignLocal(index) => self.exec_assign_local(&opcode, index)?,
+        Opcode::InitializeMember(index) => self.exec_initialize_member(&opcode, index)?,
+        Opcode::InitializeMethod(index) => self.exec_initialize_method(&opcode, index)?,
+        Opcode::InitializeConstructor => self.exec_initialize_constructor(&opcode)?,
+        Opcode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
+        Opcode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
+        Opcode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
+        Opcode::Equal => self.exec_equal(&opcode)?,
+        Opcode::NotEqual => self.exec_not_equal(&opcode)?,
+        Opcode::Greater => self.exec_greater(&opcode)?,
+        Opcode::GreaterEqual => self.exec_greater_equal(&opcode)?,
+        Opcode::Less => self.exec_less(&opcode)?,
+        Opcode::LessEqual => self.exec_less_equal(&opcode)?,
+        Opcode::Check => self.exec_check(&opcode)?,
+        Opcode::Add => self.exec_add(&opcode)?,
+        Opcode::Sub => self.exec_sub(&opcode)?,
+        Opcode::Mul => self.exec_mul(&opcode)?,
+        Opcode::Div => self.exec_div(&opcode)?,
+        Opcode::Rem => self.exec_rem(&opcode)?,
+        Opcode::Or(count) => {
+          if self.exec_or(&opcode, count)? {
+            continue 'ctx;
           }
         }
+        Opcode::And(count) => {
+          if self.exec_and(&opcode, count)? {
+            continue 'ctx;
+          }
+        }
+        Opcode::Not => self.exec_not(&opcode)?,
+        Opcode::Negate => self.exec_negate(&opcode)?,
+        Opcode::Print => self.exec_print(&opcode)?,
+        Opcode::Jump(count) => {
+          self.jump(count);
+          continue 'ctx;
+        }
+        Opcode::JumpIfFalse(count) => {
+          if self.exec_jump_if_false(&opcode, count)? {
+            continue 'ctx;
+          }
+        }
+        Opcode::Loop(count) => {
+          self.loop_back(count);
+          continue 'ctx;
+        }
+        Opcode::Invoke(airity) => {
+          self.current_frame.ip += 1;
+          self.exec_call(&opcode, airity)?;
+          continue 'ctx;
+        }
+        Opcode::Ret => {
+          export = Some(Value::nil);
+          break 'ctx;
+        }
+        Opcode::RetValue => {
+          export = Some(self.stack_pop().expect("value must be on stack to return"));
+          break 'ctx;
+        }
+        Opcode::Req => {
+          self.current_frame.ip += 1;
+          self.exec_req(&opcode)?;
+          continue 'ctx;
+        }
+        Opcode::CreateList(num_items) => self.exec_create_list(num_items),
+        Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
+        Opcode::CreateStruct => self.exec_create_struct(),
+        Opcode::CreateClass => self.exec_create_class(),
+        Opcode::CreateModule => self.exec_create_module(),
+        Opcode::Breakpoint => {
+          self.ssdb().ok();
+        }
+        Opcode::Export => {
+          if let Some(value) = self.stack_pop() {
+            export = Some(value);
+          } else {
+            self.error(&opcode, "no value on stack to export");
+          }
+        }
+        Opcode::Define(ident) => self.exec_define(&opcode, ident)?,
+        Opcode::Resolve(ident) => self.exec_scope_resolution(&opcode, ident)?,
+        Opcode::EnterBlock => self.push_scope(),
+        Opcode::PopScope => self.pop_scope(),
       }
 
-      if let Some(stack_frame) = self.stack_frames.pop() {
-        if stack_frame.ip < stack_frame.ctx.num_instructions() {
-          // the vm is returning from a function call or req
-          self.current_frame = stack_frame;
-          self.stack_push(output);
+      self.current_frame.ip += 1;
+    }
 
-          if returning_from_function {
-            // pop until a fn env is found
-            while !matches!(self.envs.pop(), EnvEntry::Fn(_)) {}
-          }
-        } else {
-          // the vm is exiting the main script
-          break 'file Ok(output);
+    #[cfg(feature = "runtime-disassembly")]
+    {
+      println!("<< END >>");
+    }
+
+    match exec_type {
+      ExecType::File => {
+        let info = self.opened_files.pop().expect("file must be popped when leaving a file");
+        if let Some(export) = &export {
+          self.lib_cache.insert(info.id, export.clone());
         }
-      } else {
-        // possible to reach with repl
-        // since it will run out of instructions
-        // but keep the stack/ip
-        break 'file Ok(output);
+
+        // pop until a file env is found
+        while !matches!(self.envs.pop(), EnvEntry::File(_)) {}
+      }
+      ExecType::Fn => {
+        // pop until a fn env is found
+        while !matches!(self.envs.pop(), EnvEntry::Fn(_)) {}
       }
     }
+
+    if let Some(stack_frame) = self.stack_frames.pop() {
+      // the vm is returning from a function call or req
+      self.current_frame = stack_frame;
+    }
+
+    Ok(export.unwrap_or_default())
   }
 
   /* Operations */
@@ -867,7 +846,7 @@ impl Vm {
 
   /// when f evaluates to true, short circuit
 
-  fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, opcode: &Opcode, offset: usize, f: F) -> ExecBoolResult {
+  fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, opcode: &Opcode, offset: usize, f: F) -> ExecResult<bool> {
     match self.stack_peek() {
       Some(v) => {
         if f(v) {
@@ -882,11 +861,11 @@ impl Vm {
     }
   }
 
-  fn exec_or(&mut self, opcode: &Opcode, offset: usize) -> ExecBoolResult {
+  fn exec_or(&mut self, opcode: &Opcode, offset: usize) -> ExecResult<bool> {
     self.exec_logical(opcode, offset, |v| v.truthy())
   }
 
-  fn exec_and(&mut self, opcode: &Opcode, offset: usize) -> ExecBoolResult {
+  fn exec_and(&mut self, opcode: &Opcode, offset: usize) -> ExecResult<bool> {
     self.exec_logical(opcode, offset, |v| v.falsy())
   }
 
@@ -907,7 +886,7 @@ impl Vm {
     }
   }
 
-  fn exec_jump_if_false(&mut self, opcode: &Opcode, offset: usize) -> ExecBoolResult {
+  fn exec_jump_if_false(&mut self, opcode: &Opcode, offset: usize) -> ExecResult<bool> {
     match self.stack_pop() {
       Some(v) => {
         if !v.truthy() {
@@ -1035,8 +1014,9 @@ impl Vm {
 
                 self.new_frame(new_ctx);
                 self.envs.push(EnvEntry::File(gmod));
-
                 self.opened_files.push(FileInfo::new(found_file, id, self.stack_frames.len()));
+                let output = self.execute(ExecType::File)?;
+                self.stack_push(output);
               }
 
               Ok(())
@@ -1136,16 +1116,16 @@ impl Vm {
             obj.define(name, value).map_err(|e| self.error(opcode, e))?;
             Ok(())
           } else {
-            Err(self.error(opcode, String::from("invalid name for member")))
+            Err(self.error(opcode, "invalid name for member"))
           }
         } else {
-          Err(self.error(opcode, String::from("no identifier found at index")))
+          Err(self.error(opcode, "no identifier found at index"))
         }
       } else {
-        Err(self.error(opcode, String::from("no value on stack to define a member to")))
+        Err(self.error(opcode, "no value on stack to define a member to"))
       }
     } else {
-      Err(self.error(opcode, String::from("no value on stack to define a member on")))
+      Err(self.error(opcode, "no value on stack to define a member on"))
     }
   }
 

@@ -57,9 +57,7 @@ fn run_file(mut vm: Vm, file: PathBuf, env: UsertypeHandle<ModuleValue>) -> bool
             return true;
           }
           Err(errors) => {
-            for err in errors {
-              println!("{} ({}, {}): {}", err.file.display(), err.line, err.column, err.msg);
-            }
+            println!("{errors}");
             return false;
           }
         },
