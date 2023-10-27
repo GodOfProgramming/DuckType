@@ -15,6 +15,7 @@ use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
   collections::BTreeMap,
+  error::Error,
   fmt::{self, Debug, Formatter},
   fs,
   path::{Path, PathBuf},
@@ -255,7 +256,7 @@ impl Vm {
     }
   }
 
-  pub fn ssdb(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+  pub fn ssdb(&mut self) -> Result<(), Box<dyn Error>> {
     let mut rl = DefaultEditor::new()?;
     loop {
       match rl.readline("dbg> ") {
@@ -306,7 +307,7 @@ impl Vm {
     let file = file.into();
     let id = PlatformMetadata::id_of(&file).unwrap_or(0);
 
-    self.opened_files = vec![FileInfo::new(file, id, 0)];
+    self.opened_files = vec![FileInfo::new(file, id)];
     self.reinitialize(ctx, env);
     self.execute(ExecType::File)
   }
@@ -321,22 +322,20 @@ impl Vm {
   where
     F: FnOnce(Value) -> ValueResult,
   {
-    if let Some(v) = self.stack_pop() {
-      if v.is_ptr() {
-        let key = match opcode {
-          Opcode::Negate => ops::NEG,
-          Opcode::Not => ops::NOT,
-          _ => Err(self.error(format!("invalid unary operation")))?,
-        };
+    let value = self.stack_pop().ok_or_else(|| self.error("cannot operate on empty stack"))?;
 
-        let callable = v.get_member(&mut self.gc, key).map_err(|e| self.error(e))?;
-        self.call_value(callable, [])
-      } else {
-        self.stack_push(f(v).map_err(|e| self.error(e))?);
-        Ok(())
-      }
+    if value.is_ptr() {
+      let key = match opcode {
+        Opcode::Negate => ops::NEG,
+        Opcode::Not => ops::NOT,
+        _ => Err(self.error(format!("invalid unary operation")))?,
+      };
+
+      let callable = value.get_member(&mut self.gc, key).map_err(|e| self.error(e))?;
+      self.call_value(callable, [])
     } else {
-      Err(self.error("cannot operate on empty stack"))
+      self.stack_push(f(value).map_err(|e| self.error(e))?);
+      Ok(())
     }
   }
 
@@ -344,35 +343,30 @@ impl Vm {
   where
     F: FnOnce(Value, Value) -> ValueResult,
   {
-    if let Some(bv) = self.stack_pop() {
-      if let Some(av) = self.stack_pop() {
-        if av.is_ptr() {
-          let key = match opcode {
-            Opcode::Add => ops::ADD,
-            Opcode::Sub => ops::SUB,
-            Opcode::Mul => ops::MUL,
-            Opcode::Div => ops::DIV,
-            Opcode::Rem => ops::REM,
-            Opcode::Equal => ops::EQUALITY,
-            Opcode::NotEqual => ops::NOT_EQUAL,
-            Opcode::Less => ops::LESS,
-            Opcode::LessEqual => ops::LESS_EQUAL,
-            Opcode::Greater => ops::GREATER,
-            Opcode::GreaterEqual => ops::GREATER_EQUAL,
-            _ => Err(self.error(format!("invalid binary operation")))?,
-          };
+    let bv = self.stack_pop().ok_or_else(|| self.error("cannot operate on empty stack"))?;
+    let av = self.stack_pop().ok_or_else(|| self.error("cannot operate on empty stack"))?;
 
-          let callable = av.get_member(&mut self.gc, key).map_err(|e| self.error(e))?;
-          self.call_value(callable, [bv])
-        } else {
-          self.stack_push(f(av, bv).map_err(|e| self.error(e))?);
-          Ok(())
-        }
-      } else {
-        Err(self.error("cannot operate on empty stack"))
-      }
+    if av.is_ptr() {
+      let key = match opcode {
+        Opcode::Add => ops::ADD,
+        Opcode::Sub => ops::SUB,
+        Opcode::Mul => ops::MUL,
+        Opcode::Div => ops::DIV,
+        Opcode::Rem => ops::REM,
+        Opcode::Equal => ops::EQUALITY,
+        Opcode::NotEqual => ops::NOT_EQUAL,
+        Opcode::Less => ops::LESS,
+        Opcode::LessEqual => ops::LESS_EQUAL,
+        Opcode::Greater => ops::GREATER,
+        Opcode::GreaterEqual => ops::GREATER_EQUAL,
+        _ => Err(self.error(format!("invalid binary operation")))?,
+      };
+
+      let callable = av.get_member(&mut self.gc, key).map_err(|e| self.error(e))?;
+      self.call_value(callable, [bv])
     } else {
-      Err(self.error("cannot operate on empty stack"))
+      self.stack_push(f(av, bv).map_err(|e| self.error(e))?);
+      Ok(())
     }
   }
 
@@ -460,11 +454,17 @@ impl Vm {
           break 'ctx;
         }
         Opcode::RetValue => {
-          export = Some(self.stack_pop().expect("value must be on stack to return"));
+          let value = self
+            .stack_pop()
+            .ok_or_else(|| self.error("value must be on stack to return"))?;
+
+          export = Some(value);
           break 'ctx;
         }
         Opcode::RetSelf => {
-          export = Some(self.stack_index_0().expect("value must be on the stack"));
+          let this = self.stack_index_0().ok_or_else(|| self.error("value must be on the stack"))?;
+
+          export = Some(this);
           break 'ctx;
         }
         Opcode::Req => {
@@ -481,11 +481,9 @@ impl Vm {
           self.ssdb().ok();
         }
         Opcode::Export => {
-          if let Some(value) = self.stack_pop() {
-            export = Some(value);
-          } else {
-            self.error("no value on stack to export");
-          }
+          let value = self.stack_pop().ok_or_else(|| self.error("no value on stack to export"))?;
+
+          export = Some(value);
         }
         Opcode::Define(ident) => self.exec_define(ident)?,
         Opcode::Resolve(ident) => self.exec_scope_resolution(ident)?,
@@ -555,14 +553,15 @@ impl Vm {
   }
 
   fn exec_const(&mut self, index: usize) -> ExecResult {
-    if let Some(c) = self.current_frame.ctx.const_at(index) {
-      let env = self.current_env().into();
-      let value = Value::from_constant(&mut self.gc, env, c);
-      self.stack_push(value);
-    } else {
-      Err(self.error("could not lookup constant"))?;
-    }
+    let c = self
+      .current_frame
+      .ctx
+      .const_at(index)
+      .ok_or_else(|| self.error("could not lookup constant"))?;
 
+    let env = self.current_env().into();
+    let value = Value::from_constant(&mut self.gc, env, c);
+    self.stack_push(value);
     Ok(())
   }
 
@@ -587,196 +586,200 @@ impl Vm {
   }
 
   fn exec_lookup_local(&mut self, location: usize) -> ExecResult {
-    if let Some(local) = self.stack_index(location) {
-      self.stack_push(local);
-      Ok(())
-    } else {
-      Err(self.error(format!("could not index stack at pos {}", location)))
-    }
+    let local = self
+      .stack_index(location)
+      .ok_or_else(|| self.error(format!("could not index stack at pos {}", location)))?;
+
+    self.stack_push(local);
+    Ok(())
   }
 
   fn exec_assign_local(&mut self, location: usize) -> ExecResult {
-    if let Some(value) = self.stack_peek() {
-      self.stack_assign(location, value);
-      Ok(())
-    } else {
-      Err(self.error(format!("could not replace stack value at pos {}", location)))
-    }
+    let value = self
+      .stack_peek()
+      .ok_or_else(|| self.error(format!("could not replace stack value at pos {}", location)))?;
+
+    self.stack_assign(location, value);
+    Ok(())
   }
 
   fn exec_lookup_global(&mut self, location: usize) -> ExecResult {
     self.global_op(location, |this, name| {
-      if let Some(global) = this.current_env().lookup(name) {
-        this.stack_push(global);
-        Ok(())
-      } else {
-        Err(this.error("use of undefined variable"))
-      }
+      let global = this
+        .current_env()
+        .lookup(name)
+        .ok_or_else(|| this.error("use of undefined variable"))?;
+
+      this.stack_push(global);
+      Ok(())
     })
   }
 
   fn exec_force_assign_global(&mut self, location: usize) -> ExecResult {
     self.global_op(location, |this, name| {
-      // used with declarations only, so pop because it can't be chained
-      if let Some(v) = this.stack_pop() {
-        this.current_env_mut().define(name, v);
-        Ok(())
-      } else {
-        Err(this.error("can not define global using empty stack"))
-      }
+      let v = this
+        .stack_pop()
+        .ok_or_else(|| this.error("can not define global using empty stack"))?;
+
+      this.current_env_mut().define(name, v);
+      Ok(())
     })
   }
 
   fn exec_define_global(&mut self, location: usize) -> ExecResult {
     self.global_op(location, |this, name| {
-      if let Some(v) = this.stack_peek() {
-        if this.current_env_mut().define(name.clone(), v) {
-          Ok(())
-        } else {
-          let level = this.current_env().search_for(0, &name);
-          Err(this.error(format!("tried redefining a global variable at {level:?}: {name}")))
-        }
+      let v = this
+        .stack_peek()
+        .ok_or_else(|| this.error("can not define global using empty stack"))?;
+
+      if this.current_env_mut().define(name.clone(), v) {
+        Ok(())
       } else {
-        Err(this.error("can not define global using empty stack"))
+        let level = this.current_env().search_for(0, &name);
+        Err(this.error(format!("tried redefining a global variable at {level:?}: {name}")))
       }
     })
   }
 
   fn exec_assign_global(&mut self, location: usize) -> ExecResult {
     self.global_op(location, |this, name| {
-      if let Some(v) = this.stack_peek() {
-        if this.current_env_mut().assign(name, v) {
-          Ok(())
-        } else {
-          Err(this.error("tried to assign to nonexistent global"))
-        }
+      let v = this
+        .stack_peek()
+        .ok_or_else(|| this.error("can not assign to global using empty stack"))?;
+
+      if this.current_env_mut().assign(name, v) {
+        Ok(())
       } else {
-        Err(this.error("can not assign to global using empty stack"))
+        Err(this.error("tried to assign to nonexistent global"))
       }
     })
   }
 
   fn exec_initialize_member(&mut self, location: usize) -> ExecResult {
-    if let Some(value) = self.stack_pop() {
-      if let Some(mut obj) = self.stack_peek() {
-        if let Some(name) = self.current_frame.ctx.const_at(location) {
-          if let ConstantValue::String(name) = name {
-            obj.set_member(&mut self.gc, name, value).map_err(|e| self.error(e))
-          } else {
-            Err(self.error("invalid name for member"))
-          }
-        } else {
-          Err(self.error("no identifier found at index"))
-        }
-      } else {
-        Err(self.error("no value on stack to initialize a member to"))
-      }
+    let value = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no value on stack to initialize to member"))?;
+
+    let mut obj = self
+      .stack_peek()
+      .ok_or_else(|| self.error("no value on stack to initialize a member to"))?;
+
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(location)
+      .ok_or_else(|| self.error("no identifier found at index"))?;
+
+    if let ConstantValue::String(name) = name {
+      obj.set_member(&mut self.gc, name, value).map_err(|e| self.error(e))
     } else {
-      Err(self.error("no value on stack to initialize to member"))
+      Err(self.error("invalid name for member"))
     }
   }
 
   fn exec_initialize_method(&mut self, location: usize) -> ExecResult {
-    if let Some(value) = self.stack_pop() {
-      if let Some(mut obj) = self.stack_peek() {
-        if let Some(name) = self.current_frame.ctx.const_at(location) {
-          if let ConstantValue::String(name) = name {
-            if let Some(class) = obj.as_class_mut() {
-              if let Some(f) = value.as_fn() {
-                class.set_method(name, f.clone());
-                Ok(())
-              } else {
-                Err(self.error("methods can only be functions"))
-              }
-            } else {
-              Err(self.error("can only create methods on classes"))
-            }
-          } else {
-            Err(self.error("invalid name for member"))
-          }
-        } else {
-          Err(self.error("no identifier found at index"))
-        }
-      } else {
-        Err(self.error("no value on stack to assign a method to"))
-      }
+    let value = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no value on stack to assign to method"))?;
+
+    let mut obj = self
+      .stack_peek()
+      .ok_or_else(|| self.error("no value on stack to assign a method to"))?;
+
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(location)
+      .ok_or_else(|| self.error("no identifier found at index"))?;
+
+    let class = obj
+      .as_class_mut()
+      .ok_or_else(|| self.error("can only create methods on classes"))?;
+
+    let f = value.as_fn().ok_or_else(|| self.error("methods can only be functions"))?;
+
+    if let ConstantValue::String(name) = name {
+      class.set_method(name, f.clone());
+      Ok(())
     } else {
-      Err(self.error("no value on stack to assign to method"))
+      Err(self.error("invalid name for member"))
     }
   }
 
   fn exec_initialize_constructor(&mut self) -> ExecResult {
-    if let Some(value) = self.stack_pop() {
-      if let Some(mut obj) = self.stack_peek() {
-        if let Some(class) = obj.as_class_mut() {
-          class.set_constructor(value);
-          Ok(())
-        } else {
-          Err(self.error("can only set constructors on classes"))
-        }
-      } else {
-        Err(self.error("no value on stack to assign a member to"))
-      }
-    } else {
-      Err(self.error("no value on stack to assign to constructor"))
-    }
+    let value = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no value on stack to assign to constructor"))?;
+
+    let mut obj = self
+      .stack_peek()
+      .ok_or_else(|| self.error("no value on stack to assign a member to"))?;
+
+    let class = obj
+      .as_class_mut()
+      .ok_or_else(|| self.error("can only set constructors on classes"))?;
+
+    class.set_constructor(value);
+    Ok(())
   }
 
   fn exec_assign_member(&mut self, location: usize) -> ExecResult {
-    if let Some(value) = self.stack_pop() {
-      if let Some(mut obj) = self.stack_pop() {
-        if let Some(name) = self.current_frame.ctx.const_at(location) {
-          if let ConstantValue::String(name) = name {
-            obj.set_member(&mut self.gc, name, value.clone()).map_err(|e| self.error(e))?;
-            self.stack_push(value);
-            Ok(())
-          } else {
-            Err(self.error("constant at index is not an identifier"))
-          }
-        } else {
-          Err(self.error("no ident found at index"))
-        }
-      } else {
-        Err(self.error("no object to assign to"))
-      }
+    let value = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no value on stack to assign to member"))?;
+
+    let mut obj = self.stack_pop().ok_or_else(|| self.error("no object to assign to"))?;
+
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(location)
+      .ok_or_else(|| self.error("no ident found at index"))?;
+
+    if let ConstantValue::String(name) = name {
+      obj.set_member(&mut self.gc, name, value.clone()).map_err(|e| self.error(e))?;
+      self.stack_push(value);
+      Ok(())
     } else {
-      Err(self.error("no value on stack to assign to member"))
+      Err(self.error("constant at index is not an identifier"))
     }
   }
 
   fn exec_lookup_member(&mut self, location: usize) -> ExecResult {
-    if let Some(obj) = self.stack_pop() {
-      if let Some(name) = self.current_frame.ctx.const_at(location) {
-        if let ConstantValue::String(name) = name {
-          let value = obj.get_member(&mut self.gc, name).map_err(|e| self.error(e))?;
-          self.stack_push(value);
-          Ok(())
-        } else {
-          Err(self.error("member identifier is not a string"))
-        }
-      } else {
-        Err(self.error("no identifier at index"))
-      }
+    let obj = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no value on stack to perform lookup on"))?;
+
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(location)
+      .ok_or_else(|| self.error("no identifier at index"))?;
+
+    if let ConstantValue::String(name) = name {
+      let value = obj.get_member(&mut self.gc, name).map_err(|e| self.error(e))?;
+      self.stack_push(value);
+      Ok(())
     } else {
-      Err(self.error("no value on stack to perform lookup on"))
+      Err(self.error("member identifier is not a string"))
     }
   }
 
   fn exec_peek_member(&mut self, location: usize) -> ExecResult {
-    if let Some(value) = self.stack_peek() {
-      if let Some(name) = self.current_frame.ctx.const_at(location) {
-        if let ConstantValue::String(name) = name {
-          let member = value.get_member(&mut self.gc, name).map_err(|e| self.error(e))?;
-          self.stack_push(member);
-          Ok(())
-        } else {
-          Err(self.error(format!("invalid lookup for member access: {}", value)))
-        }
-      } else {
-        Err(self.error(format!("no name for member access: {}", value)))
-      }
+    let value = self.stack_peek().ok_or_else(|| self.error("no object to lookup on"))?;
+
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(location)
+      .ok_or_else(|| self.error(format!("no name for member access: {}", value)))?;
+
+    if let ConstantValue::String(name) = name {
+      let member = value.get_member(&mut self.gc, name).map_err(|e| self.error(e))?;
+      self.stack_push(member);
+      Ok(())
     } else {
-      Err(self.error("no object to lookup on"))
+      Err(self.error(format!("invalid lookup for member access: {}", value)))
     }
   }
 
@@ -809,16 +812,12 @@ impl Vm {
   }
 
   fn exec_check(&mut self) -> ExecResult {
-    match self.stack_pop() {
-      Some(a) => match self.stack_peek() {
-        Some(b) => {
-          self.stack_push(Value::from(a == b));
-          Ok(())
-        }
-        None => Err(self.error("stack peek failed")),
-      },
-      None => Err(self.error("stack pop failed")),
-    }
+    let b = self.stack_pop().ok_or_else(|| self.error("stack pop failed"))?;
+
+    let a = self.stack_peek().ok_or_else(|| self.error("stack peek failed"))?;
+
+    self.stack_push(Value::from(a == b));
+    Ok(())
   }
 
   fn exec_add(&mut self, opcode: &Opcode) -> ExecResult {
@@ -844,17 +843,13 @@ impl Vm {
   /// when f evaluates to true, short circuit
 
   fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, offset: usize, f: F) -> ExecResult<bool> {
-    match self.stack_peek() {
-      Some(v) => {
-        if f(v) {
-          self.jump(offset);
-          Ok(true)
-        } else {
-          self.stack_pop();
-          Ok(false)
-        }
-      }
-      None => Err(self.error("no item on the stack to peek")),
+    let value = self.stack_peek().ok_or_else(|| self.error("no item on the stack to peek"))?;
+    if f(value) {
+      self.jump(offset);
+      Ok(true)
+    } else {
+      self.stack_pop();
+      Ok(false)
     }
   }
 
@@ -875,157 +870,145 @@ impl Vm {
   }
 
   fn exec_print(&mut self) -> ExecResult {
-    if let Some(v) = self.stack_pop() {
-      println!("{}", v);
-      Ok(())
-    } else {
-      Err(self.error("no value to print"))
-    }
+    let value = self.stack_pop().ok_or_else(|| self.error("no value to print"))?;
+    println!("{value}");
+    Ok(())
   }
 
   fn exec_jump_if_false(&mut self, offset: usize) -> ExecResult<bool> {
-    match self.stack_pop() {
-      Some(v) => {
-        if !v.truthy() {
-          self.jump(offset);
-          Ok(true)
-        } else {
-          Ok(false)
-        }
-      }
-      None => Err(self.error("no item on the stack to pop")),
+    let value = self.stack_pop().ok_or_else(|| self.error("no item on the stack to pop"))?;
+
+    if !value.truthy() {
+      self.jump(offset);
+      Ok(true)
+    } else {
+      Ok(false)
     }
   }
 
   fn exec_call(&mut self, airity: usize) -> ExecResult {
     let args = self.stack_drain_from(airity);
-    if let Some(callable) = self.stack_pop() {
-      self.call_value(callable, args)
-    } else {
-      Err(self.error("cannot operate on empty stack"))
-    }
+    let callable = self.stack_pop().ok_or_else(|| self.error("cannot operate on empty stack"))?;
+    self.call_value(callable, args)
   }
 
   fn exec_req(&mut self) -> ExecResult {
-    if let Some(value) = self.stack_pop() {
-      let mut attempts = Vec::with_capacity(10);
-
-      let file_str = value.to_string();
-      let this_file = self.opened_files.last().map(|f| f.path.clone());
-
-      let required_file = PathBuf::from(file_str.as_str());
-
-      let mut found_file = None;
-
-      fn try_to_find_file(root: &Path, desired: &PathBuf, attempts: &mut Vec<PathBuf>) -> Option<PathBuf> {
-        let direct = root.join(desired);
-        if direct.exists() {
-          return Some(direct);
-        }
-        attempts.push(direct.clone());
-
-        let direct_with_native_extension = direct.with_extension(dlopen2::utils::PLATFORM_FILE_EXTENSION);
-        if direct_with_native_extension.exists() {
-          return Some(direct_with_native_extension);
-        }
-        attempts.push(direct_with_native_extension);
-
-        let direct_with_script_extension = direct.with_extension("ss");
-        if direct_with_script_extension.exists() {
-          return Some(direct_with_script_extension);
-        }
-        attempts.push(direct_with_script_extension);
-
-        None
+    fn try_to_find_file(root: &Path, desired: &PathBuf, attempts: &mut Vec<PathBuf>) -> Option<PathBuf> {
+      let direct = root.join(desired);
+      if direct.exists() {
+        return Some(direct);
       }
+      attempts.push(direct.clone());
 
-      // find relative first, skip if None, None will be during repl so go to cwd
-      if let Some(this_dir) = this_file.and_then(|this_file| this_file.parent().map(|p| p.to_path_buf())) {
-        found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
+      let direct_with_native_extension = direct.with_extension(dlopen2::utils::PLATFORM_FILE_EXTENSION);
+      if direct_with_native_extension.exists() {
+        return Some(direct_with_native_extension);
       }
+      attempts.push(direct_with_native_extension);
 
-      // then try to find from cwd
-      if found_file.is_none() {
-        let this_dir = std::env::current_dir().map_err(|e| self.error(e))?;
-        found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
+      let direct_with_script_extension = direct.with_extension("ss");
+      if direct_with_script_extension.exists() {
+        return Some(direct_with_script_extension);
       }
+      attempts.push(direct_with_script_extension);
 
-      // if still not found, try searching library paths
-      if found_file.is_none() {
-        if let Some(library_mod) = self.current_env().lookup(module_value::LIB_GLOBAL) {
-          if let Some(library_mod) = library_mod.as_struct() {
-            if let Ok(Some(list)) = library_mod
-              .get_field(&mut self.gc, module_value::PATHS_MEMBER)
-              .map(|l| l.map(|l| l.as_array()))
-            {
-              for item in list.iter() {
-                let base = PathBuf::from(item.to_string());
-                found_file = try_to_find_file(&base, &required_file, &mut attempts);
-                if found_file.is_some() {
-                  break;
-                }
+      None
+    }
+
+    let value = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no item on stack to require (logic error)"))?;
+
+    let mut attempts = Vec::with_capacity(10);
+
+    let file_str = value.to_string();
+    let this_file = self.opened_files.last().map(|f| f.path.clone());
+
+    let required_file = PathBuf::from(file_str.as_str());
+
+    let mut found_file = None;
+
+    // find relative first, skip if None, None will be during repl so go to cwd
+    if let Some(this_dir) = this_file.and_then(|this_file| this_file.parent().map(|p| p.to_path_buf())) {
+      found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
+    }
+
+    // then try to find from cwd
+    if found_file.is_none() {
+      let this_dir = std::env::current_dir().map_err(|e| self.error(e))?;
+      found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
+    }
+
+    // if still not found, try searching library paths
+    if found_file.is_none() {
+      if let Some(library_mod) = self.current_env().lookup(module_value::LIB_GLOBAL) {
+        if let Some(library_mod) = library_mod.as_struct() {
+          if let Ok(Some(list)) = library_mod
+            .get_field(&mut self.gc, module_value::PATHS_MEMBER)
+            .map(|l| l.map(|l| l.as_array()))
+          {
+            for item in list.iter() {
+              let base = PathBuf::from(item.to_string());
+              found_file = try_to_find_file(&base, &required_file, &mut attempts);
+              if found_file.is_some() {
+                break;
               }
             }
           }
         }
       }
+    }
 
-      if let Some(found_file) = found_file {
-        let id = PlatformMetadata::id_of(&found_file)
-          .map_err(|e| self.error(format!("failed to get file info of {}: {}", found_file.display(), e)))?;
+    let found_file = found_file.ok_or_else(|| self.error(format!("unable to find file, tried: {:#?}", attempts)))?;
+    let id = PlatformMetadata::id_of(&found_file)
+      .map_err(|e| self.error(format!("failed to get file info of {}: {}", found_file.display(), e)))?;
 
-        match found_file.extension().and_then(|s| s.to_str()) {
-          Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-            let value = if let Some(value) = self.lib_cache.get(&id) {
-              value.clone()
-            } else {
-              let lib: Container<NativeApi> =
-                unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
+    match found_file.extension().and_then(|s| s.to_str()) {
+      Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
+        let value = if let Some(value) = self.lib_cache.get(&id) {
+          value.clone()
+        } else {
+          let lib: Container<NativeApi> =
+            unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
-              let value = lib.simple_script_load_module(self).map_err(|e| self.error(e))?;
-              self.opened_native_libs.insert(found_file, lib);
-              self.lib_cache.insert(id, value.clone());
-              value
-            };
+          let value = lib.simple_script_load_module(self).map_err(|e| self.error(e))?;
+          self.opened_native_libs.insert(found_file, lib);
+          self.lib_cache.insert(id, value.clone());
+          value
+        };
 
-            self.stack_push(value);
+        self.stack_push(value);
 
-            Ok(())
-          }
-          _ => match fs::read_to_string(&found_file) {
-            Ok(data) => {
-              if let Some(value) = self.lib_cache.get(&id) {
-                self.stack_push(value.clone());
-              } else {
-                let new_ctx = Compiler::compile(found_file.clone(), &data)?;
-                let gmod = ModuleBuilder::initialize(&mut self.gc, None, |gc, mut lib| {
-                  lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &self.args, &self.libs.clone());
-                });
-
-                #[cfg(feature = "disassemble")]
-                {
-                  println!("!!!!! ENTERING {} !!!!!", found_file.display());
-                  new_ctx.disassemble();
-                  println!("!!!!! LEAVING  {} !!!!!", found_file.display());
-                }
-
-                self.new_frame(new_ctx);
-                self.envs.push(EnvEntry::File(gmod));
-                self.opened_files.push(FileInfo::new(found_file, id, self.stack_frames.len()));
-                let output = self.execute(ExecType::File)?;
-                self.stack_push(output);
-              }
-
-              Ok(())
-            }
-            Err(e) => Err(self.error(format!("unable to read file '{}': {}", file_str, e,))),
-          },
-        }
-      } else {
-        Err(self.error(format!("unable to find file, tried: {:#?}", attempts)))
+        Ok(())
       }
-    } else {
-      Err(self.error("no item on stack to require (logic error)"))
+      _ => {
+        let data =
+          fs::read_to_string(&found_file).map_err(|e| self.error(format!("unable to read file '{}': {}", file_str, e,)))?;
+
+        if let Some(value) = self.lib_cache.get(&id) {
+          self.stack_push(value.clone());
+        } else {
+          let new_ctx = Compiler::compile(found_file.clone(), &data)?;
+          let gmod = ModuleBuilder::initialize(&mut self.gc, None, |gc, mut lib| {
+            lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &self.args, &self.libs.clone());
+          });
+
+          #[cfg(feature = "disassemble")]
+          {
+            println!("!!!!! ENTERING {} !!!!!", found_file.display());
+            new_ctx.disassemble();
+            println!("!!!!! LEAVING  {} !!!!!", found_file.display());
+          }
+
+          self.new_frame(new_ctx);
+          self.envs.push(EnvEntry::File(gmod));
+          self.opened_files.push(FileInfo::new(found_file, id));
+          let output = self.execute(ExecType::File)?;
+          self.stack_push(output);
+        }
+
+        Ok(())
+      }
     }
   }
 
@@ -1036,25 +1019,23 @@ impl Vm {
   }
 
   fn exec_create_closure(&mut self) -> ExecResult {
-    match self.stack_pop() {
-      Some(function) => match self.stack_pop() {
-        Some(captures) => {
-          if let Some(f) = function.as_fn() {
-            if let Some(captures) = captures.as_array() {
-              let closure = self.gc.allocate(ClosureValue::new(captures, f.clone()));
-              self.stack_push(closure);
-              Ok(())
-            } else {
-              Err(self.error("capture list must be a struct"))
-            }
-          } else {
-            Err(self.error("closure must be a function"))
-          }
-        }
-        None => Err(self.error("no item on the stack to pop for closure captures")),
-      },
-      None => Err(self.error("no item on the stack to pop for closure function")),
-    }
+    let function = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no item on the stack to pop for closure function"))?;
+
+    let captures = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no item on the stack to pop for closure captures"))?;
+
+    let f = function.as_fn().ok_or_else(|| self.error("closure must be a function"))?;
+
+    let c = captures
+      .as_array()
+      .ok_or_else(|| self.error("capture list must be a struct"))?;
+
+    let closure = self.gc.allocate(ClosureValue::new(c, f.clone()));
+    self.stack_push(closure);
+    Ok(())
   }
 
   fn exec_create_struct(&mut self) {
@@ -1077,20 +1058,20 @@ impl Vm {
   }
 
   fn exec_scope_resolution(&mut self, ident: usize) -> ExecResult {
-    if let Some(obj) = self.stack_pop() {
-      if let Some(name) = self.current_frame.ctx.const_at(ident) {
-        if let ConstantValue::String(name) = name {
-          let value = obj.resolve(name).map_err(|e| self.error(e))?;
-          self.stack_push(value);
-          Ok(())
-        } else {
-          Err(self.error("member identifier is not a string"))
-        }
-      } else {
-        Err(self.error("no identifier at index"))
-      }
+    let obj = self.stack_pop().ok_or_else(|| self.error("no value on stack to resolve"))?;
+
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(ident)
+      .ok_or_else(|| self.error("no identifier at index"))?;
+
+    if let ConstantValue::String(name) = name {
+      let value = obj.resolve(name).map_err(|e| self.error(e))?;
+      self.stack_push(value);
+      Ok(())
     } else {
-      Err(self.error("no value on stack to resolve"))
+      Err(self.error("member identifier is not a string"))
     }
   }
 
@@ -1106,23 +1087,25 @@ impl Vm {
   }
 
   fn exec_define(&mut self, location: usize) -> ExecResult {
-    if let Some(value) = self.stack_pop() {
-      if let Some(mut obj) = self.stack_peek() {
-        if let Some(name) = self.current_frame.ctx.const_at(location) {
-          if let ConstantValue::String(name) = name {
-            obj.define(name, value).map_err(|e| self.error(e))?;
-            Ok(())
-          } else {
-            Err(self.error("invalid name for member"))
-          }
-        } else {
-          Err(self.error("no identifier found at index"))
-        }
-      } else {
-        Err(self.error("no value on stack to define a member to"))
-      }
+    let value = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no value on stack to define a member on"))?;
+
+    let mut obj = self
+      .stack_peek()
+      .ok_or_else(|| self.error("no value on stack to define a member to"))?;
+
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(location)
+      .ok_or_else(|| self.error("no identifier found at index"))?;
+
+    if let ConstantValue::String(name) = name {
+      obj.define(name, value).map_err(|e| self.error(e))?;
+      Ok(())
     } else {
-      Err(self.error("no value on stack to define a member on"))
+      Err(self.error("invalid name for member"))
     }
   }
 
@@ -1231,17 +1214,22 @@ impl Vm {
   }
 
   #[cold]
-  fn error_at<F: FnOnce(OpCodeReflection) -> RuntimeError>(&self, f: F) -> RuntimeError {
-    if let Some(opcode_ref) = self.current_frame.ctx.meta.get(self.current_frame.ip) {
-      f(opcode_ref)
-    } else {
-      RuntimeError {
+  fn error_at<F>(&self, f: F) -> RuntimeError
+  where
+    F: FnOnce(OpCodeReflection) -> RuntimeError,
+  {
+    self
+      .current_frame
+      .ctx
+      .meta
+      .get(self.current_frame.ip)
+      .map(f)
+      .unwrap_or_else(|| RuntimeError {
         msg: format!("could not fetch info for instruction {:04X}", self.current_frame.ip),
         file: Rc::clone(&self.current_frame.ctx.meta.file),
         line: 0,
         column: 0,
-      }
-    }
+      })
   }
 
   pub fn stack_display(&self) {
@@ -1284,11 +1272,10 @@ impl StackFrame {
 pub(crate) struct FileInfo {
   path: PathBuf,
   id: FileIdType,
-  frame: usize,
 }
 
 impl FileInfo {
-  fn new(path: PathBuf, id: FileIdType, frame: usize) -> Self {
-    Self { path, id, frame }
+  fn new(path: PathBuf, id: FileIdType) -> Self {
+    Self { path, id }
   }
 }
