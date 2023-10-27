@@ -1,6 +1,11 @@
 use clap::{Parser, Subcommand};
 use simple_script::prelude::*;
-use std::{fs, path::PathBuf, process};
+use std::{
+  fs,
+  io::{stdin, stdout, Read, Write},
+  path::PathBuf,
+  process,
+};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -22,8 +27,6 @@ enum Command {
 }
 
 fn main() {
-  let _client = profiling::tracy_client::Client::start();
-
   let args = Args::parse();
 
   match args.command {
@@ -50,7 +53,6 @@ fn main() {
   }
 }
 
-#[profiling::function]
 fn run_file(mut vm: Vm, file: PathBuf, env: UsertypeHandle<ModuleValue>) -> bool {
   if !file.exists() {
     println!("error: could not find source file '{}'", file.display());
