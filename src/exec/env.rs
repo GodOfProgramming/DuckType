@@ -15,7 +15,7 @@ pub struct Context {
 
   global: SmartPtr<Context>,
 
-  instructions: Vec<Opcode>,
+  pub(crate) instructions: Vec<Opcode>,
 
   consts: Vec<ConstantValue>,
   // map of string to const vec location to save memory

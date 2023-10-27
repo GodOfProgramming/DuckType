@@ -324,17 +324,17 @@ impl Vm {
         let key = match opcode {
           Opcode::Negate => ops::NEG,
           Opcode::Not => ops::NOT,
-          op => Err(self.error(op, format!("invalid unary operation {:?}", op)))?,
+          _ => Err(self.error(format!("invalid unary operation")))?,
         };
 
-        let callable = v.get_member(&mut self.gc, key).map_err(|e| self.error(opcode, e))?;
-        self.call_value(opcode, callable, [])
+        let callable = v.get_member(&mut self.gc, key).map_err(|e| self.error(e))?;
+        self.call_value(callable, [])
       } else {
-        self.stack_push(f(v).map_err(|e| self.error(opcode, e))?);
+        self.stack_push(f(v).map_err(|e| self.error(e))?);
         Ok(())
       }
     } else {
-      Err(self.error(opcode, String::from("cannot operate on empty stack")))
+      Err(self.error("cannot operate on empty stack"))
     }
   }
 
@@ -357,36 +357,37 @@ impl Vm {
             Opcode::LessEqual => ops::LESS_EQUAL,
             Opcode::Greater => ops::GREATER,
             Opcode::GreaterEqual => ops::GREATER_EQUAL,
-            op => Err(self.error(op, format!("invalid binary operation {:?}", op)))?,
+            _ => Err(self.error(format!("invalid binary operation")))?,
           };
 
-          let callable = av.get_member(&mut self.gc, key).map_err(|e| self.error(opcode, e))?;
-          self.call_value(opcode, callable, [bv])
+          let callable = av.get_member(&mut self.gc, key).map_err(|e| self.error(e))?;
+          self.call_value(callable, [bv])
         } else {
-          self.stack_push(f(av, bv).map_err(|e| self.error(opcode, e))?);
+          self.stack_push(f(av, bv).map_err(|e| self.error(e))?);
           Ok(())
         }
       } else {
-        Err(self.error(opcode, String::from("cannot operate on empty stack")))
+        Err(self.error("cannot operate on empty stack"))
       }
     } else {
-      Err(self.error(opcode, String::from("cannot operate on empty stack")))
+      Err(self.error("cannot operate on empty stack"))
     }
   }
 
-  fn global_op<F>(&mut self, opcode: &Opcode, index: usize, f: F) -> ExecResult
+  fn global_op<F>(&mut self, index: usize, f: F) -> ExecResult
   where
     F: FnOnce(&mut Self, String) -> ExecResult,
   {
     match self.current_frame.ctx.global_const_at(index) {
       Some(ConstantValue::String(name)) => f(self, name.clone()),
-      Some(name) => Err(self.error(opcode, format!("global variable ident is not an identifier: {}", name)))?,
-      None => Err(self.error(opcode, format!("global variable ident does not exist at index {}", index)))?,
+      Some(name) => Err(self.error(format!("global variable ident is not an identifier: {}", name)))?,
+      None => Err(self.error(format!("global variable ident does not exist at index {}", index)))?,
     }
   }
 
   #[cold]
-  fn error<M: ToString>(&self, opcode: &Opcode, msg: M) -> RuntimeErrors {
+  fn error<M: ToString>(&self, msg: M) -> RuntimeErrors {
+    let opcode = self.current_frame.ctx.instructions[self.current_frame.ip].clone();
     RuntimeErrors::single(self.error_at(|opcode_ref| RuntimeError::from_ref(msg, opcode, opcode_ref)))
   }
 
@@ -414,55 +415,32 @@ impl Vm {
 
       match opcode {
         Opcode::NoOp => self.exec_noop()?,
-        Opcode::Const(index) => self.exec_const(&opcode, index)?,
+        Opcode::Const(index) => self.exec_const(index)?,
         Opcode::Nil => self.exec_nil(),
         Opcode::True => self.exec_true(),
         Opcode::False => self.exec_false(),
         Opcode::Pop => self.exec_pop(),
         Opcode::PopN(count) => self.exec_pop_n(count),
-        Opcode::ForceAssignGlobal(index) => self.exec_force_assign_global(&opcode, index)?,
-        Opcode::DefineGlobal(index) => self.exec_define_global(&opcode, index)?,
-        Opcode::LookupGlobal(index) => self.exec_lookup_global(&opcode, index)?,
-        Opcode::AssignGlobal(index) => self.exec_assign_global(&opcode, index)?,
-        Opcode::LookupLocal(index) => self.exec_lookup_local(&opcode, index)?,
-        Opcode::AssignLocal(index) => self.exec_assign_local(&opcode, index)?,
-        Opcode::InitializeMember(index) => self.exec_initialize_member(&opcode, index)?,
-        Opcode::InitializeMethod(index) => self.exec_initialize_method(&opcode, index)?,
-        Opcode::InitializeConstructor => self.exec_initialize_constructor(&opcode)?,
-        Opcode::AssignMember(index) => self.exec_assign_member(&opcode, index)?,
-        Opcode::LookupMember(index) => self.exec_lookup_member(&opcode, index)?,
-        Opcode::PeekMember(index) => self.exec_peek_member(&opcode, index)?,
-        Opcode::Equal => self.exec_equal(&opcode)?,
-        Opcode::NotEqual => self.exec_not_equal(&opcode)?,
-        Opcode::Greater => self.exec_greater(&opcode)?,
-        Opcode::GreaterEqual => self.exec_greater_equal(&opcode)?,
-        Opcode::Less => self.exec_less(&opcode)?,
-        Opcode::LessEqual => self.exec_less_equal(&opcode)?,
-        Opcode::Check => self.exec_check(&opcode)?,
-        Opcode::Add => self.exec_add(&opcode)?,
-        Opcode::Sub => self.exec_sub(&opcode)?,
-        Opcode::Mul => self.exec_mul(&opcode)?,
-        Opcode::Div => self.exec_div(&opcode)?,
-        Opcode::Rem => self.exec_rem(&opcode)?,
-        Opcode::Or(count) => {
-          if self.exec_or(&opcode, count)? {
-            continue 'ctx;
-          }
-        }
-        Opcode::And(count) => {
-          if self.exec_and(&opcode, count)? {
-            continue 'ctx;
-          }
-        }
-        Opcode::Not => self.exec_not(&opcode)?,
-        Opcode::Negate => self.exec_negate(&opcode)?,
-        Opcode::Print => self.exec_print(&opcode)?,
+        Opcode::ForceAssignGlobal(index) => self.exec_force_assign_global(index)?,
+        Opcode::DefineGlobal(index) => self.exec_define_global(index)?,
+        Opcode::LookupGlobal(index) => self.exec_lookup_global(index)?,
+        Opcode::AssignGlobal(index) => self.exec_assign_global(index)?,
+        Opcode::LookupLocal(index) => self.exec_lookup_local(index)?,
+        Opcode::AssignLocal(index) => self.exec_assign_local(index)?,
+        Opcode::InitializeMember(index) => self.exec_initialize_member(index)?,
+        Opcode::InitializeMethod(index) => self.exec_initialize_method(index)?,
+        Opcode::InitializeConstructor => self.exec_initialize_constructor()?,
+        Opcode::AssignMember(index) => self.exec_assign_member(index)?,
+        Opcode::LookupMember(index) => self.exec_lookup_member(index)?,
+        Opcode::PeekMember(index) => self.exec_peek_member(index)?,
+        Opcode::Check => self.exec_check()?,
+        Opcode::Print => self.exec_print()?,
         Opcode::Jump(count) => {
           self.jump(count);
           continue 'ctx;
         }
         Opcode::JumpIfFalse(count) => {
-          if self.exec_jump_if_false(&opcode, count)? {
+          if self.exec_jump_if_false(count)? {
             continue 'ctx;
           }
         }
@@ -472,7 +450,7 @@ impl Vm {
         }
         Opcode::Invoke(airity) => {
           self.current_frame.ip += 1;
-          self.exec_call(&opcode, airity)?;
+          self.exec_call(airity)?;
           continue 'ctx;
         }
         Opcode::Ret => {
@@ -485,11 +463,11 @@ impl Vm {
         }
         Opcode::Req => {
           self.current_frame.ip += 1;
-          self.exec_req(&opcode)?;
+          self.exec_req()?;
           continue 'ctx;
         }
         Opcode::CreateList(num_items) => self.exec_create_list(num_items),
-        Opcode::CreateClosure => self.exec_create_closure(&opcode)?,
+        Opcode::CreateClosure => self.exec_create_closure()?,
         Opcode::CreateStruct => self.exec_create_struct(),
         Opcode::CreateClass => self.exec_create_class(),
         Opcode::CreateModule => self.exec_create_module(),
@@ -500,13 +478,36 @@ impl Vm {
           if let Some(value) = self.stack_pop() {
             export = Some(value);
           } else {
-            self.error(&opcode, "no value on stack to export");
+            self.error("no value on stack to export");
           }
         }
-        Opcode::Define(ident) => self.exec_define(&opcode, ident)?,
-        Opcode::Resolve(ident) => self.exec_scope_resolution(&opcode, ident)?,
+        Opcode::Define(ident) => self.exec_define(ident)?,
+        Opcode::Resolve(ident) => self.exec_scope_resolution(ident)?,
         Opcode::EnterBlock => self.push_scope(),
         Opcode::PopScope => self.pop_scope(),
+        Opcode::Equal => self.exec_equal(&opcode)?,
+        Opcode::NotEqual => self.exec_not_equal(&opcode)?,
+        Opcode::Greater => self.exec_greater(&opcode)?,
+        Opcode::GreaterEqual => self.exec_greater_equal(&opcode)?,
+        Opcode::Less => self.exec_less(&opcode)?,
+        Opcode::LessEqual => self.exec_less_equal(&opcode)?,
+        Opcode::Add => self.exec_add(&opcode)?,
+        Opcode::Sub => self.exec_sub(&opcode)?,
+        Opcode::Mul => self.exec_mul(&opcode)?,
+        Opcode::Div => self.exec_div(&opcode)?,
+        Opcode::Rem => self.exec_rem(&opcode)?,
+        Opcode::Or(count) => {
+          if self.exec_or(count)? {
+            continue 'ctx;
+          }
+        }
+        Opcode::And(count) => {
+          if self.exec_and(count)? {
+            continue 'ctx;
+          }
+        }
+        Opcode::Not => self.exec_not(&opcode)?,
+        Opcode::Negate => self.exec_negate(&opcode)?,
       }
 
       self.current_frame.ip += 1;
@@ -544,16 +545,16 @@ impl Vm {
   /* Operations */
 
   fn exec_noop(&self) -> ExecResult {
-    Err(self.error(&Opcode::NoOp, String::from("executed noop opcode, should not happen")))
+    Err(self.error("executed noop opcode, should not happen"))
   }
 
-  fn exec_const(&mut self, opcode: &Opcode, index: usize) -> ExecResult {
+  fn exec_const(&mut self, index: usize) -> ExecResult {
     if let Some(c) = self.current_frame.ctx.const_at(index) {
       let env = self.current_env().into();
       let value = Value::from_constant(&mut self.gc, env, c);
       self.stack_push(value);
     } else {
-      Err(self.error(opcode, String::from("could not lookup constant")))?;
+      Err(self.error("could not lookup constant"))?;
     }
 
     Ok(())
@@ -579,97 +580,97 @@ impl Vm {
     self.stack_pop_n(count);
   }
 
-  fn exec_lookup_local(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_lookup_local(&mut self, location: usize) -> ExecResult {
     if let Some(local) = self.stack_index(location) {
       self.stack_push(local);
       Ok(())
     } else {
-      Err(self.error(opcode, format!("could not index stack at pos {}", location)))
+      Err(self.error(format!("could not index stack at pos {}", location)))
     }
   }
 
-  fn exec_assign_local(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_assign_local(&mut self, location: usize) -> ExecResult {
     if let Some(value) = self.stack_peek() {
       self.stack_assign(location, value);
       Ok(())
     } else {
-      Err(self.error(opcode, format!("could not replace stack value at pos {}", location)))
+      Err(self.error(format!("could not replace stack value at pos {}", location)))
     }
   }
 
-  fn exec_lookup_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
-    self.global_op(opcode, location, |this, name| {
+  fn exec_lookup_global(&mut self, location: usize) -> ExecResult {
+    self.global_op(location, |this, name| {
       if let Some(global) = this.current_env().lookup(name) {
         this.stack_push(global);
         Ok(())
       } else {
-        Err(this.error(opcode, String::from("use of undefined variable")))
+        Err(this.error("use of undefined variable"))
       }
     })
   }
 
-  fn exec_force_assign_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
-    self.global_op(opcode, location, |this, name| {
+  fn exec_force_assign_global(&mut self, location: usize) -> ExecResult {
+    self.global_op(location, |this, name| {
       // used with declarations only, so pop because it can't be chained
       if let Some(v) = this.stack_pop() {
         this.current_env_mut().define(name, v);
         Ok(())
       } else {
-        Err(this.error(opcode, "can not define global using empty stack"))
+        Err(this.error("can not define global using empty stack"))
       }
     })
   }
 
-  fn exec_define_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
-    self.global_op(opcode, location, |this, name| {
+  fn exec_define_global(&mut self, location: usize) -> ExecResult {
+    self.global_op(location, |this, name| {
       if let Some(v) = this.stack_peek() {
         if this.current_env_mut().define(name.clone(), v) {
           Ok(())
         } else {
           let level = this.current_env().search_for(0, &name);
-          Err(this.error(opcode, format!("tried redefining a global variable at {level:?}: {name}")))
+          Err(this.error(format!("tried redefining a global variable at {level:?}: {name}")))
         }
       } else {
-        Err(this.error(opcode, "can not define global using empty stack"))
+        Err(this.error("can not define global using empty stack"))
       }
     })
   }
 
-  fn exec_assign_global(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
-    self.global_op(opcode, location, |this, name| {
+  fn exec_assign_global(&mut self, location: usize) -> ExecResult {
+    self.global_op(location, |this, name| {
       if let Some(v) = this.stack_peek() {
         if this.current_env_mut().assign(name, v) {
           Ok(())
         } else {
-          Err(this.error(opcode, "tried to assign to nonexistent global"))
+          Err(this.error("tried to assign to nonexistent global"))
         }
       } else {
-        Err(this.error(opcode, "can not assign to global using empty stack"))
+        Err(this.error("can not assign to global using empty stack"))
       }
     })
   }
 
-  fn exec_initialize_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_initialize_member(&mut self, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
-            obj.set_member(&mut self.gc, name, value).map_err(|e| self.error(opcode, e))
+            obj.set_member(&mut self.gc, name, value).map_err(|e| self.error(e))
           } else {
-            Err(self.error(opcode, "invalid name for member"))
+            Err(self.error("invalid name for member"))
           }
         } else {
-          Err(self.error(opcode, "no identifier found at index"))
+          Err(self.error("no identifier found at index"))
         }
       } else {
-        Err(self.error(opcode, "no value on stack to initialize a member to"))
+        Err(self.error("no value on stack to initialize a member to"))
       }
     } else {
-      Err(self.error(opcode, "no value on stack to initialize to member"))
+      Err(self.error("no value on stack to initialize to member"))
     }
   }
 
-  fn exec_initialize_method(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_initialize_method(&mut self, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
@@ -679,107 +680,105 @@ impl Vm {
                 class.set_method(name, f.clone());
                 Ok(())
               } else {
-                Err(self.error(opcode, "methods can only be functions"))
+                Err(self.error("methods can only be functions"))
               }
             } else {
-              Err(self.error(opcode, "can only create methods on classes"))
+              Err(self.error("can only create methods on classes"))
             }
           } else {
-            Err(self.error(opcode, "invalid name for member"))
+            Err(self.error("invalid name for member"))
           }
         } else {
-          Err(self.error(opcode, "no identifier found at index"))
+          Err(self.error("no identifier found at index"))
         }
       } else {
-        Err(self.error(opcode, "no value on stack to assign a method to"))
+        Err(self.error("no value on stack to assign a method to"))
       }
     } else {
-      Err(self.error(opcode, "no value on stack to assign to method"))
+      Err(self.error("no value on stack to assign to method"))
     }
   }
 
-  fn exec_initialize_constructor(&mut self, opcode: &Opcode) -> ExecResult {
+  fn exec_initialize_constructor(&mut self) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(class) = obj.as_class_mut() {
           class.set_constructor(value);
           Ok(())
         } else {
-          Err(self.error(opcode, "can only set constructors on classes"))
+          Err(self.error("can only set constructors on classes"))
         }
       } else {
-        Err(self.error(opcode, "no value on stack to assign a member to"))
+        Err(self.error("no value on stack to assign a member to"))
       }
     } else {
-      Err(self.error(opcode, "no value on stack to assign to constructor"))
+      Err(self.error("no value on stack to assign to constructor"))
     }
   }
 
-  fn exec_assign_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_assign_member(&mut self, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_pop() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
-            obj
-              .set_member(&mut self.gc, name, value.clone())
-              .map_err(|e| self.error(opcode, e))?;
+            obj.set_member(&mut self.gc, name, value.clone()).map_err(|e| self.error(e))?;
             self.stack_push(value);
             Ok(())
           } else {
-            Err(self.error(opcode, String::from("constant at index is not an identifier")))
+            Err(self.error("constant at index is not an identifier"))
           }
         } else {
-          Err(self.error(opcode, String::from("no ident found at index")))
+          Err(self.error("no ident found at index"))
         }
       } else {
-        Err(self.error(opcode, String::from("no object to assign to")))
+        Err(self.error("no object to assign to"))
       }
     } else {
-      Err(self.error(opcode, String::from("no value on stack to assign to member")))
+      Err(self.error("no value on stack to assign to member"))
     }
   }
 
-  fn exec_lookup_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_lookup_member(&mut self, location: usize) -> ExecResult {
     if let Some(obj) = self.stack_pop() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
-          let value = obj.get_member(&mut self.gc, name).map_err(|e| self.error(opcode, e))?;
+          let value = obj.get_member(&mut self.gc, name).map_err(|e| self.error(e))?;
           self.stack_push(value);
           Ok(())
         } else {
-          Err(self.error(opcode, "member identifier is not a string"))
+          Err(self.error("member identifier is not a string"))
         }
       } else {
-        Err(self.error(opcode, "no identifier at index"))
+        Err(self.error("no identifier at index"))
       }
     } else {
-      Err(self.error(opcode, "no value on stack to perform lookup on"))
+      Err(self.error("no value on stack to perform lookup on"))
     }
   }
 
-  fn exec_peek_member(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_peek_member(&mut self, location: usize) -> ExecResult {
     if let Some(value) = self.stack_peek() {
       if let Some(name) = self.current_frame.ctx.const_at(location) {
         if let ConstantValue::String(name) = name {
           if let Some(obj) = value.as_struct() {
-            let member = obj.get(&mut self.gc, &value, name).map_err(|e| self.error(opcode, e))?;
+            let member = obj.get(&mut self.gc, &value, name).map_err(|e| self.error(e))?;
             self.stack_push(member);
             Ok(())
           } else if let Some(obj) = value.as_instance() {
-            let member = obj.get(&mut self.gc, &value, name).map_err(|e| self.error(opcode, e))?;
+            let member = obj.get(&mut self.gc, &value, name).map_err(|e| self.error(e))?;
             self.stack_push(member);
             Ok(())
           } else {
-            Err(self.error(opcode, format!("invalid type for member access: {}", value)))
+            Err(self.error(format!("invalid type for member access: {}", value)))
           }
         } else {
-          Err(self.error(opcode, format!("invalid lookup for member access: {}", value)))
+          Err(self.error(format!("invalid lookup for member access: {}", value)))
         }
       } else {
-        Err(self.error(opcode, format!("no name for member access: {}", value)))
+        Err(self.error(format!("no name for member access: {}", value)))
       }
     } else {
-      Err(self.error(opcode, "no object to lookup on"))
+      Err(self.error("no object to lookup on"))
     }
   }
 
@@ -811,16 +810,16 @@ impl Vm {
     self.exec_bool(opcode, |a, b| a <= b)
   }
 
-  fn exec_check(&mut self, opcode: &Opcode) -> ExecResult {
+  fn exec_check(&mut self) -> ExecResult {
     match self.stack_pop() {
       Some(a) => match self.stack_peek() {
         Some(b) => {
           self.stack_push(Value::from(a == b));
           Ok(())
         }
-        None => Err(self.error(opcode, "stack peek failed")),
+        None => Err(self.error("stack peek failed")),
       },
-      None => Err(self.error(opcode, "stack pop failed")),
+      None => Err(self.error("stack pop failed")),
     }
   }
 
@@ -846,7 +845,7 @@ impl Vm {
 
   /// when f evaluates to true, short circuit
 
-  fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, opcode: &Opcode, offset: usize, f: F) -> ExecResult<bool> {
+  fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, offset: usize, f: F) -> ExecResult<bool> {
     match self.stack_peek() {
       Some(v) => {
         if f(v) {
@@ -857,16 +856,16 @@ impl Vm {
           Ok(false)
         }
       }
-      None => Err(self.error(opcode, "no item on the stack to peek")),
+      None => Err(self.error("no item on the stack to peek")),
     }
   }
 
-  fn exec_or(&mut self, opcode: &Opcode, offset: usize) -> ExecResult<bool> {
-    self.exec_logical(opcode, offset, |v| v.truthy())
+  fn exec_or(&mut self, offset: usize) -> ExecResult<bool> {
+    self.exec_logical(offset, |v| v.truthy())
   }
 
-  fn exec_and(&mut self, opcode: &Opcode, offset: usize) -> ExecResult<bool> {
-    self.exec_logical(opcode, offset, |v| v.falsy())
+  fn exec_and(&mut self, offset: usize) -> ExecResult<bool> {
+    self.exec_logical(offset, |v| v.falsy())
   }
 
   fn exec_not(&mut self, opcode: &Opcode) -> ExecResult {
@@ -877,16 +876,16 @@ impl Vm {
     self.unary_op(opcode, |v| -v)
   }
 
-  fn exec_print(&mut self, opcode: &Opcode) -> ExecResult {
+  fn exec_print(&mut self) -> ExecResult {
     if let Some(v) = self.stack_pop() {
       println!("{}", v);
       Ok(())
     } else {
-      Err(self.error(opcode, "no value to print"))
+      Err(self.error("no value to print"))
     }
   }
 
-  fn exec_jump_if_false(&mut self, opcode: &Opcode, offset: usize) -> ExecResult<bool> {
+  fn exec_jump_if_false(&mut self, offset: usize) -> ExecResult<bool> {
     match self.stack_pop() {
       Some(v) => {
         if !v.truthy() {
@@ -896,20 +895,20 @@ impl Vm {
           Ok(false)
         }
       }
-      None => Err(self.error(opcode, "no item on the stack to pop")),
+      None => Err(self.error("no item on the stack to pop")),
     }
   }
 
-  fn exec_call(&mut self, opcode: &Opcode, airity: usize) -> ExecResult {
+  fn exec_call(&mut self, airity: usize) -> ExecResult {
     let args = self.stack_drain_from(airity);
     if let Some(callable) = self.stack_pop() {
-      self.call_value(opcode, callable, args)
+      self.call_value(callable, args)
     } else {
-      Err(self.error(opcode, "cannot operate on empty stack"))
+      Err(self.error("cannot operate on empty stack"))
     }
   }
 
-  fn exec_req(&mut self, opcode: &Opcode) -> ExecResult {
+  fn exec_req(&mut self) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       let mut attempts = Vec::with_capacity(10);
 
@@ -949,7 +948,7 @@ impl Vm {
 
       // then try to find from cwd
       if found_file.is_none() {
-        let this_dir = std::env::current_dir().map_err(|e| self.error(opcode, e))?;
+        let this_dir = std::env::current_dir().map_err(|e| self.error(e))?;
         found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
       }
 
@@ -975,7 +974,7 @@ impl Vm {
 
       if let Some(found_file) = found_file {
         let id = PlatformMetadata::id_of(&found_file)
-          .map_err(|e| self.error(opcode, format!("failed to get file info of {}: {}", found_file.display(), e)))?;
+          .map_err(|e| self.error(format!("failed to get file info of {}: {}", found_file.display(), e)))?;
 
         match found_file.extension().and_then(|s| s.to_str()) {
           Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
@@ -985,7 +984,7 @@ impl Vm {
               let lib: Container<NativeApi> =
                 unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
-              let value = lib.simple_script_load_module(self).map_err(|e| self.error(opcode, e))?;
+              let value = lib.simple_script_load_module(self).map_err(|e| self.error(e))?;
               self.opened_native_libs.insert(found_file, lib);
               self.lib_cache.insert(id, value.clone());
               value
@@ -1021,14 +1020,14 @@ impl Vm {
 
               Ok(())
             }
-            Err(e) => Err(self.error(opcode, format!("unable to read file '{}': {}", file_str, e,))),
+            Err(e) => Err(self.error(format!("unable to read file '{}': {}", file_str, e,))),
           },
         }
       } else {
-        Err(self.error(opcode, format!("unable to find file, tried: {:#?}", attempts)))
+        Err(self.error(format!("unable to find file, tried: {:#?}", attempts)))
       }
     } else {
-      Err(self.error(opcode, "no item on stack to require (logic error)"))
+      Err(self.error("no item on stack to require (logic error)"))
     }
   }
 
@@ -1038,7 +1037,7 @@ impl Vm {
     self.stack_push(list);
   }
 
-  fn exec_create_closure(&mut self, opcode: &Opcode) -> ExecResult {
+  fn exec_create_closure(&mut self) -> ExecResult {
     match self.stack_pop() {
       Some(function) => match self.stack_pop() {
         Some(captures) => {
@@ -1048,15 +1047,15 @@ impl Vm {
               self.stack_push(closure);
               Ok(())
             } else {
-              Err(self.error(opcode, "capture list must be a struct"))
+              Err(self.error("capture list must be a struct"))
             }
           } else {
-            Err(self.error(opcode, "closure must be a function"))
+            Err(self.error("closure must be a function"))
           }
         }
-        None => Err(self.error(opcode, "no item on the stack to pop for closure captures")),
+        None => Err(self.error("no item on the stack to pop for closure captures")),
       },
-      None => Err(self.error(opcode, "no item on the stack to pop for closure function")),
+      None => Err(self.error("no item on the stack to pop for closure function")),
     }
   }
 
@@ -1079,21 +1078,21 @@ impl Vm {
     self.stack_push(uhandle.handle.value.clone());
   }
 
-  fn exec_scope_resolution(&mut self, opcode: &Opcode, ident: usize) -> ExecResult {
+  fn exec_scope_resolution(&mut self, ident: usize) -> ExecResult {
     if let Some(obj) = self.stack_pop() {
       if let Some(name) = self.current_frame.ctx.const_at(ident) {
         if let ConstantValue::String(name) = name {
-          let value = obj.resolve(name).map_err(|e| self.error(opcode, e))?;
+          let value = obj.resolve(name).map_err(|e| self.error(e))?;
           self.stack_push(value);
           Ok(())
         } else {
-          Err(self.error(opcode, "member identifier is not a string"))
+          Err(self.error("member identifier is not a string"))
         }
       } else {
-        Err(self.error(opcode, "no identifier at index"))
+        Err(self.error("no identifier at index"))
       }
     } else {
-      Err(self.error(opcode, "no value on stack to resolve"))
+      Err(self.error("no value on stack to resolve"))
     }
   }
 
@@ -1108,24 +1107,24 @@ impl Vm {
     self.envs.pop();
   }
 
-  fn exec_define(&mut self, opcode: &Opcode, location: usize) -> ExecResult {
+  fn exec_define(&mut self, location: usize) -> ExecResult {
     if let Some(value) = self.stack_pop() {
       if let Some(mut obj) = self.stack_peek() {
         if let Some(name) = self.current_frame.ctx.const_at(location) {
           if let ConstantValue::String(name) = name {
-            obj.define(name, value).map_err(|e| self.error(opcode, e))?;
+            obj.define(name, value).map_err(|e| self.error(e))?;
             Ok(())
           } else {
-            Err(self.error(opcode, "invalid name for member"))
+            Err(self.error("invalid name for member"))
           }
         } else {
-          Err(self.error(opcode, "no identifier found at index"))
+          Err(self.error("no identifier found at index"))
         }
       } else {
-        Err(self.error(opcode, "no value on stack to define a member to"))
+        Err(self.error("no value on stack to define a member to"))
       }
     } else {
-      Err(self.error(opcode, "no value on stack to define a member on"))
+      Err(self.error("no value on stack to define a member on"))
     }
   }
 
@@ -1200,8 +1199,8 @@ impl Vm {
     self.current_frame.ip = self.current_frame.ip.saturating_sub(count);
   }
 
-  fn call_value(&mut self, opcode: &Opcode, mut callable: Value, args: impl Into<Vec<Value>>) -> ExecResult {
-    callable.call(self, Args::new(args)).map_err(|e| self.error(opcode, e))?;
+  fn call_value(&mut self, mut callable: Value, args: impl Into<Vec<Value>>) -> ExecResult {
+    callable.call(self, Args::new(args)).map_err(|e| self.error(e))?;
 
     #[cfg(feature = "runtime-disassembly")]
     println!("<< entering {} >>", self.current_frame.ctx.id);

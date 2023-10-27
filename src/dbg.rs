@@ -60,7 +60,7 @@ impl RuntimeError {
     }
   }
 
-  pub fn from_ref<M: ToString>(msg: M, opcode: &Opcode, opcode_ref: OpCodeReflection) -> Self {
+  pub fn from_ref<M: ToString>(msg: M, opcode: Opcode, opcode_ref: OpCodeReflection) -> Self {
     let mut err = Self {
       msg: msg.to_string(),
       file: Rc::clone(&opcode_ref.file),
