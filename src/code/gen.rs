@@ -464,6 +464,12 @@ impl BytecodeGenerator {
     self.emit(Opcode::CreateSizedVec(expr.size as usize), expr.loc);
   }
 
+  fn dynamic_vec_expr(&mut self, expr: VecWithDynamicSizeExpression) {
+    self.emit_expr(*expr.item);
+    self.emit_expr(*expr.size);
+    self.emit(Opcode::CreateDynamicVec, expr.loc);
+  }
+
   fn index_expr(&mut self, expr: IndexExpression) {
     let ident = self.add_const_ident(Ident::new(ops::INDEX));
     self.emit_expr(*expr.indexable);
@@ -660,6 +666,7 @@ impl BytecodeGenerator {
       Expression::Unary(expr) => self.unary_expr(expr),
       Expression::Vec(expr) => self.vec_expr(expr),
       Expression::VecWithSize(expr) => self.sized_vec_expr(expr),
+      Expression::VecWithDynamicSize(expr) => self.dynamic_vec_expr(expr),
     }
   }
 

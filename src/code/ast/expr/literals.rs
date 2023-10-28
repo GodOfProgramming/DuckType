@@ -566,6 +566,7 @@ impl AstExpression for VecExpression {
     }
 
     let mut vec_size = None;
+    let mut dyn_size = None;
 
     if items.len() == 1 {
       // test if ';' is found
@@ -575,8 +576,7 @@ impl AstExpression for VecExpression {
           ast.advance();
           vec_size = Some(size);
         } else {
-          ast.error::<0>("expected integer after expr");
-          return None;
+          dyn_size = Some(ast.expression()?);
         }
       }
     }
@@ -585,6 +585,8 @@ impl AstExpression for VecExpression {
       if let Some(size) = vec_size {
         // fixed size vec
         Some(VecWithSizeExpression::new(items.swap_remove(0), size, bracket_meta).into())
+      } else if let Some(size) = dyn_size {
+        Some(VecWithDynamicSizeExpression::new(items.swap_remove(0), size, bracket_meta).into())
       } else {
         // normal vec
         let vec = Self::new(items, bracket_meta);
@@ -598,6 +600,23 @@ impl AstExpression for VecExpression {
       }
     } else {
       None
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct VecWithDynamicSizeExpression {
+  pub item: Box<Expression>,
+  pub size: Box<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl VecWithDynamicSizeExpression {
+  fn new(item: Expression, size: Expression, loc: SourceLocation) -> Self {
+    Self {
+      item: Box::new(item),
+      size: Box::new(size),
+      loc,
     }
   }
 }

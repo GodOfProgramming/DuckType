@@ -124,10 +124,12 @@ pub enum Opcode {
   RetSelf,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
-  /** Create a list of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
+  /** Create a vec of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
   CreateVec(usize),
-  /** Create a list of values and push it on the stack. The last item on the stack is copied as many times as the param indicates */
+  /** Create a vec of values and push it on the stack. The last item on the stack is copied as many times as the param indicates */
   CreateSizedVec(usize),
+  /** Create a vec of values and push it on the stack. The last item is the number of times and the next is the item to be copied the times specified */
+  CreateDynamicVec,
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
   CreateClosure,
   /** Create a new struct */
@@ -471,6 +473,7 @@ impl Vm {
         }
         Opcode::CreateVec(num_items) => self.exec_create_vec(num_items),
         Opcode::CreateSizedVec(repeat) => self.exec_sized_vec(repeat)?,
+        Opcode::CreateDynamicVec => self.exec_dyn_vec()?,
         Opcode::CreateClosure => self.exec_create_closure()?,
         Opcode::CreateStruct => self.exec_create_struct(),
         Opcode::CreateClass => self.exec_create_class(),
@@ -930,6 +933,18 @@ impl Vm {
     let vec = self.gc.allocate(vec);
     self.stack_push(vec);
     Ok(())
+  }
+
+  fn exec_dyn_vec(&mut self) -> ExecResult {
+    let repeats = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no item on stack to get vec size from"))?;
+
+    let repeats = repeats
+      .as_i32()
+      .ok_or_else(|| self.error("vec size must evaluate to an i32"))? as usize;
+
+    self.exec_sized_vec(repeats)
   }
 
   fn exec_create_closure(&mut self) -> ExecResult {
