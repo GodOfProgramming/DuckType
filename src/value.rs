@@ -174,16 +174,16 @@ impl Value {
 
   // array
 
-  pub fn is_array(&self) -> bool {
-    self.is::<ArrayValue>()
+  pub fn is_vec(&self) -> bool {
+    self.is::<VecValue>()
   }
 
-  pub fn as_array(&self) -> Option<&'static ArrayValue> {
-    self.cast_to::<ArrayValue>()
+  pub fn as_vec(&self) -> Option<&'static VecValue> {
+    self.cast_to::<VecValue>()
   }
 
-  pub fn as_array_mut(&mut self) -> Option<&mut ArrayValue> {
-    self.cast_to_mut::<ArrayValue>()
+  pub fn as_vec_mut(&mut self) -> Option<&mut VecValue> {
+    self.cast_to_mut::<VecValue>()
   }
 
   // struct

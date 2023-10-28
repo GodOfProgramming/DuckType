@@ -2,7 +2,7 @@ mod expr;
 mod stmt;
 
 use super::{lex::Token, SourceLocation};
-use crate::{prelude::*, UnwrapAnd};
+use crate::{dbg, prelude::*, UnwrapAnd};
 pub use expr::*;
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
@@ -95,6 +95,7 @@ impl AstGenerator {
   }
 
   fn generate(mut self) -> (Ast, Vec<RuntimeError>) {
+    dbg::profile_function!();
     while let Some(current) = self.current() {
       self.statement(current);
     }
@@ -586,7 +587,7 @@ impl AstGenerator {
       Token::RightParen => ParseRule::new(None, None, Precedence::None),
       Token::LeftBrace => ParseRule::new(None, None, Precedence::None),
       Token::RightBrace => ParseRule::new(None, None, Precedence::None),
-      Token::LeftBracket => ParseRule::new(Some(ListExpression::prefix), Some(IndexExpression::infix), Precedence::Call),
+      Token::LeftBracket => ParseRule::new(Some(VecExpression::prefix), Some(IndexExpression::infix), Precedence::Call),
       Token::RightBracket => ParseRule::new(None, None, Precedence::None),
       Token::Comma => ParseRule::new(None, None, Precedence::None),
       Token::Dot => ParseRule::new(None, Some(MemberAccessExpression::infix), Precedence::Call),

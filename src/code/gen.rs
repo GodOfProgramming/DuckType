@@ -1,5 +1,5 @@
 use crate::code::{ast::*, Reflection, SourceLocation};
-use crate::prelude::*;
+use crate::{dbg, prelude::*};
 use ptr::SmartPtr;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -72,6 +72,7 @@ impl BytecodeGenerator {
   }
 
   pub fn generate(mut self, ast: Ast) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+    dbg::profile_function!();
     for stmt in ast.statements {
       self.emit_stmt(stmt);
     }
@@ -450,12 +451,12 @@ impl BytecodeGenerator {
     self.emit(Opcode::Invoke(arg_count), expr.loc);
   }
 
-  fn list_expr(&mut self, expr: ListExpression) {
+  fn vec_expr(&mut self, expr: VecExpression) {
     let num_items = expr.items.len();
     for item in expr.items {
       self.emit_expr(item);
     }
-    self.emit(Opcode::CreateList(num_items), expr.loc);
+    self.emit(Opcode::CreateVec(num_items), expr.loc);
   }
 
   fn index_expr(&mut self, expr: IndexExpression) {
@@ -536,7 +537,7 @@ impl BytecodeGenerator {
           this.ident_expr(member);
         }
 
-        this.emit(Opcode::CreateList(params.len()), expr.loc.clone());
+        this.emit(Opcode::CreateVec(params.len()), expr.loc.clone());
 
         let param_count = expr.params.len();
         params.extend(expr.params);
@@ -643,7 +644,7 @@ impl BytecodeGenerator {
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
       Expression::Lambda(expr) => self.lambda_expr(expr),
-      Expression::List(expr) => self.list_expr(expr),
+      Expression::Vec(expr) => self.vec_expr(expr),
       Expression::Literal(expr) => self.literal_expr(expr),
       Expression::MemberAccess(expr) => self.member_access_expr(expr),
       Expression::Method(expr) => self.method_expr(expr),

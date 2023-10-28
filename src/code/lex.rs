@@ -175,6 +175,8 @@ impl<'src> Scanner<'src> {
   }
 
   pub fn scan(&mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), Vec<RuntimeError>> {
+    dbg::profile_function!();
+
     let mut tokens = Vec::new();
     let mut meta = Vec::new();
 

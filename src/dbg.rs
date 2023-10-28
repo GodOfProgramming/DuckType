@@ -6,6 +6,28 @@ use std::{
   rc::Rc,
 };
 
+macro_rules! profile_function {
+  () => {
+    #[cfg(debug_assertions)]
+    puffin::profile_function!();
+  };
+}
+
+pub(crate) use profile_function;
+
+macro_rules! profile_scope {
+  ($id:expr) => {
+    #[cfg(debug_assertions)]
+    puffin::profile_scope!($id, "");
+  };
+  ($id:expr, $data:expr) => {
+    #[cfg(debug_assertions)]
+    puffin::profile_scope!($id, $data);
+  };
+}
+
+pub(crate) use profile_scope;
+
 #[allow(unused)]
 #[cfg(debug_assertions)]
 macro_rules! here {

@@ -1,11 +1,6 @@
 use clap::{Parser, Subcommand};
 use simple_script::prelude::*;
-use std::{
-  fs,
-  io::{stdin, stdout, Read, Write},
-  path::PathBuf,
-  process,
-};
+use std::{fs, path::PathBuf, process};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -27,6 +22,13 @@ enum Command {
 }
 
 fn main() {
+  #[cfg(debug_assertions)]
+  let _server = {
+    puffin::set_scopes_on(true);
+    let addr = format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT);
+    puffin_http::Server::new(&addr).unwrap()
+  };
+
   let args = Args::parse();
 
   match args.command {

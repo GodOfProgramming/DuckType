@@ -20,7 +20,7 @@ pub enum Expression {
   Ident(IdentExpression),
   Index(IndexExpression),
   Lambda(LambdaExpression),
-  List(ListExpression),
+  Vec(VecExpression),
   Literal(LiteralExpression),
   MemberAccess(MemberAccessExpression),
   Method(MethodExpression),
@@ -76,7 +76,7 @@ impl Expression {
       Expression::Ident(_) => (),
       Expression::Index(_) => (),
       Expression::Lambda(l) => l.body.dump(tmpl),
-      Expression::List(_) => (),
+      Expression::Vec(_) => (),
       Expression::Literal(l) => {
         html! {
           : l.value.to_string();
@@ -108,7 +108,7 @@ impl Display for Expression {
       Self::Ident(i) => write!(f, "ident {}", i.ident.name),
       Self::Index(_) => write!(f, "index"),
       Self::Lambda(_) => write!(f, "lambda"),
-      Self::List(_) => write!(f, "list"),
+      Self::Vec(_) => write!(f, "list"),
       Self::Literal(l) => write!(f, "literal {}", l.value),
       Self::MemberAccess(_) => write!(f, "member access"),
       Self::Method(_) => write!(f, "method"),
@@ -176,9 +176,9 @@ impl From<CallExpression> for Expression {
   }
 }
 
-impl From<ListExpression> for Expression {
-  fn from(expr: ListExpression) -> Self {
-    Self::List(expr)
+impl From<VecExpression> for Expression {
+  fn from(expr: VecExpression) -> Self {
+    Self::Vec(expr)
   }
 }
 

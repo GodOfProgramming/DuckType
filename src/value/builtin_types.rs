@@ -32,7 +32,7 @@ pub mod ops {
 
 use super::{VTable, Value};
 use crate::{dbg::RuntimeErrors, prelude::*};
-pub use array_value::ArrayValue;
+pub use array_value::VecValue;
 pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
 pub use function_value::FunctionValue;

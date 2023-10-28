@@ -45,13 +45,13 @@ impl MaybeFrom<Value> for &'static String {
 
 impl MaybeFrom<Value> for &'static Vec<Value> {
   fn maybe_from(value: Value) -> Option<Self> {
-    value.as_array().map(|a| &**a)
+    value.as_vec().map(|a| &**a)
   }
 }
 
 impl MaybeFrom<Value> for &[Value] {
   fn maybe_from(value: Value) -> Option<Self> {
-    value.as_array().map(|a| &***a)
+    value.as_vec().map(|a| &***a)
   }
 }
 

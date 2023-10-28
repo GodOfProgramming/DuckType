@@ -205,7 +205,7 @@ impl ClosureExpression {
 }
 
 impl ClosureExpression {
-  fn expr(ast: &mut AstGenerator, param_term: Token, captures: ListExpression) -> Option<Expression> {
+  fn expr(ast: &mut AstGenerator, param_term: Token, captures: VecExpression) -> Option<Expression> {
     let loc = ast.meta_at::<0>()?;
 
     let mut vetted_captures = Vec::new();
@@ -290,18 +290,18 @@ impl AstExpression for LambdaExpression {
 }
 
 #[derive(Debug)]
-pub struct ListExpression {
+pub struct VecExpression {
   pub items: Vec<Expression>,
   pub loc: SourceLocation,
 }
 
-impl ListExpression {
+impl VecExpression {
   pub(super) fn new(items: Vec<Expression>, loc: SourceLocation) -> Self {
     Self { items, loc }
   }
 }
 
-impl AstExpression for ListExpression {
+impl AstExpression for VecExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     let bracket_meta = ast.meta_at::<1>()?;
     let mut items = Vec::default();
@@ -318,7 +318,7 @@ impl AstExpression for ListExpression {
     }
 
     if ast.consume(Token::RightBracket, "expect ']' after arguments") {
-      let list = ListExpression::new(items, bracket_meta);
+      let list = VecExpression::new(items, bracket_meta);
       if ast.advance_if_matches(Token::Pipe) {
         ClosureExpression::expr(ast, Token::Pipe, list)
       } else {

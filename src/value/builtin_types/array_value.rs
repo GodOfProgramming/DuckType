@@ -8,12 +8,12 @@ use std::{
 
 #[derive(Default, Usertype, Fields)]
 #[uuid("8b881e80-c828-4563-b7ad-d4b8f1bffbfa")]
-pub struct ArrayValue {
+pub struct VecValue {
   #[trace]
   list: Vec<Value>,
 }
 
-impl ArrayValue {
+impl VecValue {
   pub fn new_from_slice(list: &[Value]) -> Self {
     Self { list: list.into() }
   }
@@ -24,9 +24,9 @@ impl ArrayValue {
 }
 
 #[methods]
-impl ArrayValue {
-  fn __new__(args: &[Value]) -> ValueResult<ArrayValue> {
-    Ok(ArrayValue::new_from_vec(args.to_owned()))
+impl VecValue {
+  fn __new__(args: &[Value]) -> ValueResult<VecValue> {
+    Ok(VecValue::new_from_vec(args.to_owned()))
   }
 
   fn push(&mut self, value: Value) -> ValueResult<()> {
@@ -55,13 +55,13 @@ impl ArrayValue {
   }
 }
 
-impl Display for ArrayValue {
+impl Display for VecValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     write!(f, "{:?}", self.list)
   }
 }
 
-impl Deref for ArrayValue {
+impl Deref for VecValue {
   type Target = Vec<Value>;
 
   fn deref(&self) -> &Self::Target {
@@ -69,7 +69,7 @@ impl Deref for ArrayValue {
   }
 }
 
-impl DerefMut for ArrayValue {
+impl DerefMut for VecValue {
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.list
   }

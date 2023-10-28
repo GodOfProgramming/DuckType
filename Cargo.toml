@@ -26,7 +26,6 @@ horrorshow = "0.8.4"
 inter-struct = "0.2.0"
 itertools = "0.11.0"
 memoffset = "0.9.0"
-profiling = { version = "1.0.11", features = ["profile-with-tracy"] }
 rand = "0.8.5"
 rustyline = "12.0.0"
 shellwords = "1.1.0"
@@ -34,6 +33,10 @@ static_assertions = "1.1.0"
 sysinfo = "0.29.10"
 thiserror = "1.0.49"
 uuid = { workspace = true }
+
+puffin = "0.17.0"
+puffin_http = "0.14.0"
+tokio = { version = "1.33.0", features = ["full"] }
 
 ptr = { path = "lib/ptr" }
 tfix = { path = "lib/tfix" }

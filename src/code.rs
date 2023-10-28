@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{dbg, prelude::*};
 use ast::Ast;
 use gen::BytecodeGenerator;
 use inter_struct::prelude::*;
@@ -24,6 +24,8 @@ pub struct Compiler;
 
 impl Compiler {
   pub fn compile(file: PathBuf, source: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+    dbg::profile_function!();
+
     let file = Rc::new(file);
     let mut scanner = Scanner::new(Rc::clone(&file), source);
 
