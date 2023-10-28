@@ -73,3 +73,13 @@ describe("ands ors", |t| {
   t.expect(true and false).to_be(false);
   t.expect(true and (true and (false or false))).to_be(false);
 });
+
+describe("continues", |t| {
+  let n = 0;
+  for let i = 0; i < 10; i += 1 {
+    if i < 5 {
+      cont;
+    }
+    n = i;
+  }
+});

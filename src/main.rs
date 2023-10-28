@@ -22,7 +22,7 @@ enum Command {
 }
 
 fn main() {
-  #[cfg(debug_assertions)]
+  #[cfg(feature = "profile")]
   let _server = {
     puffin::set_scopes_on(true);
     let addr = format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT);

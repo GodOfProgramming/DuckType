@@ -55,7 +55,7 @@ impl Value {
     new
   }
 
-  pub fn raw_value(&self) -> u64 {
+  pub fn bits(&self) -> u64 {
     self.bits & VALUE_BITMASK
   }
 
@@ -590,7 +590,7 @@ impl From<i32> for Value {
 impl From<&i32> for Value {
   fn from(value: &i32) -> Self {
     Self {
-      bits: unsafe { mem::transmute::<i64, u64>(*value as i64) } | I32_TAG,
+      bits: unsafe { mem::transmute::<i64, u64>(*value as i64 & i32::MAX as i64) } | I32_TAG,
     }
   }
 }
@@ -606,7 +606,7 @@ impl From<bool> for Value {
 impl From<char> for Value {
   fn from(item: char) -> Self {
     Self {
-      bits: unsafe { mem::transmute::<char, u32>(item) as u64 } | CHAR_TAG,
+      bits: unsafe { mem::transmute::<char, u32>(item) as u64 & char::MAX as u64 } | CHAR_TAG,
     }
   }
 }
@@ -645,15 +645,15 @@ impl Debug for Value {
     const PTR_WIDTH: usize = mem::size_of::<usize>() * 2;
     const PTR_DISPLAY_WIDTH: usize = PTR_WIDTH + 2;
     match self.tag() {
-      Tag::F64 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_f64_unchecked(), self.raw_value()),
-      Tag::I32 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_i32_unchecked(), self.raw_value()),
-      Tag::Bool => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_bool_unchecked(), self.raw_value()),
-      Tag::Char => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_char_unchecked(), self.raw_value()),
+      Tag::F64 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_f64_unchecked(), self.bits()),
+      Tag::I32 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_i32_unchecked(), self.bits()),
+      Tag::Bool => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_bool_unchecked(), self.bits()),
+      Tag::Char => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_char_unchecked(), self.bits()),
       Tag::NativeFn => write!(
         f,
         "<@{addr:<width$} {:?}>",
         self.tag(),
-        addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
+        addr = format!("0x{:0>width$x}", self.bits(), width = PTR_WIDTH),
         width = PTR_DISPLAY_WIDTH,
       ),
       Tag::NativeVTable => todo!(),
@@ -662,10 +662,10 @@ impl Debug for Value {
         "<@{addr:<width$} {} : {}>",
         self.type_id(),
         self.debug_string(),
-        addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
+        addr = format!("0x{:0>width$x}", self.bits(), width = PTR_WIDTH),
         width = PTR_DISPLAY_WIDTH,
       ),
-      Tag::Nil => write!(f, "nil"),
+      Tag::Nil => write!(f, "nil (0x{:x})", self.bits()),
     }
   }
 }

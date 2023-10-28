@@ -38,6 +38,15 @@ impl VecValue {
     Ok(self.list.len() as i32)
   }
 
+  fn insert(&mut self, index: i32, value: Value) -> ValueResult<Value> {
+    if let Some(v) = self.list.get_mut(index as usize) {
+      *v = value.clone();
+      Ok(value)
+    } else {
+      Err(ValueError::InvalidIndex(index, value))
+    }
+  }
+
   fn random_index(&self) -> ValueResult {
     Ok(self.list.choose(&mut rand::thread_rng()).cloned().unwrap_or_default())
   }

@@ -210,7 +210,7 @@ impl CallExpression {
 
 impl AstExpression for CallExpression {
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
-    let paren_meta = ast.meta_at::<1>()?;
+    let meta = ast.meta_at::<1>()?;
     let mut args = Vec::default();
 
     if let Some(token) = ast.current() {
@@ -228,7 +228,7 @@ impl AstExpression for CallExpression {
     }
 
     if ast.consume(Token::RightParen, "expect ')' after arguments") {
-      Some(Expression::from(CallExpression::new(left, args, paren_meta)))
+      Some(Expression::from(CallExpression::new(left, args, meta)))
     } else {
       None
     }

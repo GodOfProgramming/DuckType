@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-pub fn string(gc: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
+pub fn string(_: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
   lib.define("parse_number", Value::native(parse_number));
   lib.define("contains", Value::native(contains));
   lib.define("is_prefix", Value::native(is_prefix));

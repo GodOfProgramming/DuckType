@@ -64,7 +64,14 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
 
     lib.define("ps", ModuleBuilder::initialize(gc, Some(libval.clone()), libps::ps));
 
-    lib.define("io", libio::simple_script_autogen_create_module(gc, libval));
+    lib.define("io", libio::simple_script_autogen_create_module(gc, libval.clone()));
+
+    lib.define(
+      "math",
+      ModuleBuilder::initialize(gc, Some(libval.clone()), |_, mut lib| {
+        lib.define("rand_i32", Value::native(rand_i32));
+      }),
+    );
   })
 }
 
@@ -93,4 +100,10 @@ fn fields(value: Value) -> ValueResult<Vec<StringValue>> {
 #[native(with_vm)]
 fn defined(vm: &mut Vm, name: &StringValue) -> ValueResult<bool> {
   Ok(vm.current_env().lookup(name.as_str()).is_some())
+}
+
+#[native]
+fn rand_i32() -> ValueResult<i32> {
+  let val = rand::random();
+  Ok(val)
 }

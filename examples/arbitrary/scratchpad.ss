@@ -1,32 +1,24 @@
-let test = req "examples/ss_module/target/debug/ss_module.dll";
+fn main() {
+  let c = 0;
+  let fb = new_buff();
+  loop {
+    let bb = new_buff();
 
-use test.Foo;
+    if no_change(fb, bb) {
+      break;
+    }
 
-let f = Foo(1);
+    fb = bb;
+    c += 1;
 
-print("foo is " + f);
-
-req "examples/test_module" as module;
-
-print(std.debug(module));
-
-module.some_another_fn();
-
-use module.ClassA;
-use module.ClassB;
-
-let b = ClassA.new_b();
-let a = ClassB.new_a();
-
-a.foo();
-b.bar();
-
-fn get_str() {
-  ret "some string";
+    if c == 10 {
+      __breakpoint__;
+    }
+  }
 }
 
-let x = get_str();
-let y = get_str();
-x.replace_with("foobar");
-print(x);
-print(y);
+fn new_buff() { ret nil; }
+
+fn no_change(_1, _2) { ret false; }
+
+export main();

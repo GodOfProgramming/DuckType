@@ -1,14 +1,12 @@
 use crate::prelude::*;
 
-pub struct LibConsole;
-
-pub fn console(gc: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
-  lib.define("write", Value::native(print));
-  lib.define("writeln", Value::native(println));
+pub fn console(_: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
+  lib.define("write", Value::native(write));
+  lib.define("writeln", Value::native(writeln));
   lib.define("flushln", Value::native(flushln));
 }
 
-fn print(_: &mut Vm, args: Args) -> ValueResult {
+fn write(_: &mut Vm, args: Args) -> ValueResult {
   for arg in &args.list {
     print!("{}", arg);
   }
@@ -16,7 +14,7 @@ fn print(_: &mut Vm, args: Args) -> ValueResult {
   Ok(Value::nil)
 }
 
-fn println(_: &mut Vm, args: Args) -> ValueResult {
+fn writeln(_: &mut Vm, args: Args) -> ValueResult {
   for arg in &args.list {
     print!("{}", arg);
   }

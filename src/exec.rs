@@ -16,7 +16,7 @@ use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
   collections::BTreeMap,
   error::Error,
-  fmt::{self, Debug, Formatter},
+  fmt::{self, Debug, Display, Formatter},
   fs,
   path::{Path, PathBuf},
   rc::Rc,
@@ -1287,13 +1287,7 @@ impl Vm {
   }
 
   pub fn stack_display(&self) {
-    if self.current_frame.stack.is_empty() {
-      println!("               | [ ]");
-    } else {
-      for (index, item) in self.current_frame.stack.iter().enumerate() {
-        println!("{:#15}| [ {:?} ]", index, item);
-      }
-    }
+    println!("{}", self.current_frame);
   }
 }
 
@@ -1320,6 +1314,19 @@ impl StackFrame {
     let mut old = Self::default();
     std::mem::swap(&mut old, self);
     old
+  }
+}
+
+impl Display for StackFrame {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    if self.stack.is_empty() {
+      write!(f, "               | [ ]")
+    } else {
+      for (index, item) in self.stack.iter().enumerate() {
+        write!(f, "{:#15}| [ {:?} ]", index, item)?;
+      }
+      writeln!(f)
+    }
   }
 }
 

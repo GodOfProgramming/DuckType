@@ -45,7 +45,7 @@ pub struct BytecodeGenerator {
   loop_depth: usize,
 
   breaks: Vec<usize>,
-  cont_jump: usize,
+  continues: Vec<usize>,
 
   errors: Vec<RuntimeError>,
 }
@@ -65,7 +65,7 @@ impl BytecodeGenerator {
       loop_depth: Default::default(),
 
       breaks: Default::default(),
-      cont_jump: Default::default(),
+      continues: Default::default(),
 
       errors: Default::default(),
     }
@@ -103,14 +103,13 @@ impl BytecodeGenerator {
   }
 
   fn break_stmt(&mut self, stmt: BreakStatement) {
-    self.reduce_locals_to_depth(self.loop_depth, stmt.loc.clone());
     let jmp = self.emit_noop(stmt.loc);
     self.breaks.push(jmp);
   }
 
   fn cont_stmt(&mut self, stmt: ContStatement) {
-    self.reduce_locals_to_depth(self.loop_depth, stmt.loc.clone());
-    self.emit_loop(self.cont_jump, stmt.loc);
+    let jmp = self.emit_noop(stmt.loc);
+    self.continues.push(jmp);
   }
 
   fn class_stmt(&mut self, stmt: ClassStatement) {
@@ -169,11 +168,13 @@ impl BytecodeGenerator {
       let loc = stmt.loc.clone();
       this.emit_loop_block(before_compare, stmt.loc, |this| {
         this.emit_stmt(block);
+        let here = this.current_instruction_count();
         this.emit_expr(increment);
         this.emit(Opcode::Pop, loc);
+        Some(here)
       });
 
-      this.patch_inst(exit, Opcode::JumpIfFalse);
+      this.patch_here(exit, Opcode::JumpIfFalse);
     });
 
     self.reduce_locals_to_depth(self.scope_depth, loc);
@@ -186,11 +187,11 @@ impl BytecodeGenerator {
 
     if let Some(else_stmt) = stmt.else_block {
       let else_end = self.emit_noop(stmt.loc);
-      self.patch_inst(end, Opcode::JumpIfFalse);
+      self.patch_here(end, Opcode::JumpIfFalse);
       self.emit_stmt(*else_stmt);
-      self.patch_inst(else_end, Opcode::Jump);
+      self.patch_here(else_end, Opcode::Jump);
     } else {
-      self.patch_inst(end, Opcode::JumpIfFalse);
+      self.patch_here(end, Opcode::JumpIfFalse);
     }
   }
 
@@ -213,6 +214,7 @@ impl BytecodeGenerator {
     let start = self.current_instruction_count();
     self.emit_loop_block(start, stmt.loc, |this| {
       this.emit_stmt(*stmt.block);
+      None
     });
   }
 
@@ -228,7 +230,7 @@ impl BytecodeGenerator {
       let next_jump = self.emit_noop(loc.clone());
       self.emit_stmt(branch_stmt);
       jumps.push(self.emit_noop(loc));
-      if !self.patch_inst(next_jump, Opcode::JumpIfFalse) {
+      if !self.patch_here(next_jump, Opcode::JumpIfFalse) {
         break;
       }
     }
@@ -323,9 +325,10 @@ impl BytecodeGenerator {
     let block = *stmt.block;
     self.emit_loop_block(before_compare, stmt.loc, |this| {
       this.emit_stmt(block);
+      None
     });
 
-    self.patch_inst(end_jump, Opcode::JumpIfFalse);
+    self.patch_here(end_jump, Opcode::JumpIfFalse);
   }
 
   fn breakpoint_stmt(&mut self, loc: SourceLocation) {
@@ -373,14 +376,14 @@ impl BytecodeGenerator {
     self.emit_expr(*expr.left);
     let short_circuit = self.emit_noop(expr.loc);
     self.emit_expr(*expr.right);
-    self.patch_inst(short_circuit, Opcode::And);
+    self.patch_here(short_circuit, Opcode::And);
   }
 
   fn or_expr(&mut self, expr: OrExpression) {
     self.emit_expr(*expr.left);
     let short_circuit = self.emit_noop(expr.loc);
     self.emit_expr(*expr.right);
-    self.patch_inst(short_circuit, Opcode::Or);
+    self.patch_here(short_circuit, Opcode::Or);
   }
 
   fn group_expr(&mut self, expr: GroupExpression) {
@@ -670,28 +673,32 @@ impl BytecodeGenerator {
     }
   }
 
-  fn emit_loop_block<F: FnOnce(&mut Self)>(&mut self, start: usize, loc: SourceLocation, f: F) {
+  /// F returns the location of where continue should jump to
+  fn emit_loop_block<F>(&mut self, start: usize, loc: SourceLocation, f: F)
+  where
+    F: FnOnce(&mut Self) -> Option<usize>,
+  {
     let mut breaks = Vec::default();
     std::mem::swap(&mut breaks, &mut self.breaks);
 
-    let cont_jump = self.cont_jump;
-    self.cont_jump = start;
+    let mut continues = Vec::default();
+    std::mem::swap(&mut continues, &mut self.continues);
 
     let loop_depth = self.loop_depth;
     self.loop_depth = self.scope_depth;
 
-    self.new_scope(|this| {
-      f(this);
-    });
+    let manual_continue = self.new_scope(|this| f(this));
+    let continue_pos = manual_continue.unwrap_or(start);
 
     self.emit_loop(start, loc.clone());
 
     std::mem::swap(&mut breaks, &mut self.breaks);
     self.patch_jumps(breaks);
 
-    self.reduce_locals_to_depth(self.scope_depth, loc);
+    std::mem::swap(&mut continues, &mut self.continues);
+    self.patch_to(continue_pos, continues);
 
-    self.cont_jump = cont_jump;
+    self.reduce_locals_to_depth(self.scope_depth, loc);
 
     self.loop_depth = loop_depth;
   }
@@ -719,15 +726,28 @@ impl BytecodeGenerator {
     offset
   }
 
-  fn patch_inst<F: FnOnce(usize) -> Opcode>(&mut self, index: usize, f: F) -> bool {
-    let offset = self.current_ctx().num_instructions() - index;
+  fn patch_inst<F: FnOnce(usize) -> Opcode>(&mut self, offset: usize, index: usize, f: F) -> bool {
     let opcode = f(offset);
     self.current_ctx().replace_instruction(index, opcode)
   }
 
-  fn patch_jumps(&mut self, breaks: Vec<usize>) {
-    for br in breaks {
-      if !self.patch_inst(br, Opcode::Jump) {
+  fn patch_here<F: FnOnce(usize) -> Opcode>(&mut self, index: usize, f: F) -> bool {
+    let offset = self.current_ctx().num_instructions() - index;
+    self.patch_inst(offset, index, f)
+  }
+
+  fn patch_to(&mut self, idx: usize, jumps: Vec<usize>) {
+    for jmp in jumps {
+      let offset = idx - jmp;
+      if !self.patch_inst(offset, jmp, Opcode::Jump) {
+        break;
+      }
+    }
+  }
+
+  fn patch_jumps(&mut self, jumps: Vec<usize>) {
+    for jmp in jumps {
+      if !self.patch_here(jmp, Opcode::Jump) {
         break;
       }
     }
