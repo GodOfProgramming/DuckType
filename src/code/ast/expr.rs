@@ -20,7 +20,6 @@ pub enum Expression {
   Ident(IdentExpression),
   Index(IndexExpression),
   Lambda(LambdaExpression),
-  Vec(VecExpression),
   Literal(LiteralExpression),
   MemberAccess(MemberAccessExpression),
   Method(MethodExpression),
@@ -30,6 +29,8 @@ pub enum Expression {
   ScopeResolution(ScopeResolutionExpression),
   Struct(StructExpression),
   Unary(UnaryExpression),
+  Vec(VecExpression),
+  VecWithSize(VecWithSizeExpression),
 }
 
 impl Expression {
@@ -76,7 +77,6 @@ impl Expression {
       Expression::Ident(_) => (),
       Expression::Index(_) => (),
       Expression::Lambda(l) => l.body.dump(tmpl),
-      Expression::Vec(_) => (),
       Expression::Literal(l) => {
         html! {
           : l.value.to_string();
@@ -91,6 +91,8 @@ impl Expression {
       Expression::ScopeResolution(_) => (),
       Expression::Struct(_) => (),
       Expression::Unary(_) => (),
+      Expression::Vec(_) => (),
+      Expression::VecWithSize(_) => (),
     }
   }
 }
@@ -108,7 +110,6 @@ impl Display for Expression {
       Self::Ident(i) => write!(f, "ident {}", i.ident.name),
       Self::Index(_) => write!(f, "index"),
       Self::Lambda(_) => write!(f, "lambda"),
-      Self::Vec(_) => write!(f, "list"),
       Self::Literal(l) => write!(f, "literal {}", l.value),
       Self::MemberAccess(_) => write!(f, "member access"),
       Self::Method(_) => write!(f, "method"),
@@ -118,6 +119,8 @@ impl Display for Expression {
       Self::ScopeResolution(_) => write!(f, "scope resolution"),
       Self::Struct(_) => write!(f, "struct"),
       Self::Unary(u) => write!(f, "unary {:?}", u.op),
+      Self::Vec(_) => write!(f, "vec"),
+      Self::VecWithSize(_) => write!(f, "sized vec"),
     }
   }
 }
@@ -239,5 +242,11 @@ impl From<ReqExpression> for Expression {
 impl From<ScopeResolutionExpression> for Expression {
   fn from(expr: ScopeResolutionExpression) -> Self {
     Self::ScopeResolution(expr)
+  }
+}
+
+impl From<VecWithSizeExpression> for Expression {
+  fn from(expr: VecWithSizeExpression) -> Self {
+    Self::VecWithSize(expr)
   }
 }

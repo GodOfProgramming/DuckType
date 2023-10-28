@@ -290,47 +290,6 @@ impl AstExpression for LambdaExpression {
 }
 
 #[derive(Debug)]
-pub struct VecExpression {
-  pub items: Vec<Expression>,
-  pub loc: SourceLocation,
-}
-
-impl VecExpression {
-  pub(super) fn new(items: Vec<Expression>, loc: SourceLocation) -> Self {
-    Self { items, loc }
-  }
-}
-
-impl AstExpression for VecExpression {
-  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    let bracket_meta = ast.meta_at::<1>()?;
-    let mut items = Vec::default();
-
-    if let Some(token) = ast.current() {
-      if token != Token::RightBracket {
-        loop {
-          items.push(ast.expression()?);
-          if !ast.advance_if_matches(Token::Comma) {
-            break;
-          }
-        }
-      }
-    }
-
-    if ast.consume(Token::RightBracket, "expect ']' after arguments") {
-      let list = VecExpression::new(items, bracket_meta);
-      if ast.advance_if_matches(Token::Pipe) {
-        ClosureExpression::expr(ast, Token::Pipe, list)
-      } else {
-        Some(Expression::from(list))
-      }
-    } else {
-      None
-    }
-  }
-}
-
-#[derive(Debug)]
 pub struct LiteralExpression {
   pub value: ConstantValue,
 
@@ -574,5 +533,88 @@ impl AstExpression for StructExpression {
     }
 
     Some(Expression::from(StructExpression::new(members, struct_meta)))
+  }
+}
+
+#[derive(Debug)]
+pub struct VecExpression {
+  pub items: Vec<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl VecExpression {
+  pub(super) fn new(items: Vec<Expression>, loc: SourceLocation) -> Self {
+    Self { items, loc }
+  }
+}
+
+impl AstExpression for VecExpression {
+  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
+    let bracket_meta = ast.meta_at::<1>()?;
+    let mut items = Vec::default();
+
+    'items: while let Some(token) = ast.current() {
+      if token == Token::RightBracket {
+        break 'items;
+      }
+
+      items.push(ast.expression()?);
+
+      if !ast.advance_if_matches(Token::Comma) {
+        break 'items;
+      }
+    }
+
+    let mut vec_size = None;
+
+    if items.len() == 1 {
+      // test if ';' is found
+      if ast.advance_if_matches(Token::Semicolon) {
+        // then check for a size
+        if let Some(Token::Number(NumberToken::I32(size))) = ast.current() {
+          ast.advance();
+          vec_size = Some(size);
+        } else {
+          ast.error::<0>("expected integer after expr");
+          return None;
+        }
+      }
+    }
+
+    if ast.consume(Token::RightBracket, "expect ']' after arguments") {
+      if let Some(size) = vec_size {
+        // fixed size vec
+        Some(VecWithSizeExpression::new(items.swap_remove(0), size, bracket_meta).into())
+      } else {
+        // normal vec
+        let vec = Self::new(items, bracket_meta);
+
+        // closure
+        if ast.advance_if_matches(Token::Pipe) {
+          ClosureExpression::expr(ast, Token::Pipe, vec)
+        } else {
+          Some(vec.into())
+        }
+      }
+    } else {
+      None
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct VecWithSizeExpression {
+  pub item: Box<Expression>,
+  pub size: i32,
+  pub loc: SourceLocation,
+}
+
+impl VecWithSizeExpression {
+  pub fn new(item: Expression, size: i32, loc: SourceLocation) -> Self {
+    Self {
+      item: Box::new(item),
+      size,
+      loc,
+    }
   }
 }

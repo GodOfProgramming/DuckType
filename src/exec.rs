@@ -126,6 +126,8 @@ pub enum Opcode {
   Req,
   /** Create a list of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
   CreateVec(usize),
+  /** Create a list of values and push it on the stack. The last item on the stack is copied as many times as the param indicates */
+  CreateSizedVec(usize),
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
   CreateClosure,
   /** Create a new struct */
@@ -468,6 +470,7 @@ impl Vm {
           continue 'ctx;
         }
         Opcode::CreateVec(num_items) => self.exec_create_vec(num_items),
+        Opcode::CreateSizedVec(repeat) => self.exec_sized_vec(repeat)?,
         Opcode::CreateClosure => self.exec_create_closure()?,
         Opcode::CreateStruct => self.exec_create_struct(),
         Opcode::CreateClass => self.exec_create_class(),
@@ -919,6 +922,14 @@ impl Vm {
     let list = self.stack_drain_from(num_items);
     let list = self.gc.allocate(list);
     self.stack_push(list);
+  }
+
+  fn exec_sized_vec(&mut self, repeats: usize) -> ExecResult {
+    let item = self.stack_pop().ok_or_else(|| self.error("no item on the stack to repeat"))?;
+    let vec = vec![item; repeats];
+    let vec = self.gc.allocate(vec);
+    self.stack_push(vec);
+    Ok(())
   }
 
   fn exec_create_closure(&mut self) -> ExecResult {
