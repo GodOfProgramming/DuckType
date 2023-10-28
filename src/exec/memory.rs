@@ -34,6 +34,10 @@ where
       handle,
     }
   }
+
+  pub fn value(&self) -> Value {
+    self.handle.value.clone()
+  }
 }
 
 impl<T> Clone for UsertypeHandle<T>

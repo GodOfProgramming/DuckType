@@ -1,88 +1,70 @@
 mod libconsole;
-mod libenv;
 mod libio;
 mod libps;
 mod libstring;
 mod libtime;
 
 use crate::prelude::*;
-use enum_iterator::{all, Sequence};
-use libconsole::LibConsole;
-use libenv::LibEnv;
-use libio::LibIo;
-use libps::LibPs;
-use libstring::LibString;
-use libtime::LibTime;
 use std::collections::BTreeMap;
 
-pub mod prelude {
-  pub use super::{Lib, Library};
-}
-
-#[derive(Clone, Sequence)]
-pub enum Lib {
-  Std,
-  Env,
-  Time,
-  String,
-  Console,
-  Ps,
-  Io,
-}
-
-#[derive(Clone, Default)]
-pub enum Library {
-  #[default]
-  None,
-  All,
-  List(Vec<Lib>),
-}
-
-pub fn load_libs(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String], library: &Library) -> BTreeMap<String, Value> {
+pub fn enable_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> BTreeMap<String, Value> {
   let mut loaded_libs = BTreeMap::default();
 
-  match library {
-    Library::All => {
-      for lib in all::<Lib>() {
-        let (key, value) = load_lib(gc, gmod.clone(), args, &lib);
-        loaded_libs.insert(key.to_string(), value);
-      }
-    }
-    Library::List(list) => {
-      for lib in list {
-        let (key, value) = load_lib(gc, gmod.clone(), args, lib);
-        loaded_libs.insert(key.to_string(), value);
-      }
-    }
-    Library::None => (),
-  }
+  loaded_libs.insert("std", load_std(gc, gmod, args));
 
-  loaded_libs.into_iter().map(|(n, u)| (n, u.into())).collect()
+  loaded_libs.into_iter().map(|(k, v)| (k.into(), v.into())).collect()
 }
 
-fn load_lib(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String], lib: &Lib) -> (&'static str, UsertypeHandle<ModuleValue>) {
-  match lib {
-    Lib::Std => ("std", load_std(gc, gmod)),
-    Lib::Env => ("env", LibEnv::load(gc, gmod, args)),
-    Lib::Time => ("time", LibTime::load(gc, gmod)),
-    Lib::String => ("str", LibString::load(gc, gmod)),
-    Lib::Console => ("console", LibConsole::load(gc, gmod)),
-    Lib::Ps => ("ps", LibPs::load(gc, gmod)),
-    Lib::Io => ("io", LibIo::load(gc, gmod)),
-  }
-}
-
-fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value) -> UsertypeHandle<ModuleValue> {
+fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHandle<ModuleValue> {
   ModuleBuilder::initialize(gc, Some(gmod), |gc, mut lib| {
+    let libval = lib.value();
+
     lib.define("debug", Value::native(debug));
-    let object = ModuleBuilder::initialize(gc, Some(lib.handle.value.clone()), |_, mut lib| {
-      lib.define("fields", Value::native(fields));
-    });
-    lib.define("obj", object);
-    let reflect = ModuleBuilder::initialize(gc, Some(lib.handle.value.clone()), |_, mut lib| {
-      lib.define("defined", Value::native(defined));
-    });
-    lib.define("reflect", reflect);
+
+    lib.define(
+      "obj",
+      ModuleBuilder::initialize(gc, Some(libval.clone()), |_, mut lib| {
+        lib.define("fields", Value::native(fields));
+      }),
+    );
+
+    lib.define(
+      "reflect",
+      ModuleBuilder::initialize(gc, Some(libval.clone()), |_, mut lib| {
+        lib.define("defined", Value::native(defined));
+      }),
+    );
+
+    lib.define(
+      "env",
+      ModuleBuilder::initialize(gc, Some(libval.clone()), |gc, mut lib| {
+        let args = args.iter().map(|arg| gc.allocate(arg.clone())).collect::<Vec<Value>>();
+        let args = gc.allocate(args);
+        lib.define("ARGV", args);
+      }),
+    );
+
+    lib.define(
+      "time",
+      ModuleBuilder::initialize(gc, Some(libval.clone()), |gc, mut lib| {
+        let mono = ModuleBuilder::initialize(gc, Some(libval.clone()), libtime::mono);
+        lib.define("mono", mono);
+      }),
+    );
+
+    lib.define(
+      "string",
+      ModuleBuilder::initialize(gc, Some(libval.clone()), libstring::string),
+    );
+
+    lib.define(
+      "console",
+      ModuleBuilder::initialize(gc, Some(libval.clone()), libconsole::console),
+    );
+
+    lib.define("ps", ModuleBuilder::initialize(gc, Some(libval.clone()), libps::ps));
+
+    lib.define("io", libio::simple_script_autogen_create_module(gc, libval));
   })
 }
 

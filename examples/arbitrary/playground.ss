@@ -1,7 +1,7 @@
 mod Bar {
   class Baz {
     fn make_new(self) {
-      ret Bar::Baz();
+      ret Baz();
     }
   }
 }

@@ -12,11 +12,11 @@ impl TestFixture for ApiTest {
   fn set_up() -> Self {
     let mut gc = SmartPtr::new(Gc::default());
     let env = ModuleBuilder::initialize(&mut gc, None, |gc, mut lib| {
-      lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &[], &Library::All);
+      lib.env = stdlib::enable_std(gc, lib.value(), &[]);
     });
 
     Self {
-      vm: Vm::new(gc, [], Default::default()),
+      vm: Vm::new(gc, []),
       env,
     }
   }

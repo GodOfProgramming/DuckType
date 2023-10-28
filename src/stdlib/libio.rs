@@ -1,13 +1,7 @@
 use crate::prelude::*;
 use std::{fs, io::Read, ops::Deref, path::PathBuf};
 
-pub struct LibIo;
-
-impl LibIo {
-  pub fn load(gc: &mut SmartPtr<Gc>, gmod: Value) -> UsertypeHandle<ModuleValue> {
-    io::simple_script_autogen_create_module(gc, gmod)
-  }
-}
+pub use io::simple_script_autogen_create_module;
 
 fn open_file(path: (Option<&String>, Option<&io::PathValue>)) -> ValueResult<fs::File> {
   let path = match path {

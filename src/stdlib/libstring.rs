@@ -1,15 +1,9 @@
 use crate::prelude::*;
 
-pub struct LibString;
-
-impl LibString {
-  pub fn load(gc: &mut SmartPtr<Gc>, gmod: Value) -> UsertypeHandle<ModuleValue> {
-    ModuleBuilder::initialize(gc, Some(gmod), |_, mut lib| {
-      lib.define("parse_number", Value::native(parse_number));
-      lib.define("contains", Value::native(contains));
-      lib.define("is_prefix", Value::native(is_prefix));
-    })
-  }
+pub fn string(gc: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
+  lib.define("parse_number", Value::native(parse_number));
+  lib.define("contains", Value::native(contains));
+  lib.define("is_prefix", Value::native(is_prefix));
 }
 
 #[native]

@@ -13,7 +13,7 @@ impl ScriptTest {
     let src = fs::read_to_string(script).unwrap();
     let ctx = self.vm.load(script.to_string_lossy().to_string(), &src).unwrap();
     let env = ModuleBuilder::initialize(&mut self.vm.gc, None, |gc, mut lib| {
-      lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &[], &Library::All);
+      lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &[]);
     });
     self.vm.run(script.to_string_lossy().to_string(), ctx, env).unwrap();
   }
@@ -22,9 +22,7 @@ impl ScriptTest {
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
     let gc = SmartPtr::new(Gc::default());
-    Self {
-      vm: Vm::new(gc, vec![], Library::All),
-    }
+    Self { vm: Vm::new(gc, vec![]) }
   }
 }
 
@@ -76,7 +74,7 @@ mod tests {
     }
 
     let mut env = ModuleBuilder::initialize(&mut t.vm.gc, None, |gc, mut lib| {
-      lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &[], &Library::All);
+      lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &[]);
     });
 
     env.define("make_leaker", Value::native(make_leaker));

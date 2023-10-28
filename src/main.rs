@@ -39,10 +39,10 @@ fn main() {
       let mut gc = SmartPtr::new(Gc::default());
 
       let gmod = ModuleBuilder::initialize(&mut gc, None, |gc, mut lib| {
-        lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &runargs, &Library::All);
+        lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &runargs);
       });
 
-      let vm = Vm::new(gc, runargs.clone(), Library::All);
+      let vm = Vm::new(gc, runargs.clone());
 
       if let Some(file) = file {
         if !run_file(vm, file, gmod) {

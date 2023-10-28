@@ -231,7 +231,6 @@ pub struct Vm {
   pub(crate) envs: EnvStack,
 
   args: Vec<String>,
-  libs: Library,
 
   lib_cache: BTreeMap<FileIdType, Value>,
 
@@ -243,14 +242,13 @@ pub struct Vm {
 }
 
 impl Vm {
-  pub fn new(gc: SmartPtr<Gc>, args: impl Into<Vec<String>>, libs: Library) -> Self {
+  pub fn new(gc: SmartPtr<Gc>, args: impl Into<Vec<String>>) -> Self {
     Self {
       current_frame: Default::default(),
       stack_frames: Default::default(),
       gc,
       envs: Default::default(),
       args: args.into(),
-      libs,
       lib_cache: Default::default(),
       opened_files: Default::default(),
       opened_native_libs: Default::default(),
@@ -1143,7 +1141,7 @@ impl Vm {
         } else {
           let new_ctx = Compiler::compile(found_file.clone(), &data)?;
           let gmod = ModuleBuilder::initialize(&mut self.gc, None, |gc, mut lib| {
-            lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &self.args, &self.libs.clone());
+            lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &self.args);
           });
 
           #[cfg(feature = "disassemble")]
