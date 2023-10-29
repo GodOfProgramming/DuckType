@@ -2,10 +2,19 @@ use lazy_regex::regex;
 use regex::Replacer;
 
 pub fn escape(input: &str) -> anyhow::Result<String> {
-  let output = input.replace("\\n", "\n").replace("\\t", "\t");
+  // bfnrt
+  let output = input
+    .replace("\\b", "\x08")
+    .replace("\\f", "\x0c")
+    .replace("\\n", "\n")
+    .replace("\\r", "\r")
+    .replace("\\t", "\t");
 
   let hex_re = regex!(r#"\\x([0-9a-fA-F]{2})"#);
   let output = hex_re.replace_all(&output, HexReplacer);
+
+  let uni_re = regex!(r#"\\u([0-9a-fA-F]{4})"#);
+  let output = uni_re.replace_all(&output, HexReplacer);
 
   Ok(output.into())
 }

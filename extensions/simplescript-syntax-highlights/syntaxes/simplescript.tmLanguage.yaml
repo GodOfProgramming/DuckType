@@ -6,6 +6,7 @@ env:
   DIGIT: "[0-9]+(?:.[_0-9]+)?"
   INTERPOLATED: "\\${\\s*.*\\s*}"
   REG: "\\/.*\\/"
+  HEX: "[0-9a-fA-F]"
 patterns:
   - include: "#comments"
   - include: "#strings"
@@ -23,8 +24,6 @@ repository:
         match: "\\b(and|or)\\b|\\+|\\-|\\/|\\*"
       - name: "keyword.declaration"
         match: "\\b(let|class|struct|mod|fn|req|as|export|new|use)\\b"
-      - name: "support.function.builtin"
-        match: "\\b(println)\\b"
       - name: "constant.language.null"
         match: "\\b(nil)\\b"
       - name: "constant.language.boolean"
@@ -37,6 +36,8 @@ repository:
       - name: "support.function"
         patterns:
           - include: "#function"
+      - name: "support.function.builtin"
+        match: "\\b(println)\\b"
   meta:
     patterns:
       - name: "meta.function"
@@ -62,18 +63,23 @@ repository:
         begin: '"'
         end: '"'
         patterns:
-          - name: "constant.character.escape"
-            match: "\\."
-          - name: "string.template"
-            begin: "\\${"
-            end: "}"
-            patterns:
-              - include: "#ident"
-              - include: "#function"
-              - include: "#digit"
+          - include: "#string_content"
       - name: "string.quoted.single"
         begin: "'"
         end: "'"
+  string_content:
+    patterns:
+      - name: "constant.character.escape"
+        match: "(?x)                # turn on extended mode\n
+          \\\\                      # a literal backslash\n
+          (?:                       # ...followed by...\n
+          [\"\\\\/bfnrt]            # one of these characters\n
+          |                         # ...or...\n
+          u                         # a u\n
+          ${ HEX }{4}               # and four hex digits\n
+          |                         # ...or...\n
+          x                         # a x\n
+          ${ HEX }{2})              # and two hex digits"
   digits:
     patterns:
       - name: "constant.numeric"
