@@ -1,4 +1,4 @@
-req "examples/lib/ansi" as ansi;
+req "examples/lib/ansi.ss" as ansi;
 
 use ansi::cursor;
 use ansi::display;
@@ -8,5 +8,7 @@ use text::color;
 text::scope(|| {
   color::fg(color::RED);
   color::bg(color::BLUE);
-  println("HI");
+  println("colored");
 });
+
+println("basic");
