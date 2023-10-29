@@ -1,9 +1,7 @@
-let a = [3; 3];
+let x = struct {
+  y: 0,
+};
 
-a[0];
+x.y += 1;
 
-let y = 2;
-
-a[0] *= y + y;
-
-export a;
+export x;
