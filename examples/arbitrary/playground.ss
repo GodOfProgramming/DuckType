@@ -13,10 +13,10 @@ class Foo {
 }
 
 let foo = Foo();
-print foo.make_new();
+println foo.make_new();
 
 let baz = Bar::Baz();
-print baz.make_new();
+println baz.make_new();
 
 class Callable {
   new(self, x) {
@@ -24,7 +24,7 @@ class Callable {
   }
 
   fn __ivk__(self, param) {
-    print(self + param);
+    println(self + param);
   }
 
   fn __add__(self, other) {

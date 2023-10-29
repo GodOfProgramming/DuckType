@@ -1,5 +1,5 @@
 fn foo() {
-  print 1; # comment test
+  println 1; # comment test
 }
 
 foo();

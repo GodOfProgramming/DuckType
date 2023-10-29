@@ -3,7 +3,7 @@ use env.ARGV;
 let times_str = ARGV[0];
 
 if !times_str {
-  print "forgot to give argument";
+  println "forgot to give argument";
   ps.exit(1);
 }
 
@@ -31,15 +31,15 @@ fn fib_it(count) {
 }
 
 let times = str.parse_number(times_str);
-print "times = " + times;
+println "times = " + times;
 let before = time.clock();
-print fib(times);
+println fib(times);
 let after = time.clock();
 
-print "rec diff = " + time.clock_diff(before, after);
+println "rec diff = " + time.clock_diff(before, after);
 
 before = time.clock();
-print fib_it(times);
+println fib_it(times);
 after = time.clock();
 
-print "it diff = " + time.clock_diff(before, after);
+println "it diff = " + time.clock_diff(before, after);

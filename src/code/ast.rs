@@ -157,9 +157,9 @@ impl AstGenerator {
         self.advance();
         ModStatement::stmt(self);
       }
-      Token::Print => {
+      Token::Println => {
         self.advance();
-        PrintStatement::stmt(self);
+        PrintlnStatement::stmt(self);
       }
       Token::Req => {
         self.advance();
@@ -389,7 +389,7 @@ impl AstGenerator {
           | Token::For
           | Token::If
           | Token::While
-          | Token::Print
+          | Token::Println
           | Token::Ret
           | Token::Match
           | Token::Loop
@@ -637,7 +637,7 @@ impl AstGenerator {
       Token::New => ParseRule::new(None, None, Precedence::None),
       Token::Nil => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
       Token::Or => ParseRule::new(None, Some(OrExpression::infix), Precedence::Or),
-      Token::Print => ParseRule::new(None, None, Precedence::None),
+      Token::Println => ParseRule::new(None, None, Precedence::None),
       Token::Req => ParseRule::new(Some(ReqExpression::prefix), None, Precedence::Primary),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::Struct => ParseRule::new(Some(StructExpression::prefix), None, Precedence::Primary),

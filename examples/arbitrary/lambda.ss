@@ -1,11 +1,11 @@
 let arr = [1, 2, 3];
-print(arr);
+println(arr);
 
 let obj = struct {
   value: "foobar"
 };
 
-print(obj.value);
+println(obj.value);
 
 let lambda = [obj] |value| {
   obj.value = value;
@@ -13,7 +13,7 @@ let lambda = [obj] |value| {
 
 lambda("barfoo");
 
-print(obj.value);
+println(obj.value);
 
 let ass_lambda = [obj] |value| {
   obj.value = value;
@@ -21,6 +21,6 @@ let ass_lambda = [obj] |value| {
 
 ass_lambda(4);
 
-print(arr);
+println(arr);
 
-print(obj);
+println(obj);

@@ -258,9 +258,9 @@ impl BytecodeGenerator {
     self.emit(Opcode::Pop, stmt.loc);
   }
 
-  fn print_stmt(&mut self, stmt: PrintStatement) {
+  fn println_stmt(&mut self, stmt: PrintlnStatement) {
     self.emit_expr(stmt.expr);
-    self.emit(Opcode::Print, stmt.loc);
+    self.emit(Opcode::Println, stmt.loc);
   }
 
   fn req_stmt(&mut self, stmt: ReqStatement) {
@@ -632,7 +632,7 @@ impl BytecodeGenerator {
       Statement::Loop(stmt) => self.loop_stmt(stmt),
       Statement::Match(stmt) => self.match_stmt(stmt),
       Statement::Mod(stmt) => self.mod_stmt(stmt),
-      Statement::Print(stmt) => self.print_stmt(stmt),
+      Statement::Print(stmt) => self.println_stmt(stmt),
       Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::Use(stmt) => self.use_stmt(stmt),

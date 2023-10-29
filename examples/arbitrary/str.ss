@@ -1,1 +1,1 @@
-print "hello world".reverse().len();
+println "hello world".reverse().len();

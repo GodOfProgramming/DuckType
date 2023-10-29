@@ -1,7 +1,6 @@
 use crate::{dbg, prelude::*};
 use ast::Ast;
 use gen::BytecodeGenerator;
-use inter_struct::prelude::*;
 use lex::Scanner;
 use opt::Optimizer;
 use ptr::SmartPtr;
@@ -100,8 +99,7 @@ pub enum ConstantValue {
   Fn(FunctionConstant),
 }
 
-#[derive(Clone, StructMerge)]
-#[struct_merge("crate::value::builtin_types::class_value::ClassValue")]
+#[derive(Clone)]
 pub struct FunctionConstant {
   pub airity: usize,
   pub locals: usize,

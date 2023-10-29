@@ -107,7 +107,7 @@ pub enum Opcode {
   /** Pops a value off the stack, inverts its numerical value, then pushes that back on */
   Negate,
   /** Pops a value off the stack and prints it to the screen */
-  Print,
+  Println,
   /** Jumps to a code location indicated by the tuple */
   Jump(usize),
   /** Jumps to a code location indicated by the tuple */
@@ -427,7 +427,7 @@ impl Vm {
         Opcode::LookupMember(index) => self.exec_lookup_member(index)?,
         Opcode::PeekMember(index) => self.exec_peek_member(index)?,
         Opcode::Check => self.exec_check()?,
-        Opcode::Print => self.exec_print()?,
+        Opcode::Println => self.exec_print()?,
         Opcode::Jump(count) => {
           self.jump(count);
           continue 'ctx;

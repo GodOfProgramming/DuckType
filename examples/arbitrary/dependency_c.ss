@@ -1,4 +1,4 @@
-print("IN C");
+println("IN C");
 
 class Foo {
   new(self, value) {

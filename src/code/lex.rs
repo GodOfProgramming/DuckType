@@ -1,3 +1,5 @@
+use crate::util;
+
 use super::*;
 use std::{ops::RangeInclusive, str};
 
@@ -73,7 +75,7 @@ pub enum Token {
   New,
   Nil,
   Or,
-  Print,
+  Println,
   Req,
   Ret,
   Struct,
@@ -138,7 +140,7 @@ impl TryFrom<&[u8]> for Token {
       "new" => Self::New,
       "nil" => Self::Nil,
       "or" => Self::Or,
-      "print" => Self::Print,
+      "println" => Self::Println,
       "req" => Self::Req,
       "ret" => Self::Ret,
       "struct" => Self::Struct,
@@ -446,7 +448,19 @@ impl<'src> Scanner<'src> {
     }
 
     match str::from_utf8(&self.src[self.start_pos + 1..self.pos]) {
-      Ok(string) => Some(Token::String(string.to_string())),
+      Ok(string) => {
+        if C == '"' {
+          match util::strproc::escape(string) {
+            Ok(string) => Some(Token::String(string)),
+            Err(e) => {
+              self.error(format!("{}", e));
+              None
+            }
+          }
+        } else {
+          Some(Token::String(string.to_string()))
+        }
+      }
       Err(e) => {
         self.error(format!("{}", e));
         None

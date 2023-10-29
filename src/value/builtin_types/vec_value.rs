@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use itertools::Itertools;
 use rand::seq::SliceRandom;
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
@@ -56,7 +55,7 @@ impl VecValue {
   }
 
   fn __str__(&self) -> String {
-    format!("[{}]", self.list.iter().map(|v| v.to_string()).join(", "))
+    format!("[{}]", itertools::join(self.list.iter(), ", "))
   }
 
   fn __dbg__(&self) -> String {

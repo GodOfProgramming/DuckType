@@ -24,7 +24,7 @@ repository:
       - name: "keyword.declaration"
         match: "\\b(let|class|struct|mod|fn|req|as|export|new|use)\\b"
       - name: "support.function.builtin"
-        match: "\\b(print)\\b"
+        match: "\\b(println)\\b"
       - name: "constant.language.null"
         match: "\\b(nil)\\b"
       - name: "constant.language.boolean"
@@ -50,7 +50,7 @@ repository:
       - name: "entity.name.type.class"
         match: "(?<=class)\\s+${ IDENT }"
       - name: "entity.name.type.module"
-        match: "(?<=mod)\\s+${ IDENT }"
+        match: "((?<=mod)\\s+${ IDENT })|(${ IDENT }(?=::))"
       - name: "entity.name.type"
         match: "\\b([A-Z]\\w*)\\b"
   function:

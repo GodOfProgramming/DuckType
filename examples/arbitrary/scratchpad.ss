@@ -1,1 +1,1 @@
-print 'hello\nworld';
+std::console::write("hello world\n");

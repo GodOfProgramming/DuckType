@@ -6,4 +6,4 @@ let x = {
   y,
 };
 
-print x.y.z;
+println x.y.z;

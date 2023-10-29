@@ -8,4 +8,4 @@ class Add {
   }
 }
 
-print Add(1) + 2;
+println Add(1) + 2;
