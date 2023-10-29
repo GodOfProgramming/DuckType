@@ -31,7 +31,13 @@ fn main() {
 }
 
 fn new_buff() {
-  ret [[nil; $NUM_COLUMNS]; $NUM_ROWS];
+  let b = [nil; $NUM_ROWS];
+
+  for let i = 0; i < $NUM_ROWS; i += 1 {
+    b[i] = [nil; $NUM_COLUMNS];
+  }
+
+  ret b;
 }
 
 fn seed_buffer(buff) {
