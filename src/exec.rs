@@ -14,7 +14,7 @@ use memory::{Allocation, Gc};
 use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, VecDeque},
   error::Error,
   fmt::{self, Debug, Display, Formatter},
   fs,
@@ -150,6 +150,10 @@ pub enum Opcode {
   EnterBlock,
   /** Pop an env */
   PopScope,
+  /** Stash a value for later use */
+  StashPush,
+  /** Remove the next value in the stash queue */
+  StashRemove,
 }
 
 #[cfg(test)]
@@ -511,6 +515,18 @@ impl Vm {
         }
         Opcode::Not => self.exec_not(&opcode)?,
         Opcode::Negate => self.exec_negate(&opcode)?,
+        Opcode::StashPush => {
+          let value = self.stack_peek().ok_or_else(|| self.error("no value on stack to peek"))?;
+          self.current_frame.stash.push_back(value);
+        }
+        Opcode::StashRemove => {
+          let value = self
+            .current_frame
+            .stash
+            .pop_front()
+            .ok_or_else(|| self.error("no value in stash to pop"))?;
+          self.stack_push(value);
+        }
       }
 
       self.current_frame.ip += 1;
@@ -1287,7 +1303,7 @@ impl Vm {
   }
 
   pub fn stack_display(&self) {
-    println!("{}", self.current_frame);
+    print!("{}", self.current_frame);
   }
 }
 
@@ -1296,6 +1312,7 @@ pub struct StackFrame {
   pub ip: usize,
   pub ctx: SmartPtr<Context>,
   pub stack: Vec<Value>,
+  pub stash: VecDeque<Value>,
 }
 
 impl StackFrame {
@@ -1304,6 +1321,7 @@ impl StackFrame {
       ip: Default::default(),
       ctx,
       stack: Default::default(),
+      stash: Default::default(),
     }
   }
 
@@ -1320,12 +1338,12 @@ impl StackFrame {
 impl Display for StackFrame {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     if self.stack.is_empty() {
-      write!(f, "               | [ ]")
+      writeln!(f, "               | [ ]")
     } else {
       for (index, item) in self.stack.iter().enumerate() {
-        write!(f, "{:#15}| [ {:?} ]", index, item)?;
+        writeln!(f, "{:#15}| [ {:?} ]", index, item)?;
       }
-      writeln!(f)
+      Ok(())
     }
   }
 }

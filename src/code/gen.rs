@@ -402,44 +402,96 @@ impl BytecodeGenerator {
   }
 
   fn assign_expr(&mut self, expr: AssignExpression) {
-    let mut op_assign = |expr: AssignExpression, op| {
-      if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc.clone()) {
-        let (set, get) = match lookup.kind {
-          LookupKind::Local => (Opcode::AssignLocal(lookup.index), Opcode::LookupLocal(lookup.index)),
-          LookupKind::Global => {
-            let global_index = self.declare_global(expr.ident);
-            (Opcode::AssignGlobal(global_index), Opcode::LookupGlobal(global_index))
-          }
-        };
+    match expr.lvalue {
+      LValue::Ident(ident) => self.assign_ident(ident, expr.op, *expr.value, expr.loc),
+      LValue::Index(index) => self.assign_index(index, expr.op, *expr.value, expr.loc),
+    }
+  }
 
-        self.emit(get, expr.loc.clone());
-
-        self.emit_expr(*expr.value);
-
-        self.emit(op, expr.loc.clone());
-
-        self.emit(set, expr.loc);
-      }
-    };
-    match expr.op {
+  fn assign_ident(&mut self, ident: Ident, op: AssignOperator, value: Expression, loc: SourceLocation) {
+    match op {
       AssignOperator::Assign => {
-        if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc.clone()) {
+        if let Some(lookup) = self.resolve_ident(&ident, loc.clone()) {
           let set = match lookup.kind {
             LookupKind::Local => Opcode::AssignLocal(lookup.index),
-            LookupKind::Global => Opcode::AssignGlobal(self.declare_global(expr.ident)),
+            LookupKind::Global => Opcode::AssignGlobal(self.declare_global(ident)),
           };
 
-          self.emit_expr(*expr.value);
+          self.emit_expr(value);
 
-          self.emit(set, expr.loc);
+          self.emit(set, loc);
         }
       }
-      AssignOperator::Add => op_assign(expr, Opcode::Add),
-      AssignOperator::Sub => op_assign(expr, Opcode::Sub),
-      AssignOperator::Mul => op_assign(expr, Opcode::Mul),
-      AssignOperator::Div => op_assign(expr, Opcode::Div),
-      AssignOperator::Mod => op_assign(expr, Opcode::Rem),
+      AssignOperator::Add => self.ident_op_assign(ident, Opcode::Add, value, loc),
+      AssignOperator::Sub => self.ident_op_assign(ident, Opcode::Sub, value, loc),
+      AssignOperator::Mul => self.ident_op_assign(ident, Opcode::Mul, value, loc),
+      AssignOperator::Div => self.ident_op_assign(ident, Opcode::Div, value, loc),
+      AssignOperator::Rem => self.ident_op_assign(ident, Opcode::Rem, value, loc),
     }
+  }
+
+  fn ident_op_assign(&mut self, ident: Ident, op: Opcode, value: Expression, loc: SourceLocation) {
+    if let Some(lookup) = self.resolve_ident(&ident, loc.clone()) {
+      let (set, get) = match lookup.kind {
+        LookupKind::Local => (Opcode::AssignLocal(lookup.index), Opcode::LookupLocal(lookup.index)),
+        LookupKind::Global => {
+          let global_index = self.declare_global(ident);
+          (Opcode::AssignGlobal(global_index), Opcode::LookupGlobal(global_index))
+        }
+      };
+
+      self.emit(get, loc.clone());
+
+      self.emit_expr(value);
+
+      self.emit(op, loc.clone());
+
+      self.emit(set, loc);
+    }
+  }
+
+  fn assign_index(&mut self, expr: IndexExpression, op: AssignOperator, value: Expression, loc: SourceLocation) {
+    match op {
+      AssignOperator::Assign => {
+        let ident = self.add_const_ident(Ident::new(ops::INDEX_ASSIGN));
+        self.emit_expr(*expr.indexable);
+        self.emit(Opcode::LookupMember(ident), expr.loc.clone());
+        self.emit_expr(*expr.index);
+        self.emit_expr(value);
+        self.emit(Opcode::Invoke(2), expr.loc);
+      }
+      AssignOperator::Add => self.index_op_assign(expr, Opcode::Add, value, loc),
+      AssignOperator::Sub => self.index_op_assign(expr, Opcode::Sub, value, loc),
+      AssignOperator::Mul => self.index_op_assign(expr, Opcode::Mul, value, loc),
+      AssignOperator::Div => self.index_op_assign(expr, Opcode::Div, value, loc),
+      AssignOperator::Rem => self.index_op_assign(expr, Opcode::Rem, value, loc),
+    }
+  }
+
+  fn index_op_assign(&mut self, expr: IndexExpression, op: Opcode, value: Expression, loc: SourceLocation) {
+    self.emit_expr(*expr.indexable);
+    self.emit(Opcode::StashPush, expr.loc.clone());
+
+    let index_ident = self.add_const_ident(Ident::new(ops::INDEX));
+    self.emit(Opcode::LookupMember(index_ident), expr.loc.clone());
+
+    self.emit_expr(*expr.index);
+    self.emit(Opcode::StashPush, expr.loc.clone());
+
+    self.emit(Opcode::Invoke(1), expr.loc.clone());
+
+    self.emit_expr(value);
+
+    self.emit(op, loc.clone());
+    self.emit(Opcode::StashPush, expr.loc.clone());
+    self.emit(Opcode::Pop, expr.loc.clone());
+
+    let idxeq_ident = self.add_const_ident(Ident::new(ops::INDEX_ASSIGN));
+    self.emit(Opcode::StashRemove, expr.loc.clone());
+    self.emit(Opcode::LookupMember(idxeq_ident), expr.loc.clone());
+    self.emit(Opcode::StashRemove, expr.loc.clone());
+    self.emit(Opcode::StashRemove, expr.loc.clone());
+    self.emit(Opcode::Invoke(2), expr.loc);
   }
 
   fn call_expr(&mut self, expr: CallExpression) {
@@ -589,7 +641,7 @@ impl BytecodeGenerator {
         AssignOperator::Sub => op_assign(assignment, Opcode::Sub, expr.loc),
         AssignOperator::Mul => op_assign(assignment, Opcode::Mul, expr.loc),
         AssignOperator::Div => op_assign(assignment, Opcode::Div, expr.loc),
-        AssignOperator::Mod => op_assign(assignment, Opcode::Rem, expr.loc),
+        AssignOperator::Rem => op_assign(assignment, Opcode::Rem, expr.loc),
       }
     } else {
       self.emit(Opcode::LookupMember(ident), expr.loc);

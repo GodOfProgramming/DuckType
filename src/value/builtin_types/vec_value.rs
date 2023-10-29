@@ -54,6 +54,11 @@ impl VecValue {
     Ok(self.list.get(index as usize).cloned().unwrap_or_default())
   }
 
+  fn __idxeq__(&mut self, index: i32, value: Value) -> ValueResult {
+    self.list.insert(index as usize, value.clone());
+    Ok(value)
+  }
+
   fn __str__(&self) -> String {
     format!("[{}]", itertools::join(self.list.iter(), ", "))
   }

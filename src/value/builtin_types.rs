@@ -28,6 +28,7 @@ pub mod ops {
   pub const GREATER_EQUAL: &str = "__geq__";
 
   pub const INDEX: &str = "__index__";
+  pub const INDEX_ASSIGN: &str = "__idxeq__";
 }
 
 use super::{VTable, Value};

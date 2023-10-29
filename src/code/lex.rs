@@ -434,7 +434,7 @@ impl<'src> Scanner<'src> {
           self.column = 0;
         }
         c if c == C => break,
-        c => self.advance(),
+        _ => self.advance(),
       }
     }
 

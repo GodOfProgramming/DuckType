@@ -12,7 +12,7 @@ pub enum AssignOperator {
   Sub,
   Mul,
   Div,
-  Mod,
+  Rem,
 }
 
 #[derive(Debug)]
@@ -64,8 +64,25 @@ impl AstExpression for AndExpression {
 }
 
 #[derive(Debug)]
+pub enum LValue {
+  Ident(Ident),
+  Index(IndexExpression),
+}
+
+impl TryFrom<Expression> for LValue {
+  type Error = &'static str;
+  fn try_from(value: Expression) -> Result<Self, Self::Error> {
+    match value {
+      Expression::Ident(expr) => Ok(LValue::Ident(expr.ident)),
+      Expression::Index(expr) => Ok(LValue::Index(expr)),
+      _ => Err("invalid lvalue for assignment"),
+    }
+  }
+}
+
+#[derive(Debug)]
 pub struct AssignExpression {
-  pub ident: Ident,
+  pub lvalue: LValue,
   pub op: AssignOperator,
   pub value: Box<Expression>,
 
@@ -73,9 +90,9 @@ pub struct AssignExpression {
 }
 
 impl AssignExpression {
-  pub(super) fn new(ident: Ident, op: AssignOperator, value: Expression, loc: SourceLocation) -> Self {
+  pub(super) fn new(lvalue: LValue, op: AssignOperator, value: Expression, loc: SourceLocation) -> Self {
     Self {
-      ident,
+      lvalue,
       op,
       value: Box::new(value),
       loc,
@@ -91,28 +108,29 @@ impl AstExpression for AssignExpression {
       }
     }
 
-    if let Expression::Ident(ident_expr) = left {
-      let op = ast.previous()?;
-      let op_meta = ast.meta_at::<1>()?;
-      let value = ast.expression()?;
+    let op = ast.previous()?;
+    let op_meta = ast.meta_at::<1>()?;
+    let value = ast.expression()?;
 
-      let op = match op {
-        Token::Equal => AssignOperator::Assign,
-        Token::PlusEqual => AssignOperator::Add,
-        Token::MinusEqual => AssignOperator::Sub,
-        Token::AsteriskEqual => AssignOperator::Mul,
-        Token::SlashEqual => AssignOperator::Div,
-        Token::PercentEqual => AssignOperator::Mod,
-        t => {
-          ast.error::<1>(format!("invalid token {}", t));
-          return None;
-        }
-      };
+    let op = match op {
+      Token::Equal => AssignOperator::Assign,
+      Token::PlusEqual => AssignOperator::Add,
+      Token::MinusEqual => AssignOperator::Sub,
+      Token::AsteriskEqual => AssignOperator::Mul,
+      Token::SlashEqual => AssignOperator::Div,
+      Token::PercentEqual => AssignOperator::Rem,
+      t => {
+        ast.error::<1>(format!("invalid token {}", t));
+        return None;
+      }
+    };
 
-      Some(Expression::from(AssignExpression::new(ident_expr.ident, op, value, op_meta)))
-    } else {
-      ast.error::<1>(String::from("can only assign to variables"));
-      None
+    match LValue::try_from(left) {
+      Ok(lvalue) => Some(Expression::from(AssignExpression::new(lvalue, op, value, op_meta))),
+      Err(e) => {
+        ast.error::<0>(e);
+        None
+      }
     }
   }
 }
@@ -360,7 +378,7 @@ impl AstExpression for MemberAccessExpression {
               Some(Expression::from(Self::new_assignment(
                 left,
                 Ident::new(member),
-                Assignment::new(AssignOperator::Mod, value),
+                Assignment::new(AssignOperator::Rem, value),
                 ident_meta,
               )))
             }

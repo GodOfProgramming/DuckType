@@ -37,7 +37,7 @@ fn new_buff() {
 fn seed_buffer(buff) {
   for let r = 0; r < $NUM_ROWS; r += 1 {
     for let c = 0; c < $NUM_COLUMNS; c += 1 {
-      buff[r].insert(c, math::rand_i32() % 2);
+      buff[r][c] = math::rand_i32() % 2;
     }
   }
 }
@@ -66,11 +66,11 @@ fn update(fb, bb) {
     for let c = 0; c < $NUM_COLUMNS; c += 1 {
       let neighbor_live_cell = count_live_neighbor_cells(fb, r, c);
       if fb[r][c] == 1 and (neighbor_live_cell == 2 or neighbor_live_cell == 3) {
-        bb[r].insert(c, 1);
+        bb[r][c] = 1;
       } else if fb[r][c] == 0 and neighbor_live_cell == 3 {
-        bb[r].insert(c, 1);
+        bb[r][c] = 1;
       } else {
-        bb[r].insert(c, 0);
+        bb[r][c] = 0;
       }
     }
   }
