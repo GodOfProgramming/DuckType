@@ -15,60 +15,50 @@ pub fn enable_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> BTreeM
   loaded_libs.into_iter().map(|(k, v)| (k.into(), v.into())).collect()
 }
 
+fn defmod<F>(gc: &mut SmartPtr<Gc>, lib: &mut UsertypeHandle<ModuleValue>, name: &str, init: F)
+where
+  F: FnOnce(&mut SmartPtr<Gc>, UsertypeHandle<ModuleValue>),
+{
+  let libval = lib.value();
+  lib.define(name, ModuleBuilder::initialize(gc, name, Some(libval), init));
+}
+
 fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHandle<ModuleValue> {
-  ModuleBuilder::initialize(gc, Some(gmod), |gc, mut lib| {
-    let libval = lib.value();
+  ModuleBuilder::initialize(gc, "std", Some(gmod), |gc, mut lib| {
+    let lib = &mut lib;
 
     lib.define("debug", Value::native(debug));
 
-    lib.define(
-      "obj",
-      ModuleBuilder::initialize(gc, Some(libval.clone()), |_, mut lib| {
-        lib.define("fields", Value::native(fields));
-      }),
-    );
+    defmod(gc, lib, "obj", |_, mut lib| {
+      lib.define("fields", Value::native(fields));
+    });
 
-    lib.define(
-      "reflect",
-      ModuleBuilder::initialize(gc, Some(libval.clone()), |_, mut lib| {
-        lib.define("defined", Value::native(defined));
-      }),
-    );
+    defmod(gc, lib, "reflect", |_, mut lib| {
+      lib.define("defined", Value::native(defined));
+    });
 
-    lib.define(
-      "env",
-      ModuleBuilder::initialize(gc, Some(libval.clone()), |gc, mut lib| {
-        let args = args.iter().map(|arg| gc.allocate(arg.clone())).collect::<Vec<Value>>();
-        let args = gc.allocate(args);
-        lib.define("ARGV", args);
-      }),
-    );
+    defmod(gc, lib, "env", |gc, mut lib| {
+      let args = args.iter().map(|arg| gc.allocate(arg.clone())).collect::<Vec<Value>>();
+      let args = gc.allocate(args);
+      lib.define("ARGV", args);
+    });
 
-    lib.define(
-      "time",
-      ModuleBuilder::initialize(gc, Some(libval.clone()), |gc, mut lib| {
-        let mono = ModuleBuilder::initialize(gc, Some(libval.clone()), libtime::mono);
-        lib.define("mono", mono);
-      }),
-    );
+    defmod(gc, lib, "time", |gc, mut lib| {
+      defmod(gc, &mut lib, "mono", libtime::mono);
+    });
 
-    lib.define("str", ModuleBuilder::initialize(gc, Some(libval.clone()), libstr::string));
+    defmod(gc, lib, "str", libstr::string);
 
-    lib.define(
-      "console",
-      ModuleBuilder::initialize(gc, Some(libval.clone()), libconsole::console),
-    );
+    defmod(gc, lib, "console", libconsole::console);
 
-    lib.define("ps", ModuleBuilder::initialize(gc, Some(libval.clone()), libps::ps));
+    defmod(gc, lib, "ps", libps::ps);
 
-    lib.define("io", libio::simple_script_autogen_create_module(gc, libval.clone()));
+    defmod(gc, lib, "math", |_, mut lib| {
+      lib.define("rand_i32", Value::native(rand_i32));
+    });
 
-    lib.define(
-      "math",
-      ModuleBuilder::initialize(gc, Some(libval.clone()), |_, mut lib| {
-        lib.define("rand_i32", Value::native(rand_i32));
-      }),
-    );
+    let libval = lib.value();
+    lib.define("io", libio::simple_script_autogen_create_module(gc, libval));
   })
 }
 

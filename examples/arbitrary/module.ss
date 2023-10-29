@@ -12,4 +12,4 @@ fn print_global() {
   println($GLOBAL);
 }
 
-export mod { foo, bar, print_global }
+export mod module { foo, bar, print_global }

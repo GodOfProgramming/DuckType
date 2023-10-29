@@ -1,7 +1,7 @@
 req "common" as common;
 req "color" as color;
 
-export mod {
+export mod text {
   BOLD: "[22m",
 
   color,

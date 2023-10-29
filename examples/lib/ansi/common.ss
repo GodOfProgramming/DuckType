@@ -1,6 +1,6 @@
 use std::console;
 
-export mod {
+export mod common {
   fn exec(code) {
     console::write("\x1b" + code);
   }

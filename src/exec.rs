@@ -134,10 +134,10 @@ pub enum Opcode {
   CreateClosure,
   /** Create a new struct */
   CreateStruct,
-  /** Create a new class */
-  CreateClass,
-  /** Create a new module */
-  CreateModule,
+  /** Create a new class. Name is from the bits */
+  CreateClass(usize),
+  /** Create a new module. Name is from the bits */
+  CreateModule(usize),
   /** Halt the VM when this instruction is reached and enter repl mode */
   Breakpoint,
   /** Mark the current value as exported */
@@ -478,8 +478,8 @@ impl Vm {
         Opcode::CreateDynamicVec => self.exec_dyn_vec()?,
         Opcode::CreateClosure => self.exec_create_closure()?,
         Opcode::CreateStruct => self.exec_create_struct(),
-        Opcode::CreateClass => self.exec_create_class(),
-        Opcode::CreateModule => self.exec_create_module(),
+        Opcode::CreateClass(name) => self.exec_create_class(name)?,
+        Opcode::CreateModule(name) => self.exec_create_module(name)?,
         Opcode::Breakpoint => {
           self.ssdb().ok();
         }
@@ -986,20 +986,42 @@ impl Vm {
     self.stack_push(v);
   }
 
-  fn exec_create_class(&mut self) {
+  fn exec_create_class(&mut self, name_index: usize) -> ExecResult {
     dbg::profile_function!();
-    let v = self.gc.allocate(ClassValue::default());
-    self.stack_push(v);
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(name_index)
+      .ok_or_else(|| self.error("could not lookup constant"))?;
+
+    if let ConstantValue::String(name) = name {
+      let v = self.gc.allocate(ClassValue::new(name));
+      self.stack_push(v);
+      Ok(())
+    } else {
+      Err(self.error("mod name is not a string"))
+    }
   }
 
   /// Create a module and make it the current env
-  fn exec_create_module(&mut self) {
+  fn exec_create_module(&mut self, name_index: usize) -> ExecResult {
     dbg::profile_function!();
-    let leaf = self.current_env();
-    let module = ModuleValue::new_child(leaf.handle.value.clone());
-    let uhandle = Gc::allocate_handle(&mut self.gc, module);
-    self.envs.push(EnvEntry::Mod(uhandle.clone()));
-    self.stack_push(uhandle.handle.value.clone());
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(name_index)
+      .ok_or_else(|| self.error("could not lookup constant"))?;
+
+    if let ConstantValue::String(name) = name {
+      let leaf = self.current_env();
+      let module = ModuleValue::new_child(name, leaf.handle.value.clone());
+      let uhandle = Gc::allocate_handle(&mut self.gc, module);
+      self.envs.push(EnvEntry::Mod(uhandle.clone()));
+      self.stack_push(uhandle.handle.value.clone());
+      Ok(())
+    } else {
+      Err(self.error("mod name is not a string"))
+    }
   }
 
   fn exec_scope_resolution(&mut self, ident: usize) -> ExecResult {
@@ -1025,7 +1047,7 @@ impl Vm {
     dbg::profile_function!();
     let mut gc = self.gc.clone();
     let leaf = self.current_env();
-    let handle = Gc::allocate_handle(&mut gc, ModuleValue::new_child(leaf.handle.value.clone()));
+    let handle = Gc::allocate_handle(&mut gc, ModuleValue::new_scope(leaf.handle.value.clone()));
     self.envs.push(EnvEntry::Block(handle));
   }
 
@@ -1156,7 +1178,7 @@ impl Vm {
           self.stack_push(value.clone());
         } else {
           let new_ctx = Compiler::compile(found_file.clone(), &data)?;
-          let gmod = ModuleBuilder::initialize(&mut self.gc, None, |gc, mut lib| {
+          let gmod = ModuleBuilder::initialize(&mut self.gc, id, None, |gc, mut lib| {
             lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &self.args);
           });
 

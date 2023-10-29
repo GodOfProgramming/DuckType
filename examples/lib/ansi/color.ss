@@ -2,7 +2,7 @@ req "common" as common;
 
 use std::str;
 
-export mod {
+export mod color {
   BLACK: 0,
   RED: 1,
   GREEN: 2,

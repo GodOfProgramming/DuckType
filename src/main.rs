@@ -38,7 +38,7 @@ fn main() {
 
       let mut gc = SmartPtr::new(Gc::default());
 
-      let gmod = ModuleBuilder::initialize(&mut gc, None, |gc, mut lib| {
+      let gmod = ModuleBuilder::initialize(&mut gc, "*main*", None, |gc, mut lib| {
         lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &runargs);
       });
 

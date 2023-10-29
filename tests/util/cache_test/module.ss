@@ -12,4 +12,4 @@ fn get_global() {
   ret $GLOBAL;
 }
 
-export mod { set_a, set_b, get_global }
+export mod module { set_a, set_b, get_global }

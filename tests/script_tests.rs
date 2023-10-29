@@ -12,7 +12,7 @@ impl ScriptTest {
     println!("running {:?}", script);
     let src = fs::read_to_string(script).unwrap();
     let ctx = self.vm.load(script.to_string_lossy().to_string(), &src).unwrap();
-    let env = ModuleBuilder::initialize(&mut self.vm.gc, None, |gc, mut lib| {
+    let env = ModuleBuilder::initialize(&mut self.vm.gc, "*test*", None, |gc, mut lib| {
       lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &[]);
     });
     self.vm.run(script.to_string_lossy().to_string(), ctx, env).unwrap();
@@ -73,7 +73,7 @@ mod tests {
       })
     }
 
-    let mut env = ModuleBuilder::initialize(&mut t.vm.gc, None, |gc, mut lib| {
+    let mut env = ModuleBuilder::initialize(&mut t.vm.gc, "*test*", None, |gc, mut lib| {
       lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &[]);
     });
 

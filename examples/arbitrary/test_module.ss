@@ -26,7 +26,7 @@ fn some_func() {
 
 let x = "super secret string";
 
-export mod {
+export mod test {
   ClassA: A, ClassB: B,
 
   TestClass, RenamedClass: TestClass,

@@ -1,6 +1,6 @@
 req "common" as common;
 
-export mod {
+export mod cursor {
   fn save() {
     common::exec(" 7");
   }

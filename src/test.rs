@@ -13,7 +13,7 @@ struct IntegrationTest {
 impl IntegrationTest {
   fn new() -> Self {
     let mut gc = SmartPtr::new(Gc::default());
-    let env = ModuleBuilder::initialize(&mut gc, None, |gc, mut lib| {
+    let env = ModuleBuilder::initialize(&mut gc, "*test*", None, |gc, mut lib| {
       lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &[]);
     });
 

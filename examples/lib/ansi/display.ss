@@ -1,6 +1,6 @@
 req "common" as common;
 
-export mod {
+export mod display {
   fn clear() {
     common::exec("[J");
   }

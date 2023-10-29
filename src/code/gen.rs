@@ -567,7 +567,8 @@ impl BytecodeGenerator {
   }
 
   fn class_expr(&mut self, expr: ClassExpression) {
-    self.emit(Opcode::CreateClass, expr.loc.clone());
+    let ident = self.add_const_ident(expr.name);
+    self.emit(Opcode::CreateClass(ident), expr.loc.clone());
 
     if let Some(initializer) = expr.initializer {
       if let Some((function, is_static)) = self.create_class_fn(Ident::new("<constructor>"), *initializer) {
@@ -599,7 +600,8 @@ impl BytecodeGenerator {
   }
 
   fn mod_expr(&mut self, expr: ModExpression) {
-    self.emit(Opcode::CreateModule, expr.loc.clone());
+    let ident = self.add_const_ident(expr.name);
+    self.emit(Opcode::CreateModule(ident), expr.loc.clone());
     for (member, assign) in expr.items {
       let ident = self.add_const_ident(member);
       self.emit_expr(assign);
@@ -848,9 +850,10 @@ impl BytecodeGenerator {
   fn declare_variable(&mut self, ident: Ident, loc: SourceLocation) -> Option<usize> {
     if ident.global {
       Some(self.declare_global(ident))
-    } else if self.declare_local(ident, loc) {
+    } else if self.declare_local(ident, loc.clone()) {
       Some(0)
     } else {
+      self.error(loc, "tried to declare existing variable");
       None
     }
   }

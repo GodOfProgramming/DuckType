@@ -70,7 +70,7 @@ impl AstExpression for IdentExpression {
 
 #[derive(Debug)]
 pub struct ClassExpression {
-  pub name: Option<Ident>,
+  pub name: Ident,
   pub initializer: Option<Box<Expression>>,
   pub methods: Vec<(Ident, Expression)>,
   pub loc: SourceLocation,
@@ -78,7 +78,7 @@ pub struct ClassExpression {
 
 impl ClassExpression {
   pub(super) fn new(
-    name: Option<Ident>,
+    name: Ident,
     initializer: Option<Expression>,
     methods: Vec<(Ident, Expression)>,
     loc: SourceLocation,
@@ -92,10 +92,18 @@ impl ClassExpression {
   }
 }
 
-impl ClassExpression {
-  pub(crate) fn expr(ast: &mut AstGenerator, name: Option<Ident>) -> Option<Expression> {
+impl AstExpression for ClassExpression {
+  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     let class_loc = ast.meta_at::<0>()?;
-    // needed here because infix advances to '{' after seeing "class"
+
+    let name = if let Some(Token::Identifier(name)) = ast.current() {
+      ast.advance();
+      Ident::new(name)
+    } else {
+      ast.error::<0>("expected ident after class");
+      return None;
+    };
+
     if !ast.consume(Token::LeftBrace, "expected '{' to begin class body") {
       return None;
     }
@@ -176,12 +184,6 @@ impl ClassExpression {
       class_members,
       class_loc,
     )))
-  }
-}
-
-impl AstExpression for ClassExpression {
-  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    Self::expr(ast, None)
   }
 }
 
@@ -360,20 +362,28 @@ impl MethodExpression {
 
 #[derive(Debug)]
 pub struct ModExpression {
-  pub name: Option<Ident>,
+  pub name: Ident,
   pub items: Vec<(Ident, Expression)>,
   pub loc: SourceLocation,
 }
 
 impl ModExpression {
-  pub(super) fn new(name: Option<Ident>, items: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
+  pub(super) fn new(name: Ident, items: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
     Self { name, items, loc }
   }
 }
 
-impl ModExpression {
-  pub(crate) fn expr(ast: &mut AstGenerator, name: Option<Ident>) -> Option<Expression> {
+impl AstExpression for ModExpression {
+  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     let mod_loc = ast.meta_at::<0>()?;
+
+    let name = if let Some(Token::Identifier(name)) = ast.current() {
+      ast.advance();
+      Ident::new(name)
+    } else {
+      ast.error::<0>("expected ident after mod");
+      return None;
+    };
 
     if !ast.consume(Token::LeftBrace, "expected '{' after mod name") {
       return None;
@@ -408,10 +418,8 @@ impl ModExpression {
           ast.advance();
           if let Some(Token::Identifier(ident)) = ast.current() {
             declared_items.insert(ident.clone());
-            ast.advance();
-            let ident = Ident::new(ident);
-            if let Some(module) = Self::expr(ast, Some(ident.clone())) {
-              module_items.push((ident, module));
+            if let Some(module) = Self::prefix(ast) {
+              module_items.push((Ident::new(ident), module));
             }
           } else {
             ast.error::<0>("mod name is invalid");
@@ -421,10 +429,8 @@ impl ModExpression {
           ast.advance();
           if let Some(Token::Identifier(ident)) = ast.current() {
             declared_items.insert(ident.clone());
-            ast.advance();
-            let ident = Ident::new(ident);
-            if let Some(class) = ClassExpression::expr(ast, Some(ident.clone())) {
-              module_items.push((ident, class));
+            if let Some(class) = ClassExpression::prefix(ast) {
+              module_items.push((Ident::new(ident), class));
             }
           } else {
             ast.error::<0>("class name is invalid");
@@ -471,12 +477,6 @@ impl ModExpression {
     }
 
     Some(Expression::from(ModExpression::new(name, module_items, mod_loc)))
-  }
-}
-
-impl AstExpression for ModExpression {
-  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    Self::expr(ast, None)
   }
 }
 

@@ -76,7 +76,7 @@ impl Value {
       ConstantValue::String(v) => gc.allocate(v),
       ConstantValue::StaticString(v) => gc.allocate(*v),
       ConstantValue::Fn(v) => {
-        let env = gc.allocate(ModuleValue::new_child(env));
+        let env = gc.allocate(ModuleValue::new_scope(env));
         gc.allocate(FunctionValue::from_constant(v, env))
       }
     }
