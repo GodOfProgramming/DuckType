@@ -280,7 +280,14 @@ impl<'src> Scanner<'src> {
             }
           }
           '"' => {
-            if let Some(tok) = self.make_string() {
+            if let Some(tok) = self.make_string::<'"'>() {
+              tok
+            } else {
+              continue;
+            }
+          }
+          '\'' => {
+            if let Some(tok) = self.make_string::<'\''>() {
               tok
             } else {
               continue;
@@ -339,14 +346,14 @@ impl<'src> Scanner<'src> {
     }
   }
 
-  fn error(&mut self, msg: String) {
+  fn error(&mut self, msg: impl ToString) {
     if self.errors.is_none() {
       self.errors = Some(Vec::new());
     }
 
     if let Some(errs) = &mut self.errors {
       errs.push(RuntimeError {
-        msg,
+        msg: msg.to_string(),
         file: Rc::clone(&self.file),
         line: self.line + 1,
         column: self.column + 1,
@@ -412,12 +419,11 @@ impl<'src> Scanner<'src> {
     }
   }
 
-  fn make_string(&mut self) -> Option<Token> {
+  fn make_string<const C: char>(&mut self) -> Option<Token> {
     self.advance(); // skip the first "
     let mut error_detected = false;
     while let Some(c) = self.peek() {
       match c {
-        '"' => break,
         '\n' => {
           self.error(String::from("multiline strings are unsupported"));
           error_detected = true;
@@ -425,7 +431,8 @@ impl<'src> Scanner<'src> {
           self.line += 1;
           self.column = 0;
         }
-        _ => self.advance(),
+        c if c == C => break,
+        c => self.advance(),
       }
     }
 
@@ -439,7 +446,7 @@ impl<'src> Scanner<'src> {
     }
 
     match str::from_utf8(&self.src[self.start_pos + 1..self.pos]) {
-      Ok(string) => Some(Token::String(String::from(string))),
+      Ok(string) => Some(Token::String(string.to_string())),
       Err(e) => {
         self.error(format!("{}", e));
         None
