@@ -6,6 +6,21 @@ use std::{ops::RangeInclusive, str};
 #[cfg(test)]
 mod test;
 
+macro_rules! collect_digits {
+  ($this:ident, $f:path, $digits:ident) => {
+    while let Some(c) = $this.peek() {
+      if $f(c) {
+        $digits.push(c);
+        $this.advance();
+      } else if c == '_' {
+        $this.advance()
+      } else {
+        break;
+      }
+    }
+  };
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum NumberToken {
   I32(i32),
@@ -205,7 +220,7 @@ impl<'src> Scanner<'src> {
           ',' => Token::Comma,
           '.' => Token::Dot,
           ':' => {
-            if self.advance_if_match(':') {
+            if self.advance_if_next(':') {
               Token::ColonColon
             } else {
               Token::Colon
@@ -215,67 +230,78 @@ impl<'src> Scanner<'src> {
           '@' => Token::At,
           '|' => Token::Pipe,
           '+' => {
-            if self.advance_if_match('=') {
+            if self.advance_if_next('=') {
               Token::PlusEqual
             } else {
               Token::Plus
             }
           }
           '-' => {
-            if self.advance_if_match('=') {
+            if self.advance_if_next('=') {
               Token::MinusEqual
             } else {
-              Token::Minus
+              match self.peek_n(1) {
+                Some(d) if Self::is_digit(d) => {
+                  if let Some(tok) = self.make_number(true) {
+                    should_advance = false;
+                    tok
+                  } else {
+                    continue;
+                  }
+                }
+                Some(_) => Token::Minus,
+                None => continue,
+              }
             }
           }
           '*' => {
-            if self.advance_if_match('=') {
+            if self.advance_if_next('=') {
               Token::AsteriskEqual
             } else {
               Token::Asterisk
             }
           }
           '/' => {
-            if self.advance_if_match('=') {
+            if self.advance_if_next('=') {
               Token::SlashEqual
             } else {
               Token::Slash
             }
           }
           '%' => {
-            if self.advance_if_match('=') {
+            if self.advance_if_next('=') {
               Token::PercentEqual
             } else {
               Token::Percent
             }
           }
           '!' => {
-            if self.advance_if_match('=') {
+            if self.advance_if_next('=') {
               Token::BangEqual
             } else {
               Token::Bang
             }
           }
           '=' => {
-            if self.advance_if_match('=') {
+            if self.advance_if_next('=') {
               Token::EqualEqual
-            } else if self.advance_if_match('>') {
+            } else if self.advance_if_next('>') {
               Token::Arrow
             } else {
               Token::Equal
             }
           }
           '<' => {
-            if self.advance_if_match('=') {
+            if self.advance_if_next('=') {
               Token::LessEqual
-            } else if self.advance_if_match('-') {
+            } else if self.advance_if_next('-') {
               Token::BackArrow
             } else {
               Token::Less
             }
           }
           '>' => {
-            if self.advance_if_match('=') {
+            if self.advance_if_next('=') {
               Token::GreaterEqual
             } else {
               Token::Greater
@@ -296,7 +322,7 @@ impl<'src> Scanner<'src> {
             }
           }
           c if Self::is_digit(c) => {
-            if let Some(tok) = self.make_number() {
+            if let Some(tok) = self.make_number(false) {
               should_advance = false;
               tok
             } else {
@@ -363,26 +389,73 @@ impl<'src> Scanner<'src> {
     }
   }
 
-  fn make_number(&mut self) -> Option<Token> {
+  /// supports the following numbers
+  /// 1, 01, 0x1, 1.0, 1.0e1, 1.0e-1
+  fn make_number(&mut self, negate: bool) -> Option<Token> {
+    match self.peek()? {
+      '0' => {
+        self.advance();
+        match self.peek()? {
+          'x' | 'X' => {
+            self.advance();
+            self.make_hex(negate)
+          }
+          d if Self::is_digit(d) => self.make_octal(negate),
+          _ => Some(Token::Number(NumberToken::I32(0))),
+        }
+      }
+      _ => self.make_decimal(negate),
+    }
+  }
+
+  fn make_hex(&mut self, negate: bool) -> Option<Token> {
+    let mut digits = Vec::new();
+
+    collect_digits!(self, Self::is_hex, digits);
+
+    let lexeme = digits.iter().collect::<String>();
+
+    match i32::from_str_radix(&lexeme, 16) {
+      Ok(mut int) => {
+        if negate {
+          int = -int;
+        }
+
+        Some(Token::Number(NumberToken::I32(int)))
+      }
+      Err(e) => {
+        self.error(e);
+        None
+      }
+    }
+  }
+
+  fn make_octal(&mut self, negate: bool) -> Option<Token> {
+    let mut digits = Vec::new();
+
+    collect_digits!(self, Self::is_oct, digits);
+
+    let lexeme = digits.iter().collect::<String>();
+    match i32::from_str_radix(&lexeme, 8) {
+      Ok(mut int) => {
+        if negate {
+          int = -int;
+        }
+
+        Some(Token::Number(NumberToken::I32(int)))
+      }
+      Err(e) => {
+        self.error(e);
+        None
+      }
+    }
+  }
+
+  fn make_decimal(&mut self, negate: bool) -> Option<Token> {
     let mut is_float = false;
     let mut digits = Vec::new();
 
-    macro_rules! collect_digits {
-      ($this:ident, $digits:ident) => {
-        while let Some(c) = $this.peek() {
-          if Self::is_digit(c) {
-            $this.advance();
-            $digits.push(c);
-          } else if c == '_' {
-            $this.advance()
-          } else {
-            break;
-          }
-        }
-      };
-    }
-
-    collect_digits!(self, digits);
+    collect_digits!(self, Self::is_digit, digits);
 
     if let Some(c1) = self.peek() {
       if c1 == '.' {
@@ -394,7 +467,7 @@ impl<'src> Scanner<'src> {
             self.advance(); // advance past the '.'
             self.advance(); // advance past the first digit
 
-            collect_digits!(self, digits);
+            collect_digits!(self, Self::is_digit, digits);
           }
         }
       }
@@ -403,18 +476,88 @@ impl<'src> Scanner<'src> {
     let lexeme = digits.iter().collect::<String>();
 
     if is_float {
-      match lexeme.parse() {
-        Ok(n) => Some(Token::Number(NumberToken::F64(n))),
-        Err(e) => {
-          self.error(format!("{} ('{}')", e, lexeme));
-          None
+      let mut number = lexeme.parse::<f64>().unwrap();
+
+      if let Some(c) = self.peek() {
+        if c == 'e' || c == 'E' {
+          const EVAL: f64 = 10.0;
+
+          self.advance();
+
+          let negate = self.advance_if_match('-');
+
+          let mut exp = Vec::new();
+          collect_digits!(self, Self::is_digit, exp);
+          let lexeme = exp.iter().collect::<String>();
+
+          match i32::from_str_radix(&lexeme, 10) {
+            Ok(mut exp) => {
+              if negate {
+                exp = -exp;
+              }
+
+              number *= EVAL.powf(exp as f64);
+            }
+            Err(e) => {
+              self.error(e);
+              return None;
+            }
+          }
         }
       }
+
+      if negate {
+        number = -number;
+      }
+
+      Some(Token::Number(NumberToken::F64(number)))
     } else {
-      match lexeme.parse() {
-        Ok(n) => Some(Token::Number(NumberToken::I32(n))),
+      match i32::from_str_radix(&lexeme, 10) {
+        Ok(mut int) => {
+          if let Some(c) = self.peek() {
+            if c == 'e' || c == 'E' {
+              const EVAL: f64 = 10.0;
+
+              let mut fint = int as f64;
+
+              self.advance();
+
+              let negate = self.advance_if_match('-');
+
+              let mut exp = Vec::new();
+              collect_digits!(self, Self::is_digit, exp);
+              let lexeme = exp.iter().collect::<String>();
+
+              match i32::from_str_radix(&lexeme, 10) {
+                Ok(mut exp) => {
+                  if negate {
+                    exp = -exp;
+                  }
+
+                  fint *= EVAL.powf(exp as f64);
+
+                  if negate {
+                    fint = -fint;
+                  }
+
+                  return Some(Token::Number(NumberToken::F64(fint)));
+                }
+                Err(e) => {
+                  self.error(e);
+                  return None;
+                }
+              }
+            }
+          }
+
+          if negate {
+            int = -int;
+          }
+
+          Some(Token::Number(NumberToken::I32(int)))
+        }
         Err(e) => {
-          self.error(format!("{} ('{}')", e, lexeme));
+          self.error(e);
           None
         }
       }
@@ -434,7 +577,13 @@ impl<'src> Scanner<'src> {
           self.column = 0;
         }
         c if c == C => break,
-        _ => self.advance(),
+        c => {
+          if c == '\\' {
+            // backslash must always be followed by something
+            self.advance();
+          }
+          self.advance()
+        }
       }
     }
 
@@ -537,9 +686,23 @@ impl<'src> Scanner<'src> {
   }
 
   fn advance_if_match(&mut self, expected: char) -> bool {
-    match self.peek_n(1) {
+    match self.peek() {
       Some(c) => {
         if c == expected {
+          self.advance();
+          true
+        } else {
+          false
+        }
+      }
+      None => false,
+    }
+  }
+
+  fn advance_if_next(&mut self, expected_next: char) -> bool {
+    match self.peek_n(1) {
+      Some(c) => {
+        if c == expected_next {
           self.advance();
           true
         } else {
@@ -553,6 +716,17 @@ impl<'src> Scanner<'src> {
   fn is_digit(c: char) -> bool {
     const ZERO_TO_NINE: RangeInclusive<char> = '0'..='9';
     ZERO_TO_NINE.contains(&c)
+  }
+
+  fn is_hex(c: char) -> bool {
+    const HEX_LOCASE: RangeInclusive<char> = 'a'..='f';
+    const HEX_UPCASE: RangeInclusive<char> = 'A'..='F';
+    Self::is_digit(c) || HEX_LOCASE.contains(&c) || HEX_UPCASE.contains(&c)
+  }
+
+  fn is_oct(c: char) -> bool {
+    const OCT: RangeInclusive<char> = '0'..='7';
+    OCT.contains(&c)
   }
 
   fn is_alpha(c: char) -> bool {

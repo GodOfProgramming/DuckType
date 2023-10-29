@@ -574,7 +574,12 @@ impl AstExpression for VecExpression {
         // then check for a size
         if let Some(Token::Number(NumberToken::I32(size))) = ast.current() {
           ast.advance();
-          vec_size = Some(size);
+          if size >= 0 {
+            vec_size = Some(size);
+          } else {
+            ast.error::<1>("vec size must be >= 0");
+            return None;
+          }
         } else {
           dyn_size = Some(ast.expression()?);
         }

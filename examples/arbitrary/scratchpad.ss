@@ -1,1 +1,1 @@
-println "foo\x0000";
+export 10e-2;

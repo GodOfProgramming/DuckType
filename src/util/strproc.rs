@@ -4,6 +4,7 @@ use regex::Replacer;
 pub fn escape(input: &str) -> anyhow::Result<String> {
   // bfnrt
   let output = input
+    .replace("\\\"", "\"")
     .replace("\\b", "\x08")
     .replace("\\f", "\x0c")
     .replace("\\n", "\n")

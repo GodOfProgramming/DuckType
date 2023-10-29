@@ -3,19 +3,21 @@ $schema: "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlangu
 name: "SimpleScript"
 env:
   IDENT: "[A-Za-z_]\\w*"
-  DIGIT: "[0-9]+(?:.[_0-9]+)?"
   INTERPOLATED: "\\${\\s*.*\\s*}"
   REG: "\\/.*\\/"
   HEX: "[0-9a-fA-F]"
 patterns:
-  - include: "#comments"
-  - include: "#strings"
-  - include: "#keywords"
-  - include: "#support"
-  - include: "#meta"
-  - include: "#ident"
-  - include: "#digits"
+  - include: "#all"
 repository:
+  all:
+    patterns:
+      - include: "#comments"
+      - include: "#strings"
+      - include: "#keywords"
+      - include: "#support"
+      - include: "#meta"
+      - include: "#ident"
+      - include: "#digits"
   keywords:
     patterns:
       - name: "keyword.control"
@@ -70,20 +72,11 @@ repository:
   string_content:
     patterns:
       - name: "constant.character.escape"
-        match: "(?x)                # turn on extended mode\n
-          \\\\                      # a literal backslash\n
-          (?:                       # ...followed by...\n
-          [\"\\\\/bfnrt]            # one of these characters\n
-          |                         # ...or...\n
-          u                         # a u\n
-          ${ HEX }{4}               # and four hex digits\n
-          |                         # ...or...\n
-          x                         # a x\n
-          ${ HEX }{2})              # and two hex digits"
+        match: "\\\\(?:[\"\\\\/bfnrt]|u${ HEX }{4}|x${ HEX }{2})"
   digits:
     patterns:
       - name: "constant.numeric"
-        match: "\\b(${ DIGIT })\\b"
+        match: "-?(0[0-7]+|0[xX]${ HEX }+|([1-9]\\d*(?:(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)?))"
   ident:
     patterns:
       - name: "variable.language"

@@ -583,15 +583,15 @@ impl From<f64> for Value {
 
 impl From<i32> for Value {
   fn from(item: i32) -> Self {
-    Self::from(&item)
+    Self {
+      bits: unsafe { mem::transmute::<i64, u64>(item as i64 & u32::MAX as i64 | i64::default()) } | I32_TAG,
+    }
   }
 }
 
 impl From<&i32> for Value {
-  fn from(value: &i32) -> Self {
-    Self {
-      bits: unsafe { mem::transmute::<i64, u64>(*value as i64 & i32::MAX as i64) } | I32_TAG,
-    }
+  fn from(item: &i32) -> Self {
+    Self::from(*item)
   }
 }
 
@@ -606,7 +606,7 @@ impl From<bool> for Value {
 impl From<char> for Value {
   fn from(item: char) -> Self {
     Self {
-      bits: unsafe { mem::transmute::<char, u32>(item) as u64 & char::MAX as u64 } | CHAR_TAG,
+      bits: unsafe { mem::transmute::<char, u32>(item) as u64 & u32::MAX as u64 } | CHAR_TAG,
     }
   }
 }
