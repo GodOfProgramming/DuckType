@@ -1,7 +1,7 @@
 mod libconsole;
 mod libio;
 mod libps;
-mod libstring;
+mod libstr;
 mod libtime;
 
 use crate::prelude::*;
@@ -52,10 +52,7 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
       }),
     );
 
-    lib.define(
-      "string",
-      ModuleBuilder::initialize(gc, Some(libval.clone()), libstring::string),
-    );
+    lib.define("str", ModuleBuilder::initialize(gc, Some(libval.clone()), libstr::string));
 
     lib.define(
       "console",

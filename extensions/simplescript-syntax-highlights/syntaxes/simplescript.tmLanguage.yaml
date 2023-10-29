@@ -3,6 +3,7 @@ $schema: "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlangu
 name: "SimpleScript"
 env:
   IDENT: "[A-Za-z_]\\w*"
+  CONST_IDENT: "[A-Z_]+"
   INTERPOLATED: "\\${\\s*.*\\s*}"
   REG: "\\/.*\\/"
   HEX: "[0-9a-fA-F]"
@@ -17,7 +18,7 @@ repository:
       - include: "#support"
       - include: "#meta"
       - include: "#ident"
-      - include: "#digits"
+      - include: "#numbers"
   keywords:
     patterns:
       - name: "keyword.control"
@@ -35,6 +36,9 @@ repository:
       - name: "support.class"
         patterns:
           - include: "#class"
+      - name: "support.module"
+        patterns:
+          - include: "#module"
       - name: "support.function"
         patterns:
           - include: "#function"
@@ -52,10 +56,10 @@ repository:
     patterns:
       - name: "entity.name.type.class"
         match: "(?<=class)\\s+${ IDENT }"
+  module:
+    patterns:
       - name: "entity.name.type.module"
         match: "((?<=mod)\\s+${ IDENT })|(${ IDENT }(?=::))"
-      - name: "entity.name.type"
-        match: "\\b([A-Z]\\w*)\\b"
   function:
     name: "entity.name.function"
     match: "((?<=fn)\\s+${ IDENT })|(${ IDENT }(?>\\())"
@@ -73,14 +77,18 @@ repository:
     patterns:
       - name: "constant.character.escape"
         match: "\\\\(?:[\"\\\\/bfnrt]|u${ HEX }{4}|x${ HEX }{2})"
-  digits:
+  numbers:
     patterns:
       - name: "constant.numeric"
-        match: "-?(0[0-7]+|0[xX]${ HEX }+|([1-9]\\d*(?:(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)?))"
+        match: "-?(0|0[0-7]+|0[xX]${ HEX }+|([1-9]\\d*(?:(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)?))"
   ident:
     patterns:
       - name: "variable.language"
         match: "\\b(self)\\b"
+      - name: "variable.other.constant"
+        match: "\\b(${ CONST_IDENT })\\b"
+      - name: "entity.name.type"
+        match: "\\b([A-Z]\\w*)\\b"
       - name: "variable.other.readwrite.global"
         match: "\\b(\\$(?=\\w)\\w*)\\b"
       - name: "variable.other.readwrite"
