@@ -34,7 +34,6 @@ fn main() {
 
     update(fb, bb);
 
-    # bb disappears after this
     if no_change(fb, bb) {
       break;
     }
