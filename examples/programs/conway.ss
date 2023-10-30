@@ -1,13 +1,13 @@
 req "examples/lib/ansi.ss" as ansi;
 
-use ansi::display;
 use ansi::cursor;
+use ansi::display;
 use ansi::text;
-use text::color;
 use std::console;
 use std::math;
-use std::str;
 use std::ps::thread;
+use std::str;
+use text::color;
 
 let $NUM_ROWS = 25;
 let $NUM_COLUMNS = 30;
