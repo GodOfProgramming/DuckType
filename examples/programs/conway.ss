@@ -9,10 +9,12 @@ use std::math;
 use std::str;
 use std::ps::thread;
 
-let $NUM_ROWS = 10;
+let $NUM_ROWS = 25;
 let $NUM_COLUMNS = 30;
 
 fn main() {
+  let SLEEP_TIME = 32.0 / 1000.0;
+
   let fb = new_buff();
 
   seed_buffer(fb);
@@ -39,7 +41,7 @@ fn main() {
 
     fb = bb;
 
-    thread::sleep(16.0 / 1000.0);
+    thread::sleep(SLEEP_TIME);
   }
 }
 
@@ -69,15 +71,15 @@ fn display_buffer(buff) {
     for let c = 0; c < $NUM_COLUMNS; c += 1 {
       let v = buff[r][c];
 
-      let idx_color;
+      let cell_color;
       match v {
-        0 => idx_color = color::MAGENTA,
-        1 => idx_color = color::CYAN,
+        0 => cell_color = color::fmt::paint(color::FOREGROUND, color::RGB(56, 56, 56)),
+        1 => cell_color = color::fmt::fg(color::CYAN),
       }
 
-      row_parts.push(str::concat("  ", color::fmt::fg(idx_color), v, text::fmt::reset(), "  :"));
+      row_parts.push(str::concat("  ", cell_color, v, text::fmt::reset(), "  :"));
     }
-    console::writeln(row_parts.join(nil));
+    console::write(row_parts.join(nil));
     row_line();
   }
 }
