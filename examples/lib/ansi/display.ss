@@ -2,6 +2,6 @@ req "common" as common;
 
 export mod display {
   fn clear() {
-    common::exec("[J");
+    common::exec("[2J");
   }
 }

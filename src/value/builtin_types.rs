@@ -47,6 +47,7 @@ use std::{
   convert::Infallible,
   error::Error,
   fmt::Debug,
+  io,
   vec::IntoIter,
 };
 pub use string_value::StringValue;
@@ -330,6 +331,10 @@ pub enum ValueError {
   #[error("Undefined initializer reached")]
   UndefinedInitializer,
 
+  /// std::io error
+  #[error("{0}")]
+  IoError(std::io::Error),
+
   /// Can only be reached from a bug
   #[error("Infallible")]
   Infallible,
@@ -342,6 +347,12 @@ pub enum ValueError {
 impl From<Infallible> for ValueError {
   fn from(_: Infallible) -> Self {
     Self::Infallible
+  }
+}
+
+impl From<io::Error> for ValueError {
+  fn from(value: io::Error) -> Self {
+    Self::IoError(value)
   }
 }
 

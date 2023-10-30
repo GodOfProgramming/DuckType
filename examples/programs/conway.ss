@@ -1,5 +1,13 @@
+req "examples/lib/ansi.ss" as ansi;
+
+use ansi::display;
+use ansi::cursor;
+use ansi::text;
+use text::color;
 use std::console;
 use std::math;
+use std::str;
+use std::ps::thread;
 
 let $NUM_ROWS = 10;
 let $NUM_COLUMNS = 30;
@@ -11,6 +19,9 @@ fn main() {
 
   # run
   loop {
+    display::clear();
+    cursor::home();
+
     display_buffer(fb);
 
     if !is_population_alive(fb) {
@@ -27,6 +38,8 @@ fn main() {
     }
 
     fb = bb;
+
+    thread::sleep(16.0 / 1000.0);
   }
 }
 
@@ -43,7 +56,7 @@ fn new_buff() {
 fn seed_buffer(buff) {
   for let r = 0; r < $NUM_ROWS; r += 1 {
     for let c = 0; c < $NUM_COLUMNS; c += 1 {
-      buff[r][c] = math::rand_i32() % 2;
+      buff[r][c] = math::abs(math::rand_i32()) % 2;
     }
   }
 }
@@ -51,10 +64,20 @@ fn seed_buffer(buff) {
 fn display_buffer(buff) {
   row_line();
   for let r = 0; r < $NUM_ROWS; r += 1 {
-    console::write(":");
+    let row_parts = [];
+    row_parts.push(":");
     for let c = 0; c < $NUM_COLUMNS; c += 1 {
-      console::write("  ", buff[r][c], "  :");
+      let v = buff[r][c];
+
+      let idx_color;
+      match v {
+        0 => idx_color = color::MAGENTA,
+        1 => idx_color = color::CYAN,
+      }
+
+      row_parts.push(str::concat("  ", color::fmt::fg(idx_color), v, text::fmt::reset(), "  :"));
     }
+    console::writeln(row_parts.join(nil));
     row_line();
   }
 }

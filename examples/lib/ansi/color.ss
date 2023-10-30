@@ -1,5 +1,6 @@
 req "common" as common;
 
+use std::console;
 use std::str;
 
 export mod color {
@@ -20,14 +21,28 @@ export mod color {
   RGB: |r, g, b| { ret str::concat(";2;", r, ";", g, ";", b); },
 
   fn paint(mode, color) {
-    common::exec(str::concat("[", mode + 8, color, "m"));
+    console::write(fmt::paint(mode, color));
   }
 
   fn fg(color) {
-    common::exec(str::concat("[", FOREGROUND + color, "m"));
+    console::write(fmt::fg(color));
   }
 
   fn bg(color) {
-    common::exec(str::concat("[", BACKGROUND + color, "m"));
+    console::write(fmt::bg(color));
+  }
+
+  mod fmt {
+    fn paint(mode, color) {
+      ret common::fmt(str::concat("[", mode + 8, color, "m"));
+    }
+
+    fn fg(color) {
+      ret common::fmt(str::concat("[", FOREGROUND + color, "m"));
+    }
+
+    fn bg(color) {
+      ret common::fmt(str::concat("[", BACKGROUND + color, "m"));
+    }
   }
 }

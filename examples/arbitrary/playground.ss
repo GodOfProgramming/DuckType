@@ -1,9 +1,9 @@
-mod foo {
-  BAR: 1,
+req "examples/lib/ansi.ss" as ansi;
 
-  fn get_bar() {
-    ret BAR;
-  }
-}
+use ansi::display;
 
-println(foo::get_bar());
+println("before");
+
+display::clear();
+
+println("after");

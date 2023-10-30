@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use ptr::{MutPtr, SmartPtr};
 
 use crate::{
@@ -187,8 +188,6 @@ impl Gc {
   ) -> usize {
     dbg::profile_function!();
 
-    let mut cleaned = 0;
-
     let mut marked_allocations = Marker::default();
 
     {
@@ -240,17 +239,21 @@ impl Gc {
 
     {
       dbg::profile_scope!("cleaning", unmarked_allocations.len().to_string());
-      for alloc in unmarked_allocations {
-        let value = Value { bits: alloc };
-        debug_assert!(value.is_ptr());
-        if value.meta().ref_count.load(Ordering::Relaxed) == 0 {
-          self.allocations.remove(&alloc);
-          self.drop_value(value);
-          cleaned += 1;
-        }
+      self.scrub(unmarked_allocations)
+    }
+  }
+
+  pub fn scrub(&mut self, allocs: Vec<u64>) -> usize {
+    let mut cleaned = 0;
+    for alloc in allocs {
+      let value = Value { bits: alloc };
+      debug_assert!(value.is_ptr());
+      if value.meta().ref_count.load(Ordering::Relaxed) == 0 {
+        self.allocations.remove(&alloc);
+        self.drop_value(value);
+        cleaned += 1;
       }
     }
-
     cleaned
   }
 
@@ -306,6 +309,12 @@ impl Gc {
     let pointer = value.pointer_mut();
     let meta = value.meta();
     (meta.vtable.dealloc)(pointer);
+  }
+}
+
+impl Drop for Gc {
+  fn drop(&mut self) {
+    self.scrub(self.allocations.clone().into_iter().collect_vec());
   }
 }
 

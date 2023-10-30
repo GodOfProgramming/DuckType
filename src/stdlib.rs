@@ -54,7 +54,8 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
     defmod(gc, lib, "ps", libps::ps);
 
     defmod(gc, lib, "math", |_, mut lib| {
-      lib.define("rand_i32", Value::native(rand_i32));
+      lib.define("rand_i32", Value::native(math_rand_i32));
+      lib.define("abs", Value::native(math_abs));
     });
 
     let libval = lib.value();
@@ -90,7 +91,16 @@ fn defined(vm: &mut Vm, name: &StringValue) -> ValueResult<bool> {
 }
 
 #[native]
-fn rand_i32() -> ValueResult<i32> {
+fn math_abs(arg: (Option<i32>, Option<f64>)) -> ValueResult {
+  match arg {
+    (Some(i), None) => Ok(Value::from(i.abs())),
+    (None, Some(f)) => Ok(Value::from(f.abs())),
+    _ => Err(ValueError::Infallible)?,
+  }
+}
+
+#[native]
+fn math_rand_i32() -> ValueResult<i32> {
   let val = rand::random();
   Ok(val)
 }

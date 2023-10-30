@@ -50,6 +50,14 @@ impl VecValue {
     Ok(self.buffer.choose(&mut rand::thread_rng()).cloned().unwrap_or_default())
   }
 
+  fn join(&self, sep: Value) -> ValueResult<String> {
+    if sep.is_nil() {
+      Ok(itertools::join(self.buffer.iter(), ""))
+    } else {
+      Ok(itertools::join(self.buffer.iter(), &sep.to_string()))
+    }
+  }
+
   fn __index__(&self, index: i32) -> ValueResult {
     Ok(self.buffer.get(index as usize).cloned().unwrap_or_default())
   }
