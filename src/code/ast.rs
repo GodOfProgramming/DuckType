@@ -205,6 +205,10 @@ impl AstGenerator {
   where
     F: FnOnce(&mut Self, Params, BlockStatement) -> Option<Expression>,
   {
+    if self.advance_if_matches(Token::Arrow) {
+      self.expression()?;
+    }
+
     if !self.consume(Token::LeftBrace, "expected '{' after paren") {
       return None;
     }
@@ -298,6 +302,10 @@ impl AstGenerator {
           if params.found_self {
             self.error::<0>(String::from("found 'self' in invalid context"));
             return None;
+          }
+
+          if self.advance_if_matches(Token::Arrow) {
+            self.expression()?;
           }
 
           if !self.consume(Token::LeftBrace, "expected '{' after paren") {
@@ -505,6 +513,9 @@ impl AstGenerator {
         params.push(ident);
 
         first_token = false;
+        if self.advance_if_matches(Token::Colon) {
+          self.expression()?;
+        }
       } else {
         self.error::<0>("invalid token in parameter list");
       }

@@ -1,9 +1,11 @@
-req "examples/lib/ansi.ss" as ansi;
+fn add(x: i32 or f64, y: i32 or f64) => struct { x: number } {
+  ret struct { x: x + y };
+}
 
-use ansi::display;
+let sub = |x, y| => number {
+  ret x - y;
+};
 
-println("before");
+println add(1, 2);
 
-display::clear();
-
-println("after");
+println sub(1, 2);

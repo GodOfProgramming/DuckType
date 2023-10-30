@@ -88,7 +88,7 @@ repository:
       - name: "variable.other.constant"
         match: "\\b(${ CONST_IDENT })\\b"
       - name: "entity.name.type"
-        match: "\\b([A-Z]\\w*)\\b"
+        match: "\\b([A-Z]\\w*|i32|f64|number|str|char|bool|vec)\\b"
       - name: "variable.other.readwrite.global"
         match: "\\b(\\$(?=\\w)\\w*)\\b"
       - name: "variable.other.readwrite"
