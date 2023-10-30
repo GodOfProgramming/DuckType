@@ -6,8 +6,8 @@ use ansi::text;
 use text::color;
 
 text::scope(|| {
-  color::fg(color::RED);
-  color::bg(color::BLUE);
+  color::paint(color::FOREGROUND, color::RGB(50, 100, 150));
+  color::paint(color::BACKGROUND, color::RGB(150, 100, 50));
   println("colored");
 });
 

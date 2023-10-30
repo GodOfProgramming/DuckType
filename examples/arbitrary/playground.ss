@@ -1,9 +1,9 @@
 mod foo {
-  mod bar {
-    mod baz {
+  BAR: 1,
 
-    }
+  fn get_bar() {
+    ret BAR;
   }
 }
 
-println(foo::bar::baz);
+println(foo::get_bar());

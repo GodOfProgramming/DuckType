@@ -396,19 +396,23 @@ impl AstExpression for ModExpression {
       let member_loc = ast.meta_at::<0>()?;
       match token {
         Token::Identifier(ident) => {
-          declared_items.insert(ident.clone());
-          ast.advance();
+          if !declared_items.contains(&ident) {
+            declared_items.insert(ident.clone());
+            ast.advance();
 
-          if ast.advance_if_matches(Token::Colon) {
-            let ident = Ident::new(ident);
-            if let Some(expr) = ast.expression() {
-              module_items.push((ident, expr));
+            if ast.advance_if_matches(Token::Colon) {
+              let ident = Ident::new(ident);
+              if let Some(expr) = ast.expression() {
+                module_items.push((ident, expr));
+              }
+            } else {
+              module_items.push((
+                Ident::new(ident.clone()),
+                Expression::from(IdentExpression::new(Ident::new(ident), member_loc)),
+              ))
             }
           } else {
-            module_items.push((
-              Ident::new(ident.clone()),
-              Expression::from(IdentExpression::new(Ident::new(ident), member_loc)),
-            ))
+            ast.error::<0>("duplicate identifier found");
           }
           if !matches!(ast.current(), Some(Token::RightBrace)) && !ast.consume(Token::Comma, "expected ',' after expression") {
             return None;
@@ -417,9 +421,13 @@ impl AstExpression for ModExpression {
         Token::Mod => {
           ast.advance();
           if let Some(Token::Identifier(ident)) = ast.current() {
-            declared_items.insert(ident.clone());
-            if let Some(module) = Self::prefix(ast) {
-              module_items.push((Ident::new(ident), module));
+            if !declared_items.contains(&ident) {
+              declared_items.insert(ident.clone());
+              if let Some(module) = Self::prefix(ast) {
+                module_items.push((Ident::new(ident), module));
+              }
+            } else {
+              ast.error::<0>("duplicate identifier found");
             }
           } else {
             ast.error::<0>("mod name is invalid");
@@ -428,9 +436,13 @@ impl AstExpression for ModExpression {
         Token::Class => {
           ast.advance();
           if let Some(Token::Identifier(ident)) = ast.current() {
-            declared_items.insert(ident.clone());
-            if let Some(class) = ClassExpression::prefix(ast) {
-              module_items.push((Ident::new(ident), class));
+            if !declared_items.contains(&ident) {
+              declared_items.insert(ident.clone());
+              if let Some(class) = ClassExpression::prefix(ast) {
+                module_items.push((Ident::new(ident), class));
+              }
+            } else {
+              ast.error::<0>("duplicate identifier found");
             }
           } else {
             ast.error::<0>("class name is invalid");

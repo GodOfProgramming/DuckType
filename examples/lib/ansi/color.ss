@@ -13,11 +13,21 @@ export mod color {
   WHITE: 7,
   DEFAULT: 9,
 
+  FOREGROUND: 30,
+  BACKGROUND: 40,
+
+  ID: |id| { ret str::concat(";5;", id); },
+  RGB: |r, g, b| { ret str::concat(";2;", r, ";", g, ";", b); },
+
+  fn paint(mode, color) {
+    common::exec(str::concat("[", mode + 8, color, "m"));
+  }
+
   fn fg(color) {
-    common::exec(str::concat("[", 30 + color, "m"));
+    common::exec(str::concat("[", FOREGROUND + color, "m"));
   }
 
   fn bg(color) {
-    common::exec(str::concat("[", 40 + color, "m"));
+    common::exec(str::concat("[", BACKGROUND + color, "m"));
   }
 }
