@@ -1,3 +1,5 @@
+pub mod strproc;
+
 #[cfg(windows)]
 pub mod windows;
 #[cfg(windows)]

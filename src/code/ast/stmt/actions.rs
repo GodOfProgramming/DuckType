@@ -44,18 +44,18 @@ impl AstStatement for ExportStatement {
 }
 
 #[derive(Debug)]
-pub struct PrintStatement {
+pub struct PrintlnStatement {
   pub expr: Expression,
   pub loc: SourceLocation,
 }
 
-impl PrintStatement {
+impl PrintlnStatement {
   pub(super) fn new(expr: Expression, loc: SourceLocation) -> Self {
     Self { expr, loc }
   }
 }
 
-impl AstStatement for PrintStatement {
+impl AstStatement for PrintlnStatement {
   fn stmt(ast: &mut AstGenerator) {
     ast.meta_at::<1>().unwrap_and(|loc| {
       if let Some(expr) = ast.expression() {

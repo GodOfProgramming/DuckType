@@ -2,7 +2,7 @@ fn global_fn(x) {
   ret x.value;
 }
 
-export mod {
+export mod util {
   class ModuleClass {
     new(self) {
       self.value = "MODULE";

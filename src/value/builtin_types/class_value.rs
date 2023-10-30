@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 #[derive(Default, Usertype)]
 #[uuid("2034facf-835a-495c-b504-26efc0ca3f95")]
 pub struct ClassValue {
-  pub name: Option<String>,
+  pub name: String,
   #[trace]
   pub initializer: Option<Value>,
   #[trace]
@@ -14,9 +14,9 @@ pub struct ClassValue {
 }
 
 impl ClassValue {
-  pub fn new<N: ToString>(name: N) -> Self {
+  pub fn new(name: impl ToString) -> Self {
     Self {
-      name: Some(name.to_string()),
+      name: name.to_string(),
       initializer: None,
       methods: Default::default(),
       static_members: Default::default(),
@@ -77,11 +77,7 @@ impl ClassValue {
   }
 
   fn __str__(&self) -> String {
-    if let Some(name) = &self.name {
-      format!("<class {}>", name.clone())
-    } else {
-      "<anonymous class>".to_string()
-    }
+    format!("<class {}>", self.name)
   }
 
   fn __dbg__(&self) -> String {

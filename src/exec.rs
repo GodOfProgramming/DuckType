@@ -3,7 +3,7 @@ pub mod memory;
 
 use crate::{
   code::{Compiler, ConstantValue, OpCodeReflection},
-  dbg::{Cli, RuntimeErrors},
+  dbg::{self, Cli, RuntimeErrors},
   prelude::*,
   util::{FileIdType, FileMetadata, PlatformMetadata},
   UnwrapAnd,
@@ -14,9 +14,9 @@ use memory::{Allocation, Gc};
 use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, VecDeque},
   error::Error,
-  fmt::{self, Debug, Formatter},
+  fmt::{self, Debug, Display, Formatter},
   fs,
   path::{Path, PathBuf},
   rc::Rc,
@@ -107,7 +107,7 @@ pub enum Opcode {
   /** Pops a value off the stack, inverts its numerical value, then pushes that back on */
   Negate,
   /** Pops a value off the stack and prints it to the screen */
-  Print,
+  Println,
   /** Jumps to a code location indicated by the tuple */
   Jump(usize),
   /** Jumps to a code location indicated by the tuple */
@@ -124,16 +124,20 @@ pub enum Opcode {
   RetSelf,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
-  /** Create a list of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
-  CreateList(usize),
+  /** Create a vec of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
+  CreateVec(usize),
+  /** Create a vec of values and push it on the stack. The last item on the stack is copied as many times as the param indicates */
+  CreateSizedVec(usize),
+  /** Create a vec of values and push it on the stack. The last item is the number of times and the next is the item to be copied the times specified */
+  CreateDynamicVec,
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
   CreateClosure,
   /** Create a new struct */
   CreateStruct,
-  /** Create a new class */
-  CreateClass,
-  /** Create a new module */
-  CreateModule,
+  /** Create a new class. Name is from the bits */
+  CreateClass(usize),
+  /** Create a new module. Name is from the bits */
+  CreateModule(usize),
   /** Halt the VM when this instruction is reached and enter repl mode */
   Breakpoint,
   /** Mark the current value as exported */
@@ -146,6 +150,10 @@ pub enum Opcode {
   EnterBlock,
   /** Pop an env */
   PopScope,
+  /** Stash a value for later use */
+  StashPush,
+  /** Remove the next value in the stash queue */
+  StashRemove,
 }
 
 #[cfg(test)]
@@ -227,7 +235,6 @@ pub struct Vm {
   pub(crate) envs: EnvStack,
 
   args: Vec<String>,
-  libs: Library,
 
   lib_cache: BTreeMap<FileIdType, Value>,
 
@@ -239,14 +246,13 @@ pub struct Vm {
 }
 
 impl Vm {
-  pub fn new(gc: SmartPtr<Gc>, args: impl Into<Vec<String>>, libs: Library) -> Self {
+  pub fn new(gc: SmartPtr<Gc>, args: impl Into<Vec<String>>) -> Self {
     Self {
       current_frame: Default::default(),
       stack_frames: Default::default(),
       gc,
       envs: Default::default(),
       args: args.into(),
-      libs,
       lib_cache: Default::default(),
       opened_files: Default::default(),
       opened_native_libs: Default::default(),
@@ -382,6 +388,8 @@ impl Vm {
   }
 
   pub(crate) fn execute(&mut self, exec_type: ExecType) -> Result<Value, RuntimeErrors> {
+    dbg::profile_function!();
+
     self.next_gc = Instant::now() + DEFAULT_GC_FREQUENCY;
 
     #[cfg(feature = "runtime-disassembly")]
@@ -423,7 +431,7 @@ impl Vm {
         Opcode::LookupMember(index) => self.exec_lookup_member(index)?,
         Opcode::PeekMember(index) => self.exec_peek_member(index)?,
         Opcode::Check => self.exec_check()?,
-        Opcode::Print => self.exec_print()?,
+        Opcode::Println => self.exec_print()?,
         Opcode::Jump(count) => {
           self.jump(count);
           continue 'ctx;
@@ -465,11 +473,13 @@ impl Vm {
           self.exec_req()?;
           continue 'ctx;
         }
-        Opcode::CreateList(num_items) => self.exec_create_list(num_items),
+        Opcode::CreateVec(num_items) => self.exec_create_vec(num_items),
+        Opcode::CreateSizedVec(repeat) => self.exec_sized_vec(repeat)?,
+        Opcode::CreateDynamicVec => self.exec_dyn_vec()?,
         Opcode::CreateClosure => self.exec_create_closure()?,
         Opcode::CreateStruct => self.exec_create_struct(),
-        Opcode::CreateClass => self.exec_create_class(),
-        Opcode::CreateModule => self.exec_create_module(),
+        Opcode::CreateClass(name) => self.exec_create_class(name)?,
+        Opcode::CreateModule(name) => self.exec_create_module(name)?,
         Opcode::Breakpoint => {
           self.ssdb().ok();
         }
@@ -505,6 +515,18 @@ impl Vm {
         }
         Opcode::Not => self.exec_not(&opcode)?,
         Opcode::Negate => self.exec_negate(&opcode)?,
+        Opcode::StashPush => {
+          let value = self.stack_peek().ok_or_else(|| self.error("no value on stack to peek"))?;
+          self.current_frame.stash.push_back(value);
+        }
+        Opcode::StashRemove => {
+          let value = self
+            .current_frame
+            .stash
+            .pop_front()
+            .ok_or_else(|| self.error("no value in stash to pop"))?;
+          self.stack_push(value);
+        }
       }
 
       self.current_frame.ip += 1;
@@ -547,6 +569,7 @@ impl Vm {
   }
 
   fn exec_const(&mut self, index: usize) -> ExecResult {
+    dbg::profile_function!();
     let c = self
       .current_frame
       .ctx
@@ -560,26 +583,32 @@ impl Vm {
   }
 
   fn exec_nil(&mut self) {
+    dbg::profile_function!();
     self.stack_push(Value::nil);
   }
 
   fn exec_true(&mut self) {
+    dbg::profile_function!();
     self.stack_push(Value::from(true));
   }
 
   fn exec_false(&mut self) {
+    dbg::profile_function!();
     self.stack_push(Value::from(false));
   }
 
   fn exec_pop(&mut self) {
+    dbg::profile_function!();
     self.stack_pop();
   }
 
   fn exec_pop_n(&mut self, count: usize) {
+    dbg::profile_function!();
     self.stack_pop_n(count);
   }
 
   fn exec_lookup_local(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     let local = self
       .stack_index(location)
       .ok_or_else(|| self.error(format!("could not index stack at pos {}", location)))?;
@@ -589,6 +618,7 @@ impl Vm {
   }
 
   fn exec_assign_local(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     let value = self
       .stack_peek()
       .ok_or_else(|| self.error(format!("could not replace stack value at pos {}", location)))?;
@@ -598,6 +628,7 @@ impl Vm {
   }
 
   fn exec_lookup_global(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     self.global_op(location, |this, name| {
       let global = this
         .current_env()
@@ -610,6 +641,7 @@ impl Vm {
   }
 
   fn exec_define_global(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     self.global_op(location, |this, name| {
       let v = this
         .stack_peek()
@@ -625,6 +657,7 @@ impl Vm {
   }
 
   fn exec_assign_global(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     self.global_op(location, |this, name| {
       let v = this
         .stack_peek()
@@ -639,6 +672,7 @@ impl Vm {
   }
 
   fn exec_initialize_member(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     let value = self
       .stack_pop()
       .ok_or_else(|| self.error("no value on stack to initialize to member"))?;
@@ -661,6 +695,7 @@ impl Vm {
   }
 
   fn exec_initialize_method(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     let value = self
       .stack_pop()
       .ok_or_else(|| self.error("no value on stack to assign to method"))?;
@@ -690,6 +725,7 @@ impl Vm {
   }
 
   fn exec_initialize_constructor(&mut self) -> ExecResult {
+    dbg::profile_function!();
     let value = self
       .stack_pop()
       .ok_or_else(|| self.error("no value on stack to assign to constructor"))?;
@@ -707,6 +743,7 @@ impl Vm {
   }
 
   fn exec_assign_member(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     let value = self
       .stack_pop()
       .ok_or_else(|| self.error("no value on stack to assign to member"))?;
@@ -729,6 +766,7 @@ impl Vm {
   }
 
   fn exec_lookup_member(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     let obj = self
       .stack_pop()
       .ok_or_else(|| self.error("no value on stack to perform lookup on"))?;
@@ -749,6 +787,7 @@ impl Vm {
   }
 
   fn exec_peek_member(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     let value = self.stack_peek().ok_or_else(|| self.error("no object to lookup on"))?;
 
     let name = self
@@ -767,34 +806,42 @@ impl Vm {
   }
 
   fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: &Opcode, f: F) -> ExecResult {
+    dbg::profile_function!();
     self.binary_op(opcode, |a, b| Ok(Value::from(f(a, b))))
   }
 
   fn exec_equal(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.exec_bool(opcode, |a, b| a == b)
   }
 
   fn exec_not_equal(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.exec_bool(opcode, |a, b| a != b)
   }
 
   fn exec_greater(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.exec_bool(opcode, |a, b| a > b)
   }
 
   fn exec_greater_equal(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.exec_bool(opcode, |a, b| a >= b)
   }
 
   fn exec_less(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.exec_bool(opcode, |a, b| a < b)
   }
 
   fn exec_less_equal(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.exec_bool(opcode, |a, b| a <= b)
   }
 
   fn exec_check(&mut self) -> ExecResult {
+    dbg::profile_function!();
     let b = self.stack_pop().ok_or_else(|| self.error("stack pop failed"))?;
 
     let a = self.stack_peek().ok_or_else(|| self.error("stack peek failed"))?;
@@ -804,27 +851,33 @@ impl Vm {
   }
 
   fn exec_add(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.binary_op(opcode, |a, b| a + b)
   }
 
   fn exec_sub(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.binary_op(opcode, |a, b| a - b)
   }
 
   fn exec_mul(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.binary_op(opcode, |a, b| a * b)
   }
 
   fn exec_div(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.binary_op(opcode, |a, b| a / b)
   }
 
   fn exec_rem(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.binary_op(opcode, |a, b| a % b)
   }
 
   /// when f evaluates to true, short circuit
   fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, offset: usize, f: F) -> ExecResult<bool> {
+    dbg::profile_function!();
     let value = self.stack_peek().ok_or_else(|| self.error("no item on the stack to peek"))?;
     if f(value) {
       self.jump(offset);
@@ -836,28 +889,34 @@ impl Vm {
   }
 
   fn exec_or(&mut self, offset: usize) -> ExecResult<bool> {
+    dbg::profile_function!();
     self.exec_logical(offset, |v| v.truthy())
   }
 
   fn exec_and(&mut self, offset: usize) -> ExecResult<bool> {
+    dbg::profile_function!();
     self.exec_logical(offset, |v| v.falsy())
   }
 
   fn exec_not(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.unary_op(opcode, |v| Ok(!v))
   }
 
   fn exec_negate(&mut self, opcode: &Opcode) -> ExecResult {
+    dbg::profile_function!();
     self.unary_op(opcode, |v| -v)
   }
 
   fn exec_print(&mut self) -> ExecResult {
+    dbg::profile_function!();
     let value = self.stack_pop().ok_or_else(|| self.error("no value to print"))?;
     println!("{value}");
     Ok(())
   }
 
   fn exec_jump_if_false(&mut self, offset: usize) -> ExecResult<bool> {
+    dbg::profile_function!();
     let value = self.stack_pop().ok_or_else(|| self.error("no item on the stack to pop"))?;
 
     if !value.truthy() {
@@ -869,18 +928,41 @@ impl Vm {
   }
 
   fn exec_call(&mut self, airity: usize) -> ExecResult {
+    dbg::profile_function!();
     let args = self.stack_drain_from(airity);
     let callable = self.stack_pop().ok_or_else(|| self.error("cannot operate on empty stack"))?;
     self.call_value(callable, args)
   }
 
-  fn exec_create_list(&mut self, num_items: usize) {
+  fn exec_create_vec(&mut self, num_items: usize) {
+    dbg::profile_function!();
     let list = self.stack_drain_from(num_items);
     let list = self.gc.allocate(list);
     self.stack_push(list);
   }
 
+  fn exec_sized_vec(&mut self, repeats: usize) -> ExecResult {
+    let item = self.stack_pop().ok_or_else(|| self.error("no item on the stack to repeat"))?;
+    let vec = vec![item; repeats];
+    let vec = self.gc.allocate(vec);
+    self.stack_push(vec);
+    Ok(())
+  }
+
+  fn exec_dyn_vec(&mut self) -> ExecResult {
+    let repeats = self
+      .stack_pop()
+      .ok_or_else(|| self.error("no item on stack to get vec size from"))?;
+
+    let repeats = repeats
+      .as_i32()
+      .ok_or_else(|| self.error("vec size must evaluate to an i32"))? as usize;
+
+    self.exec_sized_vec(repeats)
+  }
+
   fn exec_create_closure(&mut self) -> ExecResult {
+    dbg::profile_function!();
     let function = self
       .stack_pop()
       .ok_or_else(|| self.error("no item on the stack to pop for closure function"))?;
@@ -891,9 +973,7 @@ impl Vm {
 
     let f = function.as_fn().ok_or_else(|| self.error("closure must be a function"))?;
 
-    let c = captures
-      .as_array()
-      .ok_or_else(|| self.error("capture list must be a struct"))?;
+    let c = captures.as_vec().ok_or_else(|| self.error("capture list must be a struct"))?;
 
     let closure = self.gc.allocate(ClosureValue::new(c, f.clone()));
     self.stack_push(closure);
@@ -901,25 +981,51 @@ impl Vm {
   }
 
   fn exec_create_struct(&mut self) {
+    dbg::profile_function!();
     let v = self.gc.allocate(StructValue::default());
     self.stack_push(v);
   }
 
-  fn exec_create_class(&mut self) {
-    let v = self.gc.allocate(ClassValue::default());
-    self.stack_push(v);
+  fn exec_create_class(&mut self, name_index: usize) -> ExecResult {
+    dbg::profile_function!();
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(name_index)
+      .ok_or_else(|| self.error("could not lookup constant"))?;
+
+    if let ConstantValue::String(name) = name {
+      let v = self.gc.allocate(ClassValue::new(name));
+      self.stack_push(v);
+      Ok(())
+    } else {
+      Err(self.error("mod name is not a string"))
+    }
   }
 
   /// Create a module and make it the current env
-  fn exec_create_module(&mut self) {
-    let leaf = self.current_env();
-    let module = ModuleValue::new_child(leaf.handle.value.clone());
-    let uhandle = Gc::allocate_handle(&mut self.gc, module);
-    self.envs.push(EnvEntry::Mod(uhandle.clone()));
-    self.stack_push(uhandle.handle.value.clone());
+  fn exec_create_module(&mut self, name_index: usize) -> ExecResult {
+    dbg::profile_function!();
+    let name = self
+      .current_frame
+      .ctx
+      .const_at(name_index)
+      .ok_or_else(|| self.error("could not lookup constant"))?;
+
+    if let ConstantValue::String(name) = name {
+      let leaf = self.current_env();
+      let module = ModuleValue::new_child(name, leaf.handle.value.clone());
+      let uhandle = Gc::allocate_handle(&mut self.gc, module);
+      self.envs.push(EnvEntry::Mod(uhandle.clone()));
+      self.stack_push(uhandle.handle.value.clone());
+      Ok(())
+    } else {
+      Err(self.error("mod name is not a string"))
+    }
   }
 
   fn exec_scope_resolution(&mut self, ident: usize) -> ExecResult {
+    dbg::profile_function!();
     let obj = self.stack_pop().ok_or_else(|| self.error("no value on stack to resolve"))?;
 
     let name = self
@@ -938,17 +1044,20 @@ impl Vm {
   }
 
   fn push_scope(&mut self) {
+    dbg::profile_function!();
     let mut gc = self.gc.clone();
     let leaf = self.current_env();
-    let handle = Gc::allocate_handle(&mut gc, ModuleValue::new_child(leaf.handle.value.clone()));
+    let handle = Gc::allocate_handle(&mut gc, ModuleValue::new_scope(leaf.handle.value.clone()));
     self.envs.push(EnvEntry::Block(handle));
   }
 
   fn pop_scope(&mut self) {
+    dbg::profile_function!();
     self.envs.pop();
   }
 
   fn exec_define(&mut self, location: usize) -> ExecResult {
+    dbg::profile_function!();
     let value = self
       .stack_pop()
       .ok_or_else(|| self.error("no value on stack to define a member on"))?;
@@ -972,6 +1081,7 @@ impl Vm {
   }
 
   fn exec_req(&mut self) -> ExecResult {
+    dbg::profile_function!();
     fn try_to_find_file(root: &Path, desired: &PathBuf, attempts: &mut Vec<PathBuf>) -> Option<PathBuf> {
       let direct = root.join(desired);
       if direct.exists() {
@@ -1024,7 +1134,7 @@ impl Vm {
         if let Some(library_mod) = library_mod.as_struct() {
           if let Ok(Some(list)) = library_mod
             .get_field(&mut self.gc, module_value::PATHS_MEMBER)
-            .map(|l| l.map(|l| l.as_array()))
+            .map(|l| l.map(|l| l.as_vec()))
           {
             for item in list.iter() {
               let base = PathBuf::from(item.to_string());
@@ -1068,8 +1178,8 @@ impl Vm {
           self.stack_push(value.clone());
         } else {
           let new_ctx = Compiler::compile(found_file.clone(), &data)?;
-          let gmod = ModuleBuilder::initialize(&mut self.gc, None, |gc, mut lib| {
-            lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &self.args, &self.libs.clone());
+          let gmod = ModuleBuilder::initialize(&mut self.gc, id, None, |gc, mut lib| {
+            lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &self.args);
           });
 
           #[cfg(feature = "disassemble")]
@@ -1215,13 +1325,7 @@ impl Vm {
   }
 
   pub fn stack_display(&self) {
-    if self.current_frame.stack.is_empty() {
-      println!("               | [ ]");
-    } else {
-      for (index, item) in self.current_frame.stack.iter().enumerate() {
-        println!("{:#15}| [ {:?} ]", index, item);
-      }
-    }
+    print!("{}", self.current_frame);
   }
 }
 
@@ -1230,6 +1334,7 @@ pub struct StackFrame {
   pub ip: usize,
   pub ctx: SmartPtr<Context>,
   pub stack: Vec<Value>,
+  pub stash: VecDeque<Value>,
 }
 
 impl StackFrame {
@@ -1238,6 +1343,7 @@ impl StackFrame {
       ip: Default::default(),
       ctx,
       stack: Default::default(),
+      stash: Default::default(),
     }
   }
 
@@ -1248,6 +1354,19 @@ impl StackFrame {
     let mut old = Self::default();
     std::mem::swap(&mut old, self);
     old
+  }
+}
+
+impl Display for StackFrame {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    if self.stack.is_empty() {
+      writeln!(f, "               | [ ]")
+    } else {
+      for (index, item) in self.stack.iter().enumerate() {
+        writeln!(f, "{:#15}| [ {:?} ]", index, item)?;
+      }
+      Ok(())
+    }
   }
 }
 

@@ -37,6 +37,12 @@ impl MaybeFrom<Value> for i32 {
   }
 }
 
+impl MaybeFrom<Value> for f64 {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.as_f64()
+  }
+}
+
 impl MaybeFrom<Value> for &'static String {
   fn maybe_from(value: Value) -> Option<Self> {
     value.as_str().map(|s| &**s)
@@ -45,13 +51,13 @@ impl MaybeFrom<Value> for &'static String {
 
 impl MaybeFrom<Value> for &'static Vec<Value> {
   fn maybe_from(value: Value) -> Option<Self> {
-    value.as_array().map(|a| &**a)
+    value.as_vec().map(|a| &**a)
   }
 }
 
 impl MaybeFrom<Value> for &[Value] {
   fn maybe_from(value: Value) -> Option<Self> {
-    value.as_array().map(|a| &***a)
+    value.as_vec().map(|a| &***a)
   }
 }
 

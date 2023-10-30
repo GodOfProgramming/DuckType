@@ -1,15 +1,11 @@
 use crate::prelude::*;
 
-pub struct LibString;
-
-impl LibString {
-  pub fn load(gc: &mut SmartPtr<Gc>, gmod: Value) -> UsertypeHandle<ModuleValue> {
-    ModuleBuilder::initialize(gc, Some(gmod), |_, mut lib| {
-      lib.define("parse_number", Value::native(parse_number));
-      lib.define("contains", Value::native(contains));
-      lib.define("is_prefix", Value::native(is_prefix));
-    })
-  }
+pub fn string(_: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
+  lib.define("parse_number", Value::native(parse_number));
+  lib.define("contains", Value::native(contains));
+  lib.define("is_prefix", Value::native(is_prefix));
+  lib.define("concat", Value::native(concat));
+  lib.define("join", Value::native(join));
 }
 
 #[native]
@@ -40,4 +36,15 @@ fn is_prefix(string: Value, substr: Value) -> ValueResult {
   }
 
   Ok(Value::from(false))
+}
+
+fn concat(vm: &mut Vm, args: Args) -> ValueResult {
+  let str = itertools::join(args.list, "");
+  Ok(vm.gc.allocate(str))
+}
+
+#[native]
+fn join(sep: &StringValue, list: &VecValue) -> ValueResult<String> {
+  let str = itertools::join(list.buffer.iter(), &sep);
+  Ok(str)
 }

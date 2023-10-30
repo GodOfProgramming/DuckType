@@ -1,11 +1,6 @@
 use clap::{Parser, Subcommand};
 use simple_script::prelude::*;
-use std::{
-  fs,
-  io::{stdin, stdout, Read, Write},
-  path::PathBuf,
-  process,
-};
+use std::{fs, path::PathBuf, process};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -27,6 +22,13 @@ enum Command {
 }
 
 fn main() {
+  #[cfg(feature = "profile")]
+  let _server = {
+    puffin::set_scopes_on(true);
+    let addr = format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT);
+    puffin_http::Server::new(&addr).unwrap()
+  };
+
   let args = Args::parse();
 
   match args.command {
@@ -36,11 +38,11 @@ fn main() {
 
       let mut gc = SmartPtr::new(Gc::default());
 
-      let gmod = ModuleBuilder::initialize(&mut gc, None, |gc, mut lib| {
-        lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &runargs, &Library::All);
+      let gmod = ModuleBuilder::initialize(&mut gc, "*main*", None, |gc, mut lib| {
+        lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &runargs);
       });
 
-      let vm = Vm::new(gc, runargs.clone(), Library::All);
+      let vm = Vm::new(gc, runargs.clone());
 
       if let Some(file) = file {
         if !run_file(vm, file, gmod) {

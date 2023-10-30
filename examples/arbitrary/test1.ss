@@ -4,7 +4,7 @@ class Foo {
   }
 
   fn display(self) {
-    print(self);
+    println(self);
   }
 }
 

@@ -20,28 +20,28 @@ fn new_fib() {
 
 let begin = clock_seconds();
 for let i = 0; i < 20; i = i + 1 {
-  print fib(i);
+  println fib(i);
 }
 let end = clock_seconds();
 
 let fib_time = end - begin;
-print "fib 0..20 took " + fib_time + " seconds";
+println "fib 0..20 took " + fib_time + " seconds";
 
 let f = new_fib();
 
 begin = clock_seconds();
 for let i = 0; i < 20; i = i + 1 {
-  print f(f, i);
+  println f(f, i);
 }
 end = clock_seconds();
 
 let new_fib_time = end - begin;
-print "new_fib 0..20 took " + new_fib_time + " seconds";
+println "new_fib 0..20 took " + new_fib_time + " seconds";
 
 if fib_time > new_fib_time {
-  print "closure is faster than functions";
+  println "closure is faster than functions";
 } else if fib_time < new_fib_time {
-  print "functions are faster than closures";
+  println "functions are faster than closures";
 } else {
-  print "they performed the same";
+  println "they performed the same";
 }

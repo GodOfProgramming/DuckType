@@ -12,6 +12,8 @@ pub const PATH_SEPARATOR: char = ';';
 #[derive(Default, Usertype)]
 #[uuid("fc79ffad-9286-4188-9905-76ae73108f9e")]
 pub struct ModuleValue {
+  name: Option<String>,
+
   #[trace]
   pub members: BTreeMap<String, Value>,
   #[trace]
@@ -25,7 +27,7 @@ impl ModuleValue {
     Default::default()
   }
 
-  pub fn new_global_module(gc: &mut SmartPtr<Gc>) -> UsertypeHandle<Self> {
+  pub fn new_global_module(gc: &mut SmartPtr<Gc>, name: impl ToString) -> UsertypeHandle<Self> {
     let mut this = Gc::allocate_handle(gc, Self::default());
 
     let mut lib_paths = Vec::default();
@@ -34,7 +36,7 @@ impl ModuleValue {
       lib_paths.extend(paths.split_terminator(PATH_SEPARATOR).map(|v| gc.allocate(v)));
     }
 
-    let module = ModuleBuilder::initialize(gc, Some(this.handle.value.clone()), |gc, mut lib| {
+    let module = ModuleBuilder::initialize(gc, name, Some(this.handle.value.clone()), |gc, mut lib| {
       let lib_paths = gc.allocate(lib_paths);
       lib.define(PATHS_MEMBER, lib_paths);
     });
@@ -44,8 +46,18 @@ impl ModuleValue {
     this
   }
 
-  pub(crate) fn new_child(parent: Value) -> Self {
+  pub(crate) fn new_scope(parent: Value) -> Self {
     Self {
+      name: None,
+      members: Default::default(),
+      env: Default::default(),
+      parent,
+    }
+  }
+
+  pub(crate) fn new_child(name: impl ToString, parent: Value) -> Self {
+    Self {
+      name: Some(name.to_string()),
       members: Default::default(),
       env: Default::default(),
       parent,
@@ -123,21 +135,29 @@ impl ModuleValue {
     self.resolve(field).ok_or(ValueError::NameError(field.to_string()))
   }
 
+  fn __str__(&self) -> String {
+    self
+      .name
+      .as_ref()
+      .map(|name| format!("<mod {}>", name))
+      .unwrap_or_else(|| String::from("<anonymous mod>"))
+  }
+
   fn __dbg__(&self) -> String {
-    format!("mod")
+    self.__str__()
   }
 }
 
 pub struct ModuleBuilder;
 
 impl ModuleBuilder {
-  pub fn initialize<F>(gc: &mut SmartPtr<Gc>, parent: Option<Value>, f: F) -> UsertypeHandle<ModuleValue>
+  pub fn initialize<F>(gc: &mut SmartPtr<Gc>, name: impl ToString, parent: Option<Value>, f: F) -> UsertypeHandle<ModuleValue>
   where
     F: FnOnce(&mut SmartPtr<Gc>, UsertypeHandle<ModuleValue>),
   {
     let module = parent
-      .map(|parent| Gc::allocate_handle(gc, ModuleValue::new_child(parent)))
-      .unwrap_or_else(|| ModuleValue::new_global_module(gc));
+      .map(|parent| Gc::allocate_handle(gc, ModuleValue::new_child(name.to_string(), parent)))
+      .unwrap_or_else(|| ModuleValue::new_global_module(gc, name));
     f(gc, module.clone());
     module
   }

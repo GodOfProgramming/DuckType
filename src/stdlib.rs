@@ -1,88 +1,65 @@
 mod libconsole;
-mod libenv;
 mod libio;
 mod libps;
-mod libstring;
+mod libstr;
 mod libtime;
 
 use crate::prelude::*;
-use enum_iterator::{all, Sequence};
-use libconsole::LibConsole;
-use libenv::LibEnv;
-use libio::LibIo;
-use libps::LibPs;
-use libstring::LibString;
-use libtime::LibTime;
 use std::collections::BTreeMap;
 
-pub mod prelude {
-  pub use super::{Lib, Library};
-}
-
-#[derive(Clone, Sequence)]
-pub enum Lib {
-  Std,
-  Env,
-  Time,
-  String,
-  Console,
-  Ps,
-  Io,
-}
-
-#[derive(Clone, Default)]
-pub enum Library {
-  #[default]
-  None,
-  All,
-  List(Vec<Lib>),
-}
-
-pub fn load_libs(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String], library: &Library) -> BTreeMap<String, Value> {
+pub fn enable_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> BTreeMap<String, Value> {
   let mut loaded_libs = BTreeMap::default();
 
-  match library {
-    Library::All => {
-      for lib in all::<Lib>() {
-        let (key, value) = load_lib(gc, gmod.clone(), args, &lib);
-        loaded_libs.insert(key.to_string(), value);
-      }
-    }
-    Library::List(list) => {
-      for lib in list {
-        let (key, value) = load_lib(gc, gmod.clone(), args, lib);
-        loaded_libs.insert(key.to_string(), value);
-      }
-    }
-    Library::None => (),
-  }
+  loaded_libs.insert("std", load_std(gc, gmod, args));
 
-  loaded_libs.into_iter().map(|(n, u)| (n, u.into())).collect()
+  loaded_libs.into_iter().map(|(k, v)| (k.into(), v.into())).collect()
 }
 
-fn load_lib(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String], lib: &Lib) -> (&'static str, UsertypeHandle<ModuleValue>) {
-  match lib {
-    Lib::Std => ("std", load_std(gc, gmod)),
-    Lib::Env => ("env", LibEnv::load(gc, gmod, args)),
-    Lib::Time => ("time", LibTime::load(gc, gmod)),
-    Lib::String => ("str", LibString::load(gc, gmod)),
-    Lib::Console => ("console", LibConsole::load(gc, gmod)),
-    Lib::Ps => ("ps", LibPs::load(gc, gmod)),
-    Lib::Io => ("io", LibIo::load(gc, gmod)),
-  }
+fn defmod<F>(gc: &mut SmartPtr<Gc>, lib: &mut UsertypeHandle<ModuleValue>, name: &str, init: F)
+where
+  F: FnOnce(&mut SmartPtr<Gc>, UsertypeHandle<ModuleValue>),
+{
+  let libval = lib.value();
+  lib.define(name, ModuleBuilder::initialize(gc, name, Some(libval), init));
 }
 
-fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value) -> UsertypeHandle<ModuleValue> {
-  ModuleBuilder::initialize(gc, Some(gmod), |gc, mut lib| {
+fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHandle<ModuleValue> {
+  ModuleBuilder::initialize(gc, "std", Some(gmod), |gc, mut lib| {
+    let lib = &mut lib;
+
     lib.define("debug", Value::native(debug));
-    let object = ModuleBuilder::initialize(gc, Some(lib.handle.value.clone()), |_, mut lib| {
+
+    defmod(gc, lib, "obj", |_, mut lib| {
       lib.define("fields", Value::native(fields));
     });
-    lib.define("obj", object);
-    let reflect = ModuleBuilder::initialize(gc, Some(lib.handle.value.clone()), |_, mut lib| {
+
+    defmod(gc, lib, "reflect", |_, mut lib| {
       lib.define("defined", Value::native(defined));
     });
-    lib.define("reflect", reflect);
+
+    defmod(gc, lib, "env", |gc, mut lib| {
+      let args = args.iter().map(|arg| gc.allocate(arg.clone())).collect::<Vec<Value>>();
+      let args = gc.allocate(args);
+      lib.define("ARGV", args);
+    });
+
+    defmod(gc, lib, "time", |gc, mut lib| {
+      defmod(gc, &mut lib, "mono", libtime::mono);
+    });
+
+    defmod(gc, lib, "str", libstr::string);
+
+    defmod(gc, lib, "console", libconsole::console);
+
+    defmod(gc, lib, "ps", libps::ps);
+
+    defmod(gc, lib, "math", |_, mut lib| {
+      lib.define("rand_i32", Value::native(math_rand_i32));
+      lib.define("abs", Value::native(math_abs));
+    });
+
+    let libval = lib.value();
+    lib.define("io", libio::simple_script_autogen_create_module(gc, libval));
   })
 }
 
@@ -111,4 +88,19 @@ fn fields(value: Value) -> ValueResult<Vec<StringValue>> {
 #[native(with_vm)]
 fn defined(vm: &mut Vm, name: &StringValue) -> ValueResult<bool> {
   Ok(vm.current_env().lookup(name.as_str()).is_some())
+}
+
+#[native]
+fn math_abs(arg: (Option<i32>, Option<f64>)) -> ValueResult {
+  match arg {
+    (Some(i), None) => Ok(Value::from(i.abs())),
+    (None, Some(f)) => Ok(Value::from(f.abs())),
+    _ => Err(ValueError::Infallible)?,
+  }
+}
+
+#[native]
+fn math_rand_i32() -> ValueResult<i32> {
+  let val = rand::random();
+  Ok(val)
 }

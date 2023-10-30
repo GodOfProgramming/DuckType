@@ -3,18 +3,22 @@ $schema: "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlangu
 name: "SimpleScript"
 env:
   IDENT: "[A-Za-z_]\\w*"
-  DIGIT: "[0-9]+(?:.[_0-9]+)?"
+  CONST_IDENT: "[A-Z_]+"
   INTERPOLATED: "\\${\\s*.*\\s*}"
   REG: "\\/.*\\/"
+  HEX: "[0-9a-fA-F]"
 patterns:
-  - include: "#comments"
-  - include: "#strings"
-  - include: "#keywords"
-  - include: "#support"
-  - include: "#meta"
-  - include: "#ident"
-  - include: "#digits"
+  - include: "#all"
 repository:
+  all:
+    patterns:
+      - include: "#comments"
+      - include: "#strings"
+      - include: "#keywords"
+      - include: "#support"
+      - include: "#meta"
+      - include: "#ident"
+      - include: "#numbers"
   keywords:
     patterns:
       - name: "keyword.control"
@@ -23,8 +27,6 @@ repository:
         match: "\\b(and|or)\\b|\\+|\\-|\\/|\\*"
       - name: "keyword.declaration"
         match: "\\b(let|class|struct|mod|fn|req|as|export|new|use)\\b"
-      - name: "support.function.builtin"
-        match: "\\b(print)\\b"
       - name: "constant.language.null"
         match: "\\b(nil)\\b"
       - name: "constant.language.boolean"
@@ -34,9 +36,14 @@ repository:
       - name: "support.class"
         patterns:
           - include: "#class"
+      - name: "support.module"
+        patterns:
+          - include: "#module"
       - name: "support.function"
         patterns:
           - include: "#function"
+      - name: "support.function.builtin"
+        match: "\\b(println)\\b"
   meta:
     patterns:
       - name: "meta.function"
@@ -49,10 +56,10 @@ repository:
     patterns:
       - name: "entity.name.type.class"
         match: "(?<=class)\\s+${ IDENT }"
+  module:
+    patterns:
       - name: "entity.name.type.module"
-        match: "(?<=mod)\\s+${ IDENT }"
-      - name: "entity.name.type"
-        match: "\\b([A-Z]\\w*)\\b"
+        match: "((?<=mod)\\s+${ IDENT })|(${ IDENT }(?=::))"
   function:
     name: "entity.name.function"
     match: "((?<=fn)\\s+${ IDENT })|(${ IDENT }(?>\\())"
@@ -62,26 +69,26 @@ repository:
         begin: '"'
         end: '"'
         patterns:
-          - name: "constant.character.escape"
-            match: "\\."
-          - name: "string.template"
-            begin: "\\${"
-            end: "}"
-            patterns:
-              - include: "#ident"
-              - include: "#function"
-              - include: "#digit"
+          - include: "#string_content"
       - name: "string.quoted.single"
         begin: "'"
         end: "'"
-  digits:
+  string_content:
+    patterns:
+      - name: "constant.character.escape"
+        match: "\\\\(?:[\"\\\\/bfnrt]|u${ HEX }{4}|x${ HEX }{2})"
+  numbers:
     patterns:
       - name: "constant.numeric"
-        match: "\\b(${ DIGIT })\\b"
+        match: "-?(0|0[0-7]+|0[xX]${ HEX }+|([1-9]\\d*(?:(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)?))"
   ident:
     patterns:
       - name: "variable.language"
         match: "\\b(self)\\b"
+      - name: "variable.other.constant"
+        match: "\\b(${ CONST_IDENT })\\b"
+      - name: "entity.name.type"
+        match: "\\b([A-Z]\\w*)\\b"
       - name: "variable.other.readwrite.global"
         match: "\\b(\\$(?=\\w)\\w*)\\b"
       - name: "variable.other.readwrite"

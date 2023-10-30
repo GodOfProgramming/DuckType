@@ -2,7 +2,7 @@ mod expr;
 mod stmt;
 
 use super::{lex::Token, SourceLocation};
-use crate::{prelude::*, UnwrapAnd};
+use crate::{dbg, prelude::*, UnwrapAnd};
 pub use expr::*;
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
@@ -95,6 +95,7 @@ impl AstGenerator {
   }
 
   fn generate(mut self) -> (Ast, Vec<RuntimeError>) {
+    dbg::profile_function!();
     while let Some(current) = self.current() {
       self.statement(current);
     }
@@ -156,9 +157,9 @@ impl AstGenerator {
         self.advance();
         ModStatement::stmt(self);
       }
-      Token::Print => {
+      Token::Println => {
         self.advance();
-        PrintStatement::stmt(self);
+        PrintlnStatement::stmt(self);
       }
       Token::Req => {
         self.advance();
@@ -388,7 +389,7 @@ impl AstGenerator {
           | Token::For
           | Token::If
           | Token::While
-          | Token::Print
+          | Token::Println
           | Token::Ret
           | Token::Match
           | Token::Loop
@@ -586,7 +587,7 @@ impl AstGenerator {
       Token::RightParen => ParseRule::new(None, None, Precedence::None),
       Token::LeftBrace => ParseRule::new(None, None, Precedence::None),
       Token::RightBrace => ParseRule::new(None, None, Precedence::None),
-      Token::LeftBracket => ParseRule::new(Some(ListExpression::prefix), Some(IndexExpression::infix), Precedence::Call),
+      Token::LeftBracket => ParseRule::new(Some(VecExpression::prefix), Some(IndexExpression::infix), Precedence::Call),
       Token::RightBracket => ParseRule::new(None, None, Precedence::None),
       Token::Comma => ParseRule::new(None, None, Precedence::None),
       Token::Dot => ParseRule::new(None, Some(MemberAccessExpression::infix), Precedence::Call),
@@ -636,7 +637,7 @@ impl AstGenerator {
       Token::New => ParseRule::new(None, None, Precedence::None),
       Token::Nil => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
       Token::Or => ParseRule::new(None, Some(OrExpression::infix), Precedence::Or),
-      Token::Print => ParseRule::new(None, None, Precedence::None),
+      Token::Println => ParseRule::new(None, None, Precedence::None),
       Token::Req => ParseRule::new(Some(ReqExpression::prefix), None, Precedence::Primary),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::Struct => ParseRule::new(Some(StructExpression::prefix), None, Precedence::Primary),

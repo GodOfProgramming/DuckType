@@ -70,7 +70,7 @@ impl AstExpression for IdentExpression {
 
 #[derive(Debug)]
 pub struct ClassExpression {
-  pub name: Option<Ident>,
+  pub name: Ident,
   pub initializer: Option<Box<Expression>>,
   pub methods: Vec<(Ident, Expression)>,
   pub loc: SourceLocation,
@@ -78,7 +78,7 @@ pub struct ClassExpression {
 
 impl ClassExpression {
   pub(super) fn new(
-    name: Option<Ident>,
+    name: Ident,
     initializer: Option<Expression>,
     methods: Vec<(Ident, Expression)>,
     loc: SourceLocation,
@@ -92,10 +92,18 @@ impl ClassExpression {
   }
 }
 
-impl ClassExpression {
-  pub(crate) fn expr(ast: &mut AstGenerator, name: Option<Ident>) -> Option<Expression> {
+impl AstExpression for ClassExpression {
+  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     let class_loc = ast.meta_at::<0>()?;
-    // needed here because infix advances to '{' after seeing "class"
+
+    let name = if let Some(Token::Identifier(name)) = ast.current() {
+      ast.advance();
+      Ident::new(name)
+    } else {
+      ast.error::<0>("expected ident after class");
+      return None;
+    };
+
     if !ast.consume(Token::LeftBrace, "expected '{' to begin class body") {
       return None;
     }
@@ -179,12 +187,6 @@ impl ClassExpression {
   }
 }
 
-impl AstExpression for ClassExpression {
-  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    Self::expr(ast, None)
-  }
-}
-
 #[derive(Debug)]
 pub struct ClosureExpression {
   pub captures: Vec<IdentExpression>,
@@ -205,7 +207,7 @@ impl ClosureExpression {
 }
 
 impl ClosureExpression {
-  fn expr(ast: &mut AstGenerator, param_term: Token, captures: ListExpression) -> Option<Expression> {
+  fn expr(ast: &mut AstGenerator, param_term: Token, captures: VecExpression) -> Option<Expression> {
     let loc = ast.meta_at::<0>()?;
 
     let mut vetted_captures = Vec::new();
@@ -290,47 +292,6 @@ impl AstExpression for LambdaExpression {
 }
 
 #[derive(Debug)]
-pub struct ListExpression {
-  pub items: Vec<Expression>,
-  pub loc: SourceLocation,
-}
-
-impl ListExpression {
-  pub(super) fn new(items: Vec<Expression>, loc: SourceLocation) -> Self {
-    Self { items, loc }
-  }
-}
-
-impl AstExpression for ListExpression {
-  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    let bracket_meta = ast.meta_at::<1>()?;
-    let mut items = Vec::default();
-
-    if let Some(token) = ast.current() {
-      if token != Token::RightBracket {
-        loop {
-          items.push(ast.expression()?);
-          if !ast.advance_if_matches(Token::Comma) {
-            break;
-          }
-        }
-      }
-    }
-
-    if ast.consume(Token::RightBracket, "expect ']' after arguments") {
-      let list = ListExpression::new(items, bracket_meta);
-      if ast.advance_if_matches(Token::Pipe) {
-        ClosureExpression::expr(ast, Token::Pipe, list)
-      } else {
-        Some(Expression::from(list))
-      }
-    } else {
-      None
-    }
-  }
-}
-
-#[derive(Debug)]
 pub struct LiteralExpression {
   pub value: ConstantValue,
 
@@ -401,20 +362,28 @@ impl MethodExpression {
 
 #[derive(Debug)]
 pub struct ModExpression {
-  pub name: Option<Ident>,
+  pub name: Ident,
   pub items: Vec<(Ident, Expression)>,
   pub loc: SourceLocation,
 }
 
 impl ModExpression {
-  pub(super) fn new(name: Option<Ident>, items: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
+  pub(super) fn new(name: Ident, items: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
     Self { name, items, loc }
   }
 }
 
-impl ModExpression {
-  pub(crate) fn expr(ast: &mut AstGenerator, name: Option<Ident>) -> Option<Expression> {
+impl AstExpression for ModExpression {
+  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     let mod_loc = ast.meta_at::<0>()?;
+
+    let name = if let Some(Token::Identifier(name)) = ast.current() {
+      ast.advance();
+      Ident::new(name)
+    } else {
+      ast.error::<0>("expected ident after mod");
+      return None;
+    };
 
     if !ast.consume(Token::LeftBrace, "expected '{' after mod name") {
       return None;
@@ -427,19 +396,23 @@ impl ModExpression {
       let member_loc = ast.meta_at::<0>()?;
       match token {
         Token::Identifier(ident) => {
-          declared_items.insert(ident.clone());
-          ast.advance();
+          if !declared_items.contains(&ident) {
+            declared_items.insert(ident.clone());
+            ast.advance();
 
-          if ast.advance_if_matches(Token::Colon) {
-            let ident = Ident::new(ident);
-            if let Some(expr) = ast.expression() {
-              module_items.push((ident, expr));
+            if ast.advance_if_matches(Token::Colon) {
+              let ident = Ident::new(ident);
+              if let Some(expr) = ast.expression() {
+                module_items.push((ident, expr));
+              }
+            } else {
+              module_items.push((
+                Ident::new(ident.clone()),
+                Expression::from(IdentExpression::new(Ident::new(ident), member_loc)),
+              ))
             }
           } else {
-            module_items.push((
-              Ident::new(ident.clone()),
-              Expression::from(IdentExpression::new(Ident::new(ident), member_loc)),
-            ))
+            ast.error::<0>("duplicate identifier found");
           }
           if !matches!(ast.current(), Some(Token::RightBrace)) && !ast.consume(Token::Comma, "expected ',' after expression") {
             return None;
@@ -448,11 +421,13 @@ impl ModExpression {
         Token::Mod => {
           ast.advance();
           if let Some(Token::Identifier(ident)) = ast.current() {
-            declared_items.insert(ident.clone());
-            ast.advance();
-            let ident = Ident::new(ident);
-            if let Some(module) = Self::expr(ast, Some(ident.clone())) {
-              module_items.push((ident, module));
+            if !declared_items.contains(&ident) {
+              declared_items.insert(ident.clone());
+              if let Some(module) = Self::prefix(ast) {
+                module_items.push((Ident::new(ident), module));
+              }
+            } else {
+              ast.error::<0>("duplicate identifier found");
             }
           } else {
             ast.error::<0>("mod name is invalid");
@@ -461,11 +436,13 @@ impl ModExpression {
         Token::Class => {
           ast.advance();
           if let Some(Token::Identifier(ident)) = ast.current() {
-            declared_items.insert(ident.clone());
-            ast.advance();
-            let ident = Ident::new(ident);
-            if let Some(class) = ClassExpression::expr(ast, Some(ident.clone())) {
-              module_items.push((ident, class));
+            if !declared_items.contains(&ident) {
+              declared_items.insert(ident.clone());
+              if let Some(class) = ClassExpression::prefix(ast) {
+                module_items.push((Ident::new(ident), class));
+              }
+            } else {
+              ast.error::<0>("duplicate identifier found");
             }
           } else {
             ast.error::<0>("class name is invalid");
@@ -512,12 +489,6 @@ impl ModExpression {
     }
 
     Some(Expression::from(ModExpression::new(name, module_items, mod_loc)))
-  }
-}
-
-impl AstExpression for ModExpression {
-  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    Self::expr(ast, None)
   }
 }
 
@@ -574,5 +545,112 @@ impl AstExpression for StructExpression {
     }
 
     Some(Expression::from(StructExpression::new(members, struct_meta)))
+  }
+}
+
+#[derive(Debug)]
+pub struct VecExpression {
+  pub items: Vec<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl VecExpression {
+  pub(super) fn new(items: Vec<Expression>, loc: SourceLocation) -> Self {
+    Self { items, loc }
+  }
+}
+
+impl AstExpression for VecExpression {
+  fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
+    let bracket_meta = ast.meta_at::<1>()?;
+    let mut items = Vec::default();
+
+    'items: while let Some(token) = ast.current() {
+      if token == Token::RightBracket {
+        break 'items;
+      }
+
+      items.push(ast.expression()?);
+
+      if !ast.advance_if_matches(Token::Comma) {
+        break 'items;
+      }
+    }
+
+    let mut vec_size = None;
+    let mut dyn_size = None;
+
+    if items.len() == 1 {
+      // test if ';' is found
+      if ast.advance_if_matches(Token::Semicolon) {
+        // then check for a size
+        if let Some(Token::Number(NumberToken::I32(size))) = ast.current() {
+          ast.advance();
+          if size >= 0 {
+            vec_size = Some(size);
+          } else {
+            ast.error::<1>("vec size must be >= 0");
+            return None;
+          }
+        } else {
+          dyn_size = Some(ast.expression()?);
+        }
+      }
+    }
+
+    if ast.consume(Token::RightBracket, "expect ']' after arguments") {
+      if let Some(size) = vec_size {
+        // fixed size vec
+        Some(VecWithSizeExpression::new(items.swap_remove(0), size, bracket_meta).into())
+      } else if let Some(size) = dyn_size {
+        Some(VecWithDynamicSizeExpression::new(items.swap_remove(0), size, bracket_meta).into())
+      } else {
+        // normal vec
+        let vec = Self::new(items, bracket_meta);
+
+        // closure
+        if ast.advance_if_matches(Token::Pipe) {
+          ClosureExpression::expr(ast, Token::Pipe, vec)
+        } else {
+          Some(vec.into())
+        }
+      }
+    } else {
+      None
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct VecWithDynamicSizeExpression {
+  pub item: Box<Expression>,
+  pub size: Box<Expression>,
+  pub loc: SourceLocation,
+}
+
+impl VecWithDynamicSizeExpression {
+  fn new(item: Expression, size: Expression, loc: SourceLocation) -> Self {
+    Self {
+      item: Box::new(item),
+      size: Box::new(size),
+      loc,
+    }
+  }
+}
+
+#[derive(Debug)]
+pub struct VecWithSizeExpression {
+  pub item: Box<Expression>,
+  pub size: i32,
+  pub loc: SourceLocation,
+}
+
+impl VecWithSizeExpression {
+  pub fn new(item: Expression, size: i32, loc: SourceLocation) -> Self {
+    Self {
+      item: Box::new(item),
+      size,
+      loc,
+    }
   }
 }

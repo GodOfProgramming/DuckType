@@ -14,7 +14,6 @@ pub mod prelude {
   pub use super::dbg::prelude::*;
   pub use super::exec::prelude::*;
   pub use super::stdlib;
-  pub use super::stdlib::prelude::*;
   pub use super::value::prelude::*;
   pub use macros::*;
   pub use ptr::SmartPtr;

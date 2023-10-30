@@ -55,7 +55,7 @@ impl Value {
     new
   }
 
-  pub fn raw_value(&self) -> u64 {
+  pub fn bits(&self) -> u64 {
     self.bits & VALUE_BITMASK
   }
 
@@ -76,7 +76,7 @@ impl Value {
       ConstantValue::String(v) => gc.allocate(v),
       ConstantValue::StaticString(v) => gc.allocate(*v),
       ConstantValue::Fn(v) => {
-        let env = gc.allocate(ModuleValue::new_child(env));
+        let env = gc.allocate(ModuleValue::new_scope(env));
         gc.allocate(FunctionValue::from_constant(v, env))
       }
     }
@@ -174,16 +174,16 @@ impl Value {
 
   // array
 
-  pub fn is_array(&self) -> bool {
-    self.is::<ArrayValue>()
+  pub fn is_vec(&self) -> bool {
+    self.is::<VecValue>()
   }
 
-  pub fn as_array(&self) -> Option<&'static ArrayValue> {
-    self.cast_to::<ArrayValue>()
+  pub fn as_vec(&self) -> Option<&'static VecValue> {
+    self.cast_to::<VecValue>()
   }
 
-  pub fn as_array_mut(&mut self) -> Option<&mut ArrayValue> {
-    self.cast_to_mut::<ArrayValue>()
+  pub fn as_vec_mut(&mut self) -> Option<&mut VecValue> {
+    self.cast_to_mut::<VecValue>()
   }
 
   // struct
@@ -583,15 +583,15 @@ impl From<f64> for Value {
 
 impl From<i32> for Value {
   fn from(item: i32) -> Self {
-    Self::from(&item)
+    Self {
+      bits: unsafe { mem::transmute::<i64, u64>(item as i64 & u32::MAX as i64 | i64::default()) } | I32_TAG,
+    }
   }
 }
 
 impl From<&i32> for Value {
-  fn from(value: &i32) -> Self {
-    Self {
-      bits: unsafe { mem::transmute::<i64, u64>(*value as i64) } | I32_TAG,
-    }
+  fn from(item: &i32) -> Self {
+    Self::from(*item)
   }
 }
 
@@ -606,7 +606,7 @@ impl From<bool> for Value {
 impl From<char> for Value {
   fn from(item: char) -> Self {
     Self {
-      bits: unsafe { mem::transmute::<char, u32>(item) as u64 } | CHAR_TAG,
+      bits: unsafe { mem::transmute::<char, u32>(item) as u64 & u32::MAX as u64 } | CHAR_TAG,
     }
   }
 }
@@ -645,15 +645,15 @@ impl Debug for Value {
     const PTR_WIDTH: usize = mem::size_of::<usize>() * 2;
     const PTR_DISPLAY_WIDTH: usize = PTR_WIDTH + 2;
     match self.tag() {
-      Tag::F64 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_f64_unchecked(), self.raw_value()),
-      Tag::I32 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_i32_unchecked(), self.raw_value()),
-      Tag::Bool => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_bool_unchecked(), self.raw_value()),
-      Tag::Char => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_char_unchecked(), self.raw_value()),
+      Tag::F64 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_f64_unchecked(), self.bits()),
+      Tag::I32 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_i32_unchecked(), self.bits()),
+      Tag::Bool => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_bool_unchecked(), self.bits()),
+      Tag::Char => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_char_unchecked(), self.bits()),
       Tag::NativeFn => write!(
         f,
         "<@{addr:<width$} {:?}>",
         self.tag(),
-        addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
+        addr = format!("0x{:0>width$x}", self.bits(), width = PTR_WIDTH),
         width = PTR_DISPLAY_WIDTH,
       ),
       Tag::NativeVTable => todo!(),
@@ -662,10 +662,10 @@ impl Debug for Value {
         "<@{addr:<width$} {} : {}>",
         self.type_id(),
         self.debug_string(),
-        addr = format!("0x{:0>width$x}", self.raw_value(), width = PTR_WIDTH),
+        addr = format!("0x{:0>width$x}", self.bits(), width = PTR_WIDTH),
         width = PTR_DISPLAY_WIDTH,
       ),
-      Tag::Nil => write!(f, "nil"),
+      Tag::Nil => write!(f, "nil (0x{:x})", self.bits()),
     }
   }
 }

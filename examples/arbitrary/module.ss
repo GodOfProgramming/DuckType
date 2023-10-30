@@ -9,7 +9,7 @@ fn bar() {
 }
 
 fn print_global() {
-  print($GLOBAL);
+  println($GLOBAL);
 }
 
-export mod { foo, bar, print_global }
+export mod module { foo, bar, print_global }

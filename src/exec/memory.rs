@@ -1,6 +1,8 @@
+use itertools::Itertools;
 use ptr::{MutPtr, SmartPtr};
 
 use crate::{
+  dbg,
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
 };
@@ -32,6 +34,10 @@ where
       usertype: handle.value.reinterpret_cast::<T>(),
       handle,
     }
+  }
+
+  pub fn value(&self) -> Value {
+    self.handle.value.clone()
   }
 }
 
@@ -180,37 +186,66 @@ impl Gc {
     stack_frames: &Vec<StackFrame>,
     cached_values: impl IntoIterator<Item = &'v Value>,
   ) -> usize {
-    let mut cleaned = 0;
+    dbg::profile_function!();
 
     let mut marked_allocations = Marker::default();
 
-    for value in cached_values {
-      marked_allocations.trace(value);
-    }
-
-    for value in &self.handles {
-      marked_allocations.trace(&Value { bits: *value });
-    }
-
-    for value in &current_frame.stack {
-      marked_allocations.trace(value);
-    }
-
-    for frame in stack_frames {
-      for value in &frame.stack {
+    {
+      dbg::profile_scope!("cache");
+      for value in cached_values {
         marked_allocations.trace(value);
       }
     }
 
-    for handle in &self.handles {
-      marked_allocations.trace(&Value { bits: *handle })
+    {
+      dbg::profile_scope!("handles");
+      for value in &self.handles {
+        marked_allocations.trace(&Value { bits: *value });
+      }
     }
 
-    let marked_allocations = marked_allocations.into();
+    {
+      dbg::profile_scope!("current frame stack");
+      for value in &current_frame.stack {
+        marked_allocations.trace(value);
+      }
+    }
 
-    let unmarked_allocations: Vec<u64> = self.allocations.difference(&marked_allocations).cloned().collect();
+    {
+      dbg::profile_scope!("all frame stacks");
+      for frame in stack_frames {
+        for value in &frame.stack {
+          marked_allocations.trace(value);
+        }
+      }
+    }
 
-    for alloc in unmarked_allocations {
+    {
+      dbg::profile_scope!("handles");
+      for handle in &self.handles {
+        marked_allocations.trace(&Value { bits: *handle })
+      }
+    }
+
+    let marked_allocations: HashSet<u64> = marked_allocations.into();
+
+    let unmarked_allocations: Vec<u64> = {
+      dbg::profile_scope!(
+        "set diff",
+        format!("total {}, marked {}", self.allocations.len(), marked_allocations.len())
+      );
+      self.allocations.difference(&marked_allocations).cloned().collect()
+    };
+
+    {
+      dbg::profile_scope!("cleaning", unmarked_allocations.len().to_string());
+      self.scrub(unmarked_allocations)
+    }
+  }
+
+  pub fn scrub(&mut self, allocs: Vec<u64>) -> usize {
+    let mut cleaned = 0;
+    for alloc in allocs {
       let value = Value { bits: alloc };
       debug_assert!(value.is_ptr());
       if value.meta().ref_count.load(Ordering::Relaxed) == 0 {
@@ -219,7 +254,6 @@ impl Gc {
         cleaned += 1;
       }
     }
-
     cleaned
   }
 
@@ -275,6 +309,12 @@ impl Gc {
     let pointer = value.pointer_mut();
     let meta = value.meta();
     (meta.vtable.dealloc)(pointer);
+  }
+}
+
+impl Drop for Gc {
+  fn drop(&mut self) {
+    self.scrub(self.allocations.clone().into_iter().collect_vec());
   }
 }
 
@@ -378,13 +418,13 @@ impl Allocation<&String> for Gc {
 
 impl Allocation<&[Value]> for Gc {
   fn allocate(&mut self, value: &[Value]) -> Value {
-    self.allocate_usertype(ArrayValue::new_from_slice(value))
+    self.allocate_usertype(VecValue::new_from_slice(value))
   }
 }
 
 impl Allocation<Vec<Value>> for Gc {
   fn allocate(&mut self, value: Vec<Value>) -> Value {
-    self.allocate_usertype(ArrayValue::new_from_vec(value))
+    self.allocate_usertype(VecValue::new_from_vec(value))
   }
 }
 
@@ -394,7 +434,7 @@ where
 {
   fn allocate(&mut self, value: Vec<T>) -> Value {
     let list = value.into_iter().map(|v| self.allocate(v)).collect();
-    self.allocate_usertype(ArrayValue::new_from_vec(list))
+    self.allocate_usertype(VecValue::new_from_vec(list))
   }
 }
 

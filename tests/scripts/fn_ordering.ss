@@ -6,33 +6,33 @@ let $COUNTER = 1;
 
 class SomeClass {
   fn second(self, t) {
-    print "second";
-    print self;
-    print t;
+    println "second";
+    println self;
+    println t;
     t.expect($COUNTER).to_be(2);
     $COUNTER += 1;
     ret self;
   }
 
   fn fourth(self, t) {
-    print "fourth";
-    print self;
-    print t;
+    println "fourth";
+    println self;
+    println t;
     t.expect($COUNTER).to_be(4);
   }
 }
 
 fn first(t) {
-  print "first";
-  print t;
+  println "first";
+  println t;
   t.expect($COUNTER).to_be(1);
   $COUNTER += 1;
   ret t;
 }
 
 fn third(t) {
-  print "third";
-  print t;
+  println "third";
+  println t;
   t.expect($COUNTER).to_be(3);
   $COUNTER += 1;
   ret t;

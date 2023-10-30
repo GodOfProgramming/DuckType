@@ -2,6 +2,8 @@ let sspec = req "lib/sspec/sspec.ss";
 
 use sspec::describe;
 
+sspec::fail_by_runtime_error.set(true);
+
 describe("arrays.size_0", |t| {
   let arr = [];
   t.expect(arr.len()).to_be(0);

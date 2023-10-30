@@ -1,4 +1,3 @@
-pub(crate) mod array_value;
 pub(crate) mod class_value;
 pub(crate) mod closure_value;
 pub(crate) mod function_value;
@@ -9,6 +8,7 @@ pub(crate) mod native_value;
 pub(crate) mod string_value;
 pub(crate) mod struct_value;
 pub(crate) mod timestamp_value;
+pub(crate) mod vec_value;
 
 pub mod ops {
   pub const NOT: &str = "__not__";
@@ -28,11 +28,11 @@ pub mod ops {
   pub const GREATER_EQUAL: &str = "__geq__";
 
   pub const INDEX: &str = "__index__";
+  pub const INDEX_ASSIGN: &str = "__idxeq__";
 }
 
 use super::{VTable, Value};
 use crate::{dbg::RuntimeErrors, prelude::*};
-pub use array_value::ArrayValue;
 pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
 pub use function_value::FunctionValue;
@@ -47,6 +47,7 @@ use std::{
   convert::Infallible,
   error::Error,
   fmt::Debug,
+  io,
   vec::IntoIter,
 };
 pub use string_value::StringValue;
@@ -54,6 +55,7 @@ pub use struct_value::StructValue;
 use thiserror::Error;
 pub use timestamp_value::TimestampValue;
 use uuid::Uuid;
+pub use vec_value::VecValue;
 
 pub struct Nil;
 
@@ -292,6 +294,9 @@ pub enum ValueError {
   UnimplementedError(&'static str, Value),
   #[error("{0} is undefined")]
   UndefinedMethod(&'static str),
+  /// index, value
+  #[error("Index {0} out of bounds in {1}")]
+  InvalidIndex(i32, Value),
   /// member name
   #[error("Tried assigning a value to unimplemented member {0}")]
   InvalidAssignment(String),
@@ -326,6 +331,10 @@ pub enum ValueError {
   #[error("Undefined initializer reached")]
   UndefinedInitializer,
 
+  /// std::io error
+  #[error("{0}")]
+  IoError(std::io::Error),
+
   /// Can only be reached from a bug
   #[error("Infallible")]
   Infallible,
@@ -338,6 +347,12 @@ pub enum ValueError {
 impl From<Infallible> for ValueError {
   fn from(_: Infallible) -> Self {
     Self::Infallible
+  }
+}
+
+impl From<io::Error> for ValueError {
+  fn from(value: io::Error) -> Self {
+    Self::IoError(value)
   }
 }
 

@@ -138,6 +138,8 @@ pub(crate) fn native_mod(item: ItemMod, no_entry: bool) -> TokenStream {
     }
   };
 
+  let name_lit = Literal::string(&mod_name.to_string());
+
   quote! {
     #entry_point
 
@@ -145,7 +147,7 @@ pub(crate) fn native_mod(item: ItemMod, no_entry: bool) -> TokenStream {
       use super::*;
 
       pub fn simple_script_autogen_create_module(gc: &mut SmartPtr<Gc>, env: Value) -> UsertypeHandle<ModuleValue> {
-        ModuleBuilder::initialize(gc, Some(env), |gc, mut #module_ident| {
+        ModuleBuilder::initialize(gc, #name_lit, Some(env), |gc, mut #module_ident| {
           #fn_defs
           #struct_defs
         })

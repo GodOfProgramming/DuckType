@@ -6,7 +6,7 @@ class A {
   }
 
   fn foo(self) {
-    print("foo");
+    println("foo");
   }
 }
 
@@ -16,17 +16,17 @@ class B {
   }
 
   fn bar(self) {
-    print("bar");
+    println("bar");
   }
 }
 
 fn some_func() {
-  print("some func");
+  println("some func");
 }
 
 let x = "super secret string";
 
-export mod {
+export mod test {
   ClassA: A, ClassB: B,
 
   TestClass, RenamedClass: TestClass,
@@ -34,7 +34,7 @@ export mod {
   some_func, bound_string: x,
 
   fn another_fn() {
-    print("another func");
+    println("another func");
   }
 
   fn some_another_fn() {

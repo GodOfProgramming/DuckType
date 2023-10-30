@@ -13,11 +13,11 @@ struct IntegrationTest {
 impl IntegrationTest {
   fn new() -> Self {
     let mut gc = SmartPtr::new(Gc::default());
-    let env = ModuleBuilder::initialize(&mut gc, None, |gc, mut lib| {
-      lib.env = stdlib::load_libs(gc, lib.handle.value.clone(), &[], &Library::All);
+    let env = ModuleBuilder::initialize(&mut gc, "*test*", None, |gc, mut lib| {
+      lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &[]);
     });
 
-    let vm = Vm::new(gc, [], Default::default());
+    let vm = Vm::new(gc, []);
 
     Self {
       script: Default::default(),

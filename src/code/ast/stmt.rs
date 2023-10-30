@@ -26,7 +26,7 @@ pub enum Statement {
   Loop(LoopStatement),
   Match(MatchStatement),
   Mod(ModStatement),
-  Print(PrintStatement),
+  Print(PrintlnStatement),
   Req(ReqStatement),
   Ret(RetStatement),
   Use(UseStatement),
@@ -205,8 +205,8 @@ impl From<ModStatement> for Statement {
   }
 }
 
-impl From<PrintStatement> for Statement {
-  fn from(stmt: PrintStatement) -> Self {
+impl From<PrintlnStatement> for Statement {
+  fn from(stmt: PrintlnStatement) -> Self {
     Self::Print(stmt)
   }
 }

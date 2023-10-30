@@ -1,2 +1,2 @@
 let rev = "abcd".reverse;
-print rev();
+println rev();

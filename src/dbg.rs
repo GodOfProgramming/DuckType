@@ -6,6 +6,28 @@ use std::{
   rc::Rc,
 };
 
+macro_rules! profile_function {
+  () => {
+    #[cfg(feature = "profile")]
+    puffin::profile_function!();
+  };
+}
+
+pub(crate) use profile_function;
+
+macro_rules! profile_scope {
+  ($id:expr) => {
+    #[cfg(feature = "profile")]
+    puffin::profile_scope!($id, "");
+  };
+  ($id:expr, $data:expr) => {
+    #[cfg(feature = "profile")]
+    puffin::profile_scope!($id, $data);
+  };
+}
+
+pub(crate) use profile_scope;
+
 #[allow(unused)]
 #[cfg(debug_assertions)]
 macro_rules! here {
@@ -229,6 +251,7 @@ pub enum ValueCommand {
 #[derive(Subcommand)]
 pub enum StackCmd {
   Display,
+  DisplayAll,
   Index {
     #[arg()]
     index: usize,
@@ -240,6 +263,13 @@ impl StackCmd {
     let output = match self {
       StackCmd::Display => {
         vm.stack_display();
+        None
+      }
+      StackCmd::DisplayAll => {
+        vm.stack_display();
+        for stack in &vm.stack_frames {
+          println!("{}", stack);
+        }
         None
       }
       StackCmd::Index { index } => Some(if let Some(value) = vm.stack_index(*index) {
