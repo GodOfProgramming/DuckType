@@ -393,7 +393,7 @@ impl<'src> Scanner<'src> {
   /// 1, 01, 0x1, 1.0, 1.0e1, 1.0e-1
   fn make_number(&mut self, negate: bool) -> Option<Token> {
     match self.peek()? {
-      '0' => {
+      '0' if !matches!(self.peek_n(1), Some('.')) => {
         self.advance();
         match self.peek()? {
           'x' | 'X' => {

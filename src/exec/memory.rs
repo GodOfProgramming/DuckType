@@ -1,8 +1,10 @@
 use itertools::Itertools;
 use ptr::{MutPtr, SmartPtr};
+use strum::IntoEnumIterator;
 
 use crate::{
   dbg,
+  exec::Register,
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
 };
@@ -209,6 +211,12 @@ impl Gc {
       for value in &current_frame.stack {
         marked_allocations.trace(value);
       }
+
+      for ctx in &current_frame.registers {
+        for reg in Register::iter() {
+          marked_allocations.trace(&ctx[reg]);
+        }
+      }
     }
 
     {
@@ -216,6 +224,12 @@ impl Gc {
       for frame in stack_frames {
         for value in &frame.stack {
           marked_allocations.trace(value);
+        }
+
+        for ctx in &frame.registers {
+          for reg in Register::iter() {
+            marked_allocations.trace(&ctx[reg]);
+          }
         }
       }
     }

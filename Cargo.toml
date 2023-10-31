@@ -31,6 +31,9 @@ static_assertions = "1.1"
 sysinfo = "0.29"
 thiserror = "1.0"
 uuid = { workspace = true }
+strum = "0.25"
+strum_macros = "0.25"
+enum-map = "2.7"
 
 puffin = "0.17"
 puffin_http = "0.14"

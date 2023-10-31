@@ -63,7 +63,11 @@ impl VecValue {
   }
 
   fn __idxeq__(&mut self, index: i32, value: Value) -> ValueResult {
-    self.buffer.insert(index as usize, value.clone());
+    let internal_value = self
+      .buffer
+      .get_mut(index as usize)
+      .ok_or_else(|| ValueError::InvalidIndex(index, value.clone()))?;
+    *internal_value = value.clone();
     Ok(value)
   }
 

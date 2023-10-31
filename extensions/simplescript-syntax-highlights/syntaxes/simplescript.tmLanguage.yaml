@@ -80,7 +80,7 @@ repository:
   numbers:
     patterns:
       - name: "constant.numeric"
-        match: "-?(0|0[0-7]+|0[xX]${ HEX }+|([1-9]\\d*(?:(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)?))"
+        match: "-?(0([0-7]+|[xX]${ HEX }+)?|([1-9]\\d*(?:(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)?))"
   ident:
     patterns:
       - name: "variable.language"

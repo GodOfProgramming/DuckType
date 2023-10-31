@@ -1,4 +1,5 @@
 use crate::code::{ast::*, Reflection, SourceLocation};
+use crate::exec::Register;
 use crate::{dbg, prelude::*};
 use ptr::SmartPtr;
 use std::collections::BTreeMap;
@@ -470,29 +471,34 @@ impl BytecodeGenerator {
   }
 
   fn index_op_assign(&mut self, expr: IndexExpression, op: Opcode, value: Expression, loc: SourceLocation) {
-    self.emit_expr(*expr.indexable);
-    self.emit(Opcode::StashPush, expr.loc.clone());
-
     let index_ident = self.add_const_ident(Ident::new(ops::INDEX));
+    let idxeq_ident = self.add_const_ident(Ident::new(ops::INDEX_ASSIGN));
+
+    self.emit(Opcode::PushRegCtx, expr.loc.clone());
+
+    // index
+    self.emit_expr(*expr.indexable);
+    self.emit(Opcode::Store(Register::A), expr.loc.clone());
     self.emit(Opcode::LookupMember(index_ident), expr.loc.clone());
-
     self.emit_expr(*expr.index);
-    self.emit(Opcode::StashPush, expr.loc.clone());
-
+    self.emit(Opcode::Store(Register::B), expr.loc.clone());
     self.emit(Opcode::Invoke(1), expr.loc.clone());
 
+    // value
     self.emit_expr(value);
 
+    // do op
     self.emit(op, loc.clone());
-    self.emit(Opcode::StashPush, expr.loc.clone());
+    self.emit(Opcode::Store(Register::C), expr.loc.clone());
     self.emit(Opcode::Pop, expr.loc.clone());
 
-    let idxeq_ident = self.add_const_ident(Ident::new(ops::INDEX_ASSIGN));
-    self.emit(Opcode::StashRemove, expr.loc.clone());
+    self.emit(Opcode::Load(Register::A), expr.loc.clone());
     self.emit(Opcode::LookupMember(idxeq_ident), expr.loc.clone());
-    self.emit(Opcode::StashRemove, expr.loc.clone());
-    self.emit(Opcode::StashRemove, expr.loc.clone());
-    self.emit(Opcode::Invoke(2), expr.loc);
+    self.emit(Opcode::Load(Register::B), expr.loc.clone());
+    self.emit(Opcode::Load(Register::C), expr.loc.clone());
+    self.emit(Opcode::Invoke(2), expr.loc.clone());
+
+    self.emit(Opcode::PopRegCtx, expr.loc);
   }
 
   fn assign_member(&mut self, expr: MemberAccessExpression, op: AssignOperator, value: Expression, loc: SourceLocation) {
