@@ -408,7 +408,7 @@ impl Vm {
     'ctx: while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
       let now = Instant::now();
       if now > self.next_gc {
-        self.run_gc();
+        self.run_gc()?;
       }
 
       #[cfg(feature = "runtime-disassembly")]
@@ -1304,12 +1304,14 @@ impl Vm {
     self.envs.last_mut()
   }
 
-  pub fn run_gc(&mut self) {
+  pub fn run_gc(&mut self) -> ExecResult {
     let now = Instant::now();
     self.next_gc = now + DEFAULT_GC_FREQUENCY;
     self
       .gc
-      .clean(&self.current_frame, &self.stack_frames, self.lib_cache.values());
+      .clean(&self.current_frame, &self.stack_frames, self.lib_cache.values())
+      .map_err(|e| self.error(e))?;
+    Ok(())
   }
 
   #[cold]
