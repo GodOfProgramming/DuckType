@@ -21,7 +21,8 @@ enum Command {
   },
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
   #[cfg(feature = "profile")]
   let _server = {
     puffin::set_scopes_on(true);

@@ -1,11 +1,13 @@
-fn add(x: i32 or f64, y: i32 or f64) => struct { x: number } {
-  ret struct { x: x + y };
-}
+let a = 1;
+let b = 2;
+let c = 3;
+let d = 4;
 
-let sub = |x, y| => number {
-  ret x - y;
-};
+let x = a += b = c -= d;
 
-println add(1, 2);
+let va = [1.0; 1];
+let vb = [2.0; 1];
+let vc = [3.0; 1];
+let vd = [4.0; 1];
 
-println sub(1, 2);
+let vx = a[0] += b[0] = c[0] -= d[0];

@@ -48,6 +48,7 @@ use std::{
   error::Error,
   fmt::Debug,
   io,
+  sync::mpsc,
   vec::IntoIter,
 };
 pub use string_value::StringValue;
@@ -335,6 +336,10 @@ pub enum ValueError {
   #[error("{0}")]
   IoError(std::io::Error),
 
+  /// Gc sender error
+  #[error("Garbage Collector Failure: {0}")]
+  GcError(Box<dyn Error>),
+
   /// Can only be reached from a bug
   #[error("Infallible")]
   Infallible,
@@ -359,6 +364,12 @@ impl From<io::Error> for ValueError {
 impl From<RuntimeErrors> for ValueError {
   fn from(value: RuntimeErrors) -> Self {
     Self::RuntimeError(value)
+  }
+}
+
+impl<T> From<mpsc::SendError<T>> for ValueError {
+  fn from(value: mpsc::SendError<T>) -> Self {
+    Self::GcError(value.to_string().into())
   }
 }
 

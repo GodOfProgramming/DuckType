@@ -10,11 +10,12 @@ use crate::{
 };
 use clap::Parser;
 use dlopen2::wrapper::{Container, WrapperApi};
+use enum_map::{Enum, EnumMap};
 use memory::{Allocation, Gc};
 use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
-  collections::{BTreeMap, VecDeque},
+  collections::BTreeMap,
   error::Error,
   fmt::{self, Debug, Display, Formatter},
   fs,
@@ -22,6 +23,7 @@ use std::{
   rc::Rc,
   time::{Duration, Instant},
 };
+use strum_macros::{EnumCount, EnumIter};
 
 #[derive(WrapperApi)]
 struct NativeApi {
@@ -150,10 +152,14 @@ pub enum Opcode {
   EnterBlock,
   /** Pop an env */
   PopScope,
-  /** Stash a value for later use */
-  StashPush,
-  /** Remove the next value in the stash queue */
-  StashRemove,
+  /** Store a value in the specified register */
+  Store(Register),
+  /** Load a value in the specified register */
+  Load(Register),
+  /**  */
+  PushRegCtx,
+  /**  */
+  PopRegCtx,
 }
 
 #[cfg(test)]
@@ -402,7 +408,7 @@ impl Vm {
     'ctx: while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
       let now = Instant::now();
       if now > self.next_gc {
-        self.run_gc();
+        self.run_gc()?;
       }
 
       #[cfg(feature = "runtime-disassembly")]
@@ -515,18 +521,19 @@ impl Vm {
         }
         Opcode::Not => self.exec_not(&opcode)?,
         Opcode::Negate => self.exec_negate(&opcode)?,
-        Opcode::StashPush => {
-          let value = self.stack_peek().ok_or_else(|| self.error("no value on stack to peek"))?;
-          self.current_frame.stash.push_back(value);
+        Opcode::Store(reg) => {
+          self.current_frame.reg_store(
+            reg,
+            self
+              .stack_peek()
+              .ok_or_else(|| self.error("expected item on stack to store"))?,
+          );
         }
-        Opcode::StashRemove => {
-          let value = self
-            .current_frame
-            .stash
-            .pop_front()
-            .ok_or_else(|| self.error("no value in stash to pop"))?;
-          self.stack_push(value);
+        Opcode::Load(reg) => {
+          self.stack_push(self.current_frame.reg_load(reg));
         }
+        Opcode::PushRegCtx => self.current_frame.new_reg_ctx(),
+        Opcode::PopRegCtx => self.current_frame.pop_reg_ctx(),
       }
 
       self.current_frame.ip += 1;
@@ -1297,12 +1304,14 @@ impl Vm {
     self.envs.last_mut()
   }
 
-  pub fn run_gc(&mut self) {
+  pub fn run_gc(&mut self) -> ExecResult {
     let now = Instant::now();
     self.next_gc = now + DEFAULT_GC_FREQUENCY;
     self
       .gc
-      .clean(&self.current_frame, &self.stack_frames, self.lib_cache.values());
+      .clean(&self.current_frame, &self.stack_frames, self.lib_cache.values())
+      .map_err(|e| self.error(e))?;
+    Ok(())
   }
 
   #[cold]
@@ -1329,12 +1338,24 @@ impl Vm {
   }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, EnumCount, EnumIter, Enum)]
+pub enum Register {
+  A,
+  B,
+  C,
+  D,
+  E,
+  F,
+  G,
+  H,
+}
+
 #[derive(Default)]
 pub struct StackFrame {
   pub ip: usize,
   pub ctx: SmartPtr<Context>,
   pub stack: Vec<Value>,
-  pub stash: VecDeque<Value>,
+  pub registers: Vec<EnumMap<Register, Value>>,
 }
 
 impl StackFrame {
@@ -1343,7 +1364,7 @@ impl StackFrame {
       ip: Default::default(),
       ctx,
       stack: Default::default(),
-      stash: Default::default(),
+      registers: Default::default(),
     }
   }
 
@@ -1354,6 +1375,23 @@ impl StackFrame {
     let mut old = Self::default();
     std::mem::swap(&mut old, self);
     old
+  }
+
+  pub fn reg_store(&mut self, reg: Register, value: Value) {
+    let sz = self.registers.len();
+    self.registers[sz - 1][reg] = value;
+  }
+
+  pub fn reg_load(&self, reg: Register) -> Value {
+    self.registers[self.registers.len() - 1][reg].clone()
+  }
+
+  pub fn new_reg_ctx(&mut self) {
+    self.registers.push(Default::default());
+  }
+
+  pub fn pop_reg_ctx(&mut self) {
+    self.registers.pop();
   }
 }
 
