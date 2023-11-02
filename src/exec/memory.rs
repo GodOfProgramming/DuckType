@@ -177,7 +177,7 @@ impl From<Marker> for HashSet<u64> {
 }
 
 pub struct AsyncDisposal {
-  chute: Option<mpsc::Sender<u64>>,
+  chute: Option<mpsc::Sender<Vec<u64>>>,
   th: Option<JoinHandle<()>>,
 }
 
@@ -186,9 +186,11 @@ impl AsyncDisposal {
     let (sender, receiver) = mpsc::channel();
 
     let th = thread::spawn(move || {
-      while let Ok(alloc) = receiver.recv() {
-        let value = Value { bits: alloc };
-        Gc::drop_value(value);
+      while let Ok(allocations) = receiver.recv() {
+        for alloc in allocations {
+          let value = Value { bits: alloc };
+          Gc::drop_value(value);
+        }
       }
     });
 
@@ -198,10 +200,10 @@ impl AsyncDisposal {
     }
   }
 
-  fn dispose(&mut self, alloc: u64) -> Result<(), mpsc::SendError<u64>> {
+  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), mpsc::SendError<Vec<u64>>> {
     match &self.chute {
-      Some(chute) => chute.send(alloc)?,
-      None => Err(mpsc::SendError::<u64>(alloc))?,
+      Some(chute) => chute.send(allocations)?,
+      None => Err(mpsc::SendError::<Vec<u64>>(allocations))?,
     };
     Ok(())
   }
@@ -314,8 +316,9 @@ impl Gc {
     for alloc in &unmarked_allocations {
       let removed = self.allocations.remove(alloc);
       debug_assert!(removed);
-      self.disposer.dispose(*alloc)?;
     }
+
+    self.disposer.dispose(unmarked_allocations)?;
 
     Ok(cleaned)
   }

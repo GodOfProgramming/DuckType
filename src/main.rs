@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use simple_script::prelude::*;
+use ss::prelude::*;
 use std::{fs, path::PathBuf, process};
 use uuid::Uuid;
 
@@ -63,7 +63,7 @@ fn run_file(mut vm: Vm, file: PathBuf, env: UsertypeHandle<ModuleValue>) -> bool
   }
 
   match fs::read_to_string(&file) {
-    Ok(contents) => match vm.load(file.clone(), &contents) {
+    Ok(contents) => match ss::compile(&file, &contents) {
       Ok(ctx) => match vm.run(file.clone(), ctx.clone(), env.clone()) {
         Ok(result) => {
           println!("=> {result}");

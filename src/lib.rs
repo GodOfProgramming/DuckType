@@ -1,14 +1,11 @@
 pub(crate) mod code;
 pub(crate) mod dbg;
 pub(crate) mod exec;
+pub mod stdlib;
+mod util;
 pub(crate) mod value;
 
-pub mod stdlib;
-
-mod util;
-
-#[cfg(test)]
-mod test;
+pub use code::compile;
 
 pub mod prelude {
   pub use super::dbg::prelude::*;
@@ -38,3 +35,6 @@ impl<T> UnwrapAnd<T> for Option<T> {
     }
   }
 }
+
+#[cfg(test)]
+mod test;

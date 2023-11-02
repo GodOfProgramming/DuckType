@@ -12,6 +12,9 @@ members = [".", "macros"]
 name = "ss"
 path = "src/main.rs"
 
+[lib]
+name = "ss"
+
 [workspace.dependencies]
 uuid = { version = "1.4", features = ["v4", "macro-diagnostics"] }
 

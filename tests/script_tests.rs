@@ -1,5 +1,5 @@
 use macros::{methods, Fields};
-use simple_script::prelude::*;
+use ss::prelude::*;
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
 
@@ -11,7 +11,7 @@ impl ScriptTest {
   pub fn run(&mut self, script: &Path) {
     println!("running {:?}", script);
     let src = fs::read_to_string(script).unwrap();
-    let ctx = self.vm.load(script.to_string_lossy().to_string(), &src).unwrap();
+    let ctx = ss::compile(script.to_string_lossy().to_string(), &src).unwrap();
     let env = ModuleBuilder::initialize(&mut self.vm.gc, "*test*", None, |gc, mut lib| {
       lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &[]);
     });
@@ -63,7 +63,7 @@ mod tests {
 
     const SCRIPT: &str = "{ let leaker = make_leaker(); leaker.this = leaker; }";
 
-    let ctx = t.vm.load("test", SCRIPT).unwrap();
+    let ctx = ss::compile("test", SCRIPT).unwrap();
 
     #[native]
     fn make_leaker() -> ValueResult<Leaker> {

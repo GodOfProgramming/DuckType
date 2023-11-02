@@ -18,53 +18,48 @@ pub mod gen;
 pub mod lex;
 pub mod opt;
 
-#[derive(Default)]
-pub struct Compiler;
+pub fn compile(file: impl Into<PathBuf>, source: impl AsRef<str>) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+  dbg::profile_function!();
 
-impl Compiler {
-  pub fn compile(file: PathBuf, source: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    dbg::profile_function!();
+  let file = Rc::new(file.into());
+  let mut scanner = Scanner::new(Rc::clone(&file), source.as_ref());
 
-    let file = Rc::new(file);
-    let mut scanner = Scanner::new(Rc::clone(&file), source);
+  let (tokens, meta) = scanner.scan().map_err(|errs| reformat_errors(source.as_ref(), errs))?;
 
-    let (tokens, meta) = scanner.scan().map_err(|errs| Self::reformat_errors(source, errs))?;
+  let (ast, errors) = Ast::from(tokens, meta);
 
-    let (ast, errors) = Ast::from(tokens, meta);
-
-    if !errors.is_empty() {
-      #[cfg(feature = "visit-ast")]
-      {
-        ast.dump(&file);
-      }
-
-      return Err(Self::reformat_errors(source, errors));
+  if !errors.is_empty() {
+    #[cfg(feature = "visit-ast")]
+    {
+      ast.dump(&file);
     }
 
-    let optimizer = Optimizer::<1>::new(ast);
-
-    let ast = optimizer.optimize();
-
-    let source = Rc::new(source.to_string());
-    let reflection = Reflection::new(file, Rc::clone(&source));
-    let ctx = SmartPtr::new(Context::new(Some("*main*"), reflection));
-
-    let generator = BytecodeGenerator::new(ctx);
-
-    generator.generate(ast).map_err(|errs| Self::reformat_errors(&source, errs))
+    return Err(reformat_errors(source.as_ref(), errors));
   }
 
-  fn reformat_errors(source: &str, errs: Vec<RuntimeError>) -> Vec<RuntimeError> {
-    errs
-      .into_iter()
-      .map(|mut e| {
-        if let Some(src) = source.lines().nth(e.line - 1) {
-          e.format_with_src_line(src);
-        }
-        e
-      })
-      .collect()
-  }
+  let optimizer = Optimizer::<1>::new(ast);
+
+  let ast = optimizer.optimize();
+
+  let source = Rc::new(source.as_ref().to_string());
+  let reflection = Reflection::new(file, Rc::clone(&source));
+  let ctx = SmartPtr::new(Context::new(Some("*main*"), reflection));
+
+  let generator = BytecodeGenerator::new(ctx);
+
+  generator.generate(ast).map_err(|errs| reformat_errors(&source, errs))
+}
+
+fn reformat_errors(source: &str, errs: Vec<RuntimeError>) -> Vec<RuntimeError> {
+  errs
+    .into_iter()
+    .map(|mut e| {
+      if let Some(src) = source.lines().nth(e.line - 1) {
+        e.format_with_src_line(src);
+      }
+      e
+    })
+    .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -7,7 +7,6 @@ pub(crate) mod module_value;
 pub(crate) mod native_value;
 pub(crate) mod string_value;
 pub(crate) mod struct_value;
-pub(crate) mod timestamp_value;
 pub(crate) mod vec_value;
 
 pub mod ops {
@@ -54,7 +53,6 @@ use std::{
 pub use string_value::StringValue;
 pub use struct_value::StructValue;
 use thiserror::Error;
-pub use timestamp_value::TimestampValue;
 use uuid::Uuid;
 pub use vec_value::VecValue;
 

@@ -2,7 +2,7 @@ mod env;
 pub mod memory;
 
 use crate::{
-  code::{Compiler, ConstantValue, OpCodeReflection},
+  code::{self, ConstantValue, OpCodeReflection},
   dbg::{self, Cli, RuntimeErrors},
   prelude::*,
   util::{FileIdType, FileMetadata, PlatformMetadata},
@@ -292,10 +292,6 @@ impl Vm {
         Err(e) => Err(e)?,
       }
     }
-  }
-
-  pub fn load(&self, file: impl Into<PathBuf>, code: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    Compiler::compile(file.into(), code)
   }
 
   pub fn run(
@@ -1184,7 +1180,7 @@ impl Vm {
         if let Some(value) = self.lib_cache.get(&id) {
           self.stack_push(value.clone());
         } else {
-          let new_ctx = Compiler::compile(found_file.clone(), &data)?;
+          let new_ctx = code::compile(found_file.clone(), &data)?;
           let gmod = ModuleBuilder::initialize(&mut self.gc, id, None, |gc, mut lib| {
             lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &self.args);
           });

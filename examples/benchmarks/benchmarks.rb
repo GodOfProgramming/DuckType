@@ -6,27 +6,23 @@ def benchmark(descriptor, reps)
   unless descriptor.start_with?("DISABLED")
     puts "running #{descriptor}"
 
-    total = 0
-
+    now = Time.now
     (1..reps).each do |i|
-      now = Time.now
-
       yield i
-
-      total += (Time.now - now).to_f
     end
+    elapsed = (Time.now - now).to_f
 
-    puts("#{descriptor} took #{total / REPS} seconds")
+    puts("#{descriptor} took #{elapsed} seconds")
   end
 end
 
-REPS = 1_000_000
+REPS = 10_000_000
 
 x = 0
 
 benchmark('simple math', REPS) do |i|
   i += 1
-  x += 1 + 2 * 3 / 4 % i
+  x += i + i * i / i % i
 end
 
 def simple_function

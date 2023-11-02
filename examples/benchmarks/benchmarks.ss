@@ -1,8 +1,12 @@
-req "lib/sspec/bench";
+req "lib/sspec/bench" as bench;
 
-let REPS = 1000000;
+use bench::benchmark;
 
-benchmark("simple math", REPS, {x: 0} |i| {
+let REPS = 10_000_000;
+
+let x = 0;
+
+benchmark("simple math", REPS, [x] |i| {
   i += 1;
   x += i + i * i / i % i;
 });

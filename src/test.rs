@@ -27,7 +27,7 @@ impl IntegrationTest {
   }
 
   fn load<F: FnOnce(&mut Self, SmartPtr<Context>)>(&mut self, f: F) {
-    match self.vm.load(TEST_FILE, &self.script) {
+    match crate::compile(TEST_FILE, &self.script) {
       Ok(ctx) => {
         f(self, ctx);
       }
