@@ -2,7 +2,7 @@ mod expr;
 mod stmt;
 
 use super::{lex::Token, SourceLocation};
-use crate::{dbg, prelude::*, UnwrapAnd};
+use crate::{prelude::*, UnwrapAnd};
 pub use expr::*;
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
@@ -95,7 +95,6 @@ impl AstGenerator {
   }
 
   fn generate(mut self) -> (Ast, Vec<RuntimeError>) {
-    dbg::profile_function!();
     while let Some(current) = self.current() {
       self.statement(current);
     }

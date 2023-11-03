@@ -192,8 +192,6 @@ impl<'src> Scanner<'src> {
   }
 
   pub fn scan(&mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), Vec<RuntimeError>> {
-    dbg::profile_function!();
-
     let mut tokens = Vec::new();
     let mut meta = Vec::new();
 
@@ -490,7 +488,7 @@ impl<'src> Scanner<'src> {
           collect_digits!(self, Self::is_digit, exp);
           let lexeme = exp.iter().collect::<String>();
 
-          match i32::from_str_radix(&lexeme, 10) {
+          match lexeme.parse::<i32>() {
             Ok(mut exp) => {
               if negate {
                 exp = -exp;
@@ -512,7 +510,7 @@ impl<'src> Scanner<'src> {
 
       Some(Token::Number(NumberToken::F64(number)))
     } else {
-      match i32::from_str_radix(&lexeme, 10) {
+      match lexeme.parse::<i32>() {
         Ok(mut int) => {
           if let Some(c) = self.peek() {
             if c == 'e' || c == 'E' {
@@ -528,7 +526,7 @@ impl<'src> Scanner<'src> {
               collect_digits!(self, Self::is_digit, exp);
               let lexeme = exp.iter().collect::<String>();
 
-              match i32::from_str_radix(&lexeme, 10) {
+              match lexeme.parse::<i32>() {
                 Ok(mut exp) => {
                   if negate {
                     exp = -exp;

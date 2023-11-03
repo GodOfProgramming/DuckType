@@ -38,8 +38,7 @@ strum = "0.25"
 strum_macros = "0.25"
 enum-map = "2.7"
 
-puffin = "0.17"
-puffin_http = "0.14"
+pprof = { version = "0.13", features = ["flamegraph"] }
 tokio = { version = "1.33", features = ["full"] }
 interpolator = "0.5"
 

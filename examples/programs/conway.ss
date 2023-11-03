@@ -11,13 +11,16 @@ use text::color;
 
 let $NUM_ROWS = 25;
 let $NUM_COLUMNS = 30;
+let $ITERATION_LIMIT = 100;
 
-fn main() {
+fn main() => nil {
   let SLEEP_TIME = 32.0 / 1000.0;
 
   let fb = new_buff();
 
   seed_buffer(fb);
+
+  let loops = 0;
 
   # run
   loop {
@@ -41,10 +44,15 @@ fn main() {
     fb = bb;
 
     thread::sleep(SLEEP_TIME);
+    loops += 1;
+
+    if loops > $ITERATION_LIMIT {
+      break;
+    }
   }
 }
 
-fn new_buff() {
+fn new_buff() => [[nil; $NUM_COLUMNS]; $NUM_ROWS] {
   let b = [nil; $NUM_ROWS];
 
   for let i = 0; i < $NUM_ROWS; i += 1 {
@@ -54,7 +62,7 @@ fn new_buff() {
   ret b;
 }
 
-fn seed_buffer(buff) {
+fn seed_buffer(buff) => nil {
   for let r = 0; r < $NUM_ROWS; r += 1 {
     for let c = 0; c < $NUM_COLUMNS; c += 1 {
       buff[r][c] = math::abs(math::rand_i32()) % 2;
@@ -62,11 +70,10 @@ fn seed_buffer(buff) {
   }
 }
 
-fn display_buffer(buff) {
-  row_line();
+fn display_buffer(buff) => nil {
+  let frame = [row_line()];
   for let r = 0; r < $NUM_ROWS; r += 1 {
-    let row_parts = [];
-    row_parts.push(":");
+    let row_parts = [":"];
     for let c = 0; c < $NUM_COLUMNS; c += 1 {
       let v = buff[r][c];
 
@@ -78,20 +85,19 @@ fn display_buffer(buff) {
 
       row_parts.push(str::concat("  ", cell_color, v, text::fmt::reset(), "  :"));
     }
-    console::write(row_parts.join(nil));
-    row_line();
+    frame.push(row_parts.join(nil));
+    frame.push(row_line());
   }
-}
-
-fn row_line() {
-  console::writeln();
-  for let c = 0; c < $NUM_COLUMNS; c += 1 {
-    console::write(" -----");
-  }
+  console::write(frame.join(nil));
   console::writeln();
 }
 
-fn update(fb, bb) {
+fn row_line() => str {
+  let parts = [" -----"; $NUM_COLUMNS];
+  ret str::concat("\n", parts.join(nil), "\n");
+}
+
+fn update(fb, bb) => nil {
   for let r = 0; r < $NUM_ROWS; r += 1 {
     for let c = 0; c < $NUM_COLUMNS; c += 1 {
       let neighbor_live_cell = count_live_neighbor_cells(fb, r, c);
@@ -106,7 +112,7 @@ fn update(fb, bb) {
   }
 }
 
-fn count_live_neighbor_cells(buff, row, col) {
+fn count_live_neighbor_cells(buff, row, col) => i32 {
   let count = 0;
   for let r = row - 1; r <= row + 1; r += 1 {
     if r < 0 or r >= $NUM_ROWS {
@@ -130,7 +136,7 @@ fn count_live_neighbor_cells(buff, row, col) {
   ret count;
 }
 
-fn is_population_alive(buff) {
+fn is_population_alive(buff) => bool {
   for let r = 0; r < $NUM_ROWS; r += 1 {
     for let c = 0; c < $NUM_COLUMNS; c += 1 {
       if buff[r][c] == 1 {
@@ -141,7 +147,7 @@ fn is_population_alive(buff) {
   ret false;
 }
 
-fn no_change(a, b) {
+fn no_change(a, b) => bool {
   for let r = 0; r < $NUM_ROWS; r += 1 {
     for let c = 0; c < $NUM_COLUMNS; c += 1 {
       if a[r][c] != b[r][c] {

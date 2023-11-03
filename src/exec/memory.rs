@@ -1,6 +1,5 @@
 use super::StackFrame;
 use crate::{
-  dbg,
   exec::Register,
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
@@ -245,57 +244,40 @@ impl Gc {
     stack_frames: &Vec<StackFrame>,
     cached_values: impl IntoIterator<Item = &'v Value>,
   ) -> Result<usize, ValueError> {
-    dbg::profile_function!();
-
     let mut marked_allocations = Marker::default();
 
-    {
-      dbg::profile_scope!("cache");
-      for value in cached_values {
-        marked_allocations.trace(value);
+    for value in cached_values {
+      marked_allocations.trace(value);
+    }
+
+    for value in &self.handles {
+      marked_allocations.trace(&Value { bits: *value });
+    }
+
+    for value in &current_frame.stack {
+      marked_allocations.trace(value);
+    }
+
+    for ctx in &current_frame.registers {
+      for reg in Register::iter() {
+        marked_allocations.trace(&ctx[reg]);
       }
     }
 
-    {
-      dbg::profile_scope!("handles");
-      for value in &self.handles {
-        marked_allocations.trace(&Value { bits: *value });
-      }
-    }
-
-    {
-      dbg::profile_scope!("current frame stack");
-      for value in &current_frame.stack {
+    for frame in stack_frames {
+      for value in &frame.stack {
         marked_allocations.trace(value);
       }
 
-      for ctx in &current_frame.registers {
+      for ctx in &frame.registers {
         for reg in Register::iter() {
           marked_allocations.trace(&ctx[reg]);
         }
       }
     }
 
-    {
-      dbg::profile_scope!("all frame stacks");
-      for frame in stack_frames {
-        for value in &frame.stack {
-          marked_allocations.trace(value);
-        }
-
-        for ctx in &frame.registers {
-          for reg in Register::iter() {
-            marked_allocations.trace(&ctx[reg]);
-          }
-        }
-      }
-    }
-
-    {
-      dbg::profile_scope!("handles");
-      for handle in &self.handles {
-        marked_allocations.trace(&Value { bits: *handle })
-      }
+    for handle in &self.handles {
+      marked_allocations.trace(&Value { bits: *handle })
     }
 
     let marked_allocations: HashSet<u64> = marked_allocations.into();

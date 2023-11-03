@@ -45,6 +45,6 @@ fn concat(vm: &mut Vm, args: Args) -> ValueResult {
 
 #[native]
 fn join(sep: &StringValue, list: &VecValue) -> ValueResult<String> {
-  let str = itertools::join(list.buffer.iter(), &sep);
+  let str = itertools::join(list.buffer.iter(), sep);
   Ok(str)
 }

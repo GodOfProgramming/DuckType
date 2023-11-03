@@ -1,6 +1,10 @@
 use clap::{Parser, Subcommand};
 use ss::prelude::*;
-use std::{fs, path::PathBuf, process};
+use std::{
+  fs::{self},
+  path::PathBuf,
+  process,
+};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -21,13 +25,14 @@ enum Command {
   },
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
   #[cfg(feature = "profile")]
-  let _server = {
-    puffin::set_scopes_on(true);
-    let addr = format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT);
-    puffin_http::Server::new(&addr).unwrap()
+  let guard = {
+    pprof::ProfilerGuardBuilder::default()
+      .frequency(1000)
+      .blocklist(&["libc", "libgcc", "libdl", "libm", "libpthread", "linux-vdso"])
+      .build()
+      .unwrap()
   };
 
   let args = Args::parse();
@@ -51,6 +56,12 @@ async fn main() {
         }
       }
 
+      #[cfg(feature = "profile")]
+      if let Ok(report) = guard.report().build() {
+        use fs::File;
+        let file = File::create("target/flamegraph.svg").unwrap();
+        report.flamegraph(file).unwrap();
+      }
       process::exit(exit_code);
     }
   }

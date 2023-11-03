@@ -1,4 +1,4 @@
-use crate::{dbg, prelude::*};
+use crate::prelude::*;
 use ast::Ast;
 use gen::BytecodeGenerator;
 use lex::Scanner;
@@ -19,8 +19,6 @@ pub mod lex;
 pub mod opt;
 
 pub fn compile(file: impl Into<PathBuf>, source: impl AsRef<str>) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-  dbg::profile_function!();
-
   let file = Rc::new(file.into());
   let mut scanner = Scanner::new(Rc::clone(&file), source.as_ref());
 

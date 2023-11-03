@@ -1,6 +1,6 @@
 use crate::code::{ast::*, Reflection, SourceLocation};
 use crate::exec::Register;
-use crate::{dbg, prelude::*};
+use crate::prelude::*;
 use ptr::SmartPtr;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -73,7 +73,6 @@ impl BytecodeGenerator {
   }
 
   pub fn generate(mut self, ast: Ast) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    dbg::profile_function!();
     for stmt in ast.statements {
       self.emit_stmt(stmt);
     }
