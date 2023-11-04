@@ -377,7 +377,7 @@ impl<'src> Scanner<'src> {
   fn error(&mut self, msg: impl ToString) {
     self.errors.add(CompiletimeError {
       msg: msg.to_string(),
-      file_id: self.file_id,
+      file_display: self.file_id.map(FileDisplay::Id),
       line: self.line + 1,
       column: self.column + 1,
     });

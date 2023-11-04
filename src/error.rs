@@ -33,9 +33,10 @@ impl Error {
       Error::CompiletimeErrors(errs) => RuntimeError {
         msg: itertools::join(
           errs.into_iter().map(|e| {
+            let e = e.with_filename(filemap);
             format!(
               "{file} ({line}, {column}): {msg}",
-              file = filemap.get(e.file_id).display(),
+              file = e.file_display.unwrap_or_default(),
               line = e.line,
               column = e.column,
               msg = e.msg
@@ -64,14 +65,12 @@ impl Display for Error {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Error::CompiletimeErrors(errs) => {
-        for e in &errs.0 {
-          writeln!(f, "{e}")?;
-        }
+        let output = itertools::join(errs.0.iter(), "\n");
+        write!(f, "{output}")
       }
-      Error::RuntimeError(e) => write!(f, "{e}")?,
-      Error::SystemError(e) => write!(f, "{e}")?,
+      Error::RuntimeError(e) => write!(f, "{e}"),
+      Error::SystemError(e) => write!(f, "{e}"),
     }
-    Ok(())
   }
 }
 
@@ -93,6 +92,10 @@ impl CompiletimeErrors {
   pub fn len(&self) -> usize {
     self.0.len()
   }
+
+  pub fn with_filename(self, filemap: &FileMap) -> Self {
+    Self(self.0.into_iter().map(|e| e.with_filename(filemap)).collect())
+  }
 }
 
 impl IntoIterator for CompiletimeErrors {
@@ -103,24 +106,69 @@ impl IntoIterator for CompiletimeErrors {
   }
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Default, PartialEq, Eq)]
+pub enum FileDisplay {
+  #[default]
+  None,
+  Id(FileIdType),
+  Path(PathBuf),
+}
+
+impl Display for FileDisplay {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      FileDisplay::None => write!(f, "<anonymous>"),
+      FileDisplay::Id(id) => write!(f, "{id}"),
+      FileDisplay::Path(path) => write!(f, "{}", path.display()),
+    }
+  }
+}
+
+impl Debug for FileDisplay {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{self}")
+  }
+}
+
+#[derive(PartialEq, Eq)]
 pub struct CompiletimeError {
   pub msg: String,
-  pub file_id: Option<FileIdType>,
+  pub file_display: Option<FileDisplay>,
   pub line: usize,
   pub column: usize,
+}
+
+impl CompiletimeError {
+  fn with_filename(self, filemap: &FileMap) -> Self {
+    Self {
+      msg: self.msg,
+      file_display: if let Some(FileDisplay::Id(id)) = self.file_display {
+        Some(FileDisplay::Path(filemap.get(Some(id))))
+      } else {
+        self.file_display
+      },
+      line: self.line,
+      column: self.column,
+    }
+  }
 }
 
 impl Display for CompiletimeError {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(
       f,
-      "{file:?} ({line}, {column}): {msg}",
-      file = self.file_id,
+      "{file} ({line}, {column}): {msg}",
+      file = self.file_display.as_ref().unwrap_or(&FileDisplay::None),
       line = self.line,
       column = self.column,
       msg = self.msg
     )
+  }
+}
+
+impl Debug for CompiletimeError {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{self}")
   }
 }
 

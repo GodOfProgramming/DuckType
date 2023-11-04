@@ -1,10 +1,6 @@
 use clap::{Parser, Subcommand};
 use ss::prelude::*;
-use std::{
-  fs::{self},
-  io::Read,
-  path::PathBuf,
-};
+use std::{io::Read, path::PathBuf};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -59,7 +55,7 @@ fn main() -> Result<(), Error> {
 
       #[cfg(feature = "profile")]
       if let Ok(report) = guard.report().build() {
-        use fs::File;
+        use std::fs::File;
         let file = File::create("target/flamegraph.svg").unwrap();
         report.flamegraph(file).unwrap();
       }

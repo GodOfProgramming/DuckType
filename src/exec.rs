@@ -208,13 +208,13 @@ impl Vm {
 
   pub fn run_file(&mut self, file: impl Into<PathBuf>, env: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     let file = file.into();
-    let id = PlatformMetadata::id_of(&file).unwrap_or(0);
+    let file_id = PlatformMetadata::id_of(&file).unwrap_or(0);
 
-    self.filemap.add(id, &file);
-    self.opened_files = vec![FileInfo::new(&file, id)];
+    self.filemap.add(file_id, &file);
+    self.opened_files = vec![FileInfo::new(&file, file_id)];
 
     let source = fs::read_to_string(&file).map_err(Error::other_system_err)?;
-    let ctx = code::compile_file(&file, source)?;
+    let ctx = code::compile_file(file_id, source).map_err(|e| e.with_filename(&self.filemap))?;
 
     self.current_frame = StackFrame::new(ctx);
     self.stack_frames = Default::default();

@@ -371,14 +371,14 @@ impl AstGenerator {
     if let Some(meta) = self.meta_at::<I>() {
       self.errors.add(CompiletimeError {
         msg: msg.into(),
-        file_id: self.file_id,
+        file_display: self.file_id.map(FileDisplay::Id),
         line: meta.line,
         column: meta.column,
       });
     } else {
       self.errors.add(CompiletimeError {
         msg: format!("could not find location of token for msg '{}'", msg.as_ref()),
-        file_id: Default::default(),
+        file_display: Default::default(),
         line: 0,
         column: 0,
       });

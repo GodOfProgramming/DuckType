@@ -1059,7 +1059,7 @@ impl BytecodeGenerator {
     let msg = msg.into();
     self.errors.add(CompiletimeError {
       msg,
-      file_id: self.file_id,
+      file_display: self.file_id.map(FileDisplay::Id),
       line: loc.line,
       column: loc.column,
     });

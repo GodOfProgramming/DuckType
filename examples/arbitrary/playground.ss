@@ -1,7 +1,9 @@
+#!/usr/bin/env -S -- ss run
+
 fn require(file) {
-  ret req +;
+  ret req file;
 }
 
 let x = require("syntaxerr");
 
-println x();
+println x;

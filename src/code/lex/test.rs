@@ -224,19 +224,19 @@ mod tests {
     let expected = vec![
       CompiletimeError {
         msg: String::from("invalid character: '^'"),
-        file_id: None,
+        file_display: None,
         line: 6,
         column: 8,
       },
       CompiletimeError {
         msg: String::from("invalid character: '?'"),
-        file_id: None,
+        file_display: None,
         line: 7,
         column: 9,
       },
       CompiletimeError {
         msg: String::from("invalid character: '`'"),
-        file_id: None,
+        file_display: None,
         line: 7,
         column: 10,
       },

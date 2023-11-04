@@ -1,8 +1,4 @@
-use crate::{
-  error::{CompiletimeErrors, Error},
-  prelude::*,
-  util::{FileIdType, FileMetadata, PlatformMetadata},
-};
+use crate::{error::CompiletimeErrors, prelude::*, util::FileIdType};
 use ast::Ast;
 use gen::BytecodeGenerator;
 use lex::Scanner;
@@ -22,11 +18,8 @@ pub mod gen;
 pub mod lex;
 pub mod opt;
 
-pub fn compile_file(file: impl Into<PathBuf>, source: impl AsRef<str>) -> Result<SmartPtr<Context>, Error> {
-  let file = file.into();
-  let file_id = PlatformMetadata::id_of(&file).map_err(Error::other_system_err)?;
-  let ctx = compile(Some(file_id), source)?;
-  Ok(ctx)
+pub fn compile_file(file_id: FileIdType, source: impl AsRef<str>) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+  compile(Some(file_id), source)
 }
 
 pub fn compile_string(source: impl AsRef<str>) -> Result<SmartPtr<Context>, CompiletimeErrors> {
@@ -157,7 +150,7 @@ impl FileMap {
   pub(crate) fn get(&self, id: Option<FileIdType>) -> PathBuf {
     id.map(|id| self.map.get(&id).cloned())
       .flatten()
-      .unwrap_or_else(|| PathBuf::from("<string input>"))
+      .unwrap_or_else(|| PathBuf::from("<anonymous>"))
   }
 }
 
