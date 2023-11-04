@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use ss::prelude::*;
 use std::{
   fs::{self},
+  io::Read,
   path::PathBuf,
 };
 use uuid::Uuid;
@@ -19,6 +20,10 @@ enum Command {
     #[arg()]
     file: Option<PathBuf>,
 
+    #[clap(last = true)]
+    runargs: Vec<String>,
+  },
+  Pipe {
     #[clap(last = true)]
     runargs: Vec<String>,
   },
@@ -45,10 +50,11 @@ fn main() -> Result<(), Error> {
         lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &runargs);
       });
 
-      let vm = Vm::new(gc, runargs.clone());
+      let mut vm = Vm::new(gc, runargs.clone());
 
       if let Some(file) = file {
-        run_file(vm, file, gmod)?;
+        let value = vm.run_file(file.clone(), gmod)?;
+        println!("=> {value}");
       }
 
       #[cfg(feature = "profile")]
@@ -58,12 +64,19 @@ fn main() -> Result<(), Error> {
         report.flamegraph(file).unwrap();
       }
     }
-  }
-  Ok(())
-}
+    Command::Pipe { runargs } => {
+      let mut gc = SmartPtr::new(Gc::default());
 
-fn run_file(mut vm: Vm, file: PathBuf, env: UsertypeHandle<ModuleValue>) -> Result<(), Error> {
-  let value = vm.run_file(file.clone(), env.clone())?;
-  println!("=> {value}");
+      let gmod = ModuleBuilder::initialize(&mut gc, "*main*", None, |gc, mut lib| {
+        lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &runargs);
+      });
+
+      let mut vm = Vm::new(gc, runargs.clone());
+      let mut input = String::new();
+      std::io::stdin().read_to_string(&mut input).map_err(SystemError::IoError)?;
+      let value = vm.run_string(input, gmod)?;
+      println!("=> {value}");
+    }
+  }
   Ok(())
 }
