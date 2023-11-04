@@ -40,7 +40,6 @@ use macros::{methods, Fields};
 pub use method_value::MethodValue;
 pub use module_value::{ModuleBuilder, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
-use ptr::SmartPtr;
 use std::{
   collections::{BTreeMap, HashMap},
   error::Error,
@@ -127,12 +126,6 @@ pub trait DebugValue {
 pub trait TraceableValue {
   #[allow(unused_variables)]
   fn trace(&self, marks: &mut Marker);
-}
-
-impl TraceableValue for SmartPtr<Context> {
-  fn trace(&self, marks: &mut Marker) {
-    self.trace_all(marks);
-  }
 }
 
 impl TraceableValue for Option<Value> {

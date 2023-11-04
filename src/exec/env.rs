@@ -2,83 +2,18 @@ use crate::{
   code::{ConstantValue, Reflection},
   prelude::*,
 };
-use ptr::SmartPtr;
-use std::collections::BTreeMap;
 
 pub mod prelude {
-  pub use super::Context;
+  pub use super::{Context, Program};
 }
 
-pub struct Context {
-  pub id: usize, // the function id within the local file
-
-  global: SmartPtr<Context>,
-
-  pub(crate) instructions: Vec<Opcode>,
-
+#[derive(Default)]
+pub struct Program {
   consts: Vec<ConstantValue>,
-  // map of string to const vec location to save memory
-  strings: BTreeMap<String, usize>,
-
-  pub meta: Reflection,
+  strings: bimap::BiBTreeMap<usize, String>,
 }
 
-impl Context {
-  pub(crate) fn new(reflection: Reflection) -> Self {
-    Self {
-      id: Default::default(),
-      global: Default::default(),
-      instructions: Default::default(),
-      consts: Default::default(),
-      strings: Default::default(),
-      meta: reflection,
-    }
-  }
-
-  pub fn trace_all(&self, marks: &mut Marker) {
-    if self.global.valid() {
-      self.global.trace(marks);
-    }
-  }
-
-  pub(crate) fn new_child(id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
-    let global = if ctx.global.valid() {
-      ctx.global.clone()
-    } else {
-      // is global ctx
-      ctx
-    };
-
-    Self {
-      id,
-      global,
-      consts: Default::default(),
-      strings: Default::default(),
-      instructions: Default::default(),
-      meta: reflection,
-    }
-  }
-
-  pub fn global_ctx(&self) -> &Context {
-    if self.global.valid() {
-      &self.global
-    } else {
-      self
-    }
-  }
-
-  pub fn global_ctx_mut(&mut self) -> &mut Context {
-    if self.global.valid() {
-      &mut self.global
-    } else {
-      self
-    }
-  }
-
-  pub fn next(&self, index: usize) -> Option<Opcode> {
-    self.instructions.get(index).cloned()
-  }
-
+impl Program {
   pub fn const_at(&self, index: usize) -> Option<&ConstantValue> {
     self.consts.get(index)
   }
@@ -88,27 +23,9 @@ impl Context {
     &self.consts
   }
 
-  pub fn global_const_at(&self, index: usize) -> Option<&ConstantValue> {
-    self.global_ctx().consts.get(index)
-  }
-
-  pub(crate) fn write(&mut self, op: Opcode, line: usize, column: usize) {
-    #[cfg(test)]
-    {
-      println!("emitting {:?}", op);
-    }
-    self.instructions.push(op);
-    self.meta.add(line, column);
-  }
-
-  pub(crate) fn write_const(&mut self, c: ConstantValue, line: usize, column: usize) {
-    let c = self.add_const(c);
-    self.write(Opcode::Const(c), line, column);
-  }
-
   pub(crate) fn add_const(&mut self, c: ConstantValue) -> usize {
     let string = if let ConstantValue::String(string) = &c {
-      if let Some(index) = self.strings.get(string.as_str()) {
+      if let Some(index) = self.strings.get_by_right(string.as_str()) {
         return *index;
       }
       Some(string.clone())
@@ -120,10 +37,39 @@ impl Context {
     self.consts.push(c);
 
     if let Some(string) = string {
-      self.strings.insert(string, index);
+      self.strings.insert(index, string);
     }
 
     index
+  }
+}
+
+pub struct Context {
+  pub id: usize, // the function id within the local file
+  pub(crate) instructions: Vec<Opcode>,
+  pub meta: Reflection,
+}
+
+impl Context {
+  pub(crate) fn new(id: usize, reflection: Reflection) -> Self {
+    Self {
+      id,
+      instructions: Default::default(),
+      meta: reflection,
+    }
+  }
+
+  pub fn next(&self, index: usize) -> Option<Opcode> {
+    self.instructions.get(index).cloned()
+  }
+
+  pub(crate) fn write(&mut self, op: Opcode, line: usize, column: usize) {
+    #[cfg(test)]
+    {
+      println!("emitting {:?}", op);
+    }
+    self.instructions.push(op);
+    self.meta.add(line, column);
   }
 
   pub fn num_instructions(&self) -> usize {
@@ -140,29 +86,17 @@ impl Context {
   }
 
   #[cfg(debug_assertions)]
-  pub fn disassemble(&self) {
-    self.display_opcodes();
-
-    for value in self.consts() {
-      if let ConstantValue::Fn(f) = value {
-        f.ctx.disassemble();
-      }
-    }
+  pub fn disassemble(&self, program: &Program) {
+    self.display_opcodes(program);
   }
 
-  pub fn display_opcodes(&self) {
-    let default = self.id.to_string();
-    let name = self.meta.name.as_ref().unwrap_or(&default);
-    println!(">>>>>> {} <<<<<<", name);
-
+  pub fn display_opcodes(&self, program: &Program) {
     for (i, op) in self.instructions.iter().enumerate() {
-      self.display_instruction(op, i);
+      self.display_instruction(program, op, i);
     }
-
-    println!("======={}=======", "=".repeat(name.len()));
   }
 
-  pub fn display_instruction(&self, op: &Opcode, offset: usize) {
+  pub fn display_instruction(&self, program: &Program, op: &Opcode, offset: usize) {
     print!("{} ", Self::address_of(offset));
     if let Some(curr) = self.meta.info(offset) {
       if offset > 0 {
@@ -188,7 +122,7 @@ impl Context {
           "{} {} {}",
           Self::opcode_column("Const"),
           Self::value_column(*index),
-          self.const_at_column(*index)
+          self.const_at_column(program, *index)
         );
       }
       Opcode::PopN(count) => println!("{} {}", Self::opcode_column("PopN"), Self::value_column(*count)),
@@ -196,19 +130,19 @@ impl Context {
         "{} {} {}",
         Self::opcode_column("LookupGlobal"),
         Self::value_column(*name),
-        self.global_const_at_column(*name),
+        self.const_at_column(program, *name),
       ),
       Opcode::DefineGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("DefineGlobal"),
         Self::value_column(*name),
-        self.global_const_at_column(*name),
+        self.const_at_column(program, *name),
       ),
       Opcode::AssignGlobal(name) => println!(
         "{} {} {}",
         Self::opcode_column("AssignGlobal"),
         Self::value_column(*name),
-        self.global_const_at_column(*name),
+        self.const_at_column(program, *name),
       ),
       Opcode::LookupLocal(index) => {
         println!("{} {}", Self::opcode_column("LookupLocal"), Self::value_column(*index))
@@ -221,7 +155,7 @@ impl Context {
           "{} {} {}",
           Self::opcode_column("AssignMember"),
           Self::value_column(*index),
-          self.const_at_column(*index)
+          self.const_at_column(program, *index)
         );
       }
       Opcode::LookupMember(index) => {
@@ -229,7 +163,7 @@ impl Context {
           "{} {} {}",
           Self::opcode_column("LookupMember"),
           Self::value_column(*index),
-          self.const_at_column(*index)
+          self.const_at_column(program, *index)
         );
       }
       Opcode::Jump(count) => println!("{} {: >14}", Self::opcode_column("Jump"), Self::address_of(offset + count)),
@@ -249,13 +183,13 @@ impl Context {
         "{} {} {}",
         Self::opcode_column("Define"),
         Self::value_column(*ident),
-        self.const_at_column(*ident)
+        self.const_at_column(program, *ident)
       ),
       Opcode::Resolve(ident) => println!(
         "{} {} {}",
         Self::opcode_column("Resolve"),
         Self::value_column(*ident),
-        self.const_at_column(*ident)
+        self.const_at_column(program, *ident)
       ),
       x => println!("{}", Self::opcode_column(format!("{:?}", x))),
     }
@@ -269,18 +203,9 @@ impl Context {
     format!("{: >4}", value)
   }
 
-  fn global_const_at_column(&self, index: usize) -> String {
-    format!(
-      "{: >4?}",
-      self
-        .global_const_at(index)
-        .unwrap_or(&ConstantValue::String("????".to_string()))
-    )
-  }
-
-  fn const_at_column(&self, index: usize) -> String {
+  fn const_at_column(&self, program: &Program, index: usize) -> String {
     let cval = &ConstantValue::StaticString("????");
-    let value = self.const_at(index).unwrap_or(cval);
+    let value = program.const_at(index).unwrap_or(cval);
     format!("{value: >4?}")
   }
 

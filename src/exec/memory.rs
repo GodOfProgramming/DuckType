@@ -510,11 +510,10 @@ mod tests {
   impl SomeType {}
 
   fn new_ctx() -> SmartPtr<Context> {
-    SmartPtr::new(Context::new(Reflection::new(
-      Some("main"),
-      Some(FILE_ID),
-      Rc::new(Default::default()),
-    )))
+    SmartPtr::new(Context::new(
+      0,
+      Reflection::new(Some("main"), Some(FILE_ID), Rc::new(Default::default())),
+    ))
   }
 
   #[test]

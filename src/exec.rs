@@ -176,6 +176,7 @@ pub struct Vm {
   pub(crate) stack_frames: Vec<StackFrame>,
   pub gc: SmartPtr<Gc>,
 
+  program: Program,
   pub(crate) envs: EnvStack,
 
   args: Vec<String>,
@@ -196,6 +197,7 @@ impl Vm {
       current_frame: Default::default(),
       stack_frames: Default::default(),
       gc,
+      program: Default::default(),
       envs: Default::default(),
       args: args.into(),
       filemap: Default::default(),
@@ -214,7 +216,7 @@ impl Vm {
     self.opened_files = vec![FileInfo::new(&file, file_id)];
 
     let source = fs::read_to_string(&file).map_err(Error::other_system_err)?;
-    let ctx = code::compile_file(file_id, source).map_err(|e| e.with_filename(&self.filemap))?;
+    let ctx = code::compile_file(&mut self.program, file_id, source).map_err(|e| e.with_filename(&self.filemap))?;
 
     self.current_frame = StackFrame::new(ctx);
     self.stack_frames = Default::default();
@@ -226,7 +228,7 @@ impl Vm {
   pub fn run_string(&mut self, source: impl AsRef<str>, env: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     self.opened_files = vec![];
 
-    let ctx = code::compile_string(source)?;
+    let ctx = code::compile_string(&mut self.program, source)?;
 
     self.current_frame = StackFrame::new(ctx);
     self.stack_frames = Default::default();
@@ -267,7 +269,10 @@ impl Vm {
       #[cfg(feature = "runtime-disassembly")]
       {
         self.stack_display();
-        self.current_frame.ctx.display_instruction(&opcode, self.current_frame.ip);
+        self
+          .current_frame
+          .ctx
+          .display_instruction(&self.program, &opcode, self.current_frame.ip);
       }
 
       match opcode {
@@ -424,11 +429,7 @@ impl Vm {
   }
 
   fn exec_const(&mut self, index: usize) -> OpcodeResult {
-    let c = self
-      .current_frame
-      .ctx
-      .const_at(index)
-      .ok_or(UsageError::InvalidConst(index))?;
+    let c = self.program.const_at(index).ok_or(UsageError::InvalidConst(index))?;
 
     let env = self.current_env().into();
     let value = Value::from_constant(&mut self.gc, env, c);
@@ -503,12 +504,7 @@ impl Vm {
   fn exec_initialize_member(&mut self, location: usize) -> OpcodeResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     if let ConstantValue::String(name) = name {
       obj.set_member(&mut self.gc, name, value)?;
@@ -522,11 +518,7 @@ impl Vm {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     let class = obj.as_class_mut().ok_or(UsageError::MethodAssignment)?;
 
@@ -552,11 +544,7 @@ impl Vm {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     if let ConstantValue::String(name) = name {
       obj.set_member(&mut self.gc, name, value.clone())?;
@@ -570,11 +558,7 @@ impl Vm {
   fn exec_lookup_member(&mut self, location: usize) -> OpcodeResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     if let ConstantValue::String(name) = name {
       let value = obj.get_member(&mut self.gc, name)?;
@@ -588,11 +572,7 @@ impl Vm {
   fn exec_peek_member(&mut self, location: usize) -> OpcodeResult {
     let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     if let ConstantValue::String(name) = name {
       let member = value.get_member(&mut self.gc, name)?;
@@ -753,12 +733,8 @@ impl Vm {
     self.stack_push(v);
   }
 
-  fn exec_create_class(&mut self, name_index: usize) -> OpcodeResult {
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(name_index)
-      .ok_or(UsageError::InvalidConst(name_index))?;
+  fn exec_create_class(&mut self, location: usize) -> OpcodeResult {
+    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     if let ConstantValue::String(name) = name {
       let v = self.gc.allocate(ClassValue::new(name));
@@ -770,12 +746,8 @@ impl Vm {
   }
 
   /// Create a module and make it the current env
-  fn exec_create_module(&mut self, name_index: usize) -> OpcodeResult {
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(name_index)
-      .ok_or(UsageError::InvalidConst(name_index))?;
+  fn exec_create_module(&mut self, location: usize) -> OpcodeResult {
+    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     if let ConstantValue::String(name) = name {
       let leaf = self.current_env();
@@ -792,11 +764,7 @@ impl Vm {
   fn exec_scope_resolution(&mut self, ident: usize) -> OpcodeResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(ident)
-      .ok_or(UsageError::InvalidConst(ident))?;
+    let name = self.program.const_at(ident).ok_or(UsageError::InvalidConst(ident))?;
 
     if let ConstantValue::String(name) = name {
       let value = obj.resolve(name)?;
@@ -822,11 +790,7 @@ impl Vm {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     if let ConstantValue::String(name) = name {
       obj.define(name, value)?;
@@ -930,7 +894,7 @@ impl Vm {
           self.stack_push(value.clone());
         } else {
           self.filemap.add(id, &found_file);
-          let new_ctx = code::compile(Some(id), data)?;
+          let new_ctx = code::compile(&mut self.program, Some(id), data)?;
           let gmod = ModuleBuilder::initialize(&mut self.gc, id, None, |gc, mut lib| {
             lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &self.args);
           });
@@ -1005,7 +969,7 @@ impl Vm {
   where
     F: FnOnce(&mut Self, String) -> OpcodeResult,
   {
-    match self.current_frame.ctx.global_const_at(index) {
+    match self.program.const_at(index) {
       Some(ConstantValue::String(name)) => f(self, name.clone()),
       Some(name) => Err(UsageError::InvalidIdentifier(name.to_string()))?,
       None => Err(UsageError::InvalidConst(index))?,

@@ -69,8 +69,6 @@ impl Value {
 
   pub fn from_constant(gc: &mut Gc, env: Value, v: &ConstantValue) -> Self {
     match v {
-      ConstantValue::Nil => Self::nil,
-      ConstantValue::Bool(v) => Self::from(*v),
       ConstantValue::Integer(v) => Self::from(*v),
       ConstantValue::Float(v) => Self::from(*v),
       ConstantValue::String(v) => gc.allocate(v),

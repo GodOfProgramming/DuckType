@@ -18,15 +18,23 @@ pub mod gen;
 pub mod lex;
 pub mod opt;
 
-pub fn compile_file(file_id: FileIdType, source: impl AsRef<str>) -> Result<SmartPtr<Context>, CompiletimeErrors> {
-  compile(Some(file_id), source)
+pub(crate) fn compile_file(
+  program: &mut Program,
+  file_id: FileIdType,
+  source: impl AsRef<str>,
+) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+  compile(program, Some(file_id), source)
 }
 
-pub fn compile_string(source: impl AsRef<str>) -> Result<SmartPtr<Context>, CompiletimeErrors> {
-  compile(None, source)
+pub(crate) fn compile_string(program: &mut Program, source: impl AsRef<str>) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+  compile(program, None, source)
 }
 
-pub(crate) fn compile(file_id: Option<FileIdType>, source: impl AsRef<str>) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+pub(crate) fn compile(
+  program: &mut Program,
+  file_id: Option<FileIdType>,
+  source: impl AsRef<str>,
+) -> Result<SmartPtr<Context>, CompiletimeErrors> {
   let scanner = Scanner::new(file_id, source.as_ref());
 
   let (tokens, token_locations) = scanner.into_tokens()?;
@@ -39,9 +47,9 @@ pub(crate) fn compile(file_id: Option<FileIdType>, source: impl AsRef<str>) -> R
 
   let source = Rc::new(source.as_ref().to_string());
   let reflection = Reflection::new(Some("<main>"), file_id, Rc::clone(&source));
-  let ctx = SmartPtr::new(Context::new(reflection));
+  let ctx = SmartPtr::new(Context::new(0, reflection));
 
-  let generator = BytecodeGenerator::new(file_id, ctx);
+  let generator = BytecodeGenerator::new(program, file_id, ctx);
 
   generator.generate(ast)
 }
@@ -54,8 +62,6 @@ pub struct SourceLocation {
 
 #[derive(Debug)]
 pub enum ConstantValue {
-  Nil,
-  Bool(bool),
   Integer(i32),
   Float(f64),
   String(String),
@@ -89,8 +95,6 @@ impl Debug for FunctionConstant {
 impl Display for ConstantValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     match self {
-      Self::Nil => write!(f, "nil"),
-      Self::Bool(v) => write!(f, "{}", v),
       Self::Integer(v) => write!(f, "{}", v),
       Self::Float(v) => write!(f, "{}", v),
       Self::String(v) => write!(f, "{}", v),

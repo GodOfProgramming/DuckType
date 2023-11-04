@@ -6,8 +6,6 @@ pub mod stdlib;
 mod util;
 pub(crate) mod value;
 
-pub use code::{compile_file, compile_string};
-
 pub mod prelude {
   pub use super::error::*;
   pub use super::exec::prelude::*;

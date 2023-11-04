@@ -4,7 +4,6 @@ use crate::exec::Register;
 use crate::prelude::*;
 use crate::util::FileIdType;
 use ptr::SmartPtr;
-use std::collections::BTreeMap;
 
 use super::{ConstantValue, FunctionConstant};
 
@@ -34,11 +33,11 @@ struct Lookup {
   index: usize,
 }
 
-pub struct BytecodeGenerator {
+pub struct BytecodeGenerator<'p> {
+  program: &'p mut Program,
   file_id: Option<FileIdType>,
   ctx: SmartPtr<Context>,
 
-  identifiers: BTreeMap<String, usize>,
   locals: Vec<Local>,
 
   function_id: usize,
@@ -53,13 +52,13 @@ pub struct BytecodeGenerator {
   errors: CompiletimeErrors,
 }
 
-impl BytecodeGenerator {
-  pub fn new(file_id: Option<FileIdType>, ctx: SmartPtr<Context>) -> Self {
+impl<'p> BytecodeGenerator<'p> {
+  pub fn new(program: &'p mut Program, file_id: Option<FileIdType>, ctx: SmartPtr<Context>) -> Self {
     Self {
+      program,
       file_id,
       ctx,
 
-      identifiers: Default::default(),
       locals: Default::default(),
 
       function_id: Default::default(),
@@ -346,7 +345,13 @@ impl BytecodeGenerator {
   /* Expressions */
 
   fn literal_expr(&mut self, expr: LiteralExpression) {
-    self.emit_const(expr.value, expr.loc);
+    match expr.value {
+      LiteralValue::Nil => self.emit(Opcode::Nil, expr.loc),
+      LiteralValue::Bool(b) => self.emit(if b { Opcode::True } else { Opcode::False }, expr.loc),
+      LiteralValue::I32(i) => self.emit_const(ConstantValue::Integer(i), expr.loc),
+      LiteralValue::F64(f) => self.emit_const(ConstantValue::Float(f), expr.loc),
+      LiteralValue::String(s) => self.emit_const(ConstantValue::String(s), expr.loc),
+    };
   }
 
   fn unary_expr(&mut self, expr: UnaryExpression) {
@@ -778,7 +783,8 @@ impl BytecodeGenerator {
   }
 
   fn emit_const(&mut self, c: ConstantValue, loc: SourceLocation) {
-    self.current_ctx().write_const(c, loc.line, loc.column);
+    let c = self.program.add_const(c);
+    self.emit(Opcode::Const(c), loc)
   }
 
   /**
@@ -818,7 +824,7 @@ impl BytecodeGenerator {
   }
 
   fn add_const_ident(&mut self, ident: Ident) -> usize {
-    self.current_ctx().add_const(ConstantValue::String(ident.name))
+    self.program.add_const(ConstantValue::String(ident.name))
   }
 
   fn current_ctx(&mut self) -> &mut Context {
@@ -837,15 +843,14 @@ impl BytecodeGenerator {
     }
   }
 
-  fn global_ctx(&mut self) -> &mut Context {
-    self.current_ctx().global_ctx_mut()
-  }
-
   fn current_instruction_count(&mut self) -> usize {
     self.current_ctx().num_instructions()
   }
 
-  fn new_scope<R, F: FnOnce(&mut BytecodeGenerator) -> R>(&mut self, f: F) -> R {
+  fn new_scope<R, F>(&mut self, f: F) -> R
+  where
+    F: FnOnce(&mut Self) -> R,
+  {
     self.scope_depth += 1;
     let ret = f(self);
     self.scope_depth -= 1;
@@ -870,13 +875,7 @@ impl BytecodeGenerator {
    * Returns the index of the identifier name
    */
   fn declare_global(&mut self, ident: Ident) -> usize {
-    if let Some(index) = self.identifiers.get(&ident.name).cloned() {
-      index
-    } else {
-      let index = self.global_ctx().add_const(ConstantValue::String(ident.name.clone()));
-      self.identifiers.insert(ident.name, index);
-      index
-    }
+    self.add_const_ident(ident)
   }
 
   /**
@@ -1018,7 +1017,7 @@ impl BytecodeGenerator {
 
     let reflection = Reflection::new(ident, parent_ctx.meta.file_id, parent_ctx.meta.source.clone());
 
-    self.current_fn = Some(SmartPtr::new(Context::new_child(self.function_id, parent_ctx, reflection)));
+    self.current_fn = Some(SmartPtr::new(Context::new(self.function_id, reflection)));
 
     self.new_scope(|this| {
       for arg in args {

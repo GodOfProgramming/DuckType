@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Display};
 
 use crate::code::{
   ast::{AstExpression, AstGenerator, BlockStatement, DefaultConstructorRet, Ident, Params, SelfRules, Statement},
   lex::{NumberToken, Token},
-  ConstantValue, SourceLocation,
+  SourceLocation,
 };
 
 use super::Expression;
@@ -292,14 +292,35 @@ impl AstExpression for LambdaExpression {
 }
 
 #[derive(Debug)]
+pub enum LiteralValue {
+  Nil,
+  Bool(bool),
+  I32(i32),
+  F64(f64),
+  String(String),
+}
+
+impl Display for LiteralValue {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      LiteralValue::Nil => write!(f, "nil"),
+      LiteralValue::Bool(b) => write!(f, "{b}"),
+      LiteralValue::I32(n) => write!(f, "{n}"),
+      LiteralValue::F64(n) => write!(f, "{n}"),
+      LiteralValue::String(s) => write!(f, "{s}"),
+    }
+  }
+}
+
+#[derive(Debug)]
 pub struct LiteralExpression {
-  pub value: ConstantValue,
+  pub value: LiteralValue,
 
   pub loc: SourceLocation, // location of the literal
 }
 
 impl LiteralExpression {
-  pub(super) fn new(value: ConstantValue, loc: SourceLocation) -> Self {
+  pub(super) fn new(value: LiteralValue, loc: SourceLocation) -> Self {
     Self { value, loc }
   }
 }
@@ -311,20 +332,20 @@ impl AstExpression for LiteralExpression {
     if let Some(prev) = ast.previous() {
       match prev {
         Token::Nil => {
-          expr = Some(Expression::from(Self::new(ConstantValue::Nil, ast.meta_at::<1>()?)));
+          expr = Some(Expression::from(Self::new(LiteralValue::Nil, ast.meta_at::<1>()?)));
         }
         Token::True => {
-          expr = Some(Expression::from(Self::new(ConstantValue::Bool(true), ast.meta_at::<1>()?)));
+          expr = Some(Expression::from(Self::new(LiteralValue::Bool(true), ast.meta_at::<1>()?)));
         }
         Token::False => {
-          expr = Some(Expression::from(Self::new(ConstantValue::Bool(false), ast.meta_at::<1>()?)));
+          expr = Some(Expression::from(Self::new(LiteralValue::Bool(false), ast.meta_at::<1>()?)));
         }
-        Token::String(s) => expr = Some(Expression::from(Self::new(ConstantValue::String(s), ast.meta_at::<1>()?))),
+        Token::String(s) => expr = Some(Expression::from(Self::new(LiteralValue::String(s), ast.meta_at::<1>()?))),
         Token::Number(n) => {
           expr = Some(Expression::from(Self::new(
             match n {
-              NumberToken::I32(i) => ConstantValue::Integer(i),
-              NumberToken::F64(f) => ConstantValue::Float(f),
+              NumberToken::I32(i) => LiteralValue::I32(i),
+              NumberToken::F64(f) => LiteralValue::F64(f),
             },
             ast.meta_at::<1>()?,
           )))
