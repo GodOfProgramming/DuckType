@@ -1,4 +1,7 @@
-use crate::util;
+use crate::{
+  error::CompiletimeError,
+  util::{self, FileIdType},
+};
 
 use super::*;
 use std::{ops::RangeInclusive, str};
@@ -133,7 +136,7 @@ impl From<i32> for Token {
 }
 
 impl TryFrom<&[u8]> for Token {
-  type Error = Box<dyn Error>;
+  type Error = Box<dyn std::error::Error>;
 
   fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
     Ok(match str::from_utf8(bytes)? {
@@ -169,29 +172,29 @@ impl TryFrom<&[u8]> for Token {
 }
 
 pub struct Scanner<'src> {
-  file: Rc<PathBuf>,
+  file_id: Option<FileIdType>,
   src: &'src [u8],
   start_pos: usize,
   pos: usize,
   line: usize,
   column: usize,
-  errors: Option<Vec<RuntimeError>>,
+  errors: CompiletimeErrors,
 }
 
 impl<'src> Scanner<'src> {
-  pub fn new(file: Rc<PathBuf>, source: &'src str) -> Self {
+  pub fn new(file_id: Option<FileIdType>, source: &'src str) -> Self {
     Scanner {
-      file,
+      file_id,
       src: source.as_bytes(),
       start_pos: 0,
       pos: 0,
       line: 0,
       column: 0,
-      errors: None,
+      errors: Default::default(),
     }
   }
 
-  pub fn scan(&mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), Vec<RuntimeError>> {
+  pub fn into_tokens(mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), CompiletimeErrors> {
     let mut tokens = Vec::new();
     let mut meta = Vec::new();
 
@@ -352,7 +355,6 @@ impl<'src> Scanner<'src> {
 
         tokens.push(token);
         meta.push(SourceLocation {
-          file: Rc::clone(&self.file),
           line: line + 1,
           column: column + 1,
         });
@@ -365,26 +367,20 @@ impl<'src> Scanner<'src> {
       }
     }
 
-    if let Some(errs) = self.errors.take() {
-      Err(errs)
-    } else {
+    if self.errors.len() == 0 {
       Ok((tokens, meta))
+    } else {
+      Err(self.errors)
     }
   }
 
   fn error(&mut self, msg: impl ToString) {
-    if self.errors.is_none() {
-      self.errors = Some(Vec::new());
-    }
-
-    if let Some(errs) = &mut self.errors {
-      errs.push(RuntimeError {
-        msg: msg.to_string(),
-        file: Rc::clone(&self.file),
-        line: self.line + 1,
-        column: self.column + 1,
-      });
-    }
+    self.errors.add(CompiletimeError {
+      msg: msg.to_string(),
+      file_id: self.file_id,
+      line: self.line + 1,
+      column: self.column + 1,
+    });
   }
 
   /// supports the following numbers

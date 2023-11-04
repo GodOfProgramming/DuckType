@@ -64,12 +64,12 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
 }
 
 #[native]
-fn debug(value: Value) -> ValueResult<String> {
+fn debug(value: Value) -> UsageResult<String> {
   Ok(format!("{:?}", value))
 }
 
 #[native]
-fn fields(value: Value) -> ValueResult<Vec<StringValue>> {
+fn fields(value: Value) -> UsageResult<Vec<StringValue>> {
   fn get_fields(s: &StructValue) -> Vec<StringValue> {
     s.members.keys().cloned().map(StringValue::from).collect()
   }
@@ -86,21 +86,21 @@ fn fields(value: Value) -> ValueResult<Vec<StringValue>> {
 }
 
 #[native(with_vm)]
-fn defined(vm: &mut Vm, name: &StringValue) -> ValueResult<bool> {
+fn defined(vm: &mut Vm, name: &StringValue) -> UsageResult<bool> {
   Ok(vm.current_env().lookup(name.as_str()).is_some())
 }
 
 #[native]
-fn math_abs(arg: (Option<i32>, Option<f64>)) -> ValueResult {
+fn math_abs(arg: (Option<i32>, Option<f64>)) -> UsageResult {
   match arg {
     (Some(i), None) => Ok(Value::from(i.abs())),
     (None, Some(f)) => Ok(Value::from(f.abs())),
-    _ => Err(ValueError::Infallible)?,
+    _ => Err(UsageError::Infallible)?,
   }
 }
 
 #[native]
-fn math_rand_i32() -> ValueResult<i32> {
+fn math_rand_i32() -> UsageResult<i32> {
   let val = rand::random();
   Ok(val)
 }

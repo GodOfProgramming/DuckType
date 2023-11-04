@@ -3,14 +3,14 @@ use std::{fs, io::Read, ops::Deref, path::PathBuf};
 
 pub use io::simple_script_autogen_create_module;
 
-fn open_file(path: (Option<&String>, Option<&io::PathValue>)) -> ValueResult<fs::File> {
+fn open_file(path: (Option<&String>, Option<&io::PathValue>)) -> UsageResult<fs::File> {
   let path = match path {
     (Some(str_path), None) => PathBuf::from(str_path.as_str()),
     (None, Some(path)) => (*path).clone(),
-    _ => Err(ValueError::Infallible)?,
+    _ => Err(UsageError::Infallible)?,
   };
 
-  let file = fs::File::open(path).map_err(|e| ValueError::NativeApi(e.to_string()))?;
+  let file = fs::File::open(path).map_err(|e| UsageError::NativeApi(e.to_string()))?;
 
   Ok(file)
 }
@@ -18,7 +18,7 @@ fn open_file(path: (Option<&String>, Option<&io::PathValue>)) -> ValueResult<fs:
 #[native(no_entry)]
 mod io {
   #[native]
-  fn open(path: (Option<&String>, Option<&io::PathValue>)) -> ValueResult<FileValue> {
+  fn open(path: (Option<&String>, Option<&io::PathValue>)) -> UsageResult<FileValue> {
     let file = super::open_file(path)?;
     Ok(FileValue::new(file))
   }
@@ -38,25 +38,25 @@ mod io {
 
   #[methods]
   impl FileValue {
-    fn __new__() -> ValueResult<FileValue> {
+    fn __new__() -> UsageResult<FileValue> {
       Ok(Default::default())
     }
 
-    fn open(&mut self, path: (Option<&String>, Option<&io::PathValue>)) -> ValueResult<()> {
+    fn open(&mut self, path: (Option<&String>, Option<&io::PathValue>)) -> UsageResult<()> {
       let file = super::open_file(path)?;
       self.internal = Some(file);
       Ok(())
     }
 
-    fn read(&mut self) -> ValueResult<String> {
+    fn read(&mut self) -> UsageResult<String> {
       if let Some(file) = &mut self.internal {
         let mut out = String::new();
 
-        file.read_to_string(&mut out).map_err(|e| ValueError::Todo(e.to_string()))?;
+        file.read_to_string(&mut out).map_err(UsageError::native)?;
 
         Ok(out)
       } else {
-        Err(ValueError::NativeApi("no file open for reading".to_string()))
+        Err(UsageError::NativeApi("no file open for reading".to_string()))
       }
     }
   }
@@ -80,21 +80,21 @@ mod io {
 
   #[methods]
   impl PathValue {
-    fn __new__(path: (Option<&String>, Option<&PathValue>)) -> ValueResult<PathValue> {
+    fn __new__(path: (Option<&String>, Option<&PathValue>)) -> UsageResult<PathValue> {
       let path = match path {
         (Some(str_path), None) => PathBuf::from(str_path.as_str()),
         (None, Some(path)) => (*path).clone(),
-        _ => Err(ValueError::Infallible)?,
+        _ => Err(UsageError::Infallible)?,
       };
       Ok(PathValue::new(path))
     }
 
-    fn __div__(&self, other: (Option<&String>, Option<&Self>)) -> ValueResult<Self> {
+    fn __div__(&self, other: (Option<&String>, Option<&Self>)) -> UsageResult<Self> {
       match other {
         (Some(str), None) => Ok(self.join(str.clone())),
         (None, Some(path)) => Ok(self.join(path.internal.clone())),
-        (None, None) => Err(ValueError::InvalidArgument("__div__", 1)),
-        (Some(_), Some(_)) => Err(ValueError::Infallible),
+        (None, None) => Err(UsageError::InvalidArgument("__div__", 1)),
+        (Some(_), Some(_)) => Err(UsageError::Infallible),
       }
     }
 

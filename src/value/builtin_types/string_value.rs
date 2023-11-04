@@ -12,36 +12,36 @@ pub struct StringValue {
 
 #[methods]
 impl StringValue {
-  fn len(&self) -> ValueResult<i32> {
+  fn len(&self) -> UsageResult<i32> {
     Ok(self.str.len() as i32)
   }
 
-  fn replace_with(&mut self, other: &Self) -> ValueResult<()> {
+  fn replace_with(&mut self, other: &Self) -> UsageResult<()> {
     self.str = other.str.clone();
     Ok(())
   }
 
-  fn clone(&self) -> ValueResult<Self> {
+  fn clone(&self) -> UsageResult<Self> {
     Ok(Self { str: self.str.clone() })
   }
 
-  fn reverse(&self) -> ValueResult<Self> {
+  fn reverse(&self) -> UsageResult<Self> {
     Ok(Self {
       str: self.str.chars().rev().collect::<String>(),
     })
   }
 
-  fn __add__(&self, other: Value) -> ValueResult<Self> {
+  fn __add__(&self, other: Value) -> UsageResult<Self> {
     Ok(Self {
       str: format!("{}{}", self, other),
     })
   }
 
-  fn __eq__(&self, other: &Self) -> ValueResult<bool> {
+  fn __eq__(&self, other: &Self) -> UsageResult<bool> {
     Ok(self.str == other.str)
   }
 
-  fn __index__(&self, index: i32) -> ValueResult {
+  fn __index__(&self, index: i32) -> UsageResult {
     Ok(self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default())
   }
 

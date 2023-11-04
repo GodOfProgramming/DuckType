@@ -2,9 +2,9 @@ use super::Args;
 use crate::prelude::*;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-pub type NativeFn = for<'a> fn(&mut Vm, Args) -> ValueResult;
+pub type NativeFn = for<'a> fn(&mut Vm, Args) -> UsageResult;
 
-type NativeClosureType = dyn FnMut(&mut Vm, Args) -> ValueResult;
+type NativeClosureType = dyn FnMut(&mut Vm, Args) -> UsageResult;
 
 #[derive(Usertype, Fields)]
 #[uuid("3c90ac96-ba86-4ceb-9b9a-591af85ca17b")]
@@ -17,7 +17,7 @@ impl NativeClosureValue {
   pub fn new<T, F>(name: T, callee: F) -> Self
   where
     T: ToString,
-    F: FnMut(&mut Vm, Args) -> ValueResult + 'static,
+    F: FnMut(&mut Vm, Args) -> UsageResult + 'static,
   {
     Self {
       name: name.to_string(),
@@ -32,7 +32,7 @@ impl NativeClosureValue {
     format!("{}", self)
   }
 
-  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, args: Args) -> ValueResult<()> {
+  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, args: Args) -> UsageResult<()> {
     let output = (*self.callee)(vm, args)?;
     vm.stack_push(output);
     Ok(())
@@ -64,7 +64,7 @@ impl NativeMethodValue {
 
 #[methods]
 impl NativeMethodValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, mut args: Args) -> ValueResult<()> {
+  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, mut args: Args) -> UsageResult<()> {
     args.list.push(self.this.clone());
     self.callee.call(vm, args)
   }

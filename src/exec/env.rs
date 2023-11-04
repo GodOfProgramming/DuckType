@@ -10,7 +10,6 @@ pub mod prelude {
 }
 
 pub struct Context {
-  pub name: Option<String>,
   pub id: usize, // the function id within the local file
 
   global: SmartPtr<Context>,
@@ -25,9 +24,8 @@ pub struct Context {
 }
 
 impl Context {
-  pub(crate) fn new(name: Option<impl Into<String>>, reflection: Reflection) -> Self {
+  pub(crate) fn new(reflection: Reflection) -> Self {
     Self {
-      name: name.map(|n| n.into()),
       id: Default::default(),
       global: Default::default(),
       instructions: Default::default(),
@@ -43,7 +41,7 @@ impl Context {
     }
   }
 
-  pub(crate) fn new_child(name: Option<String>, id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
+  pub(crate) fn new_child(id: usize, ctx: SmartPtr<Context>, reflection: Reflection) -> Self {
     let global = if ctx.global.valid() {
       ctx.global.clone()
     } else {
@@ -52,7 +50,6 @@ impl Context {
     };
 
     Self {
-      name,
       id,
       global,
       consts: Default::default(),
@@ -155,7 +152,7 @@ impl Context {
 
   pub fn display_opcodes(&self) {
     let default = self.id.to_string();
-    let name = self.name.as_ref().unwrap_or(&default);
+    let name = self.meta.name.as_ref().unwrap_or(&default);
     println!(">>>>>> {} <<<<<<", name);
 
     for (i, op) in self.instructions.iter().enumerate() {
@@ -167,9 +164,9 @@ impl Context {
 
   pub fn display_instruction(&self, op: &Opcode, offset: usize) {
     print!("{} ", Self::address_of(offset));
-    if let Some(curr) = self.meta.get(offset) {
+    if let Some(curr) = self.meta.info(offset) {
       if offset > 0 {
-        if let Some(prev) = self.meta.get(offset - 1) {
+        if let Some(prev) = self.meta.info(offset - 1) {
           if curr.line == prev.line {
             print!("   | ");
           } else {

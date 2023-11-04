@@ -1,120 +1,6 @@
 use crate::prelude::*;
-use std::{
-  error::Error,
-  fmt::{Debug, Display, Formatter, Result as FmtResult},
-  path::PathBuf,
-  rc::Rc,
-};
-
-#[allow(unused)]
-#[cfg(debug_assertions)]
-macro_rules! here {
-  () => {
-    crate::dbg::_here(file!(), line!());
-  };
-}
-
 use clap::{ArgAction, Parser, Subcommand};
-#[allow(unused)]
-#[cfg(debug_assertions)]
-pub(crate) use here;
-
-use crate::code::OpCodeReflection;
-
-pub mod prelude {
-  #[allow(unused)]
-  #[cfg(debug_assertions)]
-  pub(crate) use super::here;
-  pub use super::RuntimeError;
-}
-
-pub fn _here(file: &str, line: u32) {
-  use std::io::{stdout, Write};
-  println!("{}:{}", file, line);
-  stdout().flush().unwrap();
-}
-
-pub struct RuntimeErrors(Vec<RuntimeError>);
-
-impl RuntimeErrors {
-  pub(crate) fn single(err: RuntimeError) -> Self {
-    Self(vec![err])
-  }
-}
-
-#[derive(PartialEq, Eq)]
-pub struct RuntimeError {
-  pub msg: String,
-  pub file: Rc<PathBuf>,
-  pub line: usize,
-  pub column: usize,
-}
-
-impl RuntimeError {
-  pub fn fail_on_start(file: Rc<PathBuf>, msg: impl ToString) -> Self {
-    Self {
-      file: Rc::clone(&file),
-      msg: msg.to_string(),
-      line: 0,
-      column: 0,
-    }
-  }
-
-  pub fn from_ref<M: ToString>(msg: M, opcode: Opcode, opcode_ref: OpCodeReflection) -> Self {
-    let mut err = Self {
-      msg: msg.to_string(),
-      file: Rc::clone(&opcode_ref.file),
-      line: opcode_ref.line,
-      column: opcode_ref.column,
-    };
-    err.format_with_src_line(opcode_ref.source_line);
-    err.msg = format!("{}\nOffending OpCode: {:?}", err.msg, opcode);
-    err
-  }
-
-  pub fn format_with_src_line(&mut self, src: &str) {
-    self.msg = format!("{}\n{}\n{}^", self.msg, src, " ".repeat(self.column - 1));
-  }
-}
-
-impl Display for RuntimeError {
-  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    writeln!(f, "{} ({}, {}): {}", self.file.display(), self.line, self.column, self.msg)
-  }
-}
-
-impl Debug for RuntimeError {
-  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    <Self as Display>::fmt(self, f)
-  }
-}
-
-impl Display for RuntimeErrors {
-  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    for err in &self.0 {
-      writeln!(f, "{} ({}, {}): {}", err.file.display(), err.line, err.column, err.msg)?;
-    }
-    Ok(())
-  }
-}
-
-impl Debug for RuntimeErrors {
-  fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    <Self as Display>::fmt(self, f)
-  }
-}
-
-impl From<Vec<RuntimeError>> for RuntimeErrors {
-  fn from(value: Vec<RuntimeError>) -> Self {
-    Self(value)
-  }
-}
-
-impl From<RuntimeErrors> for Vec<RuntimeError> {
-  fn from(value: RuntimeErrors) -> Self {
-    value.0
-  }
-}
+use std::error::Error;
 
 #[derive(Parser)]
 pub struct Cli {
@@ -257,5 +143,23 @@ impl StackCmd {
       }),
     };
     Ok(CommandOutput::new(output, false))
+  }
+}
+
+#[allow(unused)]
+#[cfg(debug_assertions)]
+pub(crate) mod macros {
+  macro_rules! here {
+    () => {
+      crate::dbg::macros::_here(file!(), line!());
+    };
+  }
+
+  pub(crate) use here;
+
+  pub fn _here(file: &str, line: u32) {
+    use std::io::{stdout, Write};
+    println!("{}:{}", file, line);
+    stdout().flush().unwrap();
   }
 }

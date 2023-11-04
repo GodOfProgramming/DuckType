@@ -49,11 +49,11 @@ impl ClassValue {
 }
 
 impl UsertypeFields for ClassValue {
-  fn get_field(&self, _gc: &mut Gc, field: &str) -> ValueResult<Option<Value>> {
+  fn get_field(&self, _gc: &mut Gc, field: &str) -> UsageResult<Option<Value>> {
     Ok(self.get_static(field))
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
+  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> UsageResult<()> {
     self.set_static(field, value);
     Ok(())
   }
@@ -61,14 +61,14 @@ impl UsertypeFields for ClassValue {
 
 #[methods]
 impl ClassValue {
-  fn __ivk__(&mut self, vm: &mut Vm, class: Value, args: Args) -> ValueResult<()> {
+  fn __ivk__(&mut self, vm: &mut Vm, class: Value, args: Args) -> UsageResult<()> {
     let instance = vm.gc.allocate(InstanceValue::new(StructValue::default(), class.clone()));
     if let Some(initializer) = &mut self.initializer {
       if let Some(initializer) = initializer.as_fn_mut() {
         let args = Args::new_with_this(instance.clone(), args.list);
         initializer.__ivk__(vm, Value::nil, args)?;
       } else {
-        Err(ValueError::Todo(format!("invalid type for constructor {}", initializer)))?;
+        Err(UsageError::MethodType)?;
       }
     } else {
       vm.stack_push(instance);

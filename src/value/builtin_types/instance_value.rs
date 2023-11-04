@@ -16,7 +16,7 @@ impl InstanceValue {
 }
 
 impl UsertypeFields for InstanceValue {
-  fn get_field(&self, gc: &mut Gc, field: &str) -> ValueResult<Option<Value>> {
+  fn get_field(&self, gc: &mut Gc, field: &str) -> UsageResult<Option<Value>> {
     if field == "__class__" {
       Ok(Some(self.class.clone()))
     } else {
@@ -24,9 +24,9 @@ impl UsertypeFields for InstanceValue {
     }
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
+  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> UsageResult<()> {
     if field == "__class__" {
-      Err(ValueError::Immutable(field.to_string()))
+      Err(UsageError::Immutable(field.to_string()))
     } else {
       self.data.set(field, value);
       Ok(())
@@ -35,7 +35,7 @@ impl UsertypeFields for InstanceValue {
 }
 
 impl UsertypeMethods for InstanceValue {
-  fn get_method(&self, gc: &mut Gc, this: &Value, name: &str) -> ValueResult<Option<Value>> {
+  fn get_method(&self, gc: &mut Gc, this: &Value, name: &str) -> UsageResult<Option<Value>> {
     if let Some(class) = self.class.as_class() {
       Ok(class.get_method(gc, this, name))
     } else {
@@ -59,7 +59,7 @@ impl DebugValue for InstanceValue {
 impl ResolvableValue for InstanceValue {}
 
 impl InvocableValue for InstanceValue {
-  fn __ivk__(&mut self, vm: &mut Vm, this: Value, args: Args) -> ValueResult<()> {
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, args: Args) -> UsageResult<()> {
     let mut callable = self.get(&mut vm.gc, &this, "__ivk__")?;
     callable.call(vm, args)
   }

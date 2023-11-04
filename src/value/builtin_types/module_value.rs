@@ -109,17 +109,17 @@ impl ModuleValue {
 }
 
 impl UsertypeFields for ModuleValue {
-  fn get_field(&self, _gc: &mut Gc, field: &str) -> ValueResult<Option<Value>> {
+  fn get_field(&self, _gc: &mut Gc, field: &str) -> UsageResult<Option<Value>> {
     self
       .members
       .get(field)
       .cloned()
       .map(Ok)
-      .or_else(|| Some(Err(ValueError::UndefinedMember(field.to_string()))))
+      .or_else(|| Some(Err(UsageError::UndefinedMember(field.to_string()))))
       .transpose()
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
+  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> UsageResult<()> {
     self.members.insert(field.to_string(), value);
     Ok(())
   }
@@ -127,12 +127,12 @@ impl UsertypeFields for ModuleValue {
 
 #[methods]
 impl ModuleValue {
-  fn __def__(&mut self, field: &str, value: Value) -> ValueResult<bool> {
+  fn __def__(&mut self, field: &str, value: Value) -> UsageResult<bool> {
     Ok(self.define(field, value))
   }
 
-  fn __res__(&self, field: &str) -> ValueResult {
-    self.resolve(field).ok_or(ValueError::NameError(field.to_string()))
+  fn __res__(&self, field: &str) -> UsageResult {
+    self.resolve(field).ok_or(UsageError::NameError(field.to_string()))
   }
 
   fn __str__(&self) -> String {

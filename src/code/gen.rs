@@ -1,9 +1,10 @@
 use crate::code::{ast::*, Reflection, SourceLocation};
+use crate::error::CompiletimeErrors;
 use crate::exec::Register;
 use crate::prelude::*;
+use crate::util::FileIdType;
 use ptr::SmartPtr;
 use std::collections::BTreeMap;
-use std::rc::Rc;
 
 use super::{ConstantValue, FunctionConstant};
 
@@ -34,6 +35,7 @@ struct Lookup {
 }
 
 pub struct BytecodeGenerator {
+  file_id: Option<FileIdType>,
   ctx: SmartPtr<Context>,
 
   identifiers: BTreeMap<String, usize>,
@@ -48,12 +50,13 @@ pub struct BytecodeGenerator {
   breaks: Vec<usize>,
   continues: Vec<usize>,
 
-  errors: Vec<RuntimeError>,
+  errors: CompiletimeErrors,
 }
 
 impl BytecodeGenerator {
-  pub fn new(ctx: SmartPtr<Context>) -> Self {
+  pub fn new(file_id: Option<FileIdType>, ctx: SmartPtr<Context>) -> Self {
     Self {
+      file_id,
       ctx,
 
       identifiers: Default::default(),
@@ -72,12 +75,12 @@ impl BytecodeGenerator {
     }
   }
 
-  pub fn generate(mut self, ast: Ast) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
+  pub fn generate(mut self, ast: Ast) -> Result<SmartPtr<Context>, CompiletimeErrors> {
     for stmt in ast.statements {
       self.emit_stmt(stmt);
     }
 
-    if self.errors.is_empty() {
+    if self.errors.len() == 0 {
       Ok(self.ctx)
     } else {
       Err(self.errors)
@@ -1013,14 +1016,9 @@ impl BytecodeGenerator {
     let parent_ctx = self.current_ctx_ptr();
     let prev_fn = self.current_fn.take();
 
-    let reflection = Reflection::new(parent_ctx.meta.file.clone(), parent_ctx.meta.source.clone());
+    let reflection = Reflection::new(ident, parent_ctx.meta.file_id, parent_ctx.meta.source.clone());
 
-    self.current_fn = Some(SmartPtr::new(Context::new_child(
-      ident.map(|i| i.name),
-      self.function_id,
-      parent_ctx,
-      reflection,
-    )));
+    self.current_fn = Some(SmartPtr::new(Context::new_child(self.function_id, parent_ctx, reflection)));
 
     self.new_scope(|this| {
       for arg in args {
@@ -1059,12 +1057,9 @@ impl BytecodeGenerator {
 
   fn error(&mut self, loc: SourceLocation, msg: impl Into<String>) {
     let msg = msg.into();
-    if cfg!(debug_assertions) {
-      println!("{} ({}, {}): {}", loc.file.display(), loc.line, loc.column, msg);
-    }
-    self.errors.push(RuntimeError {
+    self.errors.add(CompiletimeError {
       msg,
-      file: Rc::clone(&loc.file),
+      file_id: self.file_id,
       line: loc.line,
       column: loc.column,
     });

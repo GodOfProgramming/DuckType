@@ -7,12 +7,12 @@ pub fn mono(_: &mut SmartPtr<Gc>, mut mono: UsertypeHandle<ModuleValue>) {
 }
 
 #[native]
-fn now() -> ValueResult<TimeValue> {
+fn now() -> UsageResult<TimeValue> {
   Ok(TimeValue::new())
 }
 
 #[native]
-fn elapsed(before: &TimeValue) -> ValueResult<f64> {
+fn elapsed(before: &TimeValue) -> UsageResult<f64> {
   let now = Instant::now();
   let since = now.duration_since(**before);
   Ok(since.as_secs_f64())

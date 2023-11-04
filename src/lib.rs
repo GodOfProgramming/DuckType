@@ -1,14 +1,15 @@
 pub(crate) mod code;
 pub(crate) mod dbg;
+pub mod error;
 pub(crate) mod exec;
 pub mod stdlib;
 mod util;
 pub(crate) mod value;
 
-pub use code::compile;
+pub use code::{compile_file, compile_string};
 
 pub mod prelude {
-  pub use super::dbg::prelude::*;
+  pub use super::error::*;
   pub use super::exec::prelude::*;
   pub use super::stdlib;
   pub use super::value::prelude::*;
@@ -18,8 +19,8 @@ pub mod prelude {
 
 pub mod macro_requirements {
   pub use crate::prelude::{
-    methods, native, Args, DebugValue, DisplayValue, Fields, MaybeFrom, ModuleBuilder, TryUnwrapArg, Usertype, UsertypeFields,
-    UsertypeMethods, Value, ValueError, ValueResult, Vm,
+    methods, native, Args, DebugValue, DisplayValue, Fields, MaybeFrom, ModuleBuilder, TryUnwrapArg, UsageError, UsageResult,
+    Usertype, UsertypeFields, UsertypeMethods, Value, Vm,
   };
   pub use uuid;
 }

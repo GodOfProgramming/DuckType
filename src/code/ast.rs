@@ -2,12 +2,11 @@ mod expr;
 mod stmt;
 
 use super::{lex::Token, SourceLocation};
-use crate::{prelude::*, UnwrapAnd};
+use crate::{prelude::*, util::FileIdType, UnwrapAnd};
 pub use expr::*;
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   mem,
-  rc::Rc,
 };
 pub use stmt::*;
 #[cfg(feature = "visit-ast")]
@@ -39,11 +38,16 @@ pub struct Ast {
 }
 
 impl Ast {
-  pub fn from(tokens: Vec<Token>, meta: Vec<SourceLocation>) -> (Ast, Vec<RuntimeError>) {
-    AstGenerator::new(tokens, meta).generate()
+  pub fn try_from(
+    file_id: Option<FileIdType>,
+    tokens: Vec<Token>,
+    meta: Vec<SourceLocation>,
+  ) -> Result<Ast, CompiletimeErrors> {
+    AstGenerator::new(file_id, tokens, meta).generate()
   }
 
   #[cfg(feature = "visit-ast")]
+  #[allow(dead_code)]
   pub fn dump(&self, file: &Path) {
     let out = html! {
       : doctype::HTML;
@@ -69,11 +73,12 @@ impl Ast {
 }
 
 pub(crate) struct AstGenerator {
+  file_id: Option<FileIdType>,
   tokens: Vec<Token>,
   meta: Vec<SourceLocation>,
 
   statements: Vec<Statement>,
-  errors: Vec<RuntimeError>,
+  errors: CompiletimeErrors,
 
   index: usize,
 
@@ -82,8 +87,9 @@ pub(crate) struct AstGenerator {
 }
 
 impl AstGenerator {
-  fn new(tokens: Vec<Token>, meta: Vec<SourceLocation>) -> Self {
+  fn new(file_id: Option<FileIdType>, tokens: Vec<Token>, meta: Vec<SourceLocation>) -> Self {
     Self {
+      file_id,
       tokens,
       meta,
       statements: Default::default(),
@@ -94,7 +100,7 @@ impl AstGenerator {
     }
   }
 
-  fn generate(mut self) -> (Ast, Vec<RuntimeError>) {
+  fn generate(mut self) -> Result<Ast, CompiletimeErrors> {
     while let Some(current) = self.current() {
       self.statement(current);
     }
@@ -103,7 +109,11 @@ impl AstGenerator {
       statements: self.statements,
     };
 
-    (ast, self.errors)
+    if self.errors.len() == 0 {
+      Ok(ast)
+    } else {
+      Err(self.errors)
+    }
   }
 
   fn statement(&mut self, token: Token) {
@@ -359,19 +369,16 @@ impl AstGenerator {
 
   fn error<const I: usize>(&mut self, msg: impl AsRef<str> + Into<String>) {
     if let Some(meta) = self.meta_at::<I>() {
-      if cfg!(debug_assertions) {
-        println!("{} ({}, {}): {}", meta.file.display(), meta.line, meta.column, msg.as_ref());
-      }
-      self.errors.push(RuntimeError {
+      self.errors.add(CompiletimeError {
         msg: msg.into(),
-        file: Rc::clone(&meta.file),
+        file_id: self.file_id,
         line: meta.line,
         column: meta.column,
       });
     } else {
-      self.errors.push(RuntimeError {
+      self.errors.add(CompiletimeError {
         msg: format!("could not find location of token for msg '{}'", msg.as_ref()),
-        file: Default::default(),
+        file_id: Default::default(),
         line: 0,
         column: 0,
       });

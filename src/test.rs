@@ -2,8 +2,6 @@ use crate::prelude::*;
 use ptr::SmartPtr;
 use tfix::{fixture, TestFixture};
 
-const TEST_FILE: &'static str = "test";
-
 struct IntegrationTest {
   script: String,
   vm: Vm,
@@ -26,26 +24,12 @@ impl IntegrationTest {
     }
   }
 
-  fn load<F: FnOnce(&mut Self, SmartPtr<Context>)>(&mut self, f: F) {
-    match crate::compile(TEST_FILE, &self.script) {
-      Ok(ctx) => {
-        f(self, ctx);
-      }
-      Err(errs) => {
-        for err in errs {
-          println!("{}", err);
-        }
-        panic!("compilation errors detected!");
-      }
-    }
-  }
-
   fn run<F: FnOnce(&mut Self, Value)>(&mut self, f: F) {
     let env = self.env.clone();
-    self.load(|this, ctx| match this.vm.run(TEST_FILE, ctx.clone(), env) {
-      Ok(v) => f(this, v),
-      Err(err) => panic!("{:#?}", err),
-    });
+    match self.vm.run_string(&self.script, env) {
+      Ok(v) => f(self, v),
+      Err(err) => panic!("{}", err),
+    }
   }
 }
 
@@ -64,38 +48,35 @@ mod integration_tests {
   fn adding_a_global(test: &mut IntegrationTest) {
     test.script = "export foo;".into();
 
-    test.load(|this, ctx| {
-      this.env.define(String::from("foo"), this.vm.gc.allocate("foo"));
-      match this.vm.run(TEST_FILE, ctx, this.env.clone()) {
-        Ok(res) => {
-          assert_eq!("foo", **res.as_str().expect("value is not a string"));
-        }
-
-        Err(err) => panic!("{:#?}", err),
+    test.env.define(String::from("foo"), test.vm.gc.allocate("foo"));
+    match test.vm.run_string(&test.script, test.env.clone()) {
+      Ok(res) => {
+        assert_eq!("foo", **res.as_str().expect("value is not a string"));
       }
-    });
+
+      Err(err) => panic!("{:#?}", err),
+    };
   }
 
   #[test]
   fn calling_a_native_function(test: &mut IntegrationTest) {
     test.script = "let x = 1; export test_func(x, 2);".into();
 
-    test.load(|this, ctx| {
-      this.env.define(
-        "test_func",
-        Value::native(|_, args| {
-          let args = &args.list;
-          assert_eq!(args.len(), 2);
-          assert_eq!(args[0], Value::from(1));
-          assert_eq!(args[1], Value::from(2));
-          Ok(Value::from(3f64))
-        }),
-      );
-      match this.vm.run("test", ctx, this.env.clone()) {
-        Ok(res) => assert_eq!(Value::from(3f64), res),
-        Err(err) => panic!("{:#?}", err),
-      }
-    });
+    test.env.define(
+      "test_func",
+      Value::native(|_, args| {
+        let args = &args.list;
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0], Value::from(1));
+        assert_eq!(args[1], Value::from(2));
+        Ok(Value::from(3f64))
+      }),
+    );
+
+    match test.vm.run_string(&test.script, test.env.clone()) {
+      Ok(res) => assert_eq!(Value::from(3f64), res),
+      Err(err) => panic!("{:#?}", err),
+    };
   }
 
   /**

@@ -21,7 +21,7 @@ pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
   };
 
   quote! {
-    fn #ident(vm: &mut Vm, mut args: Args) -> ValueResult {
+    fn #ident(vm: &mut Vm, mut args: Args) -> UsageResult {
       #item
 
       if args.list.len() == #nargs {
@@ -30,7 +30,7 @@ pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
         let value = vm.gc.allocate(output);
         Ok(value)
       } else {
-        Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))
+        Err(UsageError::ArgumentError(args.list.len(), #nargs + 1))
       }
     }
   }
@@ -128,7 +128,7 @@ pub(crate) fn native_mod(item: ItemMod, no_entry: bool) -> TokenStream {
   } else {
     quote! {
       #[no_mangle]
-      pub fn simple_script_load_module(vm: &mut Vm) -> ValueResult {
+      pub fn simple_script_load_module(vm: &mut Vm) -> UsageResult {
         let #module_ident = vm.current_env_leaf()?;
         let #gc_ident = vm.gc();
         let module = #mod_name::simple_script_autogen_create_module(#gc_ident, #module_ident);

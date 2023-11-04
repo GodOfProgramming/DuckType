@@ -10,12 +10,10 @@ struct ScriptTest {
 impl ScriptTest {
   pub fn run(&mut self, script: &Path) {
     println!("running {:?}", script);
-    let src = fs::read_to_string(script).unwrap();
-    let ctx = ss::compile(script.to_string_lossy().to_string(), &src).unwrap();
     let env = ModuleBuilder::initialize(&mut self.vm.gc, "*test*", None, |gc, mut lib| {
       lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &[]);
     });
-    self.vm.run(script.to_string_lossy().to_string(), ctx, env).unwrap();
+    self.vm.run_file(script, env).unwrap();
   }
 }
 
@@ -63,10 +61,8 @@ mod tests {
 
     const SCRIPT: &str = "{ let leaker = make_leaker(); leaker.this = leaker; }";
 
-    let ctx = ss::compile("test", SCRIPT).unwrap();
-
     #[native]
-    fn make_leaker() -> ValueResult<Leaker> {
+    fn make_leaker() -> UsageResult<Leaker> {
       Ok(Leaker {
         b: unsafe { &mut B },
         this: Value::nil,
@@ -79,7 +75,7 @@ mod tests {
 
     env.define("make_leaker", Value::native(make_leaker));
 
-    t.vm.run("test", ctx, env).unwrap();
+    t.vm.run_string(SCRIPT, env).unwrap();
 
     assert!(unsafe { !B });
 

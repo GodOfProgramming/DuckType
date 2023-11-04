@@ -24,33 +24,33 @@ impl VecValue {
 
 #[methods]
 impl VecValue {
-  fn __new__(args: &[Value]) -> ValueResult<VecValue> {
+  fn __new__(args: &[Value]) -> UsageResult<VecValue> {
     Ok(VecValue::new_from_vec(args.to_owned()))
   }
 
-  fn push(&mut self, value: Value) -> ValueResult<()> {
+  fn push(&mut self, value: Value) -> UsageResult<()> {
     self.buffer.push(value);
     Ok(())
   }
 
-  fn len(&self) -> ValueResult<i32> {
+  fn len(&self) -> UsageResult<i32> {
     Ok(self.buffer.len() as i32)
   }
 
-  fn insert(&mut self, index: i32, value: Value) -> ValueResult<Value> {
+  fn insert(&mut self, index: i32, value: Value) -> UsageResult<Value> {
     if let Some(v) = self.buffer.get_mut(index as usize) {
       *v = value.clone();
       Ok(value)
     } else {
-      Err(ValueError::InvalidIndex(index, value))
+      Err(UsageError::InvalidIndex(index, value))
     }
   }
 
-  fn random_index(&self) -> ValueResult {
+  fn random_index(&self) -> UsageResult {
     Ok(self.buffer.choose(&mut rand::thread_rng()).cloned().unwrap_or_default())
   }
 
-  fn join(&self, sep: Value) -> ValueResult<String> {
+  fn join(&self, sep: Value) -> UsageResult<String> {
     if sep.is_nil() {
       Ok(itertools::join(self.buffer.iter(), ""))
     } else {
@@ -58,15 +58,15 @@ impl VecValue {
     }
   }
 
-  fn __index__(&self, index: i32) -> ValueResult {
+  fn __index__(&self, index: i32) -> UsageResult {
     Ok(self.buffer.get(index as usize).cloned().unwrap_or_default())
   }
 
-  fn __idxeq__(&mut self, index: i32, value: Value) -> ValueResult {
+  fn __idxeq__(&mut self, index: i32, value: Value) -> UsageResult {
     let internal_value = self
       .buffer
       .get_mut(index as usize)
-      .ok_or_else(|| ValueError::InvalidIndex(index, value.clone()))?;
+      .ok_or_else(|| UsageError::InvalidIndex(index, value.clone()))?;
     *internal_value = value.clone();
     Ok(value)
   }

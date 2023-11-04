@@ -4,13 +4,13 @@ use simple_script::prelude::*;
 #[native]
 mod example_module {
   #[native]
-  fn test_function(item: &StringValue) -> ValueResult<()> {
+  fn test_function(item: &StringValue) -> UsageResult<()> {
     println!("{}", item);
     Ok(())
   }
 
   #[native]
-  fn test_clear(item: &mut StringValue) -> ValueResult<String> {
+  fn test_clear(item: &mut StringValue) -> UsageResult<String> {
     let old = item.clone();
     *item = StringValue::default();
     Ok(old)
@@ -25,7 +25,7 @@ mod example_module {
 
   #[methods]
   impl Foo {
-    fn __new__(item: i32) -> ValueResult<Foo> {
+    fn __new__(item: i32) -> UsageResult<Foo> {
       Ok(Foo { value: item })
     }
 

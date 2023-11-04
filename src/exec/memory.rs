@@ -243,7 +243,7 @@ impl Gc {
     current_frame: &StackFrame,
     stack_frames: &Vec<StackFrame>,
     cached_values: impl IntoIterator<Item = &'v Value>,
-  ) -> Result<usize, ValueError> {
+  ) -> Result<usize, SystemError> {
     let mut marked_allocations = Marker::default();
 
     for value in cached_values {
@@ -496,9 +496,11 @@ where
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::code::Reflection;
+  use crate::{code::Reflection, util::FileIdType};
   use ptr::SmartPtr;
   use std::rc::Rc;
+
+  const FILE_ID: FileIdType = 0;
 
   #[derive(Usertype, Fields)]
   #[uuid("random")]
@@ -508,10 +510,11 @@ mod tests {
   impl SomeType {}
 
   fn new_ctx() -> SmartPtr<Context> {
-    SmartPtr::new(Context::new(
+    SmartPtr::new(Context::new(Reflection::new(
       Some("main"),
-      Reflection::new(Rc::new(Default::default()), Rc::new(Default::default())),
-    ))
+      Some(FILE_ID),
+      Rc::new(Default::default()),
+    )))
   }
 
   #[test]

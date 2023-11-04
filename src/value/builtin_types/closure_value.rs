@@ -29,7 +29,7 @@ impl ClosureValue {
 
 #[methods]
 impl ClosureValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, args: Args) -> ValueResult<()> {
+  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, args: Args) -> UsageResult<()> {
     self.function.check_args(&args)?;
 
     let mut captures_with_args = Vec::with_capacity(self.captures.len() + args.list.len());
