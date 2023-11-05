@@ -48,8 +48,12 @@ impl StringValue {
     Ok(Self::new(format!("{}{}", self, other)))
   }
 
-  fn __eq__(&self, other: &Self) -> UsageResult<bool> {
-    Ok(self.data == other.data)
+  fn __eq__(&self, other: Value) -> UsageResult<bool> {
+    Ok(other.cast_to::<Self>().map(|other| self.data == other.data).unwrap_or(false))
+  }
+
+  fn __neq__(&self, other: Value) -> UsageResult<bool> {
+    self.__eq__(other).map(|v| !v)
   }
 
   fn __index__(&self, index: i32) -> UsageResult {

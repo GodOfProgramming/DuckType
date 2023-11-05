@@ -7,7 +7,6 @@ pub struct ClassValue {
   pub name: String,
   #[trace]
   pub creator: Value,
-
   #[trace]
   pub initializer: Option<Value>,
   #[trace]

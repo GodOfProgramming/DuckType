@@ -33,7 +33,20 @@ impl TimeValue {
 }
 
 #[methods]
-impl TimeValue {}
+impl TimeValue {
+  fn __eq__(&self, other: Value) -> UsageResult<bool> {
+    Ok(
+      other
+        .cast_to::<Self>()
+        .map(|other| self.timestamp == other.timestamp)
+        .unwrap_or(false),
+    )
+  }
+
+  fn __neq__(&self, other: Value) -> UsageResult<bool> {
+    self.__eq__(other).map(|v| !v)
+  }
+}
 
 impl Default for TimeValue {
   fn default() -> Self {

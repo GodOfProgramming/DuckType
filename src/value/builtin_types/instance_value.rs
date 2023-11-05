@@ -1,4 +1,4 @@
-use crate::{dbg::macros::here, prelude::*};
+use crate::prelude::*;
 
 #[derive(Usertype)]
 #[uuid("988a6bd1-4a54-416f-aad5-0d1cc8ce652e")]
@@ -34,7 +34,6 @@ impl UsertypeFields for InstanceValue {
 impl UsertypeMethods for InstanceValue {
   fn get_method(&self, gc: &mut Gc, this: &Value, name: &str) -> UsageResult<Option<Value>> {
     if let Some(class) = self.class.as_class() {
-      here!("looking up {name}");
       Ok(class.get_method(gc, this, name))
     } else {
       Ok(None)
