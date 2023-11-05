@@ -54,7 +54,7 @@ pub(crate) fn compile(
   generator.generate(ast)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct SourceLocation {
   pub line: usize,
   pub column: usize,

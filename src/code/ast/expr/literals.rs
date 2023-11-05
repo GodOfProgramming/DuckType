@@ -119,16 +119,22 @@ impl AstExpression for ClassExpression {
           ast.advance();
           if initializer.is_none() {
             if ast.consume(Token::LeftParen, "expected '(' after 'new'") {
-              initializer = LambdaExpression::expr(ast, SelfRules::Require, Token::RightParen, |_this, params, mut body| {
-                body
-                  .statements
-                  .push(Statement::from(DefaultConstructorRet::new(member_loc.clone())));
-                Some(Expression::from(LambdaExpression::new(
-                  params.list,
-                  Statement::from(body),
-                  member_loc,
-                )))
-              });
+              initializer = LambdaExpression::expr(
+                ast,
+                false,
+                SelfRules::Require,
+                Token::RightParen,
+                |_this, params, mut body| {
+                  body
+                    .statements
+                    .push(Statement::from(DefaultConstructorRet::new(member_loc.clone())));
+                  Some(Expression::from(LambdaExpression::new(
+                    params.list,
+                    Statement::from(body),
+                    member_loc,
+                  )))
+                },
+              );
             }
           } else {
             ast.error::<0>(String::from("duplicate initializer found"));
@@ -142,7 +148,7 @@ impl AstExpression for ClassExpression {
               if let Some(params) = ast.parse_parameters(Token::RightParen) {
                 if let Some(ident) = ast.fn_ident(fn_name, &params) {
                   if !declared_functions.contains(&ident.name) {
-                    if let Some(function) = ast.parse_lambda(params, |_this, params, body| {
+                    if let Some(function) = ast.parse_lambda(true, params, |_this, params, body| {
                       declared_functions.insert(ident.name.clone());
                       if params.found_self {
                         Some(Expression::from(MethodExpression::new(
@@ -221,7 +227,7 @@ impl ClosureExpression {
       }
     }
 
-    LambdaExpression::expr(ast, SelfRules::Disallow, param_term, |_this, params, body| {
+    LambdaExpression::expr(ast, true, SelfRules::Disallow, param_term, |_this, params, body| {
       Some(Expression::from(ClosureExpression::new(
         vetted_captures,
         params.list,
@@ -248,7 +254,7 @@ impl LambdaExpression {
     }
   }
 
-  fn expr<F>(ast: &mut AstGenerator, self_rules: SelfRules, param_term: Token, f: F) -> Option<Expression>
+  fn expr<F>(ast: &mut AstGenerator, can_return: bool, self_rules: SelfRules, param_term: Token, f: F) -> Option<Expression>
   where
     F: FnOnce(&mut AstGenerator, Params, BlockStatement) -> Option<Expression>,
   {
@@ -263,7 +269,7 @@ impl LambdaExpression {
         ast.error::<0>(String::from("missing 'self' in function"));
         None
       }
-      _ => ast.parse_lambda(params, f),
+      _ => ast.parse_lambda(can_return, params, f),
     }
   }
 }
@@ -281,7 +287,7 @@ impl From<ClosureExpression> for LambdaExpression {
 impl AstExpression for LambdaExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     let loc = ast.meta_at::<0>()?;
-    LambdaExpression::expr(ast, SelfRules::Disallow, Token::Pipe, |_this, params, body| {
+    LambdaExpression::expr(ast, true, SelfRules::Disallow, Token::Pipe, |_this, params, body| {
       Some(Expression::from(LambdaExpression::new(
         params.list,
         Statement::from(body),
@@ -477,7 +483,7 @@ impl AstExpression for ModExpression {
               if let Some(params) = ast.parse_parameters(Token::RightParen) {
                 if let Some(ident) = ast.fn_ident(fn_name, &params) {
                   if !declared_items.contains(&ident.name) {
-                    if let Some(function) = ast.parse_lambda(params, |this, params, body| {
+                    if let Some(function) = ast.parse_lambda(true, params, |this, params, body| {
                       declared_items.insert(ident.name.clone());
                       if params.found_self {
                         this.error::<0>("cannot use ast in module function");
@@ -501,11 +507,11 @@ impl AstExpression for ModExpression {
           }
         }
         Token::RightBrace => break,
-        t => ast.error::<0>(format!("unexpected token in class {t}")),
+        t => ast.error::<0>(format!("unexpected token in module {t}")),
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '}' after class body") {
+    if !ast.consume(Token::RightBrace, "expected '}' after module body") {
       return None;
     }
 

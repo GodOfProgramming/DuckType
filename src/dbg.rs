@@ -153,6 +153,9 @@ pub(crate) mod macros {
     () => {
       crate::dbg::macros::_here(file!(), line!());
     };
+    ($($arg:tt)*) => {
+      crate::dbg::macros::_here_msg(file!(), line!(), format!($($arg)*));
+    }
   }
 
   pub(crate) use here;
@@ -160,6 +163,12 @@ pub(crate) mod macros {
   pub fn _here(file: &str, line: u32) {
     use std::io::{stdout, Write};
     println!("{}:{}", file, line);
+    stdout().flush().unwrap();
+  }
+
+  pub fn _here_msg(file: &str, line: u32, msg: impl ToString) {
+    use std::io::{stdout, Write};
+    println!("{}:{} => {}", file, line, msg.to_string());
     stdout().flush().unwrap();
   }
 }

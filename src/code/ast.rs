@@ -84,6 +84,8 @@ pub(crate) struct AstGenerator {
 
   in_loop: bool,
   export_found: bool,
+  returnable: bool,
+  scope_depth: usize,
 }
 
 impl AstGenerator {
@@ -97,6 +99,8 @@ impl AstGenerator {
       index: Default::default(),
       in_loop: Default::default(),
       export_found: false,
+      returnable: false,
+      scope_depth: 0,
     }
   }
 
@@ -210,7 +214,7 @@ impl AstGenerator {
     self.parse_precedence(Precedence::Assignment)
   }
 
-  fn parse_lambda<F>(&mut self, params: Params, f: F) -> Option<Expression>
+  fn parse_lambda<F>(&mut self, can_return: bool, params: Params, f: F) -> Option<Expression>
   where
     F: FnOnce(&mut Self, Params, BlockStatement) -> Option<Expression>,
   {
@@ -223,7 +227,7 @@ impl AstGenerator {
     }
 
     if let Some(block_loc) = self.meta_at::<1>() {
-      let body = self.block(block_loc)?;
+      let body = self.block(can_return, block_loc)?;
       f(self, params, body)
     } else {
       // sanity check
@@ -288,18 +292,15 @@ impl AstGenerator {
     if let Some(curr) = self.current() {
       if curr == expected {
         self.advance();
-        true
-      } else {
-        self.error::<0>(err.to_string());
-        false
+        return true;
       }
-    } else {
-      self.error::<1>(format!("tried to lookup a token at an invalid index: {}", err.to_string()));
-      false
     }
+
+    self.error::<0>(err.to_string());
+    false
   }
 
-  fn parse_fn(&mut self) -> Option<Statement> {
+  fn parse_fn(&mut self, can_return: bool) -> Option<Statement> {
     if let Some(loc) = self.meta_at::<0>() {
       if let Some(current) = self.current() {
         self.advance();
@@ -324,7 +325,7 @@ impl AstGenerator {
           if let Some(block_loc) = self.meta_at::<1>() {
             let ident = self.fn_ident(current, &params)?;
             self
-              .block(block_loc)
+              .block(can_return, block_loc)
               .map(|body| Statement::from(FnStatement::new(ident, params.list, Statement::from(body), loc)))
           } else {
             // sanity check
@@ -361,54 +362,82 @@ impl AstGenerator {
   }
 
   fn meta_at<const OFFSET: usize>(&mut self) -> Option<SourceLocation> {
-    self.meta.get(self.index - OFFSET).cloned().or_else(|| {
-      self.error::<OFFSET>(String::from("unable to get meta at position"));
-      None
-    })
+    self.meta.get(self.index - OFFSET).cloned()
   }
 
-  fn error<const I: usize>(&mut self, msg: impl AsRef<str> + Into<String>) {
-    if let Some(meta) = self.meta_at::<I>() {
-      self.errors.add(CompiletimeError {
-        msg: msg.into(),
-        file_display: self.file_id.map(FileDisplay::Id),
-        line: meta.line,
-        column: meta.column,
-      });
-    } else {
-      self.errors.add(CompiletimeError {
-        msg: format!("could not find location of token for msg '{}'", msg.as_ref()),
-        file_display: Default::default(),
-        line: 0,
-        column: 0,
-      });
+  fn add_error(&mut self, loc: SourceLocation, msg: impl ToString) {
+    self.errors.add(CompiletimeError {
+      msg: msg.to_string(),
+      file_display: self.file_id.map(FileDisplay::Id),
+      line: loc.line,
+      column: loc.column,
+    });
+  }
+
+  fn error<const I: usize>(&mut self, msg: impl AsRef<str> + ToString) {
+    let mut index = I;
+    'bt: loop {
+      if let Some(meta) = self.meta.get(index).cloned() {
+        self.add_error(meta, msg);
+        break 'bt;
+      }
+
+      match index.checked_sub(1) {
+        Some(i) => index = i,
+        None => {
+          self.add_error(
+            SourceLocation { line: 0, column: 0 },
+            format!("could not desperately find a location of token for msg '{}'", msg.as_ref()),
+          );
+          break 'bt;
+        }
+      }
     }
 
     self.sync();
   }
 
   fn sync(&mut self) {
+    let start_scope = self.scope_depth;
     while let Some(curr) = self.current() {
-      if let Some(prev) = self.previous() {
-        if prev == Token::Semicolon {
-          return;
+      if curr == Token::LeftBrace {
+        self.scope_depth += 1;
+      }
+
+      if curr == Token::RightBrace {
+        match self.scope_depth.checked_sub(1) {
+          Some(v) => self.scope_depth = v,
+          None => {
+            self.advance();
+            continue;
+          }
         }
       }
 
-      if matches!(
-        curr,
-        Token::Class
-          | Token::Fn
-          | Token::Let
-          | Token::For
-          | Token::If
-          | Token::While
-          | Token::Println
-          | Token::Ret
-          | Token::Match
-          | Token::Loop
-      ) {
-        return;
+      if self.scope_depth == start_scope {
+        // only if the ast gets past the entire body of something that has gone wrong
+        // can it resume parsing, otherwise it'll have a ton of cascading errors
+        if let Some(prev) = self.previous() {
+          if prev == Token::Semicolon {
+            return;
+          }
+        }
+
+        if matches!(
+          curr,
+          Token::Class
+            | Token::Fn
+            | Token::Let
+            | Token::For
+            | Token::If
+            | Token::While
+            | Token::Println
+            | Token::Ret
+            | Token::Match
+            | Token::Loop
+        ) {
+          return;
+        }
       }
 
       self.advance();
@@ -416,14 +445,23 @@ impl AstGenerator {
   }
 
   fn scope<F: FnOnce(&mut Self)>(&mut self, f: F) -> Vec<Statement> {
+    self.scope_depth += 1;
     let mut statements = Vec::default();
     mem::swap(&mut statements, &mut self.statements);
     f(self);
     mem::swap(&mut statements, &mut self.statements);
+
+    match self.scope_depth.checked_sub(1) {
+      Some(v) => self.scope_depth = v,
+      None => self.error::<0>("unclosed scope detected, probably missing a '{' somewhere"),
+    }
+
     statements
   }
 
-  fn block(&mut self, loc: SourceLocation) -> Option<BlockStatement> {
+  fn block(&mut self, returnable: bool, loc: SourceLocation) -> Option<BlockStatement> {
+    let prev_returnable = self.returnable;
+    self.returnable = returnable;
     let statements = self.scope(|this| {
       while let Some(token) = this.current() {
         if token == Token::RightBrace {
@@ -432,12 +470,17 @@ impl AstGenerator {
         this.statement(token);
       }
     });
+    self.returnable = prev_returnable;
 
     if self.consume(Token::RightBrace, "expected '}' after block") {
       Some(BlockStatement::new(statements, loc))
     } else {
       None
     }
+  }
+
+  fn normal_block(&mut self, loc: SourceLocation) -> Option<BlockStatement> {
+    self.block(self.returnable, loc)
   }
 
   fn branch(&mut self) -> Option<IfStatement> {
@@ -447,14 +490,14 @@ impl AstGenerator {
       }
 
       if let Some(block_loc) = self.meta_at::<1>() {
-        if let Some(block) = self.block(block_loc.clone()) {
+        if let Some(block) = self.normal_block(block_loc.clone()) {
           let else_block = if self.advance_if_matches(Token::Else) {
             if let Some(else_meta) = self.meta_at::<1>() {
               if let Some(token) = self.current() {
                 match token {
                   Token::LeftBrace => {
                     self.advance();
-                    Some(Statement::from(self.block(else_meta)?))
+                    Some(Statement::from(self.normal_block(else_meta)?))
                   }
                   Token::If => {
                     self.advance();
