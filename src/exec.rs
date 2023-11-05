@@ -140,8 +140,8 @@ pub enum Opcode {
   CreateDynamicVec,
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
   CreateClosure,
-  /** Create a new struct */
-  CreateStruct,
+  /** Create a new struct with the number of members as the bits */
+  CreateStruct(usize),
   /** Create a new class. Name is from the bits */
   CreateClass(usize),
   /** Create a new module. Name is from the bits */
@@ -338,7 +338,7 @@ impl Vm {
         Opcode::CreateSizedVec(repeat) => self.exec_op(|this| this.exec_sized_vec(repeat))?,
         Opcode::CreateDynamicVec => self.exec_op(|this| this.exec_dyn_vec())?,
         Opcode::CreateClosure => self.exec_op(|this| this.exec_create_closure())?,
-        Opcode::CreateStruct => self.exec_create_struct(),
+        Opcode::CreateStruct(size) => self.exec_op(|this| this.exec_create_struct(size))?,
         Opcode::CreateClass(name) => self.exec_op(|this| this.exec_create_class(name))?,
         Opcode::CreateModule(name) => self.exec_op(|this| this.exec_create_module(name))?,
         Opcode::Breakpoint => {
@@ -728,9 +728,24 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_create_struct(&mut self) {
-    let v = self.gc.allocate(StructValue::default());
-    self.stack_push(v);
+  fn exec_create_struct(&mut self, size: usize) -> OpcodeResult {
+    let mut members = Vec::with_capacity(size);
+
+    for _ in 0..size {
+      let key = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+      let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+      if let Some(key) = key.as_str() {
+        members.push(((**key).clone(), value));
+      } else {
+        Err(UsageError::InvalidIdentifier(key.to_string()))?;
+      }
+    }
+
+    let struct_value = self.gc.allocate(StructValue::new(members));
+
+    self.stack_push(struct_value);
+
+    Ok(())
   }
 
   fn exec_create_class(&mut self, location: usize) -> OpcodeResult {

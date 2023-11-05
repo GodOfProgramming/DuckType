@@ -38,6 +38,7 @@ strum = "0.25"
 strum_macros = "0.25"
 enum-map = "2.7"
 bimap = "0.6"
+ahash = "0.8"
 
 pprof = { version = "0.13", features = ["flamegraph"] }
 tokio = { version = "1.33", features = ["full"] }

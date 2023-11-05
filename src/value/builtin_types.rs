@@ -144,7 +144,7 @@ impl TraceableValue for Vec<Value> {
   }
 }
 
-impl<T> TraceableValue for HashMap<T, Value> {
+impl<T, S> TraceableValue for HashMap<T, Value, S> {
   fn trace(&self, marks: &mut Marker) {
     for value in self.values() {
       marks.trace(value);
@@ -152,7 +152,7 @@ impl<T> TraceableValue for HashMap<T, Value> {
   }
 }
 
-impl<T, V> TraceableValue for HashMap<T, V>
+impl<T, V, S> TraceableValue for HashMap<T, V, S>
 where
   V: TraceableValue,
 {

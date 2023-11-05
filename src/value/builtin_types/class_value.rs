@@ -62,7 +62,7 @@ impl UsertypeFields for ClassValue {
 #[methods]
 impl ClassValue {
   fn __ivk__(&mut self, vm: &mut Vm, class: Value, args: Args) -> UsageResult<()> {
-    let instance = vm.gc.allocate(InstanceValue::new(StructValue::default(), class.clone()));
+    let instance = vm.gc.allocate(InstanceValue::new(StructValue::empty(), class.clone()));
     if let Some(initializer) = &mut self.initializer {
       if let Some(initializer) = initializer.as_fn_mut() {
         let args = Args::new_with_this(instance.clone(), args.list);

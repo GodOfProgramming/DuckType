@@ -1,9 +1,10 @@
 #!/usr/bin/env -S -- ss run
 
-fn require(file) {
-  ret req file;
-}
+let s = struct {
+  x: "foo",
+  bar: struct {
 
-let x = require("syntaxerr");
+  },
+};
 
-println x;
+println s;
