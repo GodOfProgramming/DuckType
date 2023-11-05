@@ -1,4 +1,4 @@
-let sspec = req "lib/sspec/sspec.ss";
+req "lib/sspec/sspec.ss" as sspec;
 
 use sspec::describe;
 

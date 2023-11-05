@@ -5,6 +5,8 @@ use sspec::describe;
 let $COUNTER = 1;
 
 class SomeClass {
+  self as nil
+
   fn second(self, t) {
     println "second";
     println self;

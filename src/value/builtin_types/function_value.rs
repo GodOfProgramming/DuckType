@@ -38,7 +38,7 @@ impl FunctionValue {
     }
   }
 
-  pub fn invoke(&mut self, vm: &mut Vm, mut args: Args) -> UsageResult<()> {
+  pub fn invoke(&mut self, vm: &mut Vm, mut args: Args) -> UsageResult {
     args.list.reserve(self.locals);
     let env = UsertypeHandle::new(Gc::handle_from(&mut vm.gc, self.env.clone()));
     vm.run_fn(self.ctx.clone(), env, args).map_err(UsageError::Preformated)
@@ -59,7 +59,7 @@ impl FunctionValue {
 
 #[methods]
 impl FunctionValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, args: Args) -> UsageResult<()> {
+  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, args: Args) -> UsageResult {
     self.check_args(&args)?;
     self.invoke(vm, args)
   }

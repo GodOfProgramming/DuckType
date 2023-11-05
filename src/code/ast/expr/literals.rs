@@ -1,7 +1,10 @@
 use std::{collections::BTreeSet, fmt::Display};
 
 use crate::code::{
-  ast::{AstExpression, AstGenerator, BlockStatement, DefaultConstructorRet, Ident, Params, SelfRules, Statement},
+  ast::{
+    AstExpression, AstGenerator, BlockStatement, DefaultConstructorRet, Ident, Params, RetStatement, SelfRules, Statement,
+    SELF_IDENT,
+  },
   lex::{NumberToken, Token},
   SourceLocation,
 };
@@ -71,6 +74,7 @@ impl AstExpression for IdentExpression {
 #[derive(Debug)]
 pub struct ClassExpression {
   pub name: Ident,
+  pub creator: Box<Expression>,
   pub initializer: Option<Box<Expression>>,
   pub methods: Vec<(Ident, Expression)>,
   pub loc: SourceLocation,
@@ -79,12 +83,14 @@ pub struct ClassExpression {
 impl ClassExpression {
   pub(super) fn new(
     name: Ident,
+    creator: Expression,
     initializer: Option<Expression>,
     methods: Vec<(Ident, Expression)>,
     loc: SourceLocation,
   ) -> Self {
     Self {
       name,
+      creator: Box::new(creator),
       initializer: initializer.map(Box::new),
       methods,
       loc,
@@ -108,6 +114,7 @@ impl AstExpression for ClassExpression {
       return None;
     }
 
+    let mut creator = None;
     let mut initializer = None;
     let mut class_members = Vec::default();
     let mut declared_functions = BTreeSet::default();
@@ -115,6 +122,20 @@ impl AstExpression for ClassExpression {
     while let Some(token) = ast.current() {
       let member_loc = ast.meta_at::<0>()?;
       match token {
+        Token::Identifier(ident) if ident == SELF_IDENT => {
+          ast.advance();
+          ast.consume(Token::As, "expected 'as' keyword after self");
+          let initializer = ast.expression()?;
+          if creator.is_none() {
+            creator = Some(Expression::from(LambdaExpression::new(
+              Vec::default(),
+              Statement::Ret(RetStatement::new(Some(initializer), member_loc.clone())),
+              member_loc,
+            )));
+          } else {
+            ast.error::<0>("self is already defined");
+          }
+        }
         Token::New => {
           ast.advance();
           if initializer.is_none() {
@@ -184,12 +205,18 @@ impl AstExpression for ClassExpression {
       return None;
     }
 
-    Some(Expression::from(ClassExpression::new(
-      name,
-      initializer,
-      class_members,
-      class_loc,
-    )))
+    if let Some(creator) = creator.take() {
+      Some(Expression::from(ClassExpression::new(
+        name,
+        creator,
+        initializer,
+        class_members,
+        class_loc,
+      )))
+    } else {
+      ast.error::<0>("self must be defined in classes");
+      None
+    }
   }
 }
 

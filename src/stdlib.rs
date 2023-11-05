@@ -29,8 +29,8 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
 
     lib.define("debug", Value::native(debug));
 
-    defmod(gc, lib, "obj", |_, mut lib| {
-      lib.define("fields", Value::native(fields));
+    defmod(gc, lib, "obj", |_, _lib| {
+      // lib.define("fields", Value::native(fields));
     });
 
     defmod(gc, lib, "reflect", |_, mut lib| {
@@ -68,22 +68,22 @@ fn debug(value: Value) -> UsageResult<String> {
   Ok(format!("{:?}", value))
 }
 
-#[native]
-fn fields(value: Value) -> UsageResult<Vec<StringValue>> {
-  fn get_fields(s: &StructValue) -> Vec<StringValue> {
-    s.members.keys().cloned().map(StringValue::from).collect()
-  }
+// #[native]
+// fn fields(value: Value) -> UsageResult<Vec<StringValue>> {
+//   fn get_fields(s: &StructValue) -> Vec<StringValue> {
+//     s.members.keys().cloned().map(StringValue::from).collect()
+//   }
 
-  let mut fields = Vec::default();
+//   let mut fields = Vec::default();
 
-  if let Some(i) = value.as_instance() {
-    fields.extend(get_fields(&i.data))
-  } else if let Some(s) = value.as_struct() {
-    fields.extend(get_fields(s))
-  }
+//   if let Some(i) = value.as_instance() {
+//     fields.extend(get_fields(&i.data))
+//   } else if let Some(s) = value.as_struct() {
+//     fields.extend(get_fields(s))
+//   }
 
-  Ok(fields)
-}
+//   Ok(fields)
+// }
 
 #[native(with_vm)]
 fn defined(vm: &mut Vm, name: &StringValue) -> UsageResult<bool> {

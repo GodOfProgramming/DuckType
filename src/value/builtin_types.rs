@@ -67,15 +67,10 @@ where
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  fn get(&self, gc: &mut Gc, this: &Value, field: &str) -> UsageResult {
-    match <Self as UsertypeFields>::get_field(self, gc, field) {
-      Ok(Some(value)) => Ok(value),
-      Ok(None) => match <Self as UsertypeMethods>::get_method(self, gc, this, field) {
-        Ok(Some(value)) => Ok(value),
-        Ok(None) => Ok(Value::nil),
-        Err(e) => Err(e),
-      },
-      Err(e) => Err(e),
+  fn get(&self, gc: &mut Gc, this: &Value, field: &str) -> UsageResult<Option<Value>> {
+    match <Self as UsertypeFields>::get_field(self, gc, field)? {
+      Some(value) => Ok(Some(value)),
+      None => <Self as UsertypeMethods>::get_method(self, gc, this, field),
     }
   }
 
@@ -110,7 +105,7 @@ pub trait ResolvableValue: DisplayValue {
 
 pub trait InvocableValue {
   #[allow(unused_variables)]
-  fn __ivk__(&mut self, vm: &mut Vm, this: Value, args: Args) -> UsageResult<()> {
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, args: Args) -> UsageResult {
     Err(UsageError::UndefinedMethod("__ivk__"))
   }
 }
@@ -182,6 +177,7 @@ where
   }
 }
 
+#[derive(Default)]
 pub struct Args {
   pub list: Vec<Value>,
 }

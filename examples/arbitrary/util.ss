@@ -4,6 +4,10 @@ fn global_fn(x) {
 
 export mod util {
   class ModuleClass {
+    self as struct {
+      value: nil
+    }
+
     new(self) {
       self.value = "MODULE";
     }

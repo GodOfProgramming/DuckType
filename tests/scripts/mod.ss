@@ -6,6 +6,10 @@ let $TEST_STRING = "foobarbaz";
 
 mod Foo {
   class Bar {
+    self as struct {
+      value: nil,
+    }
+
     new(self, value) {
       self.value = value;
     }

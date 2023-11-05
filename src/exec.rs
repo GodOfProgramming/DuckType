@@ -237,15 +237,12 @@ impl Vm {
     self.execute(ExecType::String)
   }
 
-  pub fn run_fn(&mut self, ctx: SmartPtr<Context>, env: UsertypeHandle<ModuleValue>, args: Args) -> ExecResult<()> {
+  pub fn run_fn(&mut self, ctx: SmartPtr<Context>, env: UsertypeHandle<ModuleValue>, args: Args) -> ExecResult<Value> {
     self.new_frame(ctx);
     self.set_stack(args.list);
     self.envs.push(EnvEntry::Fn(env));
 
-    let output = self.execute(ExecType::Fn)?;
-    self.stack_push(output);
-
-    Ok(())
+    self.execute(ExecType::Fn)
   }
 
   pub(crate) fn exec_op<F, T>(&mut self, f: F) -> ExecResult<T>
@@ -389,11 +386,6 @@ impl Vm {
       }
 
       self.current_frame.ip += 1;
-    }
-
-    #[cfg(feature = "runtime-disassembly")]
-    {
-      println!("<< END >>");
     }
 
     match exec_type {
@@ -561,7 +553,7 @@ impl Vm {
     let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     if let ConstantValue::String(name) = name {
-      let value = obj.get_member(&mut self.gc, name)?;
+      let value = obj.get_member(&mut self.gc, name)?.unwrap_or_default();
       self.stack_push(value);
       Ok(())
     } else {
@@ -575,7 +567,7 @@ impl Vm {
     let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     if let ConstantValue::String(name) = name {
-      let member = value.get_member(&mut self.gc, name)?;
+      let member = value.get_member(&mut self.gc, name)?.unwrap_or_default();
       self.stack_push(member);
       Ok(())
     } else {
@@ -749,10 +741,11 @@ impl Vm {
   }
 
   fn exec_create_class(&mut self, location: usize) -> OpcodeResult {
+    let creator = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
 
     if let ConstantValue::String(name) = name {
-      let v = self.gc.allocate(ClassValue::new(name));
+      let v = self.gc.allocate(ClassValue::new(name, creator));
       self.stack_push(v);
       Ok(())
     } else {
@@ -941,7 +934,10 @@ impl Vm {
         _ => Err(UsageError::InvalidUnary)?,
       };
 
-      let callable = value.get_member(&mut self.gc, key)?;
+      let callable = value
+        .get_member(&mut self.gc, key)?
+        .map(Ok)
+        .unwrap_or(Err(UsageError::UnexpectedNil))?;
       self.call_value(callable, [])
     } else {
       self.stack_push(f(value)?);
@@ -972,7 +968,11 @@ impl Vm {
         _ => Err(UsageError::InvalidBinary)?,
       };
 
-      let callable = av.get_member(&mut self.gc, key)?;
+      let callable = av
+        .get_member(&mut self.gc, key)?
+        .map(Ok)
+        .unwrap_or(Err(UsageError::UnexpectedNil))?;
+
       self.call_value(callable, [bv])
     } else {
       self.stack_push(f(av, bv)?);
@@ -1088,7 +1088,8 @@ impl Vm {
   }
 
   fn call_value(&mut self, mut callable: Value, args: impl Into<Vec<Value>>) -> Result<(), UsageError> {
-    callable.call(self, Args::new(args))?;
+    let value = callable.call(self, Args::new(args))?;
+    self.stack_push(value);
 
     Ok(())
   }

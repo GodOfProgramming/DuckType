@@ -422,12 +422,11 @@ impl Value {
     self.is_type::<NIL_TAG>()
   }
 
-  pub fn call(&mut self, vm: &mut Vm, args: Args) -> UsageResult<()> {
+  pub fn call(&mut self, vm: &mut Vm, args: Args) -> UsageResult {
     if self.tag() == Tag::NativeFn {
       let f = self.as_native_fn_unchecked();
       let output = f(vm, args)?;
-      vm.stack_push(output);
-      Ok(())
+      Ok(output)
     } else {
       (self.vtable().invoke)(self.pointer_mut(), vm as *mut Vm as MutVoid, self.clone(), args)
     }
@@ -435,20 +434,12 @@ impl Value {
 
   // value methods
 
-  pub fn get_member(&self, gc: &mut Gc, name: &str) -> UsageResult {
-    if self.is_ptr() {
-      (self.vtable().get_member)(self, gc as *mut Gc as MutVoid, name)
-    } else {
-      Err(UsageError::InvalidLookup(self.clone()))
-    }
+  pub fn get_member(&self, gc: &mut Gc, name: &str) -> UsageResult<Option<Value>> {
+    (self.vtable().get_member)(self, gc as *mut Gc as MutVoid, name)
   }
 
   pub fn set_member(&mut self, gc: &mut Gc, name: &str, value: Value) -> UsageResult<()> {
-    if self.is_ptr() {
-      (self.vtable().set_member)(self.pointer_mut(), gc as *mut Gc as MutVoid, name, value)
-    } else {
-      Err(UsageError::InvalidLookup(self.clone()))
-    }
+    (self.vtable().set_member)(self.pointer_mut(), gc as *mut Gc as MutVoid, name, value)
   }
 
   pub fn define(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> UsageResult<bool> {
@@ -945,14 +936,14 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  get_member: fn(&Value, MutVoid, &str) -> UsageResult,
+  get_member: fn(&Value, MutVoid, &str) -> UsageResult<Option<Value>>,
   set_member: fn(MutVoid, MutVoid, &str, Value) -> UsageResult<()>,
 
   define: fn(MutVoid, &str, Value) -> UsageResult<bool>,
   assign: fn(MutVoid, &str, Value) -> UsageResult<bool>,
   resolve: fn(ConstVoid, &str) -> UsageResult,
 
-  invoke: fn(MutVoid, MutVoid, Value, Args) -> UsageResult<()>,
+  invoke: fn(MutVoid, MutVoid, Value, Args) -> UsageResult,
 
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,

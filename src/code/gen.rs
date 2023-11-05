@@ -584,6 +584,7 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn class_expr(&mut self, expr: ClassExpression) {
     let ident = self.add_const_ident(expr.name);
+    self.emit_expr(*expr.creator);
     self.emit(Opcode::CreateClass(ident), expr.loc.clone());
 
     if let Some(initializer) = expr.initializer {

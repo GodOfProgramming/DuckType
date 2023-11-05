@@ -308,6 +308,9 @@ pub enum UsageError {
   #[error("unable to find file, tried: {0:#?}")]
   BadReq(Vec<PathBuf>),
 
+  #[error("unexpected nil value")]
+  UnexpectedNil,
+
   /* Below can only be reached from bad bytecode generation */
   #[error("Empty stack")]
   EmptyStack,

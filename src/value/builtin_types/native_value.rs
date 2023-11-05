@@ -32,10 +32,8 @@ impl NativeClosureValue {
     format!("{}", self)
   }
 
-  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, args: Args) -> UsageResult<()> {
-    let output = (*self.callee)(vm, args)?;
-    vm.stack_push(output);
-    Ok(())
+  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, args: Args) -> UsageResult {
+    (*self.callee)(vm, args)
   }
 }
 
@@ -64,7 +62,7 @@ impl NativeMethodValue {
 
 #[methods]
 impl NativeMethodValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, mut args: Args) -> UsageResult<()> {
+  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, mut args: Args) -> UsageResult {
     args.list.push(self.this.clone());
     self.callee.call(vm, args)
   }

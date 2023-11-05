@@ -551,7 +551,7 @@ mod tests {
 
     let mut value = StructValue::new([("child", Value::nil)]);
     let child = gc.allocate(SomeType {});
-    value.set("child", child);
+    value.set_field(&mut gc, "child", child).unwrap();
 
     {
       let _handle = Gc::allocate_handle(&mut gc, value);

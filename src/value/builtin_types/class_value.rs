@@ -6,6 +6,9 @@ use std::collections::BTreeMap;
 pub struct ClassValue {
   pub name: String,
   #[trace]
+  pub creator: Value,
+
+  #[trace]
   pub initializer: Option<Value>,
   #[trace]
   pub methods: BTreeMap<String, FunctionValue>,
@@ -14,8 +17,9 @@ pub struct ClassValue {
 }
 
 impl ClassValue {
-  pub fn new(name: impl ToString) -> Self {
+  pub fn new(name: impl ToString, creator: Value) -> Self {
     Self {
+      creator,
       name: name.to_string(),
       initializer: None,
       methods: Default::default(),
@@ -61,19 +65,21 @@ impl UsertypeFields for ClassValue {
 
 #[methods]
 impl ClassValue {
-  fn __ivk__(&mut self, vm: &mut Vm, class: Value, args: Args) -> UsageResult<()> {
-    let instance = vm.gc.allocate(InstanceValue::new(StructValue::empty(), class.clone()));
+  fn __ivk__(&mut self, vm: &mut Vm, class: Value, args: Args) -> UsageResult {
+    let self_type = self.creator.call(vm, Args::default())?;
+
+    let instance = vm.gc.allocate(InstanceValue::new(self_type, class.clone()));
+
     if let Some(initializer) = &mut self.initializer {
       if let Some(initializer) = initializer.as_fn_mut() {
         let args = Args::new_with_this(instance.clone(), args.list);
-        initializer.__ivk__(vm, Value::nil, args)?;
+        initializer.__ivk__(vm, Value::nil, args)
       } else {
-        Err(UsageError::MethodType)?;
+        Err(UsageError::MethodType)
       }
     } else {
-      vm.stack_push(instance);
-    };
-    Ok(())
+      Ok(instance)
+    }
   }
 
   fn __str__(&self) -> String {

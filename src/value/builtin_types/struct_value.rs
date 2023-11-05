@@ -43,10 +43,6 @@ impl StructValue {
 
     Self { members: map }
   }
-
-  pub fn set(&mut self, name: impl ToString, value: Value) {
-    self.members.insert(name.to_string(), value.clone());
-  }
 }
 
 impl UsertypeFields for StructValue {
@@ -55,7 +51,7 @@ impl UsertypeFields for StructValue {
   }
 
   fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> UsageResult<()> {
-    self.set(field, value);
+    self.members.insert(field.to_string(), value.clone());
     Ok(())
   }
 }

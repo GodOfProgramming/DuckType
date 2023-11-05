@@ -1,4 +1,8 @@
 class Foo {
+  self as struct {
+    value: nil
+  }
+
   new(self, v) {
     self.value = v;
   }

@@ -1,6 +1,10 @@
-class TestClass {}
+class TestClass {
+  self as nil
+}
 
 class A {
+  self as nil
+
   fn new_b() {
     ret B();
   }
@@ -11,6 +15,8 @@ class A {
 }
 
 class B {
+  self as nil
+
   fn new_a() {
     ret A();
   }
@@ -41,7 +47,9 @@ export mod test {
     some_func();
   }
 
-  class Foo {}
+  class Foo {
+    self as nil
+  }
 
   mod Bar {
     mod Baz {}

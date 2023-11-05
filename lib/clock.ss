@@ -1,19 +1,18 @@
-req "time";
-
-use time.Monotonic;
+use std::time::mono;
 
 class Clock {
-  new(self) {
-    self._elapsed = 0;
+  self as struct {
+    _elapsed: 0,
+    timestamp: mono::now(),
   }
 
-  fn start(self) {
-    self.timestamp = Monotonic.now();
+  fn restart(self) {
+    self.timestamp = mono::now();
   }
 
   fn stop(self) {
     if self.timestamp {
-      self._elapsed += Monotonic.elapsed(self.timestamp);
+      self._elapsed += mono::elapsed(self.timestamp);
       self.timestamp = nil;
     }
   }

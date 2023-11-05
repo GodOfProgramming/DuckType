@@ -343,7 +343,7 @@ pub struct RetStatement {
 }
 
 impl RetStatement {
-  pub(super) fn new(expr: Option<Expression>, loc: SourceLocation) -> Self {
+  pub(crate) fn new(expr: Option<Expression>, loc: SourceLocation) -> Self {
     Self { expr, loc }
   }
 }

@@ -3,6 +3,10 @@ let sspec = req "lib/sspec/sspec.ss";
 use sspec::describe;
 
 class Number {
+  self as struct {
+    n: 0,
+  }
+
   new(self, n) {
     self.n = n;
   }
