@@ -6,15 +6,19 @@ let REPS = 10_000_000;
 
 let x = 0;
 
-benchmark("DISABLED_simple math", REPS, [x] |timer: Timer, i| {
+benchmark("simple math", REPS, [x] |timer: Timer, i| {
+  timer.start();
   i += 1;
   x += i + i * i / i % i;
+  timer.stop();
 });
 
 fn simple_function() {}
 
-benchmark("DISABLED_function calls", REPS, |timer: Timer, _i| {
+benchmark("function calls", REPS, |timer: Timer, _i| {
+  timer.start();
   simple_function();
+  timer.stop();
 });
 
 let $OBJ = struct {

@@ -72,6 +72,7 @@ impl ModuleValue {
   /// Assigns to an existing variable. Returns true if the variable already exists, false otherwise
   pub fn assign(&mut self, name: impl Into<String>, value: impl Into<Value>) -> bool {
     let name = name.into();
+    let value = value.into();
     if let Entry::Occupied(mut e) = self.env.entry(name.clone()) {
       e.insert(value.into());
       true
@@ -79,7 +80,7 @@ impl ModuleValue {
       self
         .parent
         .cast_to_mut::<Self>()
-        .map(|m| m.assign(name, value))
+        .map(|m| m.assign(&name, value.clone()))
         .unwrap_or(false)
     }
   }

@@ -2,20 +2,27 @@ use crate::{
   code::{ConstantValue, Reflection},
   prelude::*,
 };
+use std::mem;
+
+use super::Register;
 
 pub mod prelude {
-  pub use super::{Context, Program};
+  pub use super::{BitsRepr, Context, Program};
 }
+
+pub type BitsRepr = u32;
+
+static_assertions::const_assert!(mem::size_of::<BitsRepr>() <= mem::size_of::<usize>());
 
 #[derive(Default)]
 pub struct Program {
   consts: Vec<ConstantValue>,
-  strings: bimap::BiBTreeMap<usize, String>,
+  strings: bimap::BiBTreeMap<BitsRepr, String>,
 }
 
 impl Program {
-  pub fn const_at(&self, index: usize) -> Option<&ConstantValue> {
-    self.consts.get(index)
+  pub fn const_at(&self, index: BitsRepr) -> Option<&ConstantValue> {
+    self.consts.get(index as usize)
   }
 
   #[cfg(debug_assertions)]
@@ -23,24 +30,24 @@ impl Program {
     &self.consts
   }
 
-  pub(crate) fn add_const(&mut self, c: ConstantValue) -> usize {
+  pub(crate) fn add_const(&mut self, c: ConstantValue) -> Option<BitsRepr> {
     let string = if let ConstantValue::String(string) = &c {
       if let Some(index) = self.strings.get_by_right(string.as_str()) {
-        return *index;
+        return Some(*index);
       }
       Some(string.clone())
     } else {
       None
     };
 
-    let index = self.consts.len();
+    let index = self.consts.len().try_into().ok()?;
     self.consts.push(c);
 
     if let Some(string) = string {
       self.strings.insert(index, string);
     }
 
-    index
+    Some(index)
   }
 }
 
@@ -126,30 +133,32 @@ impl Context {
         );
       }
       Opcode::PopN(count) => println!("{} {}", Self::opcode_column("PopN"), Self::value_column(*count)),
-      Opcode::LookupGlobal(name) => println!(
+      Opcode::Load(storage) => match storage {
+        crate::exec::Storage::Local(index) => println!("{} {}", Self::opcode_column("Load Local"), Self::value_column(*index)),
+        crate::exec::Storage::Global(index) => println!(
+          "{} {} {}",
+          Self::opcode_column("Load Global"),
+          Self::value_column(*index),
+          self.const_at_column(program, *index),
+        ),
+        crate::exec::Storage::Reg(reg) => println!("{} {}", Self::opcode_column("Load Reg"), Self::reg_column(*reg)),
+      },
+      Opcode::Store(storage) => match storage {
+        crate::exec::Storage::Local(index) => println!("{} {}", Self::opcode_column("Store Local"), Self::value_column(*index)),
+        crate::exec::Storage::Global(index) => println!(
+          "{} {} {}",
+          Self::opcode_column("Store Global"),
+          Self::value_column(*index),
+          self.const_at_column(program, *index),
+        ),
+        crate::exec::Storage::Reg(reg) => println!("{} {}", Self::opcode_column("Store Reg"), Self::reg_column(*reg)),
+      },
+      Opcode::Define(ident) => println!(
         "{} {} {}",
-        Self::opcode_column("LookupGlobal"),
-        Self::value_column(*name),
-        self.const_at_column(program, *name),
+        Self::opcode_column("Define"),
+        Self::value_column(*ident),
+        self.const_at_column(program, *ident)
       ),
-      Opcode::DefineGlobal(name) => println!(
-        "{} {} {}",
-        Self::opcode_column("DefineGlobal"),
-        Self::value_column(*name),
-        self.const_at_column(program, *name),
-      ),
-      Opcode::AssignGlobal(name) => println!(
-        "{} {} {}",
-        Self::opcode_column("AssignGlobal"),
-        Self::value_column(*name),
-        self.const_at_column(program, *name),
-      ),
-      Opcode::LookupLocal(index) => {
-        println!("{} {}", Self::opcode_column("LookupLocal"), Self::value_column(*index))
-      }
-      Opcode::AssignLocal(index) => {
-        println!("{} {}", Self::opcode_column("AssignLocal"), Self::value_column(*index))
-      }
       Opcode::AssignMember(index) => {
         println!(
           "{} {} {}",
@@ -166,25 +175,35 @@ impl Context {
           self.const_at_column(program, *index)
         );
       }
-      Opcode::Jump(count) => println!("{} {: >14}", Self::opcode_column("Jump"), Self::address_of(offset + count)),
+      Opcode::Jump(count) => println!(
+        "{} {: >14}",
+        Self::opcode_column("Jump"),
+        Self::address_of(offset + *count as usize)
+      ),
       Opcode::JumpIfFalse(count) => {
         println!(
           "{} {: >14}",
           Self::opcode_column("JumpIfFalse"),
-          Self::address_of(offset + count)
+          Self::address_of(offset + *count as usize)
         )
       }
-      Opcode::Loop(count) => println!("{} {: >14}", Self::opcode_column("Loop"), Self::address_of(offset - count)),
-      Opcode::Or(count) => println!("{} {: >14}", Self::opcode_column("Or"), Self::address_of(offset + count)),
-      Opcode::And(count) => println!("{} {: >14}", Self::opcode_column("And"), Self::address_of(offset + count)),
+      Opcode::Loop(count) => println!(
+        "{} {: >14}",
+        Self::opcode_column("Loop"),
+        Self::address_of(offset - *count as usize)
+      ),
+      Opcode::Or(count) => println!(
+        "{} {: >14}",
+        Self::opcode_column("Or"),
+        Self::address_of(offset + *count as usize)
+      ),
+      Opcode::And(count) => println!(
+        "{} {: >14}",
+        Self::opcode_column("And"),
+        Self::address_of(offset + *count as usize)
+      ),
       Opcode::Invoke(count) => println!("{} {}", Self::opcode_column("Call"), Self::value_column(*count)),
       Opcode::CreateVec(count) => println!("{} {}", Self::opcode_column("CreateList"), Self::value_column(*count)),
-      Opcode::Define(ident) => println!(
-        "{} {} {}",
-        Self::opcode_column("Define"),
-        Self::value_column(*ident),
-        self.const_at_column(program, *ident)
-      ),
       Opcode::Resolve(ident) => println!(
         "{} {} {}",
         Self::opcode_column("Resolve"),
@@ -199,11 +218,15 @@ impl Context {
     format!("{:<20}", opcode.to_string())
   }
 
-  fn value_column(value: usize) -> String {
+  fn reg_column(value: Register) -> String {
+    format!("{: >4?}", value)
+  }
+
+  fn value_column(value: BitsRepr) -> String {
     format!("{: >4}", value)
   }
 
-  fn const_at_column(&self, program: &Program, index: usize) -> String {
+  fn const_at_column(&self, program: &Program, index: BitsRepr) -> String {
     let cval = &ConstantValue::StaticString("????");
     let value = program.const_at(index).unwrap_or(cval);
     format!("{value: >4?}")

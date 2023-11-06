@@ -4,7 +4,7 @@ use ptr::SmartPtr;
 #[derive(Clone, Usertype, Fields)]
 #[uuid("4263e9fa-21fe-420c-b5a9-beca8fe3ca05")]
 pub struct FunctionValue {
-  pub airity: usize,
+  pub airity: BitsRepr,
   locals: usize,
   ctx: SmartPtr<Context>,
   #[trace]
@@ -12,7 +12,7 @@ pub struct FunctionValue {
 }
 
 impl FunctionValue {
-  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>, env: Value) -> Self {
+  pub fn new(airity: BitsRepr, locals: usize, ctx: SmartPtr<Context>, env: Value) -> Self {
     Self {
       airity,
       locals,
@@ -31,10 +31,10 @@ impl FunctionValue {
   }
 
   pub fn check_args(&self, args: &Args) -> UsageResult<()> {
-    if args.list.len() == self.airity {
+    if args.list.len() == self.airity as usize {
       Ok(())
     } else {
-      Err(UsageError::ArgumentError(args.list.len(), self.airity))
+      Err(UsageError::ArgumentError(args.list.len(), self.airity as usize))
     }
   }
 

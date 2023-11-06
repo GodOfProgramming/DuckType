@@ -1,5 +1,6 @@
 use crate::{
   code::{FileMap, OpcodeReflection},
+  exec::prelude::BitsRepr,
   util::FileIdType,
   value::Value,
 };
@@ -325,10 +326,10 @@ pub enum UsageError {
   InvalidIdentifier(String),
 
   #[error("Constant not found at index {0}")]
-  InvalidConst(usize),
+  InvalidConst(BitsRepr),
 
   #[error("Stack entry not found at index {0}")]
-  InvalidStackIndex(usize),
+  InvalidStackIndex(BitsRepr),
 
   #[error("could not fetch info for instruction {0:04X}")]
   IpOutOfBounds(usize),

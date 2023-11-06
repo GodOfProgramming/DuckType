@@ -226,7 +226,7 @@ impl AstStatement for LoopStatement {
     ast.in_loop = true;
 
     if let Some(loc) = ast.meta_at::<1>() {
-      if let Some(block) = ast.normal_block(loc.clone()) {
+      if let Some(block) = ast.normal_block(loc) {
         ast
           .statements
           .push(Statement::from(LoopStatement::new(Statement::from(block), loc)));
@@ -401,7 +401,7 @@ impl AstStatement for WhileStatement {
       ast.in_loop = true;
 
       ast.meta_at::<1>().unwrap_and(|loc| {
-        if let Some(block) = ast.normal_block(loc.clone()) {
+        if let Some(block) = ast.normal_block(loc) {
           ast
             .statements
             .push(Statement::from(WhileStatement::new(expr, Statement::from(block), loc)));

@@ -129,7 +129,7 @@ impl AstExpression for ClassExpression {
           if creator.is_none() {
             creator = Some(Expression::from(LambdaExpression::new(
               Vec::default(),
-              Statement::Ret(RetStatement::new(Some(initializer), member_loc.clone())),
+              Statement::Ret(RetStatement::new(Some(initializer), member_loc)),
               member_loc,
             )));
           } else {
@@ -146,9 +146,7 @@ impl AstExpression for ClassExpression {
                 SelfRules::Require,
                 Token::RightParen,
                 |_this, params, mut body| {
-                  body
-                    .statements
-                    .push(Statement::from(DefaultConstructorRet::new(member_loc.clone())));
+                  body.statements.push(Statement::from(DefaultConstructorRet::new(member_loc)));
                   Some(Expression::from(LambdaExpression::new(
                     params.list,
                     Statement::from(body),
@@ -569,7 +567,6 @@ impl AstExpression for StructExpression {
     let mut members = Vec::default();
 
     while let Some(token) = ast.current() {
-      let struct_meta = struct_meta.clone();
       if token == Token::RightBrace {
         break;
       }

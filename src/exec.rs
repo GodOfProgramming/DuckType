@@ -33,7 +33,7 @@ pub mod prelude {
 const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(100);
 
 #[cfg(not(test))]
-const DEFAULT_GC_FREQUENCY: Duration = Duration::from_secs(1);
+const DEFAULT_GC_FREQUENCY: Duration = Duration::from_millis(16);
 
 type ExecResult<T = ()> = Result<T, Error>;
 
@@ -45,11 +45,18 @@ struct NativeApi {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Storage {
+  Local(BitsRepr),
+  Global(BitsRepr),
+  Reg(Register),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Opcode {
   /** No operation instruction */
   NoOp,
   /** Looks up a constant value at the specified location. Location is specified by the tuple */
-  Const(usize),
+  Const(BitsRepr),
   /** Pushes a nil value on to the stack */
   Nil,
   /** Pushes a true value on to the stack */
@@ -59,29 +66,23 @@ pub enum Opcode {
   /** Pops a value off the stack */
   Pop,
   /** Pops N values off the stack. N is specified by tuple */
-  PopN(usize),
-  /** Looks up a local variable. The index in the stack is specified by the modifying bits */
-  LookupLocal(usize),
-  /** Assigns a value to the local variable indexed by the tuple. The value comes off the top of the stack */
-  AssignLocal(usize),
-  /** Defines a new global variable. The name is stored in the enum. The value comes off the top of the stack */
-  DefineGlobal(usize),
-  /** Looks up a global variable. The name is stored in the enum */
-  LookupGlobal(usize),
-  /** Assigns a value to the global variable. The Name is stored in the enum. The value comes off the top of the stack */
-  AssignGlobal(usize),
+  PopN(BitsRepr),
+  /** Store a value in the specified register */
+  Store(Storage),
+  /** Load a value in the specified register */
+  Load(Storage),
   /** Defines a member on an object type. The first item popped off the stack is the value. The object is next which is left on for further assignments. The member name is specified by the modifying bits */
-  AssignMember(usize),
+  AssignMember(BitsRepr),
   /** Initializes a member of an object, keeping the object on the stack for further assignments */
-  InitializeMember(usize),
+  InitializeMember(BitsRepr),
   /** Initializes a method on a class, keeping the class on the stack for further assignments */
-  InitializeMethod(usize),
+  InitializeMethod(BitsRepr),
   /** Initializes the constructor on a class, keeping the class on the stack for further assignments */
   InitializeConstructor,
   /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
-  LookupMember(usize),
+  LookupMember(BitsRepr),
   /** Uses the constant pointed to by the modifying bits to peek at a value on the next item on the stack */
-  PeekMember(usize),
+  PeekMember(BitsRepr),
   /** Pops two values off the stack, compares, then pushes the result back on */
   Equal,
   /** Pops two values off the stack, compares, then pushes the result back on */
@@ -94,7 +95,7 @@ pub enum Opcode {
   Less,
   /** Pops two values off the stack, compares, then pushes the result back on */
   LessEqual,
-  /** Pops a value off the stack, and compars it with the peeked value, pushing the new value on */
+  /** Pops a value off the stack, and compares it with the peeked value, pushing the new value on */
   Check,
   /** Pops two values off the stack, calculates the sum, then pushes the result back on */
   Add,
@@ -107,9 +108,9 @@ pub enum Opcode {
   /** Pops two values off the stack, calculates the remainder, then pushes the result back on */
   Rem,
   /** Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple */
-  Or(usize),
+  Or(BitsRepr),
   /** Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple */
-  And(usize),
+  And(BitsRepr),
   /** Pops a value off the stack, inverts its truthy value, then pushes that back on */
   Not,
   /** Pops a value off the stack, inverts its numerical value, then pushes that back on */
@@ -117,13 +118,13 @@ pub enum Opcode {
   /** Pops a value off the stack and prints it to the screen */
   Println,
   /** Jumps to a code location indicated by the tuple */
-  Jump(usize),
+  Jump(BitsRepr),
   /** Jumps to a code location indicated by the tuple */
-  JumpIfFalse(usize),
+  JumpIfFalse(BitsRepr),
   /** Jumps the instruction pointer backwards N instructions. N specified by the tuple */
-  Loop(usize),
+  Loop(BitsRepr),
   /** Calls the value on the stack. Number of arguments is specified by the modifying bits */
-  Invoke(usize),
+  Invoke(BitsRepr),
   /** Exits from a function, returning nil on the previous frame */
   Ret,
   /** Exits from a function, returning the last value on the stack to the previous frame */
@@ -133,35 +134,31 @@ pub enum Opcode {
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
   /** Create a vec of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
-  CreateVec(usize),
+  CreateVec(BitsRepr),
   /** Create a vec of values and push it on the stack. The last item on the stack is copied as many times as the param indicates */
-  CreateSizedVec(usize),
+  CreateSizedVec(BitsRepr),
   /** Create a vec of values and push it on the stack. The last item is the number of times and the next is the item to be copied the times specified */
   CreateDynamicVec,
   /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
   CreateClosure,
   /** Create a new struct with the number of members as the bits */
-  CreateStruct(usize),
+  CreateStruct(BitsRepr),
   /** Create a new class. Name is from the bits */
-  CreateClass(usize),
+  CreateClass(BitsRepr),
   /** Create a new module. Name is from the bits */
-  CreateModule(usize),
+  CreateModule(BitsRepr),
   /** Halt the VM when this instruction is reached and enter repl mode */
   Breakpoint,
   /** Mark the current value as exported */
   Export,
   /** Defines the identifier on the variable */
-  Define(usize),
+  Define(BitsRepr),
   /** Resolve the specified identifier */
-  Resolve(usize),
+  Resolve(BitsRepr),
   /** Push a new env */
   EnterBlock,
   /** Pop an env */
   PopScope,
-  /** Store a value in the specified register */
-  Store(Register),
-  /** Load a value in the specified register */
-  Load(Register),
   /**  */
   PushRegCtx,
   /**  */
@@ -280,11 +277,19 @@ impl Vm {
         Opcode::False => self.exec_false(),
         Opcode::Pop => self.exec_pop(),
         Opcode::PopN(count) => self.exec_pop_n(count),
-        Opcode::DefineGlobal(index) => self.exec_op(|this| this.exec_define_global(index))?,
-        Opcode::LookupGlobal(index) => self.exec_op(|this| this.exec_lookup_global(index))?,
-        Opcode::AssignGlobal(index) => self.exec_op(|this| this.exec_assign_global(index))?,
-        Opcode::LookupLocal(index) => self.exec_op(|this| this.exec_lookup_local(index))?,
-        Opcode::AssignLocal(index) => self.exec_op(|this| this.exec_assign_local(index))?,
+        Opcode::Store(storage) => match storage {
+          Storage::Local(index) => self.exec_op(|this| this.exec_store_local(index))?,
+          Storage::Global(index) => self.exec_op(|this| this.exec_store_global(index))?,
+          Storage::Reg(reg) => {
+            let value = self.exec_op(|this| this.stack_peek().ok_or(UsageError::EmptyStack))?;
+            self.current_frame.reg_store(reg, value);
+          }
+        },
+        Opcode::Load(storage) => match storage {
+          Storage::Local(index) => self.exec_op(|this| this.exec_load_local(index))?,
+          Storage::Global(index) => self.exec_op(|this| this.exec_load_global(index))?,
+          Storage::Reg(reg) => self.stack_push(self.current_frame.reg_load(reg)),
+        },
         Opcode::InitializeMember(index) => self.exec_op(|this| this.exec_initialize_member(index))?,
         Opcode::InitializeMethod(index) => self.exec_op(|this| this.exec_initialize_method(index))?,
         Opcode::InitializeConstructor => self.exec_op(|this| this.exec_initialize_constructor())?,
@@ -294,22 +299,22 @@ impl Vm {
         Opcode::Check => self.exec_op(|this| this.exec_check())?,
         Opcode::Println => self.exec_op(|this| this.exec_print())?,
         Opcode::Jump(count) => {
-          self.jump(count);
+          self.jump(count as usize);
           continue 'ctx;
         }
         Opcode::JumpIfFalse(count) => {
-          let val = self.exec_op(|this| this.exec_jump_if_false(count))?;
+          let val = self.exec_op(|this| this.exec_jump_if_false(count as usize))?;
           if val {
             continue 'ctx;
           }
         }
         Opcode::Loop(count) => {
-          self.loop_back(count);
+          self.loop_back(count as usize);
           continue 'ctx;
         }
         Opcode::Invoke(airity) => {
           self.current_frame.ip += 1;
-          self.exec_op(|this| this.exec_call(airity))?;
+          self.exec_op(|this| this.exec_call(airity as usize))?;
           continue 'ctx;
         }
         Opcode::Ret => {
@@ -331,11 +336,11 @@ impl Vm {
           self.exec_req()?;
           continue 'ctx;
         }
-        Opcode::CreateVec(num_items) => self.exec_create_vec(num_items),
-        Opcode::CreateSizedVec(repeat) => self.exec_op(|this| this.exec_sized_vec(repeat))?,
+        Opcode::CreateVec(num_items) => self.exec_create_vec(num_items as usize),
+        Opcode::CreateSizedVec(repeat) => self.exec_op(|this| this.exec_sized_vec(repeat as usize))?,
         Opcode::CreateDynamicVec => self.exec_op(|this| this.exec_dyn_vec())?,
         Opcode::CreateClosure => self.exec_op(|this| this.exec_create_closure())?,
-        Opcode::CreateStruct(size) => self.exec_op(|this| this.exec_create_struct(size))?,
+        Opcode::CreateStruct(size) => self.exec_op(|this| this.exec_create_struct(size as usize))?,
         Opcode::CreateClass(name) => self.exec_op(|this| this.exec_create_class(name))?,
         Opcode::CreateModule(name) => self.exec_op(|this| this.exec_create_module(name))?,
         Opcode::Breakpoint => {
@@ -345,7 +350,7 @@ impl Vm {
           let value = self.exec_op(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
           export = Some(value);
         }
-        Opcode::Define(ident) => self.exec_op(|this| this.exec_define(ident))?,
+        Opcode::Define(ident) => self.exec_op(|this| this.exec_define_global(ident))?,
         Opcode::Resolve(ident) => self.exec_op(|this| this.exec_scope_resolution(ident))?,
         Opcode::EnterBlock => self.push_scope(),
         Opcode::PopScope => self.pop_scope(),
@@ -361,26 +366,19 @@ impl Vm {
         Opcode::Div => self.exec_op(|this| this.exec_div(&opcode))?,
         Opcode::Rem => self.exec_op(|this| this.exec_rem(&opcode))?,
         Opcode::Or(count) => {
-          let val = self.exec_op(|this| this.exec_or(count))?;
+          let val = self.exec_op(|this| this.exec_or(count as usize))?;
           if val {
             continue 'ctx;
           }
         }
         Opcode::And(count) => {
-          let val = self.exec_op(|this| this.exec_and(count))?;
+          let val = self.exec_op(|this| this.exec_and(count as usize))?;
           if val {
             continue 'ctx;
           }
         }
         Opcode::Not => self.exec_op(|this| this.exec_not(&opcode))?,
         Opcode::Negate => self.exec_op(|this| this.exec_negate(&opcode))?,
-        Opcode::Store(reg) => {
-          let value = self.exec_op(|this| this.stack_peek().ok_or(UsageError::EmptyStack))?;
-          self.current_frame.reg_store(reg, value);
-        }
-        Opcode::Load(reg) => {
-          self.stack_push(self.current_frame.reg_load(reg));
-        }
         Opcode::PushRegCtx => self.current_frame.new_reg_ctx(),
         Opcode::PopRegCtx => self.current_frame.pop_reg_ctx(),
       }
@@ -420,7 +418,7 @@ impl Vm {
     Err(UsageError::Infallible)
   }
 
-  fn exec_const(&mut self, index: usize) -> OpcodeResult {
+  fn exec_const(&mut self, index: BitsRepr) -> OpcodeResult {
     let c = self.program.const_at(index).ok_or(UsageError::InvalidConst(index))?;
 
     let env = self.current_env().into();
@@ -445,32 +443,43 @@ impl Vm {
     self.stack_pop();
   }
 
-  fn exec_pop_n(&mut self, count: usize) {
+  fn exec_pop_n(&mut self, count: BitsRepr) {
     self.stack_pop_n(count);
   }
 
-  fn exec_lookup_local(&mut self, location: usize) -> OpcodeResult {
-    let local = self.stack_index(location).ok_or(UsageError::InvalidStackIndex(location))?;
+  fn exec_load_local(&mut self, loc: BitsRepr) -> OpcodeResult {
+    let local = self.stack_index(loc as usize).ok_or(UsageError::InvalidStackIndex(loc))?;
     self.stack_push(local);
     Ok(())
   }
 
-  fn exec_assign_local(&mut self, location: usize) -> OpcodeResult {
+  fn exec_store_local(&mut self, loc: BitsRepr) -> OpcodeResult {
     let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-    self.stack_assign(location, value);
+    self.stack_assign(loc as usize, value);
     Ok(())
   }
 
-  fn exec_lookup_global(&mut self, location: usize) -> OpcodeResult {
-    self.global_op(location, |this, name| {
+  fn exec_load_global(&mut self, loc: BitsRepr) -> OpcodeResult {
+    self.global_op(loc, |this, name| {
       let global = this.current_env().lookup(&name).ok_or(UsageError::UndefinedVar(name))?;
       this.stack_push(global);
       Ok(())
     })
   }
 
-  fn exec_define_global(&mut self, location: usize) -> OpcodeResult {
-    self.global_op(location, |this, name| {
+  fn exec_store_global(&mut self, loc: BitsRepr) -> OpcodeResult {
+    self.global_op(loc, |this, name| {
+      let value = this.stack_peek().ok_or(UsageError::EmptyStack)?;
+      if this.current_env_mut().assign(&name, value) {
+        Ok(())
+      } else {
+        Err(UsageError::UndefinedVar(name))
+      }
+    })
+  }
+
+  fn exec_define_global(&mut self, loc: BitsRepr) -> OpcodeResult {
+    self.global_op(loc, |this, name| {
       let v = this.stack_peek().ok_or(UsageError::EmptyStack)?;
       if this.current_env_mut().define(name.clone(), v) {
         Ok(())
@@ -481,22 +490,10 @@ impl Vm {
     })
   }
 
-  fn exec_assign_global(&mut self, location: usize) -> OpcodeResult {
-    self.global_op(location, |this, name| {
-      let v = this.stack_peek().ok_or(UsageError::EmptyStack)?;
-
-      if this.current_env_mut().assign(&name, v) {
-        Ok(())
-      } else {
-        Err(UsageError::UndefinedVar(name))
-      }
-    })
-  }
-
-  fn exec_initialize_member(&mut self, location: usize) -> OpcodeResult {
+  fn exec_initialize_member(&mut self, loc: BitsRepr) -> OpcodeResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       obj.set_member(&mut self.gc, name, value)?;
@@ -506,11 +503,11 @@ impl Vm {
     }
   }
 
-  fn exec_initialize_method(&mut self, location: usize) -> OpcodeResult {
+  fn exec_initialize_method(&mut self, loc: BitsRepr) -> OpcodeResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
-    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     let class = obj.as_class_mut().ok_or(UsageError::MethodAssignment)?;
 
@@ -532,11 +529,11 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_assign_member(&mut self, location: usize) -> OpcodeResult {
+  fn exec_assign_member(&mut self, loc: BitsRepr) -> OpcodeResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
-    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       obj.set_member(&mut self.gc, name, value.clone())?;
@@ -547,10 +544,10 @@ impl Vm {
     }
   }
 
-  fn exec_lookup_member(&mut self, location: usize) -> OpcodeResult {
+  fn exec_lookup_member(&mut self, loc: BitsRepr) -> OpcodeResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
-    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       let value = obj.get_member(&mut self.gc, name)?.unwrap_or_default();
@@ -561,10 +558,10 @@ impl Vm {
     }
   }
 
-  fn exec_peek_member(&mut self, location: usize) -> OpcodeResult {
+  fn exec_peek_member(&mut self, loc: BitsRepr) -> OpcodeResult {
     let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
-    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       let member = value.get_member(&mut self.gc, name)?.unwrap_or_default();
@@ -740,9 +737,9 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_create_class(&mut self, location: usize) -> OpcodeResult {
+  fn exec_create_class(&mut self, loc: BitsRepr) -> OpcodeResult {
     let creator = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
+    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       let v = self.gc.allocate(ClassValue::new(name, creator));
@@ -754,8 +751,8 @@ impl Vm {
   }
 
   /// Create a module and make it the current env
-  fn exec_create_module(&mut self, location: usize) -> OpcodeResult {
-    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
+  fn exec_create_module(&mut self, loc: BitsRepr) -> OpcodeResult {
+    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       let leaf = self.current_env();
@@ -769,7 +766,7 @@ impl Vm {
     }
   }
 
-  fn exec_scope_resolution(&mut self, ident: usize) -> OpcodeResult {
+  fn exec_scope_resolution(&mut self, ident: BitsRepr) -> OpcodeResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
     let name = self.program.const_at(ident).ok_or(UsageError::InvalidConst(ident))?;
@@ -792,20 +789,6 @@ impl Vm {
 
   fn pop_scope(&mut self) {
     self.envs.pop();
-  }
-
-  fn exec_define(&mut self, location: usize) -> OpcodeResult {
-    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-
-    let name = self.program.const_at(location).ok_or(UsageError::InvalidConst(location))?;
-
-    if let ConstantValue::String(name) = name {
-      obj.define(name, value)?;
-      Ok(())
-    } else {
-      Err(UsageError::InvalidIdentifier(name.to_string()))
-    }
   }
 
   fn exec_req(&mut self) -> ExecResult {
@@ -980,7 +963,7 @@ impl Vm {
     }
   }
 
-  fn global_op<F>(&mut self, index: usize, f: F) -> OpcodeResult
+  fn global_op<F>(&mut self, index: BitsRepr, f: F) -> OpcodeResult
   where
     F: FnOnce(&mut Self, String) -> OpcodeResult,
   {
@@ -1036,11 +1019,11 @@ impl Vm {
     self.current_frame.stack.pop()
   }
 
-  pub fn stack_pop_n(&mut self, count: usize) {
+  pub fn stack_pop_n(&mut self, count: BitsRepr) {
     self
       .current_frame
       .stack
-      .truncate(self.current_frame.stack.len().saturating_sub(count));
+      .truncate(self.current_frame.stack.len().saturating_sub(count as usize));
   }
 
   pub fn stack_drain_from(&mut self, index: usize) -> Vec<Value> {
@@ -1150,7 +1133,7 @@ impl Vm {
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumCount, EnumIter, Enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumCount, EnumIter, Enum)]
 pub enum Register {
   A,
   B,

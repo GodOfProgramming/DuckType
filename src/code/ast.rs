@@ -490,7 +490,7 @@ impl AstGenerator {
       }
 
       if let Some(block_loc) = self.meta_at::<1>() {
-        if let Some(block) = self.normal_block(block_loc.clone()) {
+        if let Some(block) = self.normal_block(block_loc) {
           let else_block = if self.advance_if_matches(Token::Else) {
             if let Some(else_meta) = self.meta_at::<1>() {
               if let Some(token) = self.current() {

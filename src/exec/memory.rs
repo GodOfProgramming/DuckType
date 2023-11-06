@@ -4,6 +4,7 @@ use crate::{
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
 };
+use ahash::RandomState;
 use ptr::{MutPtr, SmartPtr};
 use std::{
   collections::HashSet,
@@ -157,7 +158,7 @@ impl Drop for ValueHandle {
 
 #[derive(Default)]
 pub struct Marker {
-  marked_values: HashSet<u64>,
+  marked_values: AllocationSet,
 }
 
 impl Marker {
@@ -169,7 +170,7 @@ impl Marker {
   }
 }
 
-impl From<Marker> for HashSet<u64> {
+impl From<Marker> for AllocationSet {
   fn from(value: Marker) -> Self {
     value.marked_values
   }
@@ -222,11 +223,16 @@ impl Default for AsyncDisposal {
   }
 }
 
+type AllocationSet = HashSet<u64, RandomState>;
+
 #[derive(Default)]
 pub struct Gc {
-  allocations: HashSet<u64>,
-  handles: HashSet<u64>,
+  allocations: AllocationSet,
+  handles: AllocationSet,
   disposer: AsyncDisposal,
+
+  cleans: usize,
+  generational_allocations: Vec<AllocationSet>,
 }
 
 impl Gc {
@@ -235,6 +241,8 @@ impl Gc {
       allocations: Default::default(),
       handles: Default::default(),
       disposer: AsyncDisposal::new(),
+      cleans: 0,
+      generational_allocations: Default::default(),
     }
   }
 
@@ -244,8 +252,29 @@ impl Gc {
     stack_frames: &Vec<StackFrame>,
     cached_values: impl IntoIterator<Item = &'v Value>,
   ) -> Result<usize, SystemError> {
-    let mut marked_allocations = Marker::default();
+    let marked_allocations = self.trace(current_frame, stack_frames, cached_values);
+    let loose_allocations = self.find_unmarked(marked_allocations);
 
+    let cleaned = loose_allocations.len();
+
+    for alloc in &loose_allocations {
+      let removed = self.allocations.remove(alloc);
+      debug_assert!(removed);
+    }
+
+    self.disposer.dispose(loose_allocations)?;
+
+    self.cleans += 1;
+    Ok(cleaned)
+  }
+
+  pub fn trace<'v>(
+    &self,
+    current_frame: &StackFrame,
+    stack_frames: &Vec<StackFrame>,
+    cached_values: impl IntoIterator<Item = &'v Value>,
+  ) -> AllocationSet {
+    let mut marked_allocations = Marker::default();
     for value in cached_values {
       marked_allocations.trace(value);
     }
@@ -280,9 +309,11 @@ impl Gc {
       marked_allocations.trace(&Value { bits: *handle })
     }
 
-    let marked_allocations: HashSet<u64> = marked_allocations.into();
+    marked_allocations.into()
+  }
 
-    let unmarked_allocations: Vec<u64> = self
+  fn find_unmarked(&self, marked_allocations: AllocationSet) -> Vec<u64> {
+    self
       .allocations
       .difference(&marked_allocations)
       .filter(|a| {
@@ -291,18 +322,7 @@ impl Gc {
         value.meta().ref_count.load(Ordering::Relaxed) == 0
       })
       .cloned()
-      .collect();
-
-    let cleaned = unmarked_allocations.len();
-
-    for alloc in &unmarked_allocations {
-      let removed = self.allocations.remove(alloc);
-      debug_assert!(removed);
-    }
-
-    self.disposer.dispose(unmarked_allocations)?;
-
-    Ok(cleaned)
+      .collect()
   }
 
   pub fn handle_from(this: &mut SmartPtr<Self>, value: Value) -> ValueHandle {
