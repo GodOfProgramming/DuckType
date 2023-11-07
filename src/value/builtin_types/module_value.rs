@@ -1,6 +1,8 @@
+use ahash::RandomState;
+
 use crate::prelude::*;
 use std::{
-  collections::{btree_map::Entry, BTreeMap},
+  collections::{btree_map::Entry, BTreeMap, HashMap},
   env,
 };
 
@@ -15,7 +17,7 @@ pub struct ModuleValue {
   name: Option<String>,
 
   #[trace]
-  pub members: BTreeMap<String, Value>,
+  pub members: HashMap<String, Value, RandomState>,
   #[trace]
   pub env: BTreeMap<String, Value>,
   #[trace]

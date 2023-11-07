@@ -722,7 +722,13 @@ impl Vm {
       let key = self.stack_pop().ok_or(UsageError::EmptyStack)?;
       let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
       if let Some(key) = key.as_str() {
-        members.push(((**key).clone(), value));
+        let id = self
+          .program
+          .strings
+          .get_by_right(&**key)
+          .cloned()
+          .ok_or(UsageError::InvalidIdentifier(key.to_string()))?;
+        members.push((((**key).clone(), id), value));
       } else {
         Err(UsageError::InvalidIdentifier(key.to_string()))?;
       }

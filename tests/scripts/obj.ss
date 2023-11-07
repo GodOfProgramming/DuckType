@@ -1,14 +1,13 @@
 let sspec = req "lib/sspec/sspec.ss";
 
 use sspec::describe;
-use std::obj;
 
 describe("struct fields", |t| {
   let num = 1;
-  let thing = struct { num, str: "some string" };
+  let thing = struct { num, string: "some string", foo: nil };
   thing.foo = "bar";
   t.expect(thing.num).to_be(1);
-  t.expect(thing.str).to_be("some string");
+  t.expect(thing.string).to_be("some string");
   t.expect(thing.foo).to_be("bar");
 
   let foo = struct {

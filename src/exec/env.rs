@@ -17,7 +17,7 @@ static_assertions::const_assert!(mem::size_of::<BitsRepr>() <= mem::size_of::<us
 #[derive(Default)]
 pub struct Program {
   consts: Vec<ConstantValue>,
-  strings: bimap::BiBTreeMap<BitsRepr, String>,
+  pub(crate) strings: bimap::BiBTreeMap<BitsRepr, String>,
 }
 
 impl Program {

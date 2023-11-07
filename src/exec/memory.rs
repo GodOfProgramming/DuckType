@@ -569,7 +569,7 @@ mod tests {
     let mut gc = SmartPtr::new(Gc::new());
     let ctx = new_ctx();
 
-    let mut value = StructValue::new([("child", Value::nil)]);
+    let mut value = StructValue::new([(("child", 0), Value::nil)]);
     let child = gc.allocate(SomeType {});
     value.set_field(&mut gc, "child", child).unwrap();
 

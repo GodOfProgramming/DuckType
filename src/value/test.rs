@@ -61,7 +61,7 @@ mod unit_tests {
 
   #[test]
   fn structs_supported(t: &mut ValueTest) {
-    let mut v = StructValue::new([("foo", Value::nil), ("field", Value::nil)]);
+    let mut v = StructValue::new([(("foo", 0), Value::nil), (("field", 1), Value::nil)]);
     v.set_field(&mut t.vm.gc, "foo", 123.into()).unwrap();
     assert_eq!(v.get_field(&mut t.vm.gc, "foo").unwrap().unwrap(), 123.into());
     let obj = t.vm.gc.allocate(ImplementedObject::default());
