@@ -127,8 +127,6 @@ pub enum Opcode {
   Invoke(BitsRepr),
   /** Exits from a function, returning nil on the previous frame */
   Ret,
-  /** Exits from a function, returning the last value on the stack to the previous frame */
-  RetValue,
   /** Returns the first item on the stack which is self */
   RetSelf,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
@@ -316,12 +314,6 @@ impl Vm {
           continue 'ctx;
         }
         Opcode::Ret => {
-          export = Some(Value::nil);
-          break 'ctx;
-        }
-        Opcode::RetValue => {
-          let value = self.exec_op(|this| this.exec_retval())?;
-          export = Some(value);
           break 'ctx;
         }
         Opcode::RetSelf => {
@@ -674,10 +666,6 @@ impl Vm {
     let args = self.stack_drain_from(airity);
     let callable = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     self.call_value(callable, args)
-  }
-
-  fn exec_retval(&mut self) -> OpcodeResult<Value> {
-    self.stack_pop().ok_or(UsageError::EmptyStack)
   }
 
   fn exec_retself(&mut self) -> OpcodeResult<Value> {

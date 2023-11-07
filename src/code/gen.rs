@@ -41,6 +41,7 @@ pub struct BytecodeGenerator<'p> {
 
   scope_depth: usize,
   loop_depth: usize,
+  fn_depth: usize,
 
   breaks: Vec<usize>,
   continues: Vec<usize>,
@@ -62,6 +63,7 @@ impl<'p> BytecodeGenerator<'p> {
 
       scope_depth: Default::default(),
       loop_depth: Default::default(),
+      fn_depth: Default::default(),
 
       breaks: Default::default(),
       continues: Default::default(),
@@ -89,13 +91,13 @@ impl<'p> BytecodeGenerator<'p> {
 
     self.emit(Opcode::EnterBlock, loc);
 
+    let this_scope = self.scope_depth;
     self.new_scope(|this| {
       for statement in stmt.statements {
         this.emit_stmt(statement);
       }
+      this.reduce_locals_to_depth(this_scope, loc);
     });
-
-    self.reduce_locals_to_depth(self.scope_depth, loc);
 
     self.emit(Opcode::PopScope, loc);
   }
@@ -293,10 +295,12 @@ impl<'p> BytecodeGenerator<'p> {
 
     if let Some(expr) = stmt.expr {
       self.emit_expr(expr);
-      self.emit(Opcode::RetValue, stmt.loc);
-    } else {
-      self.emit(Opcode::Ret, stmt.loc);
+      self.emit(Opcode::Export, stmt.loc);
     }
+
+    let locals = self.num_locals_in_exclusive_depth(self.fn_depth);
+    self.emit(Opcode::PopN(locals), stmt.loc);
+    self.emit(Opcode::Ret, stmt.loc);
   }
 
   fn use_stmt(&mut self, stmt: UseStatement) {
@@ -1101,7 +1105,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn reduce_locals_to_depth(&mut self, depth: usize, loc: SourceLocation) {
-    let count = self.num_locals_in_depth(depth);
+    let count = self.num_locals_in_exclusive_depth(depth);
 
     self.locals.truncate(self.locals.len().saturating_sub(count as usize));
 
@@ -1110,7 +1114,7 @@ impl<'p> BytecodeGenerator<'p> {
     }
   }
 
-  fn num_locals_in_depth(&self, depth: usize) -> BitsRepr {
+  fn num_locals_in_exclusive_depth(&self, depth: usize) -> BitsRepr {
     let mut count = 0;
     for local in self.locals.iter().rev() {
       if local.depth > depth {
@@ -1156,6 +1160,9 @@ impl<'p> BytecodeGenerator<'p> {
 
     self.current_fn = Some(SmartPtr::new(Context::new(self.function_id, reflection)));
 
+    let prev_fn_depth = self.fn_depth;
+    self.fn_depth = self.scope_depth;
+
     self.new_scope(|this| {
       for arg in args {
         if arg.global {
@@ -1174,21 +1181,16 @@ impl<'p> BytecodeGenerator<'p> {
 
       this.emit_stmt(body);
 
+      let local_count = this.locals.len();
+
+      this.reduce_locals_to_depth(this.fn_depth, loc);
+
       let ctx = this.current_fn.take().unwrap();
 
-      let num_locals = this.num_locals_in_depth(this.scope_depth);
-      if num_locals != 0 {
-        if let Some(pops) = num_locals.checked_add(airity) {
-          this.emit(Opcode::PopN(pops), loc);
-        } else {
-          this.error(loc, "too many vars declared in fn");
-        }
-      }
-
-      let local_count = this.locals.len();
-      // restore here so const is emitted to correct place
+      // restore
       this.current_fn = prev_fn;
       this.locals = locals;
+      this.fn_depth = prev_fn_depth;
 
       FunctionConstant::new(airity, local_count, ctx)
     })
