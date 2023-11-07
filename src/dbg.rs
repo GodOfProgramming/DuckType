@@ -27,7 +27,8 @@ impl CommandOutput {
 
 #[derive(Subcommand)]
 pub enum Command {
-  Quit,
+  Continue,
+  Exit,
   Env {
     #[command(subcommand)]
     command: EnvCmd,
@@ -36,14 +37,20 @@ pub enum Command {
     #[command(subcommand)]
     command: StackCmd,
   },
+  Gc {
+    #[command(subcommand)]
+    command: GcCmd,
+  },
 }
 
 impl Command {
   pub fn exec(self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
     match self {
-      Command::Quit => Ok(CommandOutput::new(None, true)),
+      Command::Continue => Ok(CommandOutput::new(None, true)),
+      Command::Exit => Err("exit entered")?,
       Command::Env { command } => command.exec(vm),
       Command::Stack { command } => command.exec(vm),
+      Command::Gc { command } => command.exec(vm),
     }
   }
 }
@@ -61,6 +68,7 @@ pub enum EnvCmd {
     #[command(subcommand)]
     value: ValueCommand,
   },
+  Count,
 }
 
 impl EnvCmd {
@@ -83,6 +91,7 @@ impl EnvCmd {
         vm.current_env_mut().define(name, value);
         None
       }
+      EnvCmd::Count => Some(format!("{}", vm.envs.len())),
     };
     Ok(CommandOutput::new(output, false))
   }
@@ -141,6 +150,24 @@ impl StackCmd {
       } else {
         format!("invalid stack index {}", index)
       }),
+    };
+    Ok(CommandOutput::new(output, false))
+  }
+}
+
+#[derive(Subcommand)]
+pub enum GcCmd {
+  Count,
+  Clean,
+}
+impl GcCmd {
+  fn exec(&self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
+    let output = match self {
+      GcCmd::Count => Some(vm.gc.allocations.len().to_string()),
+      GcCmd::Clean => {
+        let cleaned = vm.gc.clean(&vm.current_frame, &vm.stack_frames, vm.lib_cache.values())?;
+        Some(cleaned.to_string())
+      }
     };
     Ok(CommandOutput::new(output, false))
   }

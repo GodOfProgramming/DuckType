@@ -179,7 +179,7 @@ pub struct Vm {
   args: Vec<String>,
 
   filemap: FileMap,
-  lib_cache: BTreeMap<FileIdType, Value>,
+  pub(crate) lib_cache: BTreeMap<FileIdType, Value>,
 
   // usize for what frame to pop on, string for file path
   opened_files: Vec<FileInfo>,
@@ -250,8 +250,6 @@ impl Vm {
   }
 
   pub(crate) fn execute(&mut self, exec_type: ExecType) -> ExecResult<Value> {
-    self.next_gc = Instant::now() + DEFAULT_GC_FREQUENCY;
-
     let mut export = None;
 
     'ctx: while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
@@ -1220,6 +1218,10 @@ pub(crate) struct EnvStack {
 }
 
 impl EnvStack {
+  pub(crate) fn len(&self) -> usize {
+    self.envs.len()
+  }
+
   pub(crate) fn push(&mut self, entry: EnvEntry) {
     self.envs.push(entry);
   }

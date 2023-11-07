@@ -227,11 +227,11 @@ type AllocationSet = HashSet<u64, RandomState>;
 
 #[derive(Default)]
 pub struct Gc {
-  allocations: AllocationSet,
-  handles: AllocationSet,
+  pub(crate) allocations: AllocationSet,
+  pub(crate) handles: AllocationSet,
   disposer: AsyncDisposal,
 
-  cleans: usize,
+  pub(crate) cleans: usize,
   generational_allocations: Vec<AllocationSet>,
 }
 
