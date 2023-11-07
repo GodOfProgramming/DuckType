@@ -1,5 +1,6 @@
 use crate::prelude::*;
-use std::collections::BTreeMap;
+use ahash::RandomState;
+use std::collections::HashMap;
 
 #[derive(Default, Usertype)]
 #[uuid("2034facf-835a-495c-b504-26efc0ca3f95")]
@@ -10,9 +11,9 @@ pub struct ClassValue {
   #[trace]
   pub initializer: Option<Value>,
   #[trace]
-  pub methods: BTreeMap<String, FunctionValue>,
+  pub methods: HashMap<String, FunctionValue, RandomState>,
   #[trace]
-  pub static_members: BTreeMap<String, Value>,
+  pub static_members: HashMap<String, Value, RandomState>,
 }
 
 impl ClassValue {

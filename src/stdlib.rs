@@ -5,9 +5,10 @@ mod libstr;
 mod libtime;
 
 use crate::prelude::*;
-use std::collections::BTreeMap;
+use ahash::RandomState;
+use std::collections::{BTreeMap, HashMap};
 
-pub fn enable_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> BTreeMap<String, Value> {
+pub fn enable_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> HashMap<String, Value, RandomState> {
   let mut loaded_libs = BTreeMap::default();
 
   loaded_libs.insert("std", load_std(gc, gmod, args));

@@ -72,10 +72,6 @@ impl StructValue {
     Self { members, string_ids }
   }
 
-  pub(crate) fn sort_members(&mut self) {
-    self.members.sort_by_key(|m| m.id);
-  }
-
   fn set_mem(&mut self, idx: usize, value: Value) {
     self.members[idx].value = value;
   }

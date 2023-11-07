@@ -2,7 +2,7 @@ use ahash::RandomState;
 
 use crate::prelude::*;
 use std::{
-  collections::{btree_map::Entry, BTreeMap, HashMap},
+  collections::{hash_map::Entry, HashMap},
   env,
 };
 
@@ -19,7 +19,7 @@ pub struct ModuleValue {
   #[trace]
   pub members: HashMap<String, Value, RandomState>,
   #[trace]
-  pub env: BTreeMap<String, Value>,
+  pub env: HashMap<String, Value, RandomState>,
   #[trace]
   pub parent: Value,
 }
