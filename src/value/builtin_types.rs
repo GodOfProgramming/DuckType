@@ -50,6 +50,28 @@ pub use struct_value::StructValue;
 use uuid::Uuid;
 pub use vec_value::VecValue;
 
+#[derive(Clone)]
+pub struct Field<'n> {
+  pub id: Option<BitsRepr>,
+  pub name: Option<&'n str>,
+}
+
+impl<'n> Field<'n> {
+  pub fn new(id: BitsRepr, name: &'n str) -> Self {
+    Self {
+      id: Some(id),
+      name: Some(name),
+    }
+  }
+
+  pub fn named(name: &'n str) -> Self {
+    Self {
+      id: None,
+      name: Some(name),
+    }
+  }
+}
+
 pub struct Nil;
 
 pub trait Usertype
@@ -67,28 +89,28 @@ where
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  fn get(&self, gc: &mut Gc, this: &Value, field: &str) -> UsageResult<Option<Value>> {
-    match <Self as UsertypeFields>::get_field(self, gc, field)? {
+  fn get(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>> {
+    match <Self as UsertypeFields>::get_field(self, gc, field.clone())? {
       Some(value) => Ok(Some(value)),
       None => <Self as UsertypeMethods>::get_method(self, gc, this, field),
     }
   }
 
-  fn set(&mut self, gc: &mut Gc, field: &str, value: Value) -> UsageResult<()> {
+  fn set(&mut self, gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
     <Self as UsertypeFields>::set_field(self, gc, field, value)
   }
 }
 
 pub trait UsertypeFields {
-  fn get_field(&self, gc: &mut Gc, field: &str) -> UsageResult<Option<Value>>;
-  fn set_field(&mut self, gc: &mut Gc, field: &str, value: Value) -> UsageResult<()>;
+  fn get_field(&self, gc: &mut Gc, field: Field) -> UsageResult<Option<Value>>;
+  fn set_field(&mut self, gc: &mut Gc, field: Field, value: Value) -> UsageResult<()>;
 }
 
 pub trait UsertypeMethods {
   fn __new__(_vm: &mut Vm, _args: Args) -> UsageResult {
     Err(UsageError::UndefinedInitializer)
   }
-  fn get_method(&self, gc: &mut Gc, this: &Value, field: &str) -> UsageResult<Option<Value>>;
+  fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>>;
 }
 
 pub trait ResolvableValue: DisplayValue {

@@ -94,6 +94,10 @@ impl CompiletimeErrors {
     self.0.len()
   }
 
+  pub fn is_empty(&self) -> bool {
+    self.len() == 0
+  }
+
   pub fn with_filename(self, filemap: &FileMap) -> Self {
     Self(self.0.into_iter().map(|e| e.with_filename(filemap)).collect())
   }
@@ -349,6 +353,9 @@ pub enum UsageError {
   #[error("capture list must be a vec")]
   CaptureType,
 
+  #[error("Expected field name but found none")]
+  EmptyField,
+
   #[error("{0}")]
   Preformated(Error),
 
@@ -408,7 +415,7 @@ impl From<Infallible> for UsageError {
 
 impl<T> From<mpsc::SendError<T>> for SystemError {
   fn from(value: mpsc::SendError<T>) -> Self {
-    Self::GcError(value.to_string().into())
+    Self::GcError(value.to_string())
   }
 }
 

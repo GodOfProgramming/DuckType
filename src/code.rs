@@ -82,7 +82,7 @@ impl FunctionConstant {
   }
 
   fn name(&self) -> &str {
-    self.ctx.meta.name.as_ref().map(|n| n.as_str()).unwrap_or("<lambda>")
+    self.ctx.meta.name.as_deref().unwrap_or("<lambda>")
   }
 }
 
@@ -152,8 +152,7 @@ impl FileMap {
   }
 
   pub(crate) fn get(&self, id: Option<FileIdType>) -> PathBuf {
-    id.map(|id| self.map.get(&id).cloned())
-      .flatten()
+    id.and_then(|id| self.map.get(&id).cloned())
       .unwrap_or_else(|| PathBuf::from("<anonymous>"))
   }
 }

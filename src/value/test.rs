@@ -62,11 +62,15 @@ mod unit_tests {
   #[test]
   fn structs_supported(t: &mut ValueTest) {
     let mut v = StructValue::new([(("foo", 0), Value::nil), (("field", 1), Value::nil)]);
-    v.set_field(&mut t.vm.gc, "foo", 123.into()).unwrap();
-    assert_eq!(v.get_field(&mut t.vm.gc, "foo").unwrap().unwrap(), 123.into());
+    v.set_field(&mut t.vm.gc, Field::named("foo"), 123.into()).unwrap();
+    assert_eq!(v.get_field(&mut t.vm.gc, Field::named("foo")).unwrap().unwrap(), 123.into());
     let obj = t.vm.gc.allocate(ImplementedObject::default());
-    v.set(&mut t.vm.gc, "field", obj).unwrap();
-    assert!(v.get_field(&mut t.vm.gc, "field").unwrap().unwrap().is::<ImplementedObject>());
+    v.set(&mut t.vm.gc, Field::named("field"), obj).unwrap();
+    assert!(v
+      .get_field(&mut t.vm.gc, Field::named("field"))
+      .unwrap()
+      .unwrap()
+      .is::<ImplementedObject>());
   }
 
   #[test]

@@ -74,7 +74,6 @@ impl ModuleValue {
   /// Assigns to an existing variable. Returns true if the variable already exists, false otherwise
   pub fn assign(&mut self, name: impl Into<String>, value: impl Into<Value>) -> bool {
     let name = name.into();
-    let value = value.into();
     if let Entry::Occupied(mut e) = self.env.entry(name.clone()) {
       e.insert(value.into());
       true
@@ -82,7 +81,7 @@ impl ModuleValue {
       self
         .parent
         .cast_to_mut::<Self>()
-        .map(|m| m.assign(&name, value.clone()))
+        .map(|m| m.assign(&name, value))
         .unwrap_or(false)
     }
   }
@@ -112,19 +111,27 @@ impl ModuleValue {
 }
 
 impl UsertypeFields for ModuleValue {
-  fn get_field(&self, _gc: &mut Gc, field: &str) -> UsageResult<Option<Value>> {
-    self
-      .members
-      .get(field)
-      .cloned()
-      .map(Ok)
-      .or_else(|| Some(Err(UsageError::UndefinedMember(field.to_string()))))
-      .transpose()
+  fn get_field(&self, _gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
+    if let Some(name) = field.name {
+      self
+        .members
+        .get(name)
+        .cloned()
+        .map(Ok)
+        .or_else(|| Some(Err(UsageError::UndefinedMember(name.to_string()))))
+        .transpose()
+    } else {
+      Err(UsageError::EmptyField)
+    }
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> UsageResult<()> {
-    self.members.insert(field.to_string(), value);
-    Ok(())
+  fn set_field(&mut self, _gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
+    if let Some(name) = field.name {
+      self.members.insert(name.to_string(), value);
+      Ok(())
+    } else {
+      Err(UsageError::EmptyField)
+    }
   }
 }
 

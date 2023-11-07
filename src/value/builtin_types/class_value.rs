@@ -30,12 +30,14 @@ impl ClassValue {
     self.initializer = Some(value);
   }
 
-  pub fn get_method(&self, gc: &mut Gc, this: &Value, name: &str) -> Option<Value> {
-    self
-      .methods
-      .get(name)
-      .cloned()
-      .map(|method| gc.allocate(MethodValue::new(this.clone(), method)))
+  pub fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> Option<Value> {
+    field.name.and_then(|name| {
+      self
+        .methods
+        .get(name)
+        .cloned()
+        .map(|method| gc.allocate(MethodValue::new(this.clone(), method)))
+    })
   }
 
   pub fn set_method<N: ToString>(&mut self, name: N, value: FunctionValue) {
@@ -52,13 +54,17 @@ impl ClassValue {
 }
 
 impl UsertypeFields for ClassValue {
-  fn get_field(&self, _gc: &mut Gc, field: &str) -> UsageResult<Option<Value>> {
-    Ok(self.get_static(field))
+  fn get_field(&self, _gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
+    Ok(field.name.and_then(|name| self.get_static(name)))
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> UsageResult<()> {
-    self.set_static(field, value);
-    Ok(())
+  fn set_field(&mut self, _gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
+    if let Some(name) = field.name {
+      self.set_static(name, value);
+      Ok(())
+    } else {
+      Err(UsageError::EmptyField)
+    }
   }
 }
 

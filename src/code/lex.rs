@@ -367,7 +367,7 @@ impl<'src> Scanner<'src> {
       }
     }
 
-    if self.errors.len() == 0 {
+    if self.errors.is_empty() {
       Ok((tokens, meta))
     } else {
       Err(self.errors)

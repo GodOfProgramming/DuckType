@@ -20,7 +20,7 @@ impl Eq for StructMember {}
 
 impl PartialOrd for StructMember {
   fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-    self.id.partial_cmp(&other.id)
+    Some(self.cmp(other))
   }
 }
 
@@ -71,31 +71,46 @@ impl StructValue {
 
     Self { members, string_ids }
   }
+
+  pub(crate) fn sort_members(&mut self) {
+    self.members.sort_by_key(|m| m.id);
+  }
+
+  fn set_mem(&mut self, idx: usize, value: Value) {
+    self.members[idx].value = value;
+  }
+
+  fn get_idx_by_id(&self, id: &BitsRepr) -> Option<usize> {
+    self.members.binary_search_by_key(id, |m| m.id).ok()
+  }
+
+  fn get_field_by_id(&self, id: &BitsRepr) -> Option<Value> {
+    self
+      .members
+      .binary_search_by_key(id, |m| m.id)
+      .ok()
+      .map(|idx| self.members[idx].value.clone())
+  }
+
+  fn get_id_by_field(&self, field: Field) -> Result<BitsRepr, UsageError> {
+    field
+      .id
+      .as_ref()
+      .or_else(|| field.name.and_then(|name| self.string_ids.get_by_left(name)))
+      .cloned()
+      .ok_or(UsageError::EmptyField)
+  }
 }
 
 impl UsertypeFields for StructValue {
-  fn get_field(&self, _gc: &mut Gc, field: &str) -> UsageResult<Option<Value>> {
-    Ok(self.string_ids.get_by_left(field).and_then(|id| {
-      self
-        .members
-        .binary_search_by_key(id, |m| m.id)
-        .ok()
-        .map(|idx| self.members[idx].value.clone())
-    }))
+  fn get_field(&self, _gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
+    self.get_id_by_field(field).map(|id| self.get_field_by_id(&id))
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> UsageResult<()> {
+  fn set_field(&mut self, _gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
     self
-      .string_ids
-      .get_by_left(field)
-      .ok_or_else(|| UsageError::UndefinedMember(field.to_string()))
-      .map(|id| {
-        self
-          .members
-          .binary_search_by_key(id, |m| m.id)
-          .ok()
-          .unwrap_and(|idx| self.members[idx].value = value)
-      })
+      .get_id_by_field(field)
+      .map(|id| self.get_idx_by_id(&id).unwrap_and(|idx| self.set_mem(idx, value)))
   }
 }
 

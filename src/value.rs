@@ -434,11 +434,11 @@ impl Value {
 
   // value methods
 
-  pub fn get_member(&self, gc: &mut Gc, name: &str) -> UsageResult<Option<Value>> {
+  pub fn get_member(&self, gc: &mut Gc, name: Field) -> UsageResult<Option<Value>> {
     (self.vtable().get_member)(self, gc as *mut Gc as MutVoid, name)
   }
 
-  pub fn set_member(&mut self, gc: &mut Gc, name: &str, value: Value) -> UsageResult<()> {
+  pub fn set_member(&mut self, gc: &mut Gc, name: Field, value: Value) -> UsageResult<()> {
     (self.vtable().set_member)(self.pointer_mut(), gc as *mut Gc as MutVoid, name, value)
   }
 
@@ -936,8 +936,8 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  get_member: fn(&Value, MutVoid, &str) -> UsageResult<Option<Value>>,
-  set_member: fn(MutVoid, MutVoid, &str, Value) -> UsageResult<()>,
+  get_member: fn(&Value, MutVoid, Field) -> UsageResult<Option<Value>>,
+  set_member: fn(MutVoid, MutVoid, Field, Value) -> UsageResult<()>,
 
   define: fn(MutVoid, &str, Value) -> UsageResult<bool>,
   assign: fn(MutVoid, &str, Value) -> UsageResult<bool>,

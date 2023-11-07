@@ -494,7 +494,7 @@ impl Vm {
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
-      obj.set_member(&mut self.gc, name, value)?;
+      obj.set_member(&mut self.gc, Field::new(loc, name), value)?;
       Ok(())
     } else {
       Err(UsageError::InvalidIdentifier(name.to_string()))
@@ -534,7 +534,7 @@ impl Vm {
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
-      obj.set_member(&mut self.gc, name, value.clone())?;
+      obj.set_member(&mut self.gc, Field::new(loc, name), value.clone())?;
       self.stack_push(value);
       Ok(())
     } else {
@@ -548,7 +548,7 @@ impl Vm {
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
-      let value = obj.get_member(&mut self.gc, name)?.unwrap_or_default();
+      let value = obj.get_member(&mut self.gc, Field::new(loc, name))?.unwrap_or_default();
       self.stack_push(value);
       Ok(())
     } else {
@@ -562,7 +562,7 @@ impl Vm {
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
-      let member = value.get_member(&mut self.gc, name)?.unwrap_or_default();
+      let member = value.get_member(&mut self.gc, Field::new(loc, name))?.unwrap_or_default();
       self.stack_push(member);
       Ok(())
     } else {
@@ -845,7 +845,7 @@ impl Vm {
       if let Some(library_mod) = self.current_env().lookup(module_value::LIB_GLOBAL) {
         if let Some(library_mod) = library_mod.as_struct() {
           if let Ok(Some(list)) = library_mod
-            .get_field(&mut self.gc, module_value::PATHS_MEMBER)
+            .get_field(&mut self.gc, Field::named(module_value::PATHS_MEMBER))
             .map(|l| l.map(|l| l.as_vec()))
           {
             for item in list.iter() {
@@ -922,7 +922,7 @@ impl Vm {
       };
 
       let callable = value
-        .get_member(&mut self.gc, key)?
+        .get_member(&mut self.gc, Field::named(key))?
         .map(Ok)
         .unwrap_or(Err(UsageError::UnexpectedNil))?;
       self.call_value(callable, [])
@@ -956,7 +956,7 @@ impl Vm {
       };
 
       let callable = av
-        .get_member(&mut self.gc, key)?
+        .get_member(&mut self.gc, Field::named(key))?
         .map(Ok)
         .unwrap_or(Err(UsageError::UnexpectedNil))?;
 

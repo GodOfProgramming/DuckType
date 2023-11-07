@@ -232,7 +232,7 @@ pub struct Gc {
   disposer: AsyncDisposal,
 
   pub(crate) cleans: usize,
-  generational_allocations: Vec<AllocationSet>,
+  // generational_allocations: Vec<AllocationSet>,
 }
 
 impl Gc {
@@ -242,7 +242,7 @@ impl Gc {
       handles: Default::default(),
       disposer: AsyncDisposal::new(),
       cleans: 0,
-      generational_allocations: Default::default(),
+      // generational_allocations: Default::default(),
     }
   }
 
@@ -571,7 +571,7 @@ mod tests {
 
     let mut value = StructValue::new([(("child", 0), Value::nil)]);
     let child = gc.allocate(SomeType {});
-    value.set_field(&mut gc, "child", child).unwrap();
+    value.set_field(&mut gc, Field::named("child"), child).unwrap();
 
     {
       let _handle = Gc::allocate_handle(&mut gc, value);

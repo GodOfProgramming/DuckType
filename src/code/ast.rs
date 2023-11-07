@@ -113,7 +113,7 @@ impl AstGenerator {
       statements: self.statements,
     };
 
-    if self.errors.len() == 0 {
+    if self.errors.is_empty() {
       Ok(ast)
     } else {
       Err(self.errors)

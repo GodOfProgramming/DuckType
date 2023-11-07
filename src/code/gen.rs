@@ -75,7 +75,7 @@ impl<'p> BytecodeGenerator<'p> {
       self.emit_stmt(stmt);
     }
 
-    if self.errors.len() == 0 {
+    if self.errors.is_empty() {
       Ok(self.ctx)
     } else {
       Err(self.errors)
@@ -146,7 +146,7 @@ impl<'p> BytecodeGenerator<'p> {
     }
 
     if let Some(var) = self.declare_global(stmt.ident.clone()) {
-      if let Some(param_count) = stmt.params.len().try_into().ok() {
+      if let Ok(param_count) = stmt.params.len().try_into() {
         self.emit_fn(Some(stmt.ident), stmt.params, param_count, *stmt.body, stmt.loc);
 
         self.define_global(var, stmt.loc);
@@ -382,7 +382,7 @@ impl<'p> BytecodeGenerator<'p> {
       }
       LiteralValue::String(s) => {
         if !self.emit_const(ConstantValue::String(s), expr.loc) {
-          self.error(expr.loc, format!("failed to add const string"));
+          self.error(expr.loc, "failed to add const string");
         }
       }
     };
@@ -597,7 +597,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn call_expr(&mut self, expr: CallExpression) {
-    if let Some(arg_count) = expr.args.len().try_into().ok() {
+    if let Ok(arg_count) = expr.args.len().try_into() {
       self.emit_expr(*expr.callable);
 
       for arg in expr.args {
@@ -611,7 +611,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn vec_expr(&mut self, expr: VecExpression) {
-    if let Some(num_items) = expr.items.len().try_into().ok() {
+    if let Ok(num_items) = expr.items.len().try_into() {
       for item in expr.items {
         self.emit_expr(item);
       }
@@ -622,7 +622,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn sized_vec_expr(&mut self, expr: VecWithSizeExpression) {
-    if let Some(size) = expr.size.try_into().ok() {
+    if let Ok(size) = expr.size.try_into() {
       self.emit_expr(*expr.item);
       self.emit(Opcode::CreateSizedVec(size), expr.loc);
     } else {
@@ -648,7 +648,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn struct_expr(&mut self, expr: StructExpression) {
-    if let Some(num_members) = expr.members.len().try_into().ok() {
+    if let Ok(num_members) = expr.members.len().try_into() {
       for (member, value) in expr.members {
         if let Some(ident) = self.add_const_ident(member) {
           self.emit_expr(value);
@@ -723,7 +723,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn lambda_expr(&mut self, expr: LambdaExpression) {
-    if let Some(param_count) = expr.params.len().try_into().ok() {
+    if let Ok(param_count) = expr.params.len().try_into() {
       self.emit_fn(None, expr.params, param_count, *expr.body, expr.loc);
     } else {
       self.error(expr.loc, "too many parameters in lambda");
@@ -743,10 +743,10 @@ impl<'p> BytecodeGenerator<'p> {
           this.ident_expr(member);
         }
 
-        if let Some(num_params) = params.len().try_into().ok() {
+        if let Ok(num_params) = params.len().try_into() {
           this.emit(Opcode::CreateVec(num_params), expr.loc);
 
-          if let Some(param_count) = expr.params.len().try_into().ok() {
+          if let Ok(param_count) = expr.params.len().try_into() {
             params.extend(expr.params);
 
             this.emit_fn(None, params, param_count, *expr.body, expr.loc);
@@ -763,7 +763,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn method_expr(&mut self, expr: MethodExpression) {
-    if let Some(param_count) = expr.params.len().try_into().ok() {
+    if let Ok(param_count) = expr.params.len().try_into() {
       self.emit_fn(Some(expr.name), expr.params, param_count, *expr.body, expr.loc);
     } else {
       self.error(expr.loc, "too many parameters in method");
@@ -940,7 +940,7 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn patch_to(&mut self, index: usize, jumps: Vec<usize>) -> bool {
     for jmp in jumps {
-      if let Some(offset) = (index - jmp).try_into().ok() {
+      if let Ok(offset) = (index - jmp).try_into() {
         if !self.patch_inst(offset, jmp, Opcode::Jump) {
           return false;
         }
