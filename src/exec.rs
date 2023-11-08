@@ -18,6 +18,7 @@ use std::{
   collections::BTreeMap,
   fmt::{self, Debug, Display, Formatter},
   fs,
+  ops::{Deref, DerefMut},
   path::{Path, PathBuf},
   time::{Duration, Instant},
 };
@@ -34,6 +35,8 @@ const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(100);
 
 #[cfg(not(test))]
 const DEFAULT_GC_FREQUENCY: Duration = Duration::from_millis(16);
+
+const INITIAL_STACK_SIZE: usize = 400;
 
 type ExecResult<T = ()> = Result<T, Error>;
 
@@ -125,10 +128,10 @@ pub enum Opcode {
   Loop(BitsRepr),
   /** Calls the value on the stack. Number of arguments is specified by the modifying bits */
   Invoke(BitsRepr),
+  /** Swaps the last two items on the stack and pops */
+  SwapPop,
   /** Exits from a function, returning nil on the previous frame */
   Ret,
-  /** Returns the first item on the stack which is self */
-  RetSelf,
   /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
   Req,
   /** Create a vec of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
@@ -164,11 +167,10 @@ pub enum Opcode {
 }
 
 pub struct Vm {
-  // Don't get rid of current_frame in favor of the vec of stack frames
-  // current_frame will be needed for repl so locals at the 0 depth scope
-  // stay alive
-  pub(crate) current_frame: StackFrame,
+  pub(crate) stack: Stack,
+  pub(crate) stack_frame: StackFrame,
   pub(crate) stack_frames: Vec<StackFrame>,
+
   pub gc: SmartPtr<Gc>,
 
   program: Program,
@@ -189,8 +191,9 @@ pub struct Vm {
 impl Vm {
   pub fn new(gc: SmartPtr<Gc>, args: impl Into<Vec<String>>) -> Self {
     Self {
-      current_frame: Default::default(),
+      stack_frame: Default::default(),
       stack_frames: Default::default(),
+      stack: Stack::with_capacity(INITIAL_STACK_SIZE),
       gc,
       program: Default::default(),
       envs: Default::default(),
@@ -213,7 +216,7 @@ impl Vm {
     let source = fs::read_to_string(&file).map_err(Error::other_system_err)?;
     let ctx = code::compile_file(&mut self.program, file_id, source).map_err(|e| e.with_filename(&self.filemap))?;
 
-    self.current_frame = StackFrame::new(ctx);
+    self.stack_frame = StackFrame::new(ctx, self.stack_size());
     self.stack_frames = Default::default();
     self.envs.push(EnvEntry::File(env));
 
@@ -225,16 +228,15 @@ impl Vm {
 
     let ctx = code::compile_string(&mut self.program, source)?;
 
-    self.current_frame = StackFrame::new(ctx);
+    self.stack_frame = StackFrame::new(ctx, self.stack_size());
     self.stack_frames = Default::default();
     self.envs.push(EnvEntry::String(env));
 
     self.execute(ExecType::String)
   }
 
-  pub fn run_fn(&mut self, ctx: SmartPtr<Context>, env: UsertypeHandle<ModuleValue>, args: Args) -> ExecResult<Value> {
-    self.new_frame(ctx);
-    self.set_stack(args.list);
+  pub fn run_fn(&mut self, ctx: SmartPtr<Context>, env: UsertypeHandle<ModuleValue>, airity: usize) -> ExecResult<Value> {
+    self.new_frame(ctx, airity);
     self.envs.push(EnvEntry::Fn(env));
 
     self.execute(ExecType::Fn)
@@ -250,7 +252,7 @@ impl Vm {
   pub(crate) fn execute(&mut self, exec_type: ExecType) -> ExecResult<Value> {
     let mut export = None;
 
-    'ctx: while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
+    'ctx: while let Some(opcode) = self.stack_frame.ctx.next(self.stack_frame.ip) {
       let now = Instant::now();
       if now > self.next_gc {
         self.run_gc()?;
@@ -260,9 +262,9 @@ impl Vm {
       {
         self.stack_display();
         self
-          .current_frame
+          .stack_frame
           .ctx
-          .display_instruction(&self.program, &opcode, self.current_frame.ip);
+          .display_instruction(&self.program, &opcode, self.stack_frame.ip);
       }
 
       match opcode {
@@ -278,13 +280,13 @@ impl Vm {
           Storage::Global(index) => self.exec_op(|this| this.exec_store_global(index))?,
           Storage::Reg(reg) => {
             let value = self.exec_op(|this| this.stack_peek().ok_or(UsageError::EmptyStack))?;
-            self.current_frame.reg_store(reg, value);
+            self.stack_frame.reg_store(reg, value);
           }
         },
         Opcode::Load(storage) => match storage {
           Storage::Local(index) => self.exec_op(|this| this.exec_load_local(index))?,
           Storage::Global(index) => self.exec_op(|this| this.exec_load_global(index))?,
-          Storage::Reg(reg) => self.stack_push(self.current_frame.reg_load(reg)),
+          Storage::Reg(reg) => self.stack_push(self.stack_frame.reg_load(reg)),
         },
         Opcode::InitializeMember(index) => self.exec_op(|this| this.exec_initialize_member(index))?,
         Opcode::InitializeMethod(index) => self.exec_op(|this| this.exec_initialize_method(index))?,
@@ -309,20 +311,15 @@ impl Vm {
           continue 'ctx;
         }
         Opcode::Invoke(airity) => {
-          self.current_frame.ip += 1;
+          self.stack_frame.ip += 1;
           self.exec_op(|this| this.exec_call(airity as usize))?;
           continue 'ctx;
         }
         Opcode::Ret => {
           break 'ctx;
         }
-        Opcode::RetSelf => {
-          let this = self.exec_op(|this| this.exec_retself())?;
-          export = Some(this);
-          break 'ctx;
-        }
         Opcode::Req => {
-          self.current_frame.ip += 1;
+          self.stack_frame.ip += 1;
           self.exec_req()?;
           continue 'ctx;
         }
@@ -369,11 +366,15 @@ impl Vm {
         }
         Opcode::Not => self.exec_op(|this| this.exec_not(&opcode))?,
         Opcode::Negate => self.exec_op(|this| this.exec_negate(&opcode))?,
-        Opcode::PushRegCtx => self.current_frame.new_reg_ctx(),
-        Opcode::PopRegCtx => self.current_frame.pop_reg_ctx(),
+        Opcode::PushRegCtx => self.stack_frame.new_reg_ctx(),
+        Opcode::PopRegCtx => self.stack_frame.pop_reg_ctx(),
+        Opcode::SwapPop => {
+          let idx = self.stack_size() - 2;
+          self.stack.swap_remove(idx);
+        }
       }
 
-      self.current_frame.ip += 1;
+      self.stack_frame.ip += 1;
     }
 
     match exec_type {
@@ -395,7 +396,7 @@ impl Vm {
 
     if let Some(stack_frame) = self.stack_frames.pop() {
       // the vm is returning from a function call or req
-      self.current_frame = stack_frame;
+      self.stack_frame = stack_frame;
     }
 
     Ok(export.unwrap_or_default())
@@ -438,14 +439,16 @@ impl Vm {
   }
 
   fn exec_load_local(&mut self, loc: BitsRepr) -> OpcodeResult {
-    let local = self.stack_index(loc as usize).ok_or(UsageError::InvalidStackIndex(loc))?;
+    let local = self
+      .stack_index(self.stack_frame.sp + loc as usize)
+      .ok_or(UsageError::InvalidStackIndex(loc))?;
     self.stack_push(local);
     Ok(())
   }
 
   fn exec_store_local(&mut self, loc: BitsRepr) -> OpcodeResult {
     let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-    self.stack_assign(loc as usize, value);
+    self.stack_assign(self.stack_frame.sp + loc as usize, value);
     Ok(())
   }
 
@@ -663,13 +666,8 @@ impl Vm {
   }
 
   fn exec_call(&mut self, airity: usize) -> OpcodeResult {
-    let args = self.stack_drain_from(airity);
-    let callable = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    self.call_value(callable, args)
-  }
-
-  fn exec_retself(&mut self) -> OpcodeResult<Value> {
-    self.stack_index_0().ok_or(UsageError::EmptyStack)
+    let callable = self.stack_index_rev(airity).ok_or(UsageError::EmptyStack)?;
+    self.call_value(callable, airity)
   }
 
   fn exec_create_vec(&mut self, num_items: usize) {
@@ -882,7 +880,7 @@ impl Vm {
             lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &self.args);
           });
 
-          self.new_frame(new_ctx);
+          self.new_frame(new_ctx, 0);
           self.envs.push(EnvEntry::File(gmod));
           self.opened_files.push(FileInfo::new(found_file, id));
           let output = self.execute(ExecType::File)?;
@@ -913,7 +911,7 @@ impl Vm {
         .get_member(&mut self.gc, Field::named(key))?
         .map(Ok)
         .unwrap_or(Err(UsageError::UnexpectedNil))?;
-      self.call_value(callable, [])
+      self.call_value(callable, 0)
     } else {
       self.stack_push(f(value)?);
       Ok(())
@@ -948,7 +946,8 @@ impl Vm {
         .map(Ok)
         .unwrap_or(Err(UsageError::UnexpectedNil))?;
 
-      self.call_value(callable, [bv])
+      self.stack_push(bv);
+      self.call_value(callable, 1)
     } else {
       self.stack_push(f(av, bv)?);
       Ok(())
@@ -993,88 +992,79 @@ impl Vm {
       }
     }
   }
-  pub fn new_frame(&mut self, ctx: SmartPtr<Context>) {
-    let mut frame = StackFrame::new(ctx);
-    std::mem::swap(&mut self.current_frame, &mut frame);
+  pub fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize) {
+    let mut frame = StackFrame::new(ctx, self.stack_size() - offset);
+    std::mem::swap(&mut self.stack_frame, &mut frame);
     self.stack_frames.push(frame);
   }
 
-  pub fn set_stack(&mut self, stack: Vec<Value>) {
-    self.current_frame.stack = stack;
-  }
-
   pub fn stack_push(&mut self, value: Value) {
-    self.current_frame.stack.push(value);
+    self.stack.push(value);
   }
 
   pub fn stack_pop(&mut self) -> Option<Value> {
-    self.current_frame.stack.pop()
+    self.stack.pop()
   }
 
   pub fn stack_pop_n(&mut self, count: BitsRepr) {
-    self
-      .current_frame
-      .stack
-      .truncate(self.current_frame.stack.len().saturating_sub(count as usize));
+    let pops = self.stack.len().saturating_sub(count as usize);
+    self.stack.truncate(pops);
   }
 
   pub fn stack_drain_from(&mut self, index: usize) -> Vec<Value> {
-    self.current_frame.stack.drain(self.stack_size() - index..).collect()
+    let size = self.stack_size();
+    self.stack.drain(size - index..).collect()
   }
 
   pub fn stack_index(&self, index: usize) -> Option<Value> {
-    self.current_frame.stack.get(index).cloned()
+    self.stack.get(index).cloned()
   }
 
   pub fn stack_index_0(&self) -> Option<Value> {
-    self.current_frame.stack.first().cloned()
+    self.stack.first().cloned()
   }
 
   pub fn stack_index_rev(&self, index: usize) -> Option<Value> {
-    self
-      .current_frame
-      .stack
-      .get(self.current_frame.stack.len() - 1 - index)
-      .cloned()
+    self.stack.get(self.stack.len() - 1 - index).cloned()
   }
 
   pub fn stack_peek(&self) -> Option<Value> {
-    self.current_frame.stack.last().cloned()
+    self.stack.last().cloned()
   }
 
   pub fn stack_assign(&mut self, index: usize, value: Value) {
-    self.current_frame.stack[index] = value;
+    self.stack[index] = value;
   }
 
   pub fn stack_append(&mut self, other: Vec<Value>) {
-    self.current_frame.stack.extend(other);
+    self.stack.extend(other);
   }
 
   pub fn stack_size(&self) -> usize {
-    self.current_frame.stack.len()
+    self.stack.len()
   }
 
   fn jump(&mut self, count: usize) {
-    self.current_frame.ip = self.current_frame.ip.saturating_add(count);
+    self.stack_frame.ip = self.stack_frame.ip.saturating_add(count);
   }
 
   fn loop_back(&mut self, count: usize) {
-    self.current_frame.ip = self.current_frame.ip.saturating_sub(count);
+    self.stack_frame.ip = self.stack_frame.ip.saturating_sub(count);
   }
 
-  fn call_value(&mut self, mut callable: Value, args: impl Into<Vec<Value>>) -> Result<(), UsageError> {
-    let value = callable.call(self, Args::new(args))?;
+  fn call_value(&mut self, mut callable: Value, airity: usize) -> Result<(), UsageError> {
+    let value = callable.call(self, airity)?;
     self.stack_push(value);
 
     Ok(())
   }
 
   pub fn ctx(&mut self) -> &Context {
-    &self.current_frame.ctx
+    &self.stack_frame.ctx
   }
 
   pub fn ctx_mut(&mut self) -> &mut Context {
-    &mut self.current_frame.ctx
+    &mut self.stack_frame.ctx
   }
 
   pub fn current_env(&self) -> &UsertypeHandle<ModuleValue> {
@@ -1090,13 +1080,13 @@ impl Vm {
     self.next_gc = now + DEFAULT_GC_FREQUENCY;
     self
       .gc
-      .clean(&self.current_frame, &self.stack_frames, self.lib_cache.values())?;
+      .clean(&self.stack, &self.stack_frame, &self.stack_frames, self.lib_cache.values())?;
     Ok(())
   }
 
   #[cold]
   fn error(&self, e: UsageError) -> Error {
-    let opcode = self.current_frame.ctx.instructions[self.current_frame.ip].clone();
+    let opcode = self.stack_frame.ctx.instructions[self.stack_frame.ip].clone();
     Error::runtime_error(self.error_at(opcode, |opcode_ref| RuntimeError::new(e, &self.filemap, opcode_ref)))
   }
 
@@ -1106,14 +1096,14 @@ impl Vm {
     F: FnOnce(OpcodeReflection) -> RuntimeError,
   {
     self
-      .current_frame
+      .stack_frame
       .ctx
       .meta
-      .reflect(opcode, self.current_frame.ip)
+      .reflect(opcode, self.stack_frame.ip)
       .map(f)
       .unwrap_or_else(|| RuntimeError {
-        msg: UsageError::IpOutOfBounds(self.current_frame.ip).to_string(),
-        file: self.filemap.get(self.current_frame.ctx.meta.file_id),
+        msg: UsageError::IpOutOfBounds(self.stack_frame.ip).to_string(),
+        file: self.filemap.get(self.stack_frame.ctx.meta.file_id),
         line: 0,
         column: 0,
         nested: false,
@@ -1121,7 +1111,12 @@ impl Vm {
   }
 
   pub fn stack_display(&self) {
-    print!("{}", self.current_frame);
+    println!("{}", self.stack);
+    println!(
+      "               | ip: {ip} sp: {sp}",
+      ip = self.stack_frame.ip,
+      sp = self.stack_frame.sp
+    );
   }
 }
 
@@ -1140,17 +1135,17 @@ pub enum Register {
 #[derive(Default)]
 pub struct StackFrame {
   pub ip: usize,
+  pub sp: usize,
   pub ctx: SmartPtr<Context>,
-  pub stack: Vec<Value>,
   pub registers: Vec<EnumMap<Register, Value>>,
 }
 
 impl StackFrame {
-  pub fn new(ctx: SmartPtr<Context>) -> Self {
+  pub fn new(ctx: SmartPtr<Context>, sp: usize) -> Self {
     Self {
       ip: Default::default(),
+      sp,
       ctx,
-      stack: Default::default(),
       registers: Default::default(),
     }
   }
@@ -1182,16 +1177,41 @@ impl StackFrame {
   }
 }
 
-impl Display for StackFrame {
+#[derive(Default)]
+pub struct Stack(Vec<Value>);
+
+impl Stack {
+  fn with_capacity(sz: usize) -> Self {
+    Self(Vec::with_capacity(sz))
+  }
+}
+
+impl Display for Stack {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    if self.stack.is_empty() {
-      writeln!(f, "               | [ ]")
+    if self.is_empty() {
+      write!(f, "               | [ ]")
     } else {
-      for (index, item) in self.stack.iter().enumerate() {
-        writeln!(f, "{:#15}| [ {:?} ]", index, item)?;
-      }
-      Ok(())
+      let formatted = self
+        .iter()
+        .enumerate()
+        .map(|(index, item)| format!("{:#15}| [ {:?} ]", index, item));
+      let look = itertools::join(formatted, "\n");
+      write!(f, "{look}")
     }
+  }
+}
+
+impl Deref for Stack {
+  type Target = Vec<Value>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for Stack {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
   }
 }
 

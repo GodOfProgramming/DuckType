@@ -128,10 +128,6 @@ impl<'p> BytecodeGenerator<'p> {
     }
   }
 
-  fn default_constructor_ret(&mut self, stmt: DefaultConstructorRet) {
-    self.emit(Opcode::RetSelf, stmt.loc);
-  }
-
   fn export_stmt(&mut self, stmt: ExportStatement) {
     if self.scope_depth == 0 {
       self.emit_expr(stmt.expr);
@@ -530,6 +526,7 @@ impl<'p> BytecodeGenerator<'p> {
           self.emit_expr(*expr.index);
           self.emit_expr(value);
           self.emit(Opcode::Invoke(2), expr.loc);
+          self.emit(Opcode::SwapPop, expr.loc);
         } else {
           self.error(loc, "failed to declare ident");
         }
@@ -554,6 +551,7 @@ impl<'p> BytecodeGenerator<'p> {
         self.emit_expr(*expr.index);
         self.emit(Opcode::Store(Storage::Reg(Register::B)), expr.loc);
         self.emit(Opcode::Invoke(1), expr.loc);
+        self.emit(Opcode::SwapPop, expr.loc);
 
         // value
         self.emit_expr(value);
@@ -568,6 +566,7 @@ impl<'p> BytecodeGenerator<'p> {
         self.emit(Opcode::Load(Storage::Reg(Register::B)), expr.loc);
         self.emit(Opcode::Load(Storage::Reg(Register::C)), expr.loc);
         self.emit(Opcode::Invoke(2), expr.loc);
+        self.emit(Opcode::SwapPop, expr.loc);
 
         self.emit(Opcode::PopRegCtx, expr.loc);
       }
@@ -609,6 +608,7 @@ impl<'p> BytecodeGenerator<'p> {
       }
 
       self.emit(Opcode::Invoke(arg_count), expr.loc);
+      self.emit(Opcode::SwapPop, expr.loc);
     } else {
       self.error(expr.loc, "too many args in call");
     }
@@ -646,6 +646,7 @@ impl<'p> BytecodeGenerator<'p> {
       self.emit(Opcode::LookupMember(ident), expr.loc);
       self.emit_expr(*expr.index);
       self.emit(Opcode::Invoke(1), expr.loc);
+      self.emit(Opcode::SwapPop, expr.loc);
     } else {
       self.error(expr.loc, "failed to add index const");
     }
@@ -734,7 +735,7 @@ impl<'p> BytecodeGenerator<'p> {
     }
   }
 
-  fn closure_expr(&mut self, expr: ClosureExpression) {
+  fn closure_expr(&mut self, mut expr: ClosureExpression) {
     let num_captures = expr.captures.len();
 
     if num_captures == 0 {
@@ -751,9 +752,9 @@ impl<'p> BytecodeGenerator<'p> {
           this.emit(Opcode::CreateVec(num_params), expr.loc);
 
           if let Ok(param_count) = expr.params.len().try_into() {
-            params.extend(expr.params);
+            expr.params.extend(params);
 
-            this.emit_fn(None, params, param_count, *expr.body, expr.loc);
+            this.emit_fn(None, expr.params, param_count, *expr.body, expr.loc);
 
             this.emit(Opcode::CreateClosure, expr.loc);
           } else {
@@ -813,7 +814,6 @@ impl<'p> BytecodeGenerator<'p> {
       Statement::Break(stmt) => self.break_stmt(stmt),
       Statement::Cont(stmt) => self.cont_stmt(stmt),
       Statement::Class(stmt) => self.class_stmt(stmt),
-      Statement::DefaultConstructorRet(stmt) => self.default_constructor_ret(stmt),
       Statement::Export(stmt) => self.export_stmt(stmt),
       Statement::Fn(stmt) => self.fn_stmt(stmt),
       Statement::For(stmt) => self.for_stmt(stmt),
@@ -1081,7 +1081,11 @@ impl<'p> BytecodeGenerator<'p> {
     if !self.locals.is_empty() {
       let mut index = self.locals.len() - 1;
 
-      for local in self.locals.iter().rev() {
+      'search: for local in self.locals.iter().rev() {
+        if local.depth < self.fn_depth {
+          break 'search;
+        }
+
         if ident.name == local.name {
           if !local.initialized {
             self.error(loc, "tried to use an undeclared identifier");
@@ -1181,8 +1185,6 @@ impl<'p> BytecodeGenerator<'p> {
 
       this.emit_stmt(body);
 
-      let local_count = this.locals.len();
-
       this.reduce_locals_to_depth(this.fn_depth, loc);
 
       let ctx = this.current_fn.take().unwrap();
@@ -1192,7 +1194,7 @@ impl<'p> BytecodeGenerator<'p> {
       this.locals = locals;
       this.fn_depth = prev_fn_depth;
 
-      FunctionConstant::new(airity, local_count, ctx)
+      FunctionConstant::new(airity, ctx)
     })
   }
 

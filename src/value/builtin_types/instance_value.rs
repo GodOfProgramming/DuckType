@@ -50,12 +50,12 @@ impl DebugValue for InstanceValue {
 impl ResolvableValue for InstanceValue {}
 
 impl InvocableValue for InstanceValue {
-  fn __ivk__(&mut self, vm: &mut Vm, this: Value, args: Args) -> UsageResult {
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult {
     let mut callable = self
       .get(&mut vm.gc, &this, Field::named("__ivk__"))?
       .map(Ok)
       .unwrap_or(Err(UsageError::UnexpectedNil))?;
 
-    callable.call(vm, args)
+    callable.call(vm, airity)
   }
 }

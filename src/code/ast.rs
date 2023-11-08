@@ -535,7 +535,7 @@ impl AstGenerator {
   fn parse_parameters(&mut self, terminator: Token) -> Option<Params> {
     let mut first_token = true;
     let mut found_self = false;
-    let mut params = Vec::default();
+    let mut params = Vec::new();
 
     'params: while let Some(token) = self.current() {
       if token == terminator {
@@ -552,19 +552,24 @@ impl AstGenerator {
 
         if ident == SELF_IDENT {
           if first_token {
-            found_self = true;
+            if found_self {
+              self.error::<0>(String::from("self found twice in parameter list"));
+              return None;
+            } else {
+              found_self = true;
+            }
           } else {
             self.error::<0>("self must be the first parameter");
             return None;
           }
+        } else {
+          params.push(ident);
+          if self.advance_if_matches(Token::Colon) {
+            self.expression()?;
+          }
         }
-
-        params.push(ident);
 
         first_token = false;
-        if self.advance_if_matches(Token::Colon) {
-          self.expression()?;
-        }
       } else {
         self.error::<0>("invalid token in parameter list");
       }
@@ -736,7 +741,7 @@ impl AstGenerator {
       };
     }
 
-    Some(Ident::new(match current {
+    let op_name = match current {
       Token::Identifier(fn_name) => fn_name,
       other => match other {
         Token::Bang => {
@@ -807,7 +812,9 @@ impl AstGenerator {
         _ => None?,
       }
       .to_string(),
-    }))
+    };
+
+    Some(Ident::new(op_name))
   }
 }
 
@@ -904,7 +911,10 @@ struct Params {
 }
 
 impl From<(bool, Vec<Ident>)> for Params {
-  fn from((found_self, list): (bool, Vec<Ident>)) -> Self {
+  fn from((found_self, mut list): (bool, Vec<Ident>)) -> Self {
+    if found_self {
+      list.push(Ident::new(SELF_IDENT));
+    }
     Self { found_self, list }
   }
 }

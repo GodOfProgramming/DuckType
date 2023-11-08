@@ -32,8 +32,9 @@ impl NativeClosureValue {
     format!("{}", self)
   }
 
-  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, args: Args) -> UsageResult {
-    (*self.callee)(vm, args)
+  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, airity: usize) -> UsageResult {
+    let args = vm.stack_drain_from(airity);
+    (*self.callee)(vm, Args::new(args))
   }
 }
 
@@ -48,23 +49,21 @@ impl Display for NativeClosureValue {
 pub struct NativeMethodValue {
   #[trace]
   pub this: Value,
-  callee: Value,
+  callee: NativeFn,
 }
 
 impl NativeMethodValue {
   pub fn new_native_fn(this: Value, callee: NativeFn) -> Self {
-    Self {
-      this,
-      callee: Value::native(callee),
-    }
+    Self { this, callee }
   }
 }
 
 #[methods]
 impl NativeMethodValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, mut args: Args) -> UsageResult {
-    args.list.push(self.this.clone());
-    self.callee.call(vm, args)
+  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, airity: usize) -> UsageResult {
+    let args = vm.stack_drain_from(airity);
+    let args = Args::new_with_this(self.this.clone(), args);
+    (self.callee)(vm, args)
   }
 
   fn __str__(&self) -> String {
@@ -74,6 +73,6 @@ impl NativeMethodValue {
 
 impl Display for NativeMethodValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    write!(f, "<native method {}>", self.callee)
+    write!(f, "<native method 0x{:p}>", self.callee)
   }
 }

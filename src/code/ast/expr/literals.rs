@@ -1,10 +1,7 @@
 use std::{collections::BTreeSet, fmt::Display};
 
 use crate::code::{
-  ast::{
-    AstExpression, AstGenerator, BlockStatement, DefaultConstructorRet, Ident, Params, RetStatement, SelfRules, Statement,
-    SELF_IDENT,
-  },
+  ast::{AstExpression, AstGenerator, BlockStatement, Ident, Params, RetStatement, SelfRules, Statement, SELF_IDENT},
   lex::{NumberToken, Token},
   SourceLocation,
 };
@@ -146,7 +143,10 @@ impl AstExpression for ClassExpression {
                 SelfRules::Require,
                 Token::RightParen,
                 |_this, params, mut body| {
-                  body.statements.push(Statement::from(DefaultConstructorRet::new(member_loc)));
+                  body.statements.push(Statement::from(RetStatement::new(
+                    Some(IdentExpression::new(Ident::new(SELF_IDENT), member_loc).into()),
+                    member_loc,
+                  )));
                   Some(Expression::from(LambdaExpression::new(
                     params.list,
                     Statement::from(body),

@@ -11,7 +11,7 @@ use text::color;
 
 let $NUM_ROWS = 25;
 let $NUM_COLUMNS = 30;
-let $ITERATION_LIMIT = 100;
+let $ITERATION_LIMIT = 1000;
 
 fn main() => nil {
   let SLEEP_TIME = 32.0 / 1000.0;

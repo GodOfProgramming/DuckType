@@ -17,7 +17,6 @@ pub enum Statement {
   Break(BreakStatement),
   Cont(ContStatement),
   Class(ClassStatement),
-  DefaultConstructorRet(DefaultConstructorRet),
   Export(ExportStatement),
   Fn(FnStatement),
   For(ForStatement),
@@ -60,7 +59,6 @@ impl Statement {
       Statement::Break(_) => (),
       Statement::Cont(_) => (),
       Statement::Class(c) => c.body.dump(tmpl),
-      Statement::DefaultConstructorRet(_) => (),
       Statement::Export(_) => (),
       Statement::Fn(_) => (),
       Statement::For(_) => (),
@@ -107,7 +105,6 @@ impl Display for Statement {
       Self::Break(_) => write!(f, "break"),
       Self::Cont(_) => write!(f, "cont"),
       Self::Class(c) => write!(f, "class {}", c.ident.name),
-      Self::DefaultConstructorRet(_) => write!(f, "default constructor ret"),
       Self::Export(_) => write!(f, "export"),
       Self::Fn(function) => write!(f, "fn {}", function.ident.name),
       Self::For(_) => write!(f, "for"),
@@ -148,12 +145,6 @@ impl From<ContStatement> for Statement {
 impl From<ClassStatement> for Statement {
   fn from(stmt: ClassStatement) -> Self {
     Self::Class(stmt)
-  }
-}
-
-impl From<DefaultConstructorRet> for Statement {
-  fn from(stmt: DefaultConstructorRet) -> Self {
-    Self::DefaultConstructorRet(stmt)
   }
 }
 

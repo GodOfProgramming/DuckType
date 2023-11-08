@@ -72,13 +72,12 @@ pub enum ConstantValue {
 #[derive(Clone)]
 pub struct FunctionConstant {
   pub airity: BitsRepr,
-  pub locals: usize,
   pub ctx: SmartPtr<Context>,
 }
 
 impl FunctionConstant {
-  pub fn new(airity: BitsRepr, locals: usize, ctx: SmartPtr<Context>) -> Self {
-    Self { airity, locals, ctx }
+  pub fn new(airity: BitsRepr, ctx: SmartPtr<Context>) -> Self {
+    Self { airity, ctx }
   }
 
   fn name(&self) -> &str {

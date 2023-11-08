@@ -203,7 +203,7 @@ impl Context {
         Self::address_of(offset + *count as usize)
       ),
       Opcode::Invoke(count) => println!("{} {}", Self::opcode_column("Call"), Self::value_column(*count)),
-      Opcode::CreateVec(count) => println!("{} {}", Self::opcode_column("CreateList"), Self::value_column(*count)),
+      Opcode::CreateVec(count) => println!("{} {}", Self::opcode_column("CreateVec"), Self::value_column(*count)),
       Opcode::Resolve(ident) => println!(
         "{} {} {}",
         Self::opcode_column("Resolve"),

@@ -124,7 +124,6 @@ pub enum ValueCommand {
 #[derive(Subcommand)]
 pub enum StackCmd {
   Display,
-  DisplayAll,
   Index {
     #[arg()]
     index: usize,
@@ -136,13 +135,6 @@ impl StackCmd {
     let output = match self {
       StackCmd::Display => {
         vm.stack_display();
-        None
-      }
-      StackCmd::DisplayAll => {
-        vm.stack_display();
-        for stack in &vm.stack_frames {
-          println!("{}", stack);
-        }
         None
       }
       StackCmd::Index { index } => Some(if let Some(value) = vm.stack_index(*index) {
@@ -165,7 +157,9 @@ impl GcCmd {
     let output = match self {
       GcCmd::Count => Some(vm.gc.allocations.len().to_string()),
       GcCmd::Clean => {
-        let cleaned = vm.gc.clean(&vm.current_frame, &vm.stack_frames, vm.lib_cache.values())?;
+        let cleaned = vm
+          .gc
+          .clean(&vm.stack, &vm.stack_frame, &vm.stack_frames, vm.lib_cache.values())?;
         Some(cleaned.to_string())
       }
     };

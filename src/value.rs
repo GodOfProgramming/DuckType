@@ -422,24 +422,25 @@ impl Value {
     self.is_type::<NIL_TAG>()
   }
 
-  pub fn call(&mut self, vm: &mut Vm, args: Args) -> UsageResult {
+  pub fn call(&mut self, vm: &mut Vm, airity: usize) -> UsageResult {
     if self.tag() == Tag::NativeFn {
+      let args = vm.stack_drain_from(airity);
       let f = self.as_native_fn_unchecked();
-      let output = f(vm, args)?;
+      let output = f(vm, Args::new(args))?;
       Ok(output)
     } else {
-      (self.vtable().invoke)(self.pointer_mut(), vm as *mut Vm as MutVoid, self.clone(), args)
+      (self.vtable().invoke)(self.pointer_mut(), MutPtr::new(vm), self.clone(), airity)
     }
   }
 
   // value methods
 
   pub fn get_member(&self, gc: &mut Gc, name: Field) -> UsageResult<Option<Value>> {
-    (self.vtable().get_member)(self, gc as *mut Gc as MutVoid, name)
+    (self.vtable().get_member)(self, MutPtr::new(gc), name)
   }
 
   pub fn set_member(&mut self, gc: &mut Gc, name: Field, value: Value) -> UsageResult<()> {
-    (self.vtable().set_member)(self.pointer_mut(), gc as *mut Gc as MutVoid, name, value)
+    (self.vtable().set_member)(self.pointer_mut(), MutPtr::new(gc), name, value)
   }
 
   pub fn define(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> UsageResult<bool> {
@@ -936,14 +937,14 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  get_member: fn(&Value, MutVoid, Field) -> UsageResult<Option<Value>>,
-  set_member: fn(MutVoid, MutVoid, Field, Value) -> UsageResult<()>,
+  get_member: fn(&Value, MutPtr<Gc>, Field) -> UsageResult<Option<Value>>,
+  set_member: fn(MutVoid, MutPtr<Gc>, Field, Value) -> UsageResult<()>,
 
   define: fn(MutVoid, &str, Value) -> UsageResult<bool>,
   assign: fn(MutVoid, &str, Value) -> UsageResult<bool>,
   resolve: fn(ConstVoid, &str) -> UsageResult,
 
-  invoke: fn(MutVoid, MutVoid, Value, Args) -> UsageResult,
+  invoke: fn(MutVoid, MutPtr<Vm>, Value, usize) -> UsageResult,
 
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
@@ -958,15 +959,17 @@ pub struct VTable {
 impl VTable {
   pub const fn new<T: Usertype>() -> Self {
     Self {
-      get_member: |this, gc, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::cast_mut(gc), this, name),
-      set_member: |this, gc, name, value| <T as Usertype>::set(Self::cast_mut(this), Self::cast_mut(gc), name, value),
+      get_member: |this, gc, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::typed_cast_mut(gc.raw()), this, name),
+      set_member: |this, gc, name, value| {
+        <T as Usertype>::set(Self::cast_mut(this), Self::typed_cast_mut(gc.raw()), name, value)
+      },
 
       define: |this, name, value| <T as ResolvableValue>::__def__(Self::cast_mut(this), name, value),
       assign: |this, name, value| <T as ResolvableValue>::__def__(Self::cast_mut(this), name, value).map(|new| !new),
       resolve: |this, field| <T as ResolvableValue>::__res__(Self::cast(this), field),
 
-      invoke: |this, vm, this_value, args| {
-        <T as InvocableValue>::__ivk__(Self::cast_mut(this), Self::cast_mut(vm), this_value, args)
+      invoke: |this, vm, this_value, airity| {
+        <T as InvocableValue>::__ivk__(Self::cast_mut(this), Self::typed_cast_mut(vm.raw()), this_value, airity)
       },
 
       display_string: |this| <T as DisplayValue>::__str__(Self::cast(this)),
@@ -986,6 +989,10 @@ impl VTable {
 
   fn cast_mut<'t, T>(ptr: MutVoid) -> &'t mut T {
     unsafe { &mut *(ptr as *mut T) }
+  }
+
+  fn typed_cast_mut<T>(ptr: *mut T) -> &'static mut T {
+    unsafe { &mut *ptr }
   }
 }
 

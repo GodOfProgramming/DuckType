@@ -1,4 +1,4 @@
-use super::StackFrame;
+use super::{Stack, StackFrame};
 use crate::{
   exec::Register,
   prelude::*,
@@ -248,11 +248,12 @@ impl Gc {
 
   pub fn clean<'v>(
     &mut self,
+    stack: &Stack,
     current_frame: &StackFrame,
     stack_frames: &Vec<StackFrame>,
     cached_values: impl IntoIterator<Item = &'v Value>,
   ) -> Result<usize, SystemError> {
-    let marked_allocations = self.trace(current_frame, stack_frames, cached_values);
+    let marked_allocations = self.trace(stack, current_frame, stack_frames, cached_values);
     let loose_allocations = self.find_unmarked(marked_allocations);
 
     let cleaned = loose_allocations.len();
@@ -270,21 +271,23 @@ impl Gc {
 
   pub fn trace<'v>(
     &self,
+    stack: &Stack,
     current_frame: &StackFrame,
     stack_frames: &Vec<StackFrame>,
     cached_values: impl IntoIterator<Item = &'v Value>,
   ) -> AllocationSet {
     let mut marked_allocations = Marker::default();
+
+    for value in stack.iter() {
+      marked_allocations.trace(value)
+    }
+
     for value in cached_values {
       marked_allocations.trace(value);
     }
 
     for value in &self.handles {
       marked_allocations.trace(&Value { bits: *value });
-    }
-
-    for value in &current_frame.stack {
-      marked_allocations.trace(value);
     }
 
     for ctx in &current_frame.registers {
@@ -294,10 +297,6 @@ impl Gc {
     }
 
     for frame in stack_frames {
-      for value in &frame.stack {
-        marked_allocations.trace(value);
-      }
-
       for ctx in &frame.registers {
         for reg in Register::iter() {
           marked_allocations.trace(&ctx[reg]);
@@ -543,7 +542,9 @@ mod tests {
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []).unwrap();
+    let cleaned = gc
+      .clean(&Default::default(), &StackFrame::new(ctx, 0), &Default::default(), [])
+      .unwrap();
     assert_eq!(cleaned, 1);
   }
 
@@ -559,7 +560,9 @@ mod tests {
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []).unwrap();
+    let cleaned = gc
+      .clean(&Default::default(), &StackFrame::new(ctx, 0), &Default::default(), [])
+      .unwrap();
 
     assert_eq!(cleaned, 1);
   }
@@ -575,11 +578,15 @@ mod tests {
 
     {
       let _handle = Gc::allocate_handle(&mut gc, value);
-      let cleaned = gc.clean(&StackFrame::new(ctx.clone()), &Default::default(), []).unwrap();
+      let cleaned = gc
+        .clean(&Default::default(), &StackFrame::new(ctx.clone(), 0), &Default::default(), [])
+        .unwrap();
       assert_eq!(cleaned, 0);
     }
 
-    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []).unwrap();
+    let cleaned = gc
+      .clean(&Default::default(), &StackFrame::new(ctx, 0), &Default::default(), [])
+      .unwrap();
     assert_eq!(cleaned, 2);
   }
 }

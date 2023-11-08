@@ -83,17 +83,6 @@ impl AstStatement for ContStatement {
 }
 
 #[derive(Debug)]
-pub struct DefaultConstructorRet {
-  pub loc: SourceLocation,
-}
-
-impl DefaultConstructorRet {
-  pub(crate) fn new(loc: SourceLocation) -> Self {
-    Self { loc }
-  }
-}
-
-#[derive(Debug)]
 pub struct ForStatement {
   pub initializer: Box<Statement>,
   pub comparison: Expression,
