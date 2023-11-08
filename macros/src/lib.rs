@@ -4,11 +4,13 @@ mod user_types;
 
 use proc_macro::TokenStream;
 use proc_macro2::Literal;
-use quote::ToTokens;
+use quote::{quote, ToTokens};
 use syn::{
   parenthesized,
   parse::{Parse, ParseStream},
-  parse_macro_input, Ident, Item, ItemImpl, ItemStruct,
+  parse_macro_input,
+  token::Comma,
+  Ident, Item, ItemEnum, ItemImpl, ItemStruct,
 };
 
 struct StrAttr {
@@ -22,6 +24,26 @@ impl Parse for StrAttr {
     Ok(Self {
       string: content.parse()?,
     })
+  }
+}
+
+struct BitsAttr {
+  ident: Ident,
+  width: Literal,
+}
+
+impl Parse for BitsAttr {
+  fn parse(input: ParseStream) -> syn::Result<Self> {
+    let content;
+    parenthesized!(content in input);
+
+    let ident = content.parse()?;
+
+    content.parse::<Comma>()?;
+
+    let bits = content.parse::<Literal>()?;
+
+    Ok(Self { ident, width: bits })
   }
 }
 
@@ -95,6 +117,51 @@ pub fn native(args: TokenStream, input: TokenStream) -> TokenStream {
     }
     thing => {
       syn::Error::new_spanned(thing, "cannot impl method for fn signature not taking self reference").into_compile_error()
+    }
+  }
+  .into()
+}
+
+struct OpBits {
+  opcode: Ident,
+  bits: BitsAttr,
+}
+
+#[proc_macro_derive(Op, attributes(bits))]
+pub fn derive_op(input: TokenStream) -> TokenStream {
+  let ops = parse_macro_input!(input as ItemEnum);
+
+  let mut modified_ops = Vec::new();
+
+  for var in ops.variants {
+    match var.attrs.iter().find(|attr| attr.path.is_ident("bits")) {
+      Some(bits_attr) => {
+        let tokens = TokenStream::from(bits_attr.tokens.clone());
+        let bits_attr = parse_macro_input!(tokens as BitsAttr);
+        modified_ops.push(OpBits {
+          opcode: var.ident.clone(),
+          bits: bits_attr,
+        });
+      }
+      None => (),
+    };
+  }
+
+  let tokens = modified_ops.into_iter().map(|op| {
+    let opcode = op.opcode;
+    let p = op.bits.ident;
+    let bits = op.bits.width;
+    quote! {
+      struct #opcode {
+
+      }
+    }
+  });
+
+  quote! {
+    #[automatically_derived]
+    pub(crate) mod op {
+
     }
   }
   .into()

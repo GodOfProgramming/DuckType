@@ -55,6 +55,7 @@ pub enum Storage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(u64)]
 pub enum Opcode {
   /** No operation instruction */
   NoOp,
@@ -1289,4 +1290,142 @@ pub(crate) enum ExecType {
   String,
   File,
   Fn,
+}
+
+mod opcode {
+  use std::mem;
+
+  const OPCODE_BITS: u64 = 8;
+
+  trait InstBits {
+    fn to_bits(self) -> u64;
+    fn from_bits(inst: u64) -> Self;
+  }
+
+  impl InstBits for usize {
+    fn to_bits(self) -> u64 {
+      unsafe { mem::transmute(self) }
+    }
+
+    fn from_bits(inst: u64) -> Self {
+      unsafe { mem::transmute(inst) }
+    }
+  }
+
+  #[derive(Debug)]
+  struct Instruction(u64);
+
+  impl Instruction {
+    fn op(&self) -> Op {
+      unsafe { mem::transmute((self.0 & OPCODE_BITS) as u8) }
+    }
+  }
+
+  impl From<Opcode> for Instruction {
+    fn from(opcode: Opcode) -> Self {
+      match opcode {
+        Opcode::Load(storage, pos) => {
+          let mut inst = 0u64;
+          inst |= Op::Load.to_bits();
+          inst |= storage.to_bits() << OPCODE_BITS + 0; // + offset per field
+          inst |= pos.to_bits() << OPCODE_BITS + 1;
+          Instruction(inst)
+        }
+        Opcode::AddReg(s, a, b) => {
+          let mut inst = 0u64;
+          inst |= Op::AddReg.to_bits();
+          inst |= s.to_bits() << OPCODE_BITS + 0;
+          inst |= a.to_bits() << OPCODE_BITS + 18;
+          inst |= b.to_bits() << OPCODE_BITS + 36;
+          Instruction(inst)
+        }
+      }
+    }
+  }
+
+  #[derive(Debug)]
+  #[repr(u8)]
+  enum Storage {
+    Local,
+    Global,
+  }
+
+  impl InstBits for Storage {
+    fn to_bits(self) -> u64 {
+      unsafe { mem::transmute(self as u64) }
+    }
+    fn from_bits(inst: u64) -> Self {
+      unsafe { mem::transmute(inst as u8) }
+    }
+  }
+
+  #[derive(Debug)]
+  enum Opcode {
+    Load(Storage, usize),
+    AddReg(usize, usize, usize),
+  }
+
+  #[derive(strum_macros::FromRepr)]
+  #[repr(u8)]
+  enum Op {
+    Load,
+    AddReg,
+  }
+
+  impl InstBits for Op {
+    fn to_bits(self) -> u64 {
+      unsafe { mem::transmute(self as u64) }
+    }
+
+    fn from_bits(inst: u64) -> Self {
+      unsafe { mem::transmute(inst as u8) }
+    }
+  }
+
+  impl From<Instruction> for Opcode {
+    fn from(inst: Instruction) -> Self {
+      match inst.op() {
+        Op::Load => {
+          let storage = Storage::from_bits(inst.0 >> OPCODE_BITS + 0);
+          let pos = usize::from_bits(inst.0 >> OPCODE_BITS + 1);
+          Self::Load(storage, pos)
+        }
+        Op::AddReg => {
+          let s = usize::from_bits(inst.0 >> OPCODE_BITS + 0);
+          let a = usize::from_bits(inst.0 >> OPCODE_BITS + 18);
+          let b = usize::from_bits(inst.0 >> OPCODE_BITS + 36);
+          Self::AddReg(s, a, b)
+        }
+      }
+    }
+  }
+
+  #[cfg(test)]
+  mod tests {
+    use super::*;
+
+    #[test]
+    fn scratchpad() {
+      let load = Opcode::Load(Storage::Local, 123);
+      let bits: Instruction = load.into();
+      let opcode: Opcode = bits.into();
+      if let Opcode::Load(storage, loc) = opcode {
+        assert!(matches!(storage, Storage::Local));
+        assert_eq!(loc, 123);
+      } else {
+        panic!("load opcode failed to deserialize: {opcode:?}");
+      }
+
+      let add_reg = Opcode::AddReg(0, 1, 2);
+      let bits: Instruction = add_reg.into();
+      let opcode: Opcode = bits.into();
+      if let Opcode::AddReg(s, a, b) = opcode {
+        assert_eq!(s, 0);
+        assert_eq!(a, 1);
+        assert_eq!(b, 2);
+      } else {
+        panic!("addreg opcode failed to deserialize: {opcode:?}");
+      }
+    }
+  }
 }
