@@ -1292,7 +1292,7 @@ pub(crate) enum ExecType {
   Fn,
 }
 
-mod opcode {
+pub mod inst {
   use strum::EnumCount;
 
   trait InstructionData
@@ -1333,14 +1333,127 @@ mod opcode {
   #[derive(Debug, PartialEq, Eq, strum_macros::EnumCount, strum_macros::FromRepr)]
   #[repr(u8)]
   enum Opcode {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    Load,
+    /// No operation instruction
+    NoOp,
+    /// Looks up a constant value at the specified location.
+    ///
+    /// Encoding: | location |
+    Const,
+    /// Pushes a nil value on to the stack
+    Nil,
+    /// Pushes true on the stack
+    True,
+    /// Pushes false on the stack
+    False,
+    /// Pops a value off the stack
+    Pop,
+    /// Pops N values off the stack.
+    ///
+    /// Encoding: | N |
+    PopN,
+    /// Store the value on the stack in the given location
+    ///
+    /// Encoding: | Storage | location |
     Store,
-    AddReg,
+    /// Load a value and push it onto the stack
+    ///
+    /// Encoding: | Storage | location |
+    Load,
+    /// Assigns a value to a member on an object
+    ///
+    /// \[ Value \] \
+    /// \[ Object \]
+    ///
+    /// Encoding: | location of constant string for name |
+    AssignMember,
+    /** Initializes a member of an object, keeping the object on the stack for further assignments */
+    InitializeMember,
+    /** Initializes a method on a class, keeping the class on the stack for further assignments */
+    InitializeMethod,
+    /** Initializes the constructor on a class, keeping the class on the stack for further assignments */
+    InitializeConstructor,
+    /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
+    LookupMember,
+    /** Uses the constant pointed to by the modifying bits to peek at a value on the next item on the stack */
+    PeekMember,
+    /** Pops two values off the stack, compares, then pushes the result back on */
+    Equal,
+    /** Pops two values off the stack, compares, then pushes the result back on */
+    NotEqual,
+    /** Pops two values off the stack, compares, then pushes the result back on */
+    Greater,
+    /** Pops two values off the stack, compares, then pushes the result back on */
+    GreaterEqual,
+    /** Pops two values off the stack, compares, then pushes the result back on */
+    Less,
+    /** Pops two values off the stack, compares, then pushes the result back on */
+    LessEqual,
+    /** Pops a value off the stack, and compares it with the peeked value, pushing the new value on */
+    Check,
+    /** Pops two values off the stack, calculates the sum, then pushes the result back on */
+    Add,
+    /** Pops two values off the stack, calculates the difference, then pushes the result back on */
+    Sub,
+    /** Pops two values off the stack, calculates the product, then pushes the result back on */
+    Mul,
+    /** Pops two values off the stack, calculates the quotient, then pushes the result back on */
+    Div,
+    /** Pops two values off the stack, calculates the remainder, then pushes the result back on */
+    Rem,
+    /** Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple */
+    Or,
+    /** Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple */
+    And,
+    /** Pops a value off the stack, inverts its truthy value, then pushes that back on */
+    Not,
+    /** Pops a value off the stack, inverts its numerical value, then pushes that back on */
+    Negate,
+    /** Pops a value off the stack and prints it to the screen */
+    Println,
+    /** Jumps to a code location indicated by the tuple */
+    Jump,
+    /** Jumps to a code location indicated by the tuple */
+    JumpIfFalse,
+    /** Jumps the instruction pointer backwards N instructions. N specified by the tuple */
+    Loop,
+    /** Calls the value on the stack. Number of arguments is specified by the modifying bits */
+    Invoke,
+    /** Swaps the last two items on the stack and pops */
+    SwapPop,
+    /** Exits from a function, returning nil on the previous frame */
+    Ret,
+    /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
+    Req,
+    /** Create a vec of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
+    CreateVec,
+    /** Create a vec of values and push it on the stack. The last item on the stack is copied as many times as the param indicates */
+    CreateSizedVec,
+    /** Create a vec of values and push it on the stack. The last item is the number of times and the next is the item to be copied the times specified */
+    CreateDynamicVec,
+    /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
+    CreateClosure,
+    /** Create a new struct with the number of members as the bits */
+    CreateStruct,
+    /** Create a new class. Name is from the bits */
+    CreateClass,
+    /** Create a new module. Name is from the bits */
+    CreateModule,
+    /** Halt the VM when this instruction is reached and enter repl mode */
+    Breakpoint,
+    /** Mark the current value as exported */
+    Export,
+    /** Defines the identifier on the variable */
+    Define,
+    /** Resolve the specified identifier */
+    Resolve,
+    /** Push a new env */
+    EnterBlock,
+    /** Pop an env */
+    PopScope,
+    /**  */
+    PushRegCtx,
+    /**  */
+    PopRegCtx,
   }
 
   static_assertions::const_assert!(Opcode::COUNT - 1 < 2usize.pow(Opcode::BITS as u32));
@@ -1508,14 +1621,14 @@ mod opcode {
         const A_ADDR: usize = 12;
         const B_ADDR: usize = 34;
         let inst = Instruction::new(
-          Opcode::AddReg,
+          Opcode::Add,
           (Storage::Local, ShortAddr(A_ADDR), Storage::Global, ShortAddr(B_ADDR)),
         );
 
         let op = inst.opcode().unwrap();
         let ((a_store, a_addr), (b_store, b_addr)) = inst.data::<((Storage, ShortAddr), (Storage, ShortAddr))>().unwrap();
 
-        assert_eq!(op, Opcode::AddReg);
+        assert_eq!(op, Opcode::Add);
         assert_eq!(a_store, Storage::Local);
         assert_eq!(a_addr, ShortAddr(A_ADDR));
         assert_eq!(b_store, Storage::Global);
