@@ -3,6 +3,43 @@
 version = 3
 
 [[package]]
+name = "DuckType"
+version = "0.42.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "bimap",
+ "clap",
+ "dlopen2",
+ "enum-map",
+ "evalexpr",
+ "horrorshow",
+ "interpolator",
+ "itertools",
+ "lazy-regex",
+ "macros",
+ "modular-bitfield",
+ "nix 0.27.1",
+ "once_cell",
+ "pprof",
+ "pretty_assertions",
+ "ptr",
+ "rand",
+ "regex",
+ "rustyline",
+ "shellwords",
+ "static_assertions",
+ "strum",
+ "strum_macros",
+ "sysinfo",
+ "tfix",
+ "thiserror",
+ "tokio",
+ "uuid",
+ "windows-sys",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1046,43 +1083,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8229b473baa5980ac72ef434c4415e70c4b5e71b423043adb4ba059f89c99a1"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "simple_script"
-version = "0.42.0"
-dependencies = [
- "ahash",
- "anyhow",
- "bimap",
- "clap",
- "dlopen2",
- "enum-map",
- "evalexpr",
- "horrorshow",
- "interpolator",
- "itertools",
- "lazy-regex",
- "macros",
- "modular-bitfield",
- "nix 0.27.1",
- "once_cell",
- "pprof",
- "pretty_assertions",
- "ptr",
- "rand",
- "regex",
- "rustyline",
- "shellwords",
- "static_assertions",
- "strum",
- "strum_macros",
- "sysinfo",
- "tfix",
- "thiserror",
- "tokio",
- "uuid",
- "windows-sys",
 ]
 
 [[package]]

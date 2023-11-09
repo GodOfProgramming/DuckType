@@ -1,4 +1,4 @@
-req "lib/sspec/sspec.ss" as sspec;
+req "lib/sspec/sspec.dk" as sspec;
 
 use sspec::describe;
 

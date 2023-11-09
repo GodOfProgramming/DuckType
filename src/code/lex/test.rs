@@ -2,13 +2,13 @@ use super::*;
 use std::f64::consts::PI;
 use tfix::{fixture, TestFixture};
 
-const ALL_TOKENS: &str = include_str!("all_tokens.ss");
+const ALL_TOKENS: &str = include_str!("all_tokens.dk");
 
-const CONSECUTIVE_TOKENS: &str = include_str!("consecutive_tokens.ss");
+const CONSECUTIVE_TOKENS: &str = include_str!("consecutive_tokens.dk");
 
-const SCANNING_ERRORS: &str = include_str!("scanning_errors.ss");
+const SCANNING_ERRORS: &str = include_str!("scanning_errors.dk");
 
-const TOKEN_META_TEST: &str = include_str!("token_meta_test.ss");
+const TOKEN_META_TEST: &str = include_str!("token_meta_test.dk");
 
 #[derive(Default)]
 struct ScannerTest {

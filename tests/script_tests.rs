@@ -1,5 +1,5 @@
+use ducktype::prelude::*;
 use macros::{methods, Fields};
-use ss::prelude::*;
 use std::{fs, path::Path};
 use tfix::{fixture, TestFixture};
 

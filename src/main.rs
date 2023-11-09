@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use ss::prelude::*;
+use ducktype::prelude::*;
 use std::{io::Read, path::PathBuf};
 use uuid::Uuid;
 

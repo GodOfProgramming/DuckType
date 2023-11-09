@@ -1,4 +1,4 @@
-use ss::prelude::*;
+use ducktype::prelude::*;
 use tfix::prelude::*;
 
 struct ApiTest {

@@ -1,19 +1,19 @@
 [package]
-name = "simple_script"
+name = "DuckType"
 version = "0.42.0"
 authors = ["Jonathan Dickert <jonathan.dickert@protonmail.com>"]
 edition = "2021"
-default-run = "ss"
+default-run = "duck"
 
 [workspace]
 members = [".", "macros"]
 
 [[bin]]
-name = "ss"
+name = "duck"
 path = "src/main.rs"
 
 [lib]
-name = "ss"
+name = "ducktype"
 
 [workspace.dependencies]
 uuid = { version = "1.4", features = ["v4", "macro-diagnostics"] }

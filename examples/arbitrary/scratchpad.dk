@@ -1,4 +1,4 @@
-req "examples/lib/ansi.ss" as ansi;
+req "examples/lib/ansi.dk" as ansi;
 
 use ansi::cursor;
 use ansi::display;

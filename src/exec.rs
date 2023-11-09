@@ -6,7 +6,7 @@ use crate::{
   dbg::Cli,
   prelude::*,
   util::{FileIdType, FileMetadata, PlatformMetadata},
-  UnwrapAnd,
+  UnwrapAnd, EXTENSION,
 };
 use clap::Parser;
 use dlopen2::wrapper::{Container, WrapperApi};
@@ -796,7 +796,7 @@ impl Vm {
       }
       attempts.push(direct_with_native_extension);
 
-      let direct_with_script_extension = direct.with_extension("ss");
+      let direct_with_script_extension = direct.with_extension(EXTENSION);
       if direct_with_script_extension.exists() {
         return Some(direct_with_script_extension);
       }

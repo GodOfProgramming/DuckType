@@ -23,6 +23,8 @@ pub mod macro_requirements {
   pub use uuid;
 }
 
+pub const EXTENSION: &str = "dk";
+
 pub(crate) trait UnwrapAnd<T> {
   fn unwrap_and(self, f: impl FnOnce(T));
 }
