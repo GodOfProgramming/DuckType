@@ -39,7 +39,7 @@ strum_macros = "0.25"
 sysinfo = "0.29"
 thiserror = "1.0"
 uuid = { workspace = true }
-bitfield-struct = "0.5"
+modular-bitfield = "0.11"
 
 pprof = { version = "0.13", features = ["flamegraph"] }
 tokio = { version = "1.33", features = ["full"] }

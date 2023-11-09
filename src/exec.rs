@@ -1293,110 +1293,118 @@ pub(crate) enum ExecType {
 }
 
 mod opcode {
-  use std::mem;
+  use strum::EnumCount;
 
-  const OPCODE_BITS: u64 = 8;
+  trait InstructionData
+  where
+    Self: Sized,
+  {
+    const BITS: u64;
+    const MASK: u64 = 2u64.pow(Self::BITS as u32) - 1;
 
-  trait InstBits {
-    fn to_bits(self) -> u64;
-    fn from_bits(inst: u64) -> Self;
+    fn bits(self) -> u64;
+    fn data(inst: u64) -> Option<Self>;
   }
 
-  impl InstBits for usize {
-    fn to_bits(self) -> u64 {
-      unsafe { mem::transmute(self) }
-    }
-
-    fn from_bits(inst: u64) -> Self {
-      unsafe { mem::transmute(inst) }
-    }
-  }
-
-  #[derive(Debug)]
   struct Instruction(u64);
 
   impl Instruction {
-    fn op(&self) -> Op {
-      unsafe { mem::transmute((self.0 & OPCODE_BITS) as u8) }
+    fn new<D>(opcode: Opcode, data: D) -> Self
+    where
+      D: InstructionData,
+    {
+      let inst = opcode.bits() | data.bits() << Opcode::BITS;
+
+      Self(inst)
+    }
+
+    fn opcode(&self) -> Option<Opcode> {
+      Opcode::data(self.0 & Opcode::MASK)
+    }
+
+    fn data<T>(&self) -> Option<T>
+    where
+      T: InstructionData,
+    {
+      T::data(self.0 >> Opcode::BITS)
     }
   }
 
-  impl From<Opcode> for Instruction {
-    fn from(opcode: Opcode) -> Self {
-      match opcode {
-        Opcode::Load(storage, pos) => {
-          let mut inst = 0u64;
-          inst |= Op::Load.to_bits();
-          inst |= storage.to_bits() << OPCODE_BITS + 0; // + offset per field
-          inst |= pos.to_bits() << OPCODE_BITS + 1;
-          Instruction(inst)
-        }
-        Opcode::AddReg(s, a, b) => {
-          let mut inst = 0u64;
-          inst |= Op::AddReg.to_bits();
-          inst |= s.to_bits() << OPCODE_BITS + 0;
-          inst |= a.to_bits() << OPCODE_BITS + 18;
-          inst |= b.to_bits() << OPCODE_BITS + 36;
-          Instruction(inst)
-        }
-      }
+  #[derive(Debug, PartialEq, Eq, strum_macros::EnumCount, strum_macros::FromRepr)]
+  #[repr(u8)]
+  enum Opcode {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Load,
+    Store,
+  }
+
+  static_assertions::const_assert!(Opcode::COUNT - 1 < 2usize.pow(Opcode::BITS as u32));
+
+  impl InstructionData for Opcode {
+    const BITS: u64 = 8;
+
+    fn bits(self) -> u64 {
+      self as u8 as u64
+    }
+
+    fn data(inst: u64) -> Option<Self> {
+      Self::from_repr((inst & Self::MASK).try_into().ok()?)
     }
   }
 
-  #[derive(Debug)]
+  #[derive(Debug, PartialEq, Eq, strum_macros::EnumCount, strum_macros::FromRepr)]
   #[repr(u8)]
   enum Storage {
     Local,
     Global,
   }
 
-  impl InstBits for Storage {
-    fn to_bits(self) -> u64 {
-      unsafe { mem::transmute(self as u64) }
-    }
-    fn from_bits(inst: u64) -> Self {
-      unsafe { mem::transmute(inst as u8) }
-    }
-  }
+  static_assertions::const_assert!(Storage::COUNT - 1 < 2usize.pow(Storage::BITS as u32));
 
-  #[derive(Debug)]
-  enum Opcode {
-    Load(Storage, usize),
-    AddReg(usize, usize, usize),
-  }
+  impl InstructionData for Storage {
+    const BITS: u64 = 1;
 
-  #[derive(strum_macros::FromRepr)]
-  #[repr(u8)]
-  enum Op {
-    Load,
-    AddReg,
-  }
-
-  impl InstBits for Op {
-    fn to_bits(self) -> u64 {
-      unsafe { mem::transmute(self as u64) }
+    fn bits(self) -> u64 {
+      self as u8 as u64
     }
 
-    fn from_bits(inst: u64) -> Self {
-      unsafe { mem::transmute(inst as u8) }
+    fn data(inst: u64) -> Option<Self> {
+      Self::from_repr((inst & Self::MASK).try_into().ok()?)
     }
   }
 
-  impl From<Instruction> for Opcode {
-    fn from(inst: Instruction) -> Self {
-      match inst.op() {
-        Op::Load => {
-          let storage = Storage::from_bits(inst.0 >> OPCODE_BITS + 0);
-          let pos = usize::from_bits(inst.0 >> OPCODE_BITS + 1);
-          Self::Load(storage, pos)
-        }
-        Op::AddReg => {
-          let s = usize::from_bits(inst.0 >> OPCODE_BITS + 0);
-          let a = usize::from_bits(inst.0 >> OPCODE_BITS + 18);
-          let b = usize::from_bits(inst.0 >> OPCODE_BITS + 36);
-          Self::AddReg(s, a, b)
-        }
-      }
+  impl<T0, T1> InstructionData for (T0, T1)
+  where
+    T0: InstructionData,
+    T1: InstructionData,
+  {
+    const BITS: u64 = T0::BITS + T1::BITS;
+
+    fn bits(self) -> u64 {
+      self.1.bits() << T0::BITS | self.0.bits()
+    }
+
+    fn data(inst: u64) -> Option<Self> {
+      T0::data(inst & T0::MASK).zip(T1::data(inst >> T0::BITS & T1::MASK))
+    }
+  }
+
+  #[derive(Debug, PartialEq, Eq)]
+  struct LongAddr(usize);
+
+  impl InstructionData for LongAddr {
+    const BITS: u64 = 32;
+
+    fn bits(self) -> u64 {
+      self.0 as u64
+    }
+
+    fn data(inst: u64) -> Option<Self> {
+      Some(Self((inst & Self::MASK) as usize))
     }
   }
 
@@ -1405,27 +1413,25 @@ mod opcode {
     use super::*;
 
     #[test]
-    fn scratchpad() {
-      let load = Opcode::Load(Storage::Local, 123);
-      let bits: Instruction = load.into();
-      let opcode: Opcode = bits.into();
-      if let Opcode::Load(storage, loc) = opcode {
-        assert!(matches!(storage, Storage::Local));
-        assert_eq!(loc, 123);
-      } else {
-        panic!("load opcode failed to deserialize: {opcode:?}");
+    fn opcode_serde() {
+      const ADDR: usize = 123;
+
+      let addr = LongAddr(ADDR);
+      {
+        let bits = addr.bits();
+        assert_eq!(bits, ADDR as u64);
+        let addr = LongAddr::data(bits).unwrap();
+        assert_eq!(addr, LongAddr(ADDR));
       }
 
-      let add_reg = Opcode::AddReg(0, 1, 2);
-      let bits: Instruction = add_reg.into();
-      let opcode: Opcode = bits.into();
-      if let Opcode::AddReg(s, a, b) = opcode {
-        assert_eq!(s, 0);
-        assert_eq!(a, 1);
-        assert_eq!(b, 2);
-      } else {
-        panic!("addreg opcode failed to deserialize: {opcode:?}");
-      }
+      let inst = Instruction::new(Opcode::Load, (Storage::Local, LongAddr(ADDR)));
+
+      let op = inst.opcode().unwrap();
+      let (storage, addr) = inst.data::<(Storage, LongAddr)>().unwrap();
+
+      assert_eq!(op, Opcode::Load);
+      assert_eq!(storage, Storage::Local);
+      assert_eq!(addr, LongAddr(ADDR));
     }
   }
 }
