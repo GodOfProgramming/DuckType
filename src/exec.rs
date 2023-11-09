@@ -1340,6 +1340,7 @@ mod opcode {
     Mod,
     Load,
     Store,
+    AddReg,
   }
 
   static_assertions::const_assert!(Opcode::COUNT - 1 < 2usize.pow(Opcode::BITS as u32));
@@ -1377,22 +1378,6 @@ mod opcode {
     }
   }
 
-  impl<T0, T1> InstructionData for (T0, T1)
-  where
-    T0: InstructionData,
-    T1: InstructionData,
-  {
-    const BITS: u64 = T0::BITS + T1::BITS;
-
-    fn bits(self) -> u64 {
-      self.1.bits() << T0::BITS | self.0.bits()
-    }
-
-    fn data(inst: u64) -> Option<Self> {
-      T0::data(inst & T0::MASK).zip(T1::data(inst >> T0::BITS & T1::MASK))
-    }
-  }
-
   #[derive(Debug, PartialEq, Eq)]
   struct LongAddr(usize);
 
@@ -1405,6 +1390,90 @@ mod opcode {
 
     fn data(inst: u64) -> Option<Self> {
       Some(Self((inst & Self::MASK) as usize))
+    }
+  }
+
+  #[derive(Debug, PartialEq, Eq)]
+  struct ShortAddr(usize);
+
+  impl InstructionData for ShortAddr {
+    const BITS: u64 = 16;
+
+    fn bits(self) -> u64 {
+      self.0 as u64
+    }
+
+    fn data(inst: u64) -> Option<Self> {
+      Some(Self((inst & Self::MASK) as usize))
+    }
+  }
+
+  impl<T0, T1> InstructionData for (T0, T1)
+  where
+    T0: InstructionData,
+    T1: InstructionData,
+  {
+    const BITS: u64 = T0::BITS + T1::BITS;
+
+    fn bits(self) -> u64 {
+      self.0.bits() | self.1.bits() << T0::BITS
+    }
+
+    fn data(inst: u64) -> Option<Self> {
+      T0::data(inst & T0::MASK).zip(T1::data(inst >> T0::BITS & T1::MASK))
+    }
+  }
+
+  impl<T0, T1, T2> InstructionData for (T0, T1, T2)
+  where
+    T0: InstructionData,
+    T1: InstructionData,
+    T2: InstructionData,
+  {
+    const BITS: u64 = T0::BITS + T1::BITS + T2::BITS;
+
+    fn bits(self) -> u64 {
+      self.0.bits() | self.1.bits() << T0::BITS | self.2.bits() << T0::BITS + T1::BITS
+    }
+
+    fn data(inst: u64) -> Option<Self> {
+      match (
+        T0::data(inst & T0::MASK),
+        T1::data(inst >> T0::BITS & T1::MASK),
+        T2::data(inst >> T0::BITS + T1::BITS & T2::MASK),
+      ) {
+        (Some(t0), Some(t1), Some(t2)) => Some((t0, t1, t2)),
+        _ => None,
+      }
+    }
+  }
+
+  impl<T0, T1, T2, T3> InstructionData for (T0, T1, T2, T3)
+  where
+    T0: InstructionData,
+    T1: InstructionData,
+    T2: InstructionData,
+    T3: InstructionData,
+  {
+    const BITS: u64 = T0::BITS + T1::BITS + T2::BITS + T3::BITS;
+
+    fn bits(self) -> u64 {
+      self.0.bits()
+        | self.1.bits() << T0::BITS
+        | self.2.bits() << T0::BITS + T1::BITS
+        | self.3.bits() << T0::BITS + T1::BITS + T2::BITS
+    }
+
+    fn data(inst: u64) -> Option<Self> {
+      match (
+        T0::data(inst & T0::MASK),
+        T1::data(inst >> T0::BITS & T1::MASK),
+        T2::data(inst >> T0::BITS + T1::BITS & T2::MASK),
+        T3::data(inst >> T0::BITS + T1::BITS + T2::BITS & T3::MASK),
+      ) {
+        (Some(t0), Some(t1), Some(t2), Some(t3)) => Some((t0, t1, t2, t3)),
+        _ => None,
+      }
     }
   }
 
@@ -1424,14 +1493,34 @@ mod opcode {
         assert_eq!(addr, LongAddr(ADDR));
       }
 
-      let inst = Instruction::new(Opcode::Load, (Storage::Local, LongAddr(ADDR)));
+      {
+        let inst = Instruction::new(Opcode::Load, (Storage::Local, LongAddr(ADDR)));
 
-      let op = inst.opcode().unwrap();
-      let (storage, addr) = inst.data::<(Storage, LongAddr)>().unwrap();
+        let op = inst.opcode().unwrap();
+        let (storage, addr) = inst.data::<(Storage, LongAddr)>().unwrap();
 
-      assert_eq!(op, Opcode::Load);
-      assert_eq!(storage, Storage::Local);
-      assert_eq!(addr, LongAddr(ADDR));
+        assert_eq!(op, Opcode::Load);
+        assert_eq!(storage, Storage::Local);
+        assert_eq!(addr, LongAddr(ADDR));
+      }
+
+      {
+        const A_ADDR: usize = 12;
+        const B_ADDR: usize = 34;
+        let inst = Instruction::new(
+          Opcode::AddReg,
+          (Storage::Local, ShortAddr(A_ADDR), Storage::Global, ShortAddr(B_ADDR)),
+        );
+
+        let op = inst.opcode().unwrap();
+        let ((a_store, a_addr), (b_store, b_addr)) = inst.data::<((Storage, ShortAddr), (Storage, ShortAddr))>().unwrap();
+
+        assert_eq!(op, Opcode::AddReg);
+        assert_eq!(a_store, Storage::Local);
+        assert_eq!(a_addr, ShortAddr(A_ADDR));
+        assert_eq!(b_store, Storage::Global);
+        assert_eq!(b_addr, ShortAddr(B_ADDR));
+      }
     }
   }
 }
