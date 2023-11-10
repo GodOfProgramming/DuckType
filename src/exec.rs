@@ -165,6 +165,8 @@ pub enum Opcode {
   PushRegCtx,
   /**  */
   PopRegCtx,
+  /* panic */
+  Quack,
 }
 
 pub struct Vm {
@@ -296,7 +298,7 @@ impl Vm {
         Opcode::LookupMember(index) => self.exec_op(|this| this.exec_lookup_member(index))?,
         Opcode::PeekMember(index) => self.exec_op(|this| this.exec_peek_member(index))?,
         Opcode::Check => self.exec_op(|this| this.exec_check())?,
-        Opcode::Println => self.exec_op(|this| this.exec_print())?,
+        Opcode::Println => self.exec_op(|this| this.exec_println())?,
         Opcode::Jump(count) => {
           self.jump(count as usize);
           continue 'ctx;
@@ -372,6 +374,10 @@ impl Vm {
         Opcode::SwapPop => {
           let idx = self.stack_size() - 2;
           self.stack.swap_remove(idx);
+        }
+        Opcode::Quack => {
+          let value = self.exec_op(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
+          panic!("{value}");
         }
       }
 
@@ -649,7 +655,7 @@ impl Vm {
     self.unary_op(opcode, |v| -v)
   }
 
-  fn exec_print(&mut self) -> OpcodeResult {
+  fn exec_println(&mut self) -> OpcodeResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     println!("{value}");
     Ok(())

@@ -25,7 +25,8 @@ pub enum Statement {
   Loop(LoopStatement),
   Match(MatchStatement),
   Mod(ModStatement),
-  Print(PrintlnStatement),
+  Println(PrintlnStatement),
+  Quack(QuackStatement),
   Req(ReqStatement),
   Ret(RetStatement),
   Use(UseStatement),
@@ -82,7 +83,8 @@ impl Statement {
       Statement::Loop(_) => (),
       Statement::Match(_) => (),
       Statement::Mod(m) => m.body.dump(tmpl),
-      Statement::Print(_) => (),
+      Statement::Println(_) => (),
+      Statement::Quack(_) => (),
       Statement::Req(_) => (),
       Statement::Ret(_) => (),
       Statement::Use(u) => {
@@ -113,7 +115,8 @@ impl Display for Statement {
       Self::Loop(_) => write!(f, "loop"),
       Self::Match(_) => write!(f, "match"),
       Self::Mod(_) => write!(f, "mod"),
-      Self::Print(_) => write!(f, "print"),
+      Self::Println(_) => write!(f, "println"),
+      Self::Quack(_) => write!(f, "quack"),
       Self::Req(_) => write!(f, "req"),
       Self::Ret(_) => write!(f, "ret"),
       Self::While(_) => write!(f, "while"),
@@ -198,7 +201,13 @@ impl From<ModStatement> for Statement {
 
 impl From<PrintlnStatement> for Statement {
   fn from(stmt: PrintlnStatement) -> Self {
-    Self::Print(stmt)
+    Self::Println(stmt)
+  }
+}
+
+impl From<QuackStatement> for Statement {
+  fn from(stmt: QuackStatement) -> Self {
+    Self::Quack(stmt)
   }
 }
 

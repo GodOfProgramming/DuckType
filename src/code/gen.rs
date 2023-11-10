@@ -268,6 +268,11 @@ impl<'p> BytecodeGenerator<'p> {
     self.emit(Opcode::Println, stmt.loc);
   }
 
+  fn quack_stmt(&mut self, stmt: QuackStatement) {
+    self.emit_expr(stmt.expr);
+    self.emit(Opcode::Quack, stmt.loc);
+  }
+
   fn req_stmt(&mut self, stmt: ReqStatement) {
     if self.scope_depth != 0 {
       self.error(stmt.loc, "req statements can only be used at surface scope");
@@ -822,7 +827,8 @@ impl<'p> BytecodeGenerator<'p> {
       Statement::Loop(stmt) => self.loop_stmt(stmt),
       Statement::Match(stmt) => self.match_stmt(stmt),
       Statement::Mod(stmt) => self.mod_stmt(stmt),
-      Statement::Print(stmt) => self.println_stmt(stmt),
+      Statement::Println(stmt) => self.println_stmt(stmt),
+      Statement::Quack(stmt) => self.quack_stmt(stmt),
       Statement::Req(stmt) => self.req_stmt(stmt),
       Statement::Ret(stmt) => self.ret_stmt(stmt),
       Statement::Use(stmt) => self.use_stmt(stmt),

@@ -174,6 +174,10 @@ impl AstGenerator {
         self.advance();
         PrintlnStatement::stmt(self);
       }
+      Token::Quack => {
+        self.advance();
+        QuackStatement::stmt(self);
+      }
       Token::Req => {
         self.advance();
         ReqStatement::stmt(self);
@@ -703,6 +707,7 @@ impl AstGenerator {
       Token::Nil => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),
       Token::Or => ParseRule::new(None, Some(OrExpression::infix), Precedence::Or),
       Token::Println => ParseRule::new(None, None, Precedence::None),
+      Token::Quack => ParseRule::new(None, None, Precedence::None),
       Token::Req => ParseRule::new(Some(ReqExpression::prefix), None, Precedence::Primary),
       Token::Ret => ParseRule::new(None, None, Precedence::None),
       Token::Struct => ParseRule::new(Some(StructExpression::prefix), None, Precedence::Primary),
