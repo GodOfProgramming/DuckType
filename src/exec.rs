@@ -1340,18 +1340,28 @@ pub mod inst {
   #[repr(u8)]
   enum Opcode {
     /// No operation instruction
+    ///
+    /// Encoding: None
     NoOp,
     /// Looks up a constant value at the specified location.
     ///
     /// Encoding: | location |
     Const,
     /// Pushes a nil value on to the stack
+    ///
+    /// Encoding: None
     Nil,
     /// Pushes true on the stack
+    ///
+    /// Encoding: None
     True,
     /// Pushes false on the stack
+    ///
+    /// Encoding: None
     False,
     /// Pops a value off the stack
+    ///
+    /// Encoding: None
     Pop,
     /// Pops N values off the stack.
     ///
@@ -1372,93 +1382,193 @@ pub mod inst {
     ///
     /// Encoding: | location of constant string for name |
     AssignMember,
-    /** Initializes a member of an object, keeping the object on the stack for further assignments */
+    /// Initializes a member of an object, keeping the object on the stack for further assignments
+    ///
+    /// Encoding: | location of member name |
     InitializeMember,
-    /** Initializes a method on a class, keeping the class on the stack for further assignments */
+    /// Initializes a method on a class, keeping the class on the stack for further assignments
+    ///
+    /// Encoding: | location of member name |
     InitializeMethod,
-    /** Initializes the constructor on a class, keeping the class on the stack for further assignments */
+    /// Initializes the constructor on a class, keeping the class on the stack for further assignments
+    ///
+    /// Encoding: None
     InitializeConstructor,
-    /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
+    /// Looks up the member on the next value on the stack, replacing it with the member's value
+    ///
+    /// Encoding: | location of member name |
     LookupMember,
-    /** Uses the constant pointed to by the modifying bits to peek at a value on the next item on the stack */
+    /// Looks up the member of the next value on the stack, pushing the value
+    ///
+    /// Encoding: | location of member name |
     PeekMember,
-    /** Pops two values off the stack, compares, then pushes the result back on */
+    /// Pops two values off the stack, compares, then pushes the result back on
+    ///
+    /// Encoding: None
     Equal,
-    /** Pops two values off the stack, compares, then pushes the result back on */
+    /// Pops two values off the stack, compares, then pushes the result back on
+    ///
+    /// Encoding: None
     NotEqual,
-    /** Pops two values off the stack, compares, then pushes the result back on */
+    /// Pops two values off the stack, compares, then pushes the result back on
+    ///
+    /// Encoding: None
     Greater,
-    /** Pops two values off the stack, compares, then pushes the result back on */
+    /// Pops two values off the stack, compares, then pushes the result back on
+    ///
+    /// Encoding: None
     GreaterEqual,
-    /** Pops two values off the stack, compares, then pushes the result back on */
+    /// Pops two values off the stack, compares, then pushes the result back on
+    ///
+    /// Encoding: None
     Less,
-    /** Pops two values off the stack, compares, then pushes the result back on */
+    /// Pops two values off the stack, compares, then pushes the result back on
+    ///
+    /// Encoding: None
     LessEqual,
-    /** Pops a value off the stack, and compares it with the peeked value, pushing the new value on */
+    /// Pops a value off the stack, and compares it with the peeked value, pushing the new value on
+    ///
+    /// Encoding: None
     Check,
-    /** Pops two values off the stack, calculates the sum, then pushes the result back on */
+    /// Pops two values off the stack, calculates the sum, then pushes the result back on
+    ///
+    /// Encoding: None
     Add,
-    /** Pops two values off the stack, calculates the difference, then pushes the result back on */
+    /// Pops two values off the stack, calculates the difference, then pushes the result back on
+    ///
+    /// Encoding: None
     Sub,
-    /** Pops two values off the stack, calculates the product, then pushes the result back on */
+    /// Pops two values off the stack, calculates the product, then pushes the result back on
+    ///
+    /// Encoding: None
     Mul,
-    /** Pops two values off the stack, calculates the quotient, then pushes the result back on */
+    /// Pops two values off the stack, calculates the quotient, then pushes the result back on
+    ///
+    /// Encoding: None
     Div,
-    /** Pops two values off the stack, calculates the remainder, then pushes the result back on */
+    /// Pops two values off the stack, calculates the remainder, then pushes the result back on
+    ///
+    /// Encoding: None
     Rem,
-    /** Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple */
+    /// Peeks at the stack. If the top value is true, the ip in incremented
+    ///
+    /// Encoding: | forward jump |
     Or,
-    /** Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple */
+    /// Peeks at the stack. If the top value is false, the ip is incremented
+    ///
+    /// Encoding: | forward jump |
     And,
-    /** Pops a value off the stack, inverts its truthy value, then pushes that back on */
+    /// Pops a value off the stack, inverts its truthy value, then pushes that back on
+    ///
+    /// Encoding: None
     Not,
-    /** Pops a value off the stack, inverts its numerical value, then pushes that back on */
+    /// Pops a value off the stack, inverts its numerical value, then pushes that back on
+    ///
+    /// Encoding: None
     Negate,
-    /** Pops a value off the stack and prints it to the screen */
+    /// Pops a value off the stack and prints it to the screen
+    ///
+    /// Encoding: None
     Println,
-    /** Jumps to a code location indicated by the tuple */
+    /// Jumps the ip forward unconditionally
+    ///
+    /// Encoding: | forward jump |
     Jump,
-    /** Jumps to a code location indicated by the tuple */
+    /// Jumps the ip forward if the value on the stack is falsy
+    ///
+    /// Encoding: | forward jump |
     JumpIfFalse,
-    /** Jumps the instruction pointer backwards N instructions. N specified by the tuple */
+    /// Jumps the instruction pointer backwards a number of instructions
+    ///
+    /// Encoding: | backward jump |
     Loop,
-    /** Calls the value on the stack. Number of arguments is specified by the modifying bits */
+    /// Calls the value on the stack. Number of arguments is specified by the modifying bits
+    ///
+    /// Encoding: | number of args |
     Invoke,
-    /** Swaps the last two items on the stack and pops */
+    /// Swaps the last two items on the stack and pops
+    ///
+    /// Encoding: None
     SwapPop,
-    /** Exits from a function, returning nil on the previous frame */
+    /// Exits from a function, returning nil on the previous frame
+    ///
+    /// Encoding: None
     Ret,
-    /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
+    /// Load an external file, or pull from the cache if already loaded.
+    /// The file name is the value on the stack
+    ///
+    /// Encoding: None
     Req,
-    /** Create a vec of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
+    /// Create a vec of values and push it on the stack.
+    /// Items come off the top of the stack.
+    /// The number of items is specified in the encoding
+    ///
+    /// Encoding: | number of items |
     CreateVec,
-    /** Create a vec of values and push it on the stack. The last item on the stack is copied as many times as the param indicates */
+    /// Create a vec of values and push it on the stack.
+    /// The last item on the stack is copied as many times as the size indicates
+    ///
+    /// Encoding: | size |
     CreateSizedVec,
-    /** Create a vec of values and push it on the stack. The last item is the number of times and the next is the item to be copied the times specified */
+    /// Create a vec of values and push it on the stack.
+    /// The last item is the size.
+    /// The next is the item to be copied the amount of times specified
+    ///
+    /// Encoding: | size |
     CreateDynamicVec,
-    /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
+    /// Create a closure. The first item on the stack is the function itself, the second is the capture list
+    ///
+    /// Encoding: None
     CreateClosure,
-    /** Create a new struct with the number of members as the bits */
+    /// Create a new struct with the number of members as the bits
+    /// Values are popped off the stack as key values in that order
+    ///
+    /// Encoding: | size |
     CreateStruct,
-    /** Create a new class. Name is from the bits */
+    /// Create a new class.
+    /// The const in the encoding is the name
+    ///
+    /// Encoding: | const |
     CreateClass,
-    /** Create a new module. Name is from the bits */
+    /// Create a new module.
+    /// The const in the encoding is the name
+    ///
+    /// Encoding: | const |
     CreateModule,
-    /** Halt the VM when this instruction is reached and enter repl mode */
+    /// Halt the VM when this instruction is reached and enter the debugger
+    ///
+    /// Encoding: None
     Breakpoint,
-    /** Mark the current value as exported */
+    /// Mark the current value as exported
+    ///
+    /// Encoding: None
     Export,
-    /** Defines the identifier on the variable */
+    /// Defines the identifier on the variable
+    /// The const in the encoding is the name
+    ///
+    /// Encoding: | const |
     Define,
-    /** Resolve the specified identifier */
+    /// Resolve the specified identifier
+    /// The const in the encoding is the name
+    ///
+    /// Encoding: | const |
     Resolve,
-    /** Push a new env */
+    /// Push a new env
+    ///
+    /// Encoding: None
     EnterBlock,
-    /** Pop an env */
+    /// Pop an env
+    ///
+    /// Encoding: None
     PopScope,
-    /**  */
+    /// Push a register context
+    /// TODO remove this, it's a crap solution
+    ///
+    /// Encoding: None
     PushRegCtx,
-    /**  */
+    /// Pop a register context
+    ///
+    /// Encoding: None
     PopRegCtx,
   }
 
