@@ -1,6 +1,6 @@
-let sspec = req "lib/sspec/sspec.dk";
+let brood = req "lib/brood/brood.dk";
 
-use sspec::describe;
+use brood::describe;
 
 let $VALUE = "new value";
 

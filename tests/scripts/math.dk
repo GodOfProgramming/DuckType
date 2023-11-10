@@ -1,6 +1,6 @@
-let sspec = req "lib/sspec/sspec.dk";
+let brood = req "lib/brood/brood.dk";
 
-use sspec::describe;
+use brood::describe;
 
 describe("pemdas", |t| {
   let value = (1 + 2) * 3 - 4.0 / 5 + 6 * 7 - 8 * 9.0 / 10;

@@ -1,6 +1,6 @@
-req "lib/sspec/sspec.dk" as sspec;
+req "lib/brood/brood.dk" as brood;
 
-use sspec::describe;
+use brood::describe;
 
 let $COUNTER = 1;
 

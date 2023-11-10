@@ -1,8 +1,8 @@
-req "lib/sspec/sspec.dk" as sspec;
+req "lib/brood/brood.dk" as brood;
 req "tests/util/cache_test/dependent_a.dk" as a_mod;
 req "tests/util/cache_test/dependent_b.dk" as b_mod;
 
-use sspec::describe;
+use brood::describe;
 
 describe("file caching", |t| {
   t.expect(a_mod::get_global()).to_be("B");

@@ -1,4 +1,4 @@
-req "lib/sspec/bench" as bench;
+req "lib/brood/bench" as bench;
 
 use bench.benchmark;
 

@@ -1,6 +1,6 @@
-req "./../../lib/sspec/sspec" as sspec;
+req "./../../lib/brood/brood" as brood;
 
-use sspec::describe;
+use brood::describe;
 
 describe("random match", |t| {
   let choices = [1, 2, 3, 4];
