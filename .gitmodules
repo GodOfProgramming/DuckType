@@ -4,3 +4,6 @@
 [submodule "lib/tfix"]
 	path = lib/tfix
 	url = git@github.com:GodOfProgramming/tfix
+[submodule "lib/brood"]
+	path = lib/brood
+	url = git@github.com:GodOfProgramming/brood.git
