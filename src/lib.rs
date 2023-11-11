@@ -55,7 +55,7 @@ const INITIAL_STACK_SIZE: usize = 400;
 
 type ExecResult<T = ()> = Result<T, Error>;
 
-type OpcodeResult<T = ()> = Result<T, UsageError>;
+type OpResult<T = ()> = Result<T, UsageError>;
 
 pub(crate) enum RunMode {
   String,
@@ -155,7 +155,7 @@ impl Vm {
 
   pub(crate) fn exec<F, T>(&mut self, f: F) -> ExecResult<T>
   where
-    F: FnOnce(&mut Self) -> OpcodeResult<T>,
+    F: FnOnce(&mut Self) -> OpResult<T>,
   {
     f(self).map_err(|e| self.error(e))
   }
@@ -335,11 +335,11 @@ impl Vm {
   /* Operations */
 
   #[cold]
-  fn exec_noop(&self) -> OpcodeResult {
+  fn exec_noop(&self) -> OpResult {
     Err(UsageError::Infallible)
   }
 
-  fn exec_const(&mut self, index: LongAddr) -> OpcodeResult {
+  fn exec_const(&mut self, index: LongAddr) -> OpResult {
     let c = self.program.const_at(index).ok_or(UsageError::InvalidConst(index.into()))?;
 
     let env = self.current_env().into();
@@ -368,7 +368,7 @@ impl Vm {
     self.stack_pop_n(count);
   }
 
-  fn exec_load_local(&mut self, loc: LongAddr) -> OpcodeResult {
+  fn exec_load_local(&mut self, loc: LongAddr) -> OpResult {
     let local = self
       .stack_index(self.stack_frame.sp + loc.0)
       .ok_or(UsageError::InvalidStackIndex(loc.0))?;
@@ -376,13 +376,13 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_store_local(&mut self, loc: LongAddr) -> OpcodeResult {
+  fn exec_store_local(&mut self, loc: LongAddr) -> OpResult {
     let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
     self.stack_assign(self.stack_frame.sp + loc.0, value);
     Ok(())
   }
 
-  fn exec_load_global(&mut self, loc: LongAddr) -> OpcodeResult {
+  fn exec_load_global(&mut self, loc: LongAddr) -> OpResult {
     self.global_op(loc.into(), |this, name| {
       let global = this.current_env().lookup(&name).ok_or(UsageError::UndefinedVar(name))?;
       this.stack_push(global);
@@ -390,7 +390,7 @@ impl Vm {
     })
   }
 
-  fn exec_store_global(&mut self, loc: LongAddr) -> OpcodeResult {
+  fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
     self.global_op(loc.into(), |this, name| {
       let value = this.stack_peek().ok_or(UsageError::EmptyStack)?;
       if this.current_env_mut().assign(&name, value) {
@@ -401,7 +401,7 @@ impl Vm {
     })
   }
 
-  fn exec_define_global(&mut self, loc: LongAddr) -> OpcodeResult {
+  fn exec_define_global(&mut self, loc: LongAddr) -> OpResult {
     self.global_op(loc.into(), |this, name| {
       let v = this.stack_peek().ok_or(UsageError::EmptyStack)?;
       if this.current_env_mut().define(name.clone(), v) {
@@ -413,7 +413,7 @@ impl Vm {
     })
   }
 
-  fn exec_initialize_member(&mut self, loc: usize) -> OpcodeResult {
+  fn exec_initialize_member(&mut self, loc: usize) -> OpResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
@@ -426,7 +426,7 @@ impl Vm {
     }
   }
 
-  fn exec_initialize_method(&mut self, loc: usize) -> OpcodeResult {
+  fn exec_initialize_method(&mut self, loc: usize) -> OpResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
@@ -444,7 +444,7 @@ impl Vm {
     }
   }
 
-  fn exec_initialize_constructor(&mut self) -> OpcodeResult {
+  fn exec_initialize_constructor(&mut self) -> OpResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
     let class = obj.as_class_mut().ok_or(UsageError::MethodAssignment)?;
@@ -452,7 +452,7 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_assign_member(&mut self, loc: usize) -> OpcodeResult {
+  fn exec_assign_member(&mut self, loc: usize) -> OpResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
@@ -467,7 +467,7 @@ impl Vm {
     }
   }
 
-  fn exec_lookup_member(&mut self, loc: usize) -> OpcodeResult {
+  fn exec_lookup_member(&mut self, loc: usize) -> OpResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
@@ -481,7 +481,7 @@ impl Vm {
     }
   }
 
-  fn exec_peek_member(&mut self, loc: usize) -> OpcodeResult {
+  fn exec_peek_member(&mut self, loc: usize) -> OpResult {
     let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
@@ -495,63 +495,63 @@ impl Vm {
     }
   }
 
-  fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: Opcode, f: F) -> OpcodeResult {
+  fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: Opcode, f: F) -> OpResult {
     self.binary_op(opcode, |a, b| Ok(Value::from(f(a, b))))
   }
 
-  fn exec_equal(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_equal(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a == b)
   }
 
-  fn exec_not_equal(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_not_equal(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a != b)
   }
 
-  fn exec_greater(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_greater(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a > b)
   }
 
-  fn exec_greater_equal(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_greater_equal(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a >= b)
   }
 
-  fn exec_less(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_less(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a < b)
   }
 
-  fn exec_less_equal(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_less_equal(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a <= b)
   }
 
-  fn exec_check(&mut self) -> OpcodeResult {
+  fn exec_check(&mut self) -> OpResult {
     let b = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let a = self.stack_peek().ok_or(UsageError::EmptyStack)?;
     self.stack_push(Value::from(a == b));
     Ok(())
   }
 
-  fn exec_add(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_add(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a + b)
   }
 
-  fn exec_sub(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_sub(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a - b)
   }
 
-  fn exec_mul(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_mul(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a * b)
   }
 
-  fn exec_div(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_div(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a / b)
   }
 
-  fn exec_rem(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_rem(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a % b)
   }
 
   /// when f evaluates to true, short circuit
-  fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, offset: usize, f: F) -> OpcodeResult<bool> {
+  fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, offset: usize, f: F) -> OpResult<bool> {
     let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
     if f(value) {
       self.jump(offset);
@@ -562,29 +562,29 @@ impl Vm {
     }
   }
 
-  fn exec_or(&mut self, offset: usize) -> OpcodeResult<bool> {
+  fn exec_or(&mut self, offset: usize) -> OpResult<bool> {
     self.exec_logical(offset, |v| v.truthy())
   }
 
-  fn exec_and(&mut self, offset: usize) -> OpcodeResult<bool> {
+  fn exec_and(&mut self, offset: usize) -> OpResult<bool> {
     self.exec_logical(offset, |v| v.falsy())
   }
 
-  fn exec_not(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_not(&mut self, opcode: Opcode) -> OpResult {
     self.unary_op(opcode, |v| Ok(!v))
   }
 
-  fn exec_negate(&mut self, opcode: Opcode) -> OpcodeResult {
+  fn exec_negate(&mut self, opcode: Opcode) -> OpResult {
     self.unary_op(opcode, |v| -v)
   }
 
-  fn exec_println(&mut self) -> OpcodeResult {
+  fn exec_println(&mut self) -> OpResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     println!("{value}");
     Ok(())
   }
 
-  fn exec_jump_if_false(&mut self, offset: usize) -> OpcodeResult<bool> {
+  fn exec_jump_if_false(&mut self, offset: usize) -> OpResult<bool> {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
     if !value.truthy() {
@@ -595,7 +595,7 @@ impl Vm {
     }
   }
 
-  fn exec_call(&mut self, airity: usize) -> OpcodeResult {
+  fn exec_call(&mut self, airity: usize) -> OpResult {
     let callable = self.stack_index_rev(airity).ok_or(UsageError::EmptyStack)?;
     self.call_value(callable, airity)
   }
@@ -606,7 +606,7 @@ impl Vm {
     self.stack_push(list);
   }
 
-  fn exec_sized_vec(&mut self, repeats: usize) -> OpcodeResult {
+  fn exec_sized_vec(&mut self, repeats: usize) -> OpResult {
     let item = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let vec = vec![item; repeats];
     let vec = self.gc.allocate(vec);
@@ -614,7 +614,7 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_dyn_vec(&mut self) -> OpcodeResult {
+  fn exec_dyn_vec(&mut self) -> OpResult {
     let repeats = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let repeats = repeats.as_i32().ok_or(UsageError::CoercionError(repeats, "i32"))?;
     let item = self.stack_pop().ok_or(UsageError::EmptyStack)?;
@@ -624,7 +624,7 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_create_closure(&mut self) -> OpcodeResult {
+  fn exec_create_closure(&mut self) -> OpResult {
     let function = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let captures = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let f = function.as_fn().ok_or(UsageError::ClosureType)?;
@@ -635,7 +635,7 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_create_struct(&mut self, size: usize) -> OpcodeResult {
+  fn exec_create_struct(&mut self, size: usize) -> OpResult {
     let mut members = Vec::with_capacity(size);
 
     for _ in 0..size {
@@ -661,7 +661,7 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_create_class(&mut self, loc: usize) -> OpcodeResult {
+  fn exec_create_class(&mut self, loc: usize) -> OpResult {
     let creator = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
@@ -675,7 +675,7 @@ impl Vm {
   }
 
   /// Create a module and make it the current env
-  fn exec_create_module(&mut self, loc: usize) -> OpcodeResult {
+  fn exec_create_module(&mut self, loc: usize) -> OpResult {
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
@@ -690,7 +690,7 @@ impl Vm {
     }
   }
 
-  fn exec_scope_resolution(&mut self, ident: usize) -> OpcodeResult {
+  fn exec_scope_resolution(&mut self, ident: usize) -> OpResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
     let name = self.program.const_at(ident).ok_or(UsageError::InvalidConst(ident))?;
@@ -888,9 +888,9 @@ impl Vm {
     }
   }
 
-  fn global_op<F>(&mut self, index: usize, f: F) -> OpcodeResult
+  fn global_op<F>(&mut self, index: usize, f: F) -> OpResult
   where
-    F: FnOnce(&mut Self, String) -> OpcodeResult,
+    F: FnOnce(&mut Self, String) -> OpResult,
   {
     match self.program.const_at(index) {
       Some(ConstantValue::String(name)) => f(self, name.clone()),
