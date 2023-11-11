@@ -57,6 +57,12 @@ type ExecResult<T = ()> = Result<T, Error>;
 
 type OpcodeResult<T = ()> = Result<T, UsageError>;
 
+pub(crate) enum RunMode {
+  String,
+  File,
+  Fn,
+}
+
 #[cfg(debug_assertions)]
 macro_rules! data {
   ($inst:ident) => {
@@ -125,7 +131,7 @@ impl Vm {
     self.stack_frames = Default::default();
     self.envs.push(EnvEntry::File(env));
 
-    self.execute(ExecType::File)
+    self.execute(RunMode::File)
   }
 
   pub fn run_string(&mut self, source: impl AsRef<str>, env: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
@@ -137,14 +143,14 @@ impl Vm {
     self.stack_frames = Default::default();
     self.envs.push(EnvEntry::String(env));
 
-    self.execute(ExecType::String)
+    self.execute(RunMode::String)
   }
 
   pub fn run_fn(&mut self, ctx: SmartPtr<Context>, env: UsertypeHandle<ModuleValue>, airity: usize) -> ExecResult<Value> {
     self.new_frame(ctx, airity);
     self.envs.push(EnvEntry::Fn(env));
 
-    self.execute(ExecType::Fn)
+    self.execute(RunMode::Fn)
   }
 
   pub(crate) fn exec<F, T>(&mut self, f: F) -> ExecResult<T>
@@ -154,7 +160,7 @@ impl Vm {
     f(self).map_err(|e| self.error(e))
   }
 
-  pub(crate) fn execute(&mut self, exec_type: ExecType) -> ExecResult<Value> {
+  pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
     let mut export = None;
 
     'ctx: while let Some(inst) = self.stack_frame.ctx.next(self.stack_frame.ip) {
@@ -302,7 +308,7 @@ impl Vm {
     }
 
     match exec_type {
-      ExecType::File => {
+      RunMode::File => {
         let info = self.opened_files.pop().expect("file must be popped when leaving a file");
         if let Some(export) = &export {
           self.lib_cache.insert(info.id, export.clone());
@@ -311,11 +317,11 @@ impl Vm {
         // pop until a file env is found
         while !matches!(self.envs.pop(), EnvEntry::File(_)) {}
       }
-      ExecType::Fn => {
+      RunMode::Fn => {
         // pop until a fn env is found
         while !matches!(self.envs.pop(), EnvEntry::Fn(_)) {}
       }
-      ExecType::String => while !matches!(self.envs.pop(), EnvEntry::String(_)) {},
+      RunMode::String => while !matches!(self.envs.pop(), EnvEntry::String(_)) {},
     }
 
     if let Some(stack_frame) = self.stack_frames.pop() {
@@ -811,7 +817,7 @@ impl Vm {
           self.new_frame(new_ctx, 0);
           self.envs.push(EnvEntry::File(gmod));
           self.opened_files.push(FileInfo::new(found_file, id));
-          let output = self.execute(ExecType::File)?;
+          let output = self.execute(RunMode::File)?;
           self.stack_push(output);
         }
 

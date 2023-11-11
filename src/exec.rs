@@ -207,12 +207,6 @@ impl Debug for EnvEntry {
   }
 }
 
-pub(crate) enum ExecType {
-  String,
-  File,
-  Fn,
-}
-
 pub trait InstructionData
 where
   Self: Sized,
