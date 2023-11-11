@@ -154,13 +154,6 @@ impl Vm {
     self.execute(RunMode::Fn)
   }
 
-  pub(crate) fn exec<F, T>(&mut self, f: F) -> ExecResult<T>
-  where
-    F: FnOnce(&mut Self) -> OpResult<T>,
-  {
-    f(self).map_err(|e| self.error(e))
-  }
-
   pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
     let mut export = None;
 
@@ -828,6 +821,13 @@ impl Vm {
   }
 
   /* Utility Functions */
+
+  fn exec<F, T>(&mut self, f: F) -> ExecResult<T>
+  where
+    F: FnOnce(&mut Self) -> OpResult<T>,
+  {
+    f(self).map_err(|e| self.error(e))
+  }
 
   fn unary_op<F>(&mut self, opcode: Opcode, f: F) -> Result<(), UsageError>
   where
