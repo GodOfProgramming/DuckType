@@ -4,7 +4,7 @@ use ptr::SmartPtr;
 #[derive(Clone, Usertype, Fields)]
 #[uuid("4263e9fa-21fe-420c-b5a9-beca8fe3ca05")]
 pub struct FunctionValue {
-  pub airity: BitsRepr,
+  pub airity: usize,
   ctx: SmartPtr<Context>,
   #[trace]
   env: Value,
@@ -20,16 +20,16 @@ impl FunctionValue {
   }
 
   pub fn check_args(&self, airity: usize) -> UsageResult<()> {
-    if airity == self.airity as usize {
+    if airity == self.airity {
       Ok(())
     } else {
-      Err(UsageError::ArgumentError(airity, self.airity as usize))
+      Err(UsageError::ArgumentError(airity, self.airity))
     }
   }
 
   pub fn invoke(&mut self, vm: &mut Vm, offset: usize) -> UsageResult {
     let env = UsertypeHandle::new(Gc::handle_from(&mut vm.gc, self.env.clone()));
-    vm.run_fn(self.ctx.clone(), env, self.airity as usize + offset)
+    vm.run_fn(self.ctx.clone(), env, self.airity + offset)
       .map_err(UsageError::Preformated)
   }
 

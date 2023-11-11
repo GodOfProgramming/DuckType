@@ -52,12 +52,12 @@ pub use vec_value::VecValue;
 
 #[derive(Clone)]
 pub struct Field<'n> {
-  pub id: Option<BitsRepr>,
+  pub id: Option<usize>,
   pub name: Option<&'n str>,
 }
 
 impl<'n> Field<'n> {
-  pub fn new(id: BitsRepr, name: &'n str) -> Self {
+  pub fn new(id: usize, name: &'n str) -> Self {
     Self {
       id: Some(id),
       name: Some(name),

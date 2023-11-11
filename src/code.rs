@@ -71,12 +71,12 @@ pub enum ConstantValue {
 
 #[derive(Clone)]
 pub struct FunctionConstant {
-  pub airity: BitsRepr,
+  pub airity: usize,
   pub ctx: SmartPtr<Context>,
 }
 
 impl FunctionConstant {
-  pub fn new(airity: BitsRepr, ctx: SmartPtr<Context>) -> Self {
+  pub fn new(airity: usize, ctx: SmartPtr<Context>) -> Self {
     Self { airity, ctx }
   }
 
@@ -129,9 +129,9 @@ impl Reflection {
     self.opcode_info.get(offset).cloned()
   }
 
-  pub fn reflect(&self, opcode: Opcode, offset: usize) -> Option<OpcodeReflection<'_>> {
-    self.info(offset).map(|info| OpcodeReflection {
-      opcode,
+  pub fn reflect(&self, inst: Instruction, offset: usize) -> Option<InstructionReflection<'_>> {
+    self.info(offset).map(|info| InstructionReflection {
+      inst,
       file_id: self.file_id,
       source: &self.source,
       line: info.line,
@@ -163,8 +163,8 @@ pub struct OpcodeInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpcodeReflection<'src> {
-  pub opcode: Opcode,
+pub struct InstructionReflection<'src> {
+  pub inst: Instruction,
   pub file_id: Option<FileIdType>,
   pub source: &'src str,
   pub line: usize,

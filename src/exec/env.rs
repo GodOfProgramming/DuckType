@@ -1,28 +1,23 @@
+use super::Register;
 use crate::{
   code::{ConstantValue, Reflection},
   prelude::*,
+  UnwrapAnd,
 };
-use std::mem;
-
-use super::Register;
 
 pub mod prelude {
-  pub use super::{BitsRepr, Context, Program};
+  pub use super::{Context, Program};
 }
-
-pub type BitsRepr = u32;
-
-static_assertions::const_assert!(mem::size_of::<BitsRepr>() <= mem::size_of::<usize>());
 
 #[derive(Default)]
 pub struct Program {
   consts: Vec<ConstantValue>,
-  pub(crate) strings: bimap::BiBTreeMap<BitsRepr, String>,
+  pub(crate) strings: bimap::BiBTreeMap<usize, String>,
 }
 
 impl Program {
-  pub fn const_at(&self, index: BitsRepr) -> Option<&ConstantValue> {
-    self.consts.get(index as usize)
+  pub fn const_at(&self, index: impl Into<usize>) -> Option<&ConstantValue> {
+    self.consts.get(index.into())
   }
 
   #[cfg(debug_assertions)]
@@ -30,7 +25,7 @@ impl Program {
     &self.consts
   }
 
-  pub(crate) fn add_const(&mut self, c: ConstantValue) -> Option<BitsRepr> {
+  pub(crate) fn add_const(&mut self, c: ConstantValue) -> Option<usize> {
     let string = if let ConstantValue::String(string) = &c {
       if let Some(index) = self.strings.get_by_right(string.as_str()) {
         return Some(*index);
@@ -53,7 +48,7 @@ impl Program {
 
 pub struct Context {
   pub id: usize, // the function id within the local file
-  pub(crate) instructions: Vec<Opcode>,
+  pub(crate) instructions: Vec<Instruction>,
   pub meta: Reflection,
 }
 
@@ -66,16 +61,12 @@ impl Context {
     }
   }
 
-  pub fn next(&self, index: usize) -> Option<Opcode> {
+  pub fn next(&self, index: usize) -> Option<Instruction> {
     self.instructions.get(index).cloned()
   }
 
-  pub(crate) fn write(&mut self, op: Opcode, line: usize, column: usize) {
-    #[cfg(test)]
-    {
-      println!("emitting {:?}", op);
-    }
-    self.instructions.push(op);
+  pub(crate) fn write(&mut self, inst: Instruction, line: usize, column: usize) {
+    self.instructions.push(inst);
     self.meta.add(line, column);
   }
 
@@ -83,13 +74,17 @@ impl Context {
     self.instructions.len()
   }
 
-  pub(crate) fn replace_instruction(&mut self, index: usize, op: Opcode) -> bool {
-    if let Some(inst) = self.instructions.get_mut(index) {
-      *inst = op;
-      true
-    } else {
-      false
-    }
+  pub(crate) fn replace_instruction<D>(&mut self, index: usize, op: Opcode, data: D) -> bool
+  where
+    D: InstructionData,
+  {
+    self
+      .instructions
+      .get_mut(index)
+      .zip(Instruction::new(op, data))
+      .unwrap_and(|(existing, inst)| {
+        *existing = inst;
+      })
   }
 
   #[cfg(debug_assertions)]
@@ -98,12 +93,12 @@ impl Context {
   }
 
   pub fn display_opcodes(&self, program: &Program) {
-    for (i, op) in self.instructions.iter().enumerate() {
+    for (i, op) in self.instructions.iter().cloned().enumerate() {
       self.display_instruction(program, op, i);
     }
   }
 
-  pub fn display_instruction(&self, program: &Program, op: &Opcode, offset: usize) {
+  pub fn display_instruction(&self, program: &Program, inst: Instruction, offset: usize) {
     print!("{} ", Self::address_of(offset));
     if let Some(curr) = self.meta.info(offset) {
       if offset > 0 {
@@ -123,93 +118,140 @@ impl Context {
       print!("?????");
     }
 
-    match op {
-      Opcode::Const(index) => {
+    match inst.opcode().unwrap_or_default() {
+      Opcode::Const => {
+        let index: usize = inst.display_data();
         println!(
           "{} {} {}",
           Self::opcode_column("Const"),
-          Self::value_column(*index),
-          self.const_at_column(program, *index)
+          Self::value_column(index as usize),
+          self.const_at_column(program, index as usize)
         );
       }
-      Opcode::PopN(count) => println!("{} {}", Self::opcode_column("PopN"), Self::value_column(*count)),
-      Opcode::Load(storage) => match storage {
-        crate::exec::Storage::Local(index) => println!("{} {}", Self::opcode_column("Load Local"), Self::value_column(*index)),
-        crate::exec::Storage::Global(index) => println!(
+      Opcode::PopN => {
+        let n: usize = inst.display_data();
+        println!("{} {}", Self::opcode_column("PopN"), Self::value_column(n as usize))
+      }
+      Opcode::Load => {
+        let (storage, index): (Storage, LongAddr) = inst.display_data();
+        match storage {
+          Storage::Local => {
+            println!("{} {}", Self::opcode_column("Load Local"), Self::value_column(index))
+          }
+          Storage::Global => println!(
+            "{} {} {}",
+            Self::opcode_column("Load Global"),
+            Self::value_column(index),
+            self.const_at_column(program, index),
+          ),
+          Storage::Reg => {
+            let (_, reg): (Storage, Register) = inst.display_data();
+            println!("{} {}", Self::opcode_column("Load Reg"), Self::reg_column(reg))
+          }
+        }
+      }
+      Opcode::Store => {
+        let (storage, index): (Storage, LongAddr) = inst.display_data();
+        match storage {
+          Storage::Local => {
+            println!("{} {}", Self::opcode_column("Store Local"), Self::value_column(index))
+          }
+          Storage::Global => println!(
+            "{} {} {}",
+            Self::opcode_column("Store Global"),
+            Self::value_column(index),
+            self.const_at_column(program, index),
+          ),
+          Storage::Reg => {
+            let (_, reg): (Storage, Register) = inst.display_data();
+            println!("{} {}", Self::opcode_column("Store Reg"), Self::reg_column(reg))
+          }
+        }
+      }
+      Opcode::Define => {
+        let ident: usize = inst.display_data();
+        println!(
           "{} {} {}",
-          Self::opcode_column("Load Global"),
-          Self::value_column(*index),
-          self.const_at_column(program, *index),
-        ),
-        crate::exec::Storage::Reg(reg) => println!("{} {}", Self::opcode_column("Load Reg"), Self::reg_column(*reg)),
-      },
-      Opcode::Store(storage) => match storage {
-        crate::exec::Storage::Local(index) => println!("{} {}", Self::opcode_column("Store Local"), Self::value_column(*index)),
-        crate::exec::Storage::Global(index) => println!(
-          "{} {} {}",
-          Self::opcode_column("Store Global"),
-          Self::value_column(*index),
-          self.const_at_column(program, *index),
-        ),
-        crate::exec::Storage::Reg(reg) => println!("{} {}", Self::opcode_column("Store Reg"), Self::reg_column(*reg)),
-      },
-      Opcode::Define(ident) => println!(
-        "{} {} {}",
-        Self::opcode_column("Define"),
-        Self::value_column(*ident),
-        self.const_at_column(program, *ident)
-      ),
-      Opcode::AssignMember(index) => {
+          Self::opcode_column("Define"),
+          Self::value_column(ident as usize),
+          self.const_at_column(program, ident as usize)
+        )
+      }
+      Opcode::AssignMember => {
+        let index: usize = inst.display_data();
         println!(
           "{} {} {}",
           Self::opcode_column("AssignMember"),
-          Self::value_column(*index),
-          self.const_at_column(program, *index)
+          Self::value_column(index as usize),
+          self.const_at_column(program, index as usize)
         );
       }
-      Opcode::LookupMember(index) => {
+      Opcode::LookupMember => {
+        let index: usize = inst.display_data();
         println!(
           "{} {} {}",
           Self::opcode_column("LookupMember"),
-          Self::value_column(*index),
-          self.const_at_column(program, *index)
+          Self::value_column(index as usize),
+          self.const_at_column(program, index as usize)
         );
       }
-      Opcode::Jump(count) => println!(
-        "{} {: >14}",
-        Self::opcode_column("Jump"),
-        Self::address_of(offset + *count as usize)
-      ),
-      Opcode::JumpIfFalse(count) => {
+      Opcode::Jump => {
+        let forward: usize = inst.display_data();
+        println!(
+          "{} {: >14}",
+          Self::opcode_column("Jump"),
+          Self::address_of(offset + forward as usize)
+        )
+      }
+      Opcode::JumpIfFalse => {
+        let forward: usize = inst.display_data();
         println!(
           "{} {: >14}",
           Self::opcode_column("JumpIfFalse"),
-          Self::address_of(offset + *count as usize)
+          Self::address_of(offset + forward as usize)
         )
       }
-      Opcode::Loop(count) => println!(
-        "{} {: >14}",
-        Self::opcode_column("Loop"),
-        Self::address_of(offset - *count as usize)
-      ),
-      Opcode::Or(count) => println!(
-        "{} {: >14}",
-        Self::opcode_column("Or"),
-        Self::address_of(offset + *count as usize)
-      ),
-      Opcode::And(count) => println!(
-        "{} {: >14}",
-        Self::opcode_column("And"),
-        Self::address_of(offset + *count as usize)
-      ),
-      Opcode::Invoke(count) => println!("{} {}", Self::opcode_column("Call"), Self::value_column(*count)),
-      Opcode::CreateVec(count) => println!("{} {}", Self::opcode_column("CreateVec"), Self::value_column(*count)),
-      Opcode::Resolve(ident) => println!(
-        "{} {} {}",
-        Self::opcode_column("Resolve"),
-        Self::value_column(*ident),
-        self.const_at_column(program, *ident)
-      ),
+      Opcode::Loop => {
+        let backward: usize = inst.display_data();
+        println!(
+          "{} {: >14}",
+          Self::opcode_column("Loop"),
+          Self::address_of(offset - backward as usize)
+        )
+      }
+      Opcode::Or => {
+        let forward: usize = inst.display_data();
+        println!(
+          "{} {: >14}",
+          Self::opcode_column("Or"),
+          Self::address_of(offset + forward as usize)
+        )
+      }
+      Opcode::And => {
+        let forward: usize = inst.display_data();
+        println!(
+          "{} {: >14}",
+          Self::opcode_column("And"),
+          Self::address_of(offset + forward as usize)
+        )
+      }
+      Opcode::Invoke => {
+        let args: usize = inst.display_data();
+        println!("{} {}", Self::opcode_column("Call"), Self::value_column(args as usize))
+      }
+      Opcode::CreateVec => {
+        let items: usize = inst.display_data();
+        println!("{} {}", Self::opcode_column("CreateVec"), Self::value_column(items as usize))
+      }
+      Opcode::Resolve => {
+        let ident: usize = inst.display_data();
+        println!(
+          "{} {} {}",
+          Self::opcode_column("Resolve"),
+          Self::value_column(ident as usize),
+          self.const_at_column(program, ident as usize)
+        )
+      }
       x => println!("{}", Self::opcode_column(format!("{:?}", x))),
     }
   }
@@ -222,11 +264,11 @@ impl Context {
     format!("{: >4?}", value)
   }
 
-  fn value_column(value: BitsRepr) -> String {
-    format!("{: >4}", value)
+  fn value_column(value: impl Into<usize>) -> String {
+    format!("{: >4}", value.into())
   }
 
-  fn const_at_column(&self, program: &Program, index: BitsRepr) -> String {
+  fn const_at_column(&self, program: &Program, index: impl Into<usize>) -> String {
     let cval = &ConstantValue::StaticString("????");
     let value = program.const_at(index).unwrap_or(cval);
     format!("{value: >4?}")

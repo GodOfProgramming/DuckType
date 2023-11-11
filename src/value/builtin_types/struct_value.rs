@@ -3,10 +3,10 @@ use ahash::RandomState;
 use bimap::BiHashMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-type KeyValPair<K> = ((K, BitsRepr), Value);
+type KeyValPair<K> = ((K, usize), Value);
 
 pub struct StructMember {
-  id: BitsRepr,
+  id: usize,
   value: Value,
 }
 
@@ -44,7 +44,7 @@ impl Ord for StructMember {
 pub struct StructValue {
   #[trace]
   pub members: Vec<StructMember>,
-  pub string_ids: BiHashMap<String, BitsRepr, RandomState, RandomState>,
+  pub string_ids: BiHashMap<String, usize, RandomState, RandomState>,
 }
 
 impl StructValue {
@@ -76,11 +76,11 @@ impl StructValue {
     self.members[idx].value = value;
   }
 
-  fn get_idx_by_id(&self, id: &BitsRepr) -> Option<usize> {
+  fn get_idx_by_id(&self, id: &usize) -> Option<usize> {
     self.members.binary_search_by_key(id, |m| m.id).ok()
   }
 
-  fn get_field_by_id(&self, id: &BitsRepr) -> Option<Value> {
+  fn get_field_by_id(&self, id: &usize) -> Option<Value> {
     self
       .members
       .binary_search_by_key(id, |m| m.id)
@@ -88,7 +88,7 @@ impl StructValue {
       .map(|idx| self.members[idx].value.clone())
   }
 
-  fn get_id_by_field(&self, field: Field) -> Result<BitsRepr, UsageError> {
+  fn get_id_by_field(&self, field: Field) -> Result<usize, UsageError> {
     field
       .id
       .as_ref()
@@ -106,7 +106,8 @@ impl UsertypeFields for StructValue {
   fn set_field(&mut self, _gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
     self
       .get_id_by_field(field)
-      .map(|id| self.get_idx_by_id(&id).unwrap_and(|idx| self.set_mem(idx, value)))
+      .map(|id| self.get_idx_by_id(&id).unwrap_and(|idx| self.set_mem(idx, value)))?;
+    Ok(())
   }
 }
 

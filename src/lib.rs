@@ -26,13 +26,16 @@ pub mod macro_requirements {
 pub const EXTENSION: &str = "dk";
 
 pub(crate) trait UnwrapAnd<T> {
-  fn unwrap_and(self, f: impl FnOnce(T));
+  fn unwrap_and(self, f: impl FnOnce(T)) -> bool;
 }
 
 impl<T> UnwrapAnd<T> for Option<T> {
-  fn unwrap_and(self, f: impl FnOnce(T)) {
+  fn unwrap_and(self, f: impl FnOnce(T)) -> bool {
     if let Some(inner) = self {
       f(inner);
+      true
+    } else {
+      false
     }
   }
 }

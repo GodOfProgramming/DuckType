@@ -1,6 +1,6 @@
 use crate::{
-  code::{FileMap, OpcodeReflection},
-  exec::prelude::BitsRepr,
+  code::{FileMap, InstructionReflection},
+  exec::prelude::Instruction,
   util::FileIdType,
   value::Value,
 };
@@ -188,7 +188,7 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
-  pub fn new(err: UsageError, filemap: &FileMap, opcode_ref: OpcodeReflection) -> Self {
+  pub fn new(err: UsageError, filemap: &FileMap, opcode_ref: InstructionReflection) -> Self {
     match err {
       UsageError::Preformated(err) => err.into_runtime(filemap),
       err => Self {
@@ -201,7 +201,7 @@ impl RuntimeError {
     }
   }
 
-  pub fn format_src(opcode_ref: &OpcodeReflection, msg: impl ToString) -> String {
+  pub fn format_src(opcode_ref: &InstructionReflection, msg: impl ToString) -> String {
     opcode_ref
       .source
       .lines()
@@ -212,7 +212,7 @@ impl RuntimeError {
           msg = msg.to_string(),
           src_line = line,
           space = " ".repeat(opcode_ref.column - 1),
-          opcode = opcode_ref.opcode
+          opcode = opcode_ref.inst.opcode().unwrap_or_default()
         )
       })
       .unwrap_or_else(|| format!("invalid line at {}", opcode_ref.line))
@@ -330,10 +330,10 @@ pub enum UsageError {
   InvalidIdentifier(String),
 
   #[error("Constant not found at index {0}")]
-  InvalidConst(BitsRepr),
+  InvalidConst(usize),
 
   #[error("Stack entry not found at index {0}")]
-  InvalidStackIndex(BitsRepr),
+  InvalidStackIndex(usize),
 
   #[error("could not fetch info for instruction {0:04X}")]
   IpOutOfBounds(usize),
@@ -355,6 +355,9 @@ pub enum UsageError {
 
   #[error("Expected field name but found none")]
   EmptyField,
+
+  #[error("Invalid instruction: {0}")]
+  InvalidInstruction(Instruction),
 
   #[error("{0}")]
   Preformated(Error),

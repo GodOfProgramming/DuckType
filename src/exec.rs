@@ -2,7 +2,7 @@ mod env;
 pub mod memory;
 
 use crate::{
-  code::{self, ConstantValue, FileMap, OpcodeReflection},
+  code::{self, ConstantValue, FileMap, InstructionReflection},
   dbg::Cli,
   prelude::*,
   util::{FileIdType, FileMetadata, PlatformMetadata},
@@ -17,17 +17,15 @@ use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
   collections::BTreeMap,
   fmt::{self, Debug, Display, Formatter},
-  fs,
+  fs, mem,
   ops::{Deref, DerefMut},
   path::{Path, PathBuf},
   time::{Duration, Instant},
 };
-use strum_macros::{EnumCount, EnumIter};
+use strum_macros::{EnumCount, EnumIter, FromRepr};
 
 pub mod prelude {
-  pub use super::env::prelude::*;
-  pub use super::memory::*;
-  pub use super::{Opcode, Vm};
+  pub use super::{env::prelude::*, inst::*, memory::*, Vm};
 }
 
 #[cfg(test)]
@@ -42,131 +40,23 @@ type ExecResult<T = ()> = Result<T, Error>;
 
 type OpcodeResult<T = ()> = Result<T, UsageError>;
 
+#[cfg(debug_assertions)]
+macro_rules! data {
+  ($inst:ident) => {
+    $inst.data().ok_or(UsageError::InvalidInstruction($inst))?
+  };
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! data {
+  ($inst:ident) => {
+    $inst.data()
+  };
+}
+
 #[derive(WrapperApi)]
 struct NativeApi {
   simple_script_load_module: fn(vm: &mut Vm) -> Result<Value, Error>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Storage {
-  Local(BitsRepr),
-  Global(BitsRepr),
-  Reg(Register),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[repr(u64)]
-pub enum Opcode {
-  /** No operation instruction */
-  NoOp,
-  /** Looks up a constant value at the specified location. Location is specified by the tuple */
-  Const(BitsRepr),
-  /** Pushes a nil value on to the stack */
-  Nil,
-  /** Pushes a true value on to the stack */
-  True,
-  /** Pushes a false value on to the stack */
-  False,
-  /** Pops a value off the stack */
-  Pop,
-  /** Pops N values off the stack. N is specified by tuple */
-  PopN(BitsRepr),
-  /** Store a value in the specified register */
-  Store(Storage),
-  /** Load a value in the specified register */
-  Load(Storage),
-  /** Defines a member on an object type. The first item popped off the stack is the value. The object is next which is left on for further assignments. The member name is specified by the modifying bits */
-  AssignMember(BitsRepr),
-  /** Initializes a member of an object, keeping the object on the stack for further assignments */
-  InitializeMember(BitsRepr),
-  /** Initializes a method on a class, keeping the class on the stack for further assignments */
-  InitializeMethod(BitsRepr),
-  /** Initializes the constructor on a class, keeping the class on the stack for further assignments */
-  InitializeConstructor,
-  /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
-  LookupMember(BitsRepr),
-  /** Uses the constant pointed to by the modifying bits to peek at a value on the next item on the stack */
-  PeekMember(BitsRepr),
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  Equal,
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  NotEqual,
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  Greater,
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  GreaterEqual,
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  Less,
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  LessEqual,
-  /** Pops a value off the stack, and compares it with the peeked value, pushing the new value on */
-  Check,
-  /** Pops two values off the stack, calculates the sum, then pushes the result back on */
-  Add,
-  /** Pops two values off the stack, calculates the difference, then pushes the result back on */
-  Sub,
-  /** Pops two values off the stack, calculates the product, then pushes the result back on */
-  Mul,
-  /** Pops two values off the stack, calculates the quotient, then pushes the result back on */
-  Div,
-  /** Pops two values off the stack, calculates the remainder, then pushes the result back on */
-  Rem,
-  /** Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple */
-  Or(BitsRepr),
-  /** Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple */
-  And(BitsRepr),
-  /** Pops a value off the stack, inverts its truthy value, then pushes that back on */
-  Not,
-  /** Pops a value off the stack, inverts its numerical value, then pushes that back on */
-  Negate,
-  /** Pops a value off the stack and prints it to the screen */
-  Println,
-  /** Jumps to a code location indicated by the tuple */
-  Jump(BitsRepr),
-  /** Jumps to a code location indicated by the tuple */
-  JumpIfFalse(BitsRepr),
-  /** Jumps the instruction pointer backwards N instructions. N specified by the tuple */
-  Loop(BitsRepr),
-  /** Calls the value on the stack. Number of arguments is specified by the modifying bits */
-  Invoke(BitsRepr),
-  /** Swaps the last two items on the stack and pops */
-  SwapPop,
-  /** Exits from a function, returning nil on the previous frame */
-  Ret,
-  /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
-  Req,
-  /** Create a vec of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
-  CreateVec(BitsRepr),
-  /** Create a vec of values and push it on the stack. The last item on the stack is copied as many times as the param indicates */
-  CreateSizedVec(BitsRepr),
-  /** Create a vec of values and push it on the stack. The last item is the number of times and the next is the item to be copied the times specified */
-  CreateDynamicVec,
-  /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
-  CreateClosure,
-  /** Create a new struct with the number of members as the bits */
-  CreateStruct(BitsRepr),
-  /** Create a new class. Name is from the bits */
-  CreateClass(BitsRepr),
-  /** Create a new module. Name is from the bits */
-  CreateModule(BitsRepr),
-  /** Halt the VM when this instruction is reached and enter repl mode */
-  Breakpoint,
-  /** Mark the current value as exported */
-  Export,
-  /** Defines the identifier on the variable */
-  Define(BitsRepr),
-  /** Resolve the specified identifier */
-  Resolve(BitsRepr),
-  /** Push a new env */
-  EnterBlock,
-  /** Pop an env */
-  PopScope,
-  /**  */
-  PushRegCtx,
-  /**  */
-  PopRegCtx,
-  /* panic */
-  Quack,
 }
 
 pub struct Vm {
@@ -245,7 +135,7 @@ impl Vm {
     self.execute(ExecType::Fn)
   }
 
-  pub(crate) fn exec_op<F, T>(&mut self, f: F) -> ExecResult<T>
+  pub(crate) fn exec<F, T>(&mut self, f: F) -> ExecResult<T>
   where
     F: FnOnce(&mut Self) -> OpcodeResult<T>,
   {
@@ -255,7 +145,7 @@ impl Vm {
   pub(crate) fn execute(&mut self, exec_type: ExecType) -> ExecResult<Value> {
     let mut export = None;
 
-    'ctx: while let Some(opcode) = self.stack_frame.ctx.next(self.stack_frame.ip) {
+    'ctx: while let Some(inst) = self.stack_frame.ctx.next(self.stack_frame.ip) {
       let now = Instant::now();
       if now > self.next_gc {
         self.run_gc()?;
@@ -267,55 +157,70 @@ impl Vm {
         self
           .stack_frame
           .ctx
-          .display_instruction(&self.program, &opcode, self.stack_frame.ip);
+          .display_instruction(&self.program, inst, self.stack_frame.ip);
       }
 
+      let opcode = inst
+        .opcode()
+        .ok_or_else(|| self.error(UsageError::InvalidInstruction(inst)))?;
+
       match opcode {
-        Opcode::NoOp => self.exec_op(|this| this.exec_noop())?,
-        Opcode::Const(index) => self.exec_op(|this| this.exec_const(index))?,
+        Opcode::Unknown => Err(self.error(UsageError::InvalidInstruction(inst)))?,
+        Opcode::NoOp => self.exec(|this| this.exec_noop())?,
+        Opcode::Const => self.exec(|this| this.exec_const(data!(inst)))?,
         Opcode::Nil => self.exec_nil(),
         Opcode::True => self.exec_true(),
         Opcode::False => self.exec_false(),
         Opcode::Pop => self.exec_pop(),
-        Opcode::PopN(count) => self.exec_pop_n(count),
-        Opcode::Store(storage) => match storage {
-          Storage::Local(index) => self.exec_op(|this| this.exec_store_local(index))?,
-          Storage::Global(index) => self.exec_op(|this| this.exec_store_global(index))?,
-          Storage::Reg(reg) => {
-            let value = self.exec_op(|this| this.stack_peek().ok_or(UsageError::EmptyStack))?;
-            self.stack_frame.reg_store(reg, value);
+        Opcode::PopN => self.exec(|this| Ok(this.exec_pop_n(data!(inst))))?,
+        Opcode::Store => {
+          let (storage, addr) = self.exec(|_| Ok(data!(inst)))?;
+          match storage {
+            Storage::Local => self.exec(|this| this.exec_store_local(addr))?,
+            Storage::Global => self.exec(|this| this.exec_store_global(addr))?,
+            Storage::Reg => {
+              let (_, reg): (Storage, Register) = self.exec(|_| Ok(data!(inst)))?;
+              let value = self.exec(|this| this.stack_peek().ok_or(UsageError::EmptyStack))?;
+              self.stack_frame.reg_store(reg, value);
+            }
           }
-        },
-        Opcode::Load(storage) => match storage {
-          Storage::Local(index) => self.exec_op(|this| this.exec_load_local(index))?,
-          Storage::Global(index) => self.exec_op(|this| this.exec_load_global(index))?,
-          Storage::Reg(reg) => self.stack_push(self.stack_frame.reg_load(reg)),
-        },
-        Opcode::InitializeMember(index) => self.exec_op(|this| this.exec_initialize_member(index))?,
-        Opcode::InitializeMethod(index) => self.exec_op(|this| this.exec_initialize_method(index))?,
-        Opcode::InitializeConstructor => self.exec_op(|this| this.exec_initialize_constructor())?,
-        Opcode::AssignMember(index) => self.exec_op(|this| this.exec_assign_member(index))?,
-        Opcode::LookupMember(index) => self.exec_op(|this| this.exec_lookup_member(index))?,
-        Opcode::PeekMember(index) => self.exec_op(|this| this.exec_peek_member(index))?,
-        Opcode::Check => self.exec_op(|this| this.exec_check())?,
-        Opcode::Println => self.exec_op(|this| this.exec_println())?,
-        Opcode::Jump(count) => {
-          self.jump(count as usize);
+        }
+        Opcode::Load => {
+          let (storage, index): (Storage, LongAddr) = self.exec(|_| Ok(data!(inst)))?;
+          match storage {
+            Storage::Local => self.exec(|this| this.exec_load_local(index))?,
+            Storage::Global => self.exec(|this| this.exec_load_global(index))?,
+            Storage::Reg => {
+              let (_, reg): (Storage, Register) = self.exec(|_| Ok(data!(inst)))?;
+              self.stack_push(self.stack_frame.reg_load(reg))
+            }
+          }
+        }
+        Opcode::InitializeMember => self.exec(|this| this.exec_initialize_member(data!(inst)))?,
+        Opcode::InitializeMethod => self.exec(|this| this.exec_initialize_method(data!(inst)))?,
+        Opcode::InitializeConstructor => self.exec(|this| this.exec_initialize_constructor())?,
+        Opcode::AssignMember => self.exec(|this| this.exec_assign_member(data!(inst)))?,
+        Opcode::LookupMember => self.exec(|this| this.exec_lookup_member(data!(inst)))?,
+        Opcode::PeekMember => self.exec(|this| this.exec_peek_member(data!(inst)))?,
+        Opcode::Check => self.exec(|this| this.exec_check())?,
+        Opcode::Println => self.exec(|this| this.exec_println())?,
+        Opcode::Jump => {
+          self.exec(|this| Ok(this.jump(data!(inst))))?;
           continue 'ctx;
         }
-        Opcode::JumpIfFalse(count) => {
-          let val = self.exec_op(|this| this.exec_jump_if_false(count as usize))?;
+        Opcode::JumpIfFalse => {
+          let val = self.exec(|this| this.exec_jump_if_false(data!(inst)))?;
           if val {
             continue 'ctx;
           }
         }
-        Opcode::Loop(count) => {
-          self.loop_back(count as usize);
+        Opcode::Loop => {
+          self.exec(|this| Ok(this.loop_back(data!(inst))))?;
           continue 'ctx;
         }
-        Opcode::Invoke(airity) => {
+        Opcode::Invoke => {
           self.stack_frame.ip += 1;
-          self.exec_op(|this| this.exec_call(airity as usize))?;
+          self.exec(|this| this.exec_call(data!(inst)))?;
           continue 'ctx;
         }
         Opcode::Ret => {
@@ -326,49 +231,49 @@ impl Vm {
           self.exec_req()?;
           continue 'ctx;
         }
-        Opcode::CreateVec(num_items) => self.exec_create_vec(num_items as usize),
-        Opcode::CreateSizedVec(repeat) => self.exec_op(|this| this.exec_sized_vec(repeat as usize))?,
-        Opcode::CreateDynamicVec => self.exec_op(|this| this.exec_dyn_vec())?,
-        Opcode::CreateClosure => self.exec_op(|this| this.exec_create_closure())?,
-        Opcode::CreateStruct(size) => self.exec_op(|this| this.exec_create_struct(size as usize))?,
-        Opcode::CreateClass(name) => self.exec_op(|this| this.exec_create_class(name))?,
-        Opcode::CreateModule(name) => self.exec_op(|this| this.exec_create_module(name))?,
+        Opcode::CreateVec => self.exec(|this| Ok(this.exec_create_vec(data!(inst))))?,
+        Opcode::CreateSizedVec => self.exec(|this| this.exec_sized_vec(data!(inst)))?,
+        Opcode::CreateDynamicVec => self.exec(|this| this.exec_dyn_vec())?,
+        Opcode::CreateClosure => self.exec(|this| this.exec_create_closure())?,
+        Opcode::CreateStruct => self.exec(|this| this.exec_create_struct(data!(inst)))?,
+        Opcode::CreateClass => self.exec(|this| this.exec_create_class(data!(inst)))?,
+        Opcode::CreateModule => self.exec(|this| this.exec_create_module(data!(inst)))?,
         Opcode::Breakpoint => {
-          self.ssdb()?;
+          self.dbg()?;
         }
         Opcode::Export => {
-          let value = self.exec_op(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
+          let value = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
           export = Some(value);
         }
-        Opcode::Define(ident) => self.exec_op(|this| this.exec_define_global(ident))?,
-        Opcode::Resolve(ident) => self.exec_op(|this| this.exec_scope_resolution(ident))?,
+        Opcode::Define => self.exec(|this| this.exec_define_global(data!(inst)))?,
+        Opcode::Resolve => self.exec(|this| this.exec_scope_resolution(data!(inst)))?,
         Opcode::EnterBlock => self.push_scope(),
         Opcode::PopScope => self.pop_scope(),
-        Opcode::Equal => self.exec_op(|this| this.exec_equal(&opcode))?,
-        Opcode::NotEqual => self.exec_op(|this| this.exec_not_equal(&opcode))?,
-        Opcode::Greater => self.exec_op(|this| this.exec_greater(&opcode))?,
-        Opcode::GreaterEqual => self.exec_op(|this| this.exec_greater_equal(&opcode))?,
-        Opcode::Less => self.exec_op(|this| this.exec_less(&opcode))?,
-        Opcode::LessEqual => self.exec_op(|this| this.exec_less_equal(&opcode))?,
-        Opcode::Add => self.exec_op(|this| this.exec_add(&opcode))?,
-        Opcode::Sub => self.exec_op(|this| this.exec_sub(&opcode))?,
-        Opcode::Mul => self.exec_op(|this| this.exec_mul(&opcode))?,
-        Opcode::Div => self.exec_op(|this| this.exec_div(&opcode))?,
-        Opcode::Rem => self.exec_op(|this| this.exec_rem(&opcode))?,
-        Opcode::Or(count) => {
-          let val = self.exec_op(|this| this.exec_or(count as usize))?;
+        Opcode::Equal => self.exec(|this| this.exec_equal(opcode))?,
+        Opcode::NotEqual => self.exec(|this| this.exec_not_equal(opcode))?,
+        Opcode::Greater => self.exec(|this| this.exec_greater(opcode))?,
+        Opcode::GreaterEqual => self.exec(|this| this.exec_greater_equal(opcode))?,
+        Opcode::Less => self.exec(|this| this.exec_less(opcode))?,
+        Opcode::LessEqual => self.exec(|this| this.exec_less_equal(opcode))?,
+        Opcode::Add => self.exec(|this| this.exec_add(opcode))?,
+        Opcode::Sub => self.exec(|this| this.exec_sub(opcode))?,
+        Opcode::Mul => self.exec(|this| this.exec_mul(opcode))?,
+        Opcode::Div => self.exec(|this| this.exec_div(opcode))?,
+        Opcode::Rem => self.exec(|this| this.exec_rem(opcode))?,
+        Opcode::Or => {
+          let val = self.exec(|this| this.exec_or(data!(inst)))?;
           if val {
             continue 'ctx;
           }
         }
-        Opcode::And(count) => {
-          let val = self.exec_op(|this| this.exec_and(count as usize))?;
+        Opcode::And => {
+          let val = self.exec(|this| this.exec_and(data!(inst)))?;
           if val {
             continue 'ctx;
           }
         }
-        Opcode::Not => self.exec_op(|this| this.exec_not(&opcode))?,
-        Opcode::Negate => self.exec_op(|this| this.exec_negate(&opcode))?,
+        Opcode::Not => self.exec(|this| this.exec_not(opcode))?,
+        Opcode::Negate => self.exec(|this| this.exec_negate(opcode))?,
         Opcode::PushRegCtx => self.stack_frame.new_reg_ctx(),
         Opcode::PopRegCtx => self.stack_frame.pop_reg_ctx(),
         Opcode::SwapPop => {
@@ -376,7 +281,7 @@ impl Vm {
           self.stack.swap_remove(idx);
         }
         Opcode::Quack => {
-          let value = self.exec_op(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
+          let value = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
           panic!("{value}");
         }
       }
@@ -416,8 +321,8 @@ impl Vm {
     Err(UsageError::Infallible)
   }
 
-  fn exec_const(&mut self, index: BitsRepr) -> OpcodeResult {
-    let c = self.program.const_at(index).ok_or(UsageError::InvalidConst(index))?;
+  fn exec_const(&mut self, index: LongAddr) -> OpcodeResult {
+    let c = self.program.const_at(index).ok_or(UsageError::InvalidConst(index.into()))?;
 
     let env = self.current_env().into();
     let value = Value::from_constant(&mut self.gc, env, c);
@@ -441,34 +346,34 @@ impl Vm {
     self.stack_pop();
   }
 
-  fn exec_pop_n(&mut self, count: BitsRepr) {
+  fn exec_pop_n(&mut self, count: usize) {
     self.stack_pop_n(count);
   }
 
-  fn exec_load_local(&mut self, loc: BitsRepr) -> OpcodeResult {
+  fn exec_load_local(&mut self, loc: LongAddr) -> OpcodeResult {
     let local = self
-      .stack_index(self.stack_frame.sp + loc as usize)
-      .ok_or(UsageError::InvalidStackIndex(loc))?;
+      .stack_index(self.stack_frame.sp + loc.0)
+      .ok_or(UsageError::InvalidStackIndex(loc.0))?;
     self.stack_push(local);
     Ok(())
   }
 
-  fn exec_store_local(&mut self, loc: BitsRepr) -> OpcodeResult {
+  fn exec_store_local(&mut self, loc: LongAddr) -> OpcodeResult {
     let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-    self.stack_assign(self.stack_frame.sp + loc as usize, value);
+    self.stack_assign(self.stack_frame.sp + loc.0, value);
     Ok(())
   }
 
-  fn exec_load_global(&mut self, loc: BitsRepr) -> OpcodeResult {
-    self.global_op(loc, |this, name| {
+  fn exec_load_global(&mut self, loc: LongAddr) -> OpcodeResult {
+    self.global_op(loc.into(), |this, name| {
       let global = this.current_env().lookup(&name).ok_or(UsageError::UndefinedVar(name))?;
       this.stack_push(global);
       Ok(())
     })
   }
 
-  fn exec_store_global(&mut self, loc: BitsRepr) -> OpcodeResult {
-    self.global_op(loc, |this, name| {
+  fn exec_store_global(&mut self, loc: LongAddr) -> OpcodeResult {
+    self.global_op(loc.into(), |this, name| {
       let value = this.stack_peek().ok_or(UsageError::EmptyStack)?;
       if this.current_env_mut().assign(&name, value) {
         Ok(())
@@ -478,8 +383,8 @@ impl Vm {
     })
   }
 
-  fn exec_define_global(&mut self, loc: BitsRepr) -> OpcodeResult {
-    self.global_op(loc, |this, name| {
+  fn exec_define_global(&mut self, loc: LongAddr) -> OpcodeResult {
+    self.global_op(loc.into(), |this, name| {
       let v = this.stack_peek().ok_or(UsageError::EmptyStack)?;
       if this.current_env_mut().define(name.clone(), v) {
         Ok(())
@@ -490,7 +395,7 @@ impl Vm {
     })
   }
 
-  fn exec_initialize_member(&mut self, loc: BitsRepr) -> OpcodeResult {
+  fn exec_initialize_member(&mut self, loc: usize) -> OpcodeResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
@@ -503,7 +408,7 @@ impl Vm {
     }
   }
 
-  fn exec_initialize_method(&mut self, loc: BitsRepr) -> OpcodeResult {
+  fn exec_initialize_method(&mut self, loc: usize) -> OpcodeResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
@@ -529,7 +434,7 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_assign_member(&mut self, loc: BitsRepr) -> OpcodeResult {
+  fn exec_assign_member(&mut self, loc: usize) -> OpcodeResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
@@ -544,7 +449,7 @@ impl Vm {
     }
   }
 
-  fn exec_lookup_member(&mut self, loc: BitsRepr) -> OpcodeResult {
+  fn exec_lookup_member(&mut self, loc: usize) -> OpcodeResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
@@ -558,7 +463,7 @@ impl Vm {
     }
   }
 
-  fn exec_peek_member(&mut self, loc: BitsRepr) -> OpcodeResult {
+  fn exec_peek_member(&mut self, loc: usize) -> OpcodeResult {
     let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
@@ -572,31 +477,31 @@ impl Vm {
     }
   }
 
-  fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: &Opcode, f: F) -> OpcodeResult {
+  fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: Opcode, f: F) -> OpcodeResult {
     self.binary_op(opcode, |a, b| Ok(Value::from(f(a, b))))
   }
 
-  fn exec_equal(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_equal(&mut self, opcode: Opcode) -> OpcodeResult {
     self.exec_bool(opcode, |a, b| a == b)
   }
 
-  fn exec_not_equal(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_not_equal(&mut self, opcode: Opcode) -> OpcodeResult {
     self.exec_bool(opcode, |a, b| a != b)
   }
 
-  fn exec_greater(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_greater(&mut self, opcode: Opcode) -> OpcodeResult {
     self.exec_bool(opcode, |a, b| a > b)
   }
 
-  fn exec_greater_equal(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_greater_equal(&mut self, opcode: Opcode) -> OpcodeResult {
     self.exec_bool(opcode, |a, b| a >= b)
   }
 
-  fn exec_less(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_less(&mut self, opcode: Opcode) -> OpcodeResult {
     self.exec_bool(opcode, |a, b| a < b)
   }
 
-  fn exec_less_equal(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_less_equal(&mut self, opcode: Opcode) -> OpcodeResult {
     self.exec_bool(opcode, |a, b| a <= b)
   }
 
@@ -607,23 +512,23 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_add(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_add(&mut self, opcode: Opcode) -> OpcodeResult {
     self.binary_op(opcode, |a, b| a + b)
   }
 
-  fn exec_sub(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_sub(&mut self, opcode: Opcode) -> OpcodeResult {
     self.binary_op(opcode, |a, b| a - b)
   }
 
-  fn exec_mul(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_mul(&mut self, opcode: Opcode) -> OpcodeResult {
     self.binary_op(opcode, |a, b| a * b)
   }
 
-  fn exec_div(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_div(&mut self, opcode: Opcode) -> OpcodeResult {
     self.binary_op(opcode, |a, b| a / b)
   }
 
-  fn exec_rem(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_rem(&mut self, opcode: Opcode) -> OpcodeResult {
     self.binary_op(opcode, |a, b| a % b)
   }
 
@@ -647,11 +552,11 @@ impl Vm {
     self.exec_logical(offset, |v| v.falsy())
   }
 
-  fn exec_not(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_not(&mut self, opcode: Opcode) -> OpcodeResult {
     self.unary_op(opcode, |v| Ok(!v))
   }
 
-  fn exec_negate(&mut self, opcode: &Opcode) -> OpcodeResult {
+  fn exec_negate(&mut self, opcode: Opcode) -> OpcodeResult {
     self.unary_op(opcode, |v| -v)
   }
 
@@ -693,8 +598,12 @@ impl Vm {
 
   fn exec_dyn_vec(&mut self) -> OpcodeResult {
     let repeats = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let repeats = repeats.as_i32().ok_or(UsageError::CoercionError(repeats, "i32"))? as usize;
-    self.exec_sized_vec(repeats)
+    let repeats = repeats.as_i32().ok_or(UsageError::CoercionError(repeats, "i32"))?;
+    let item = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let vec = vec![item; repeats as usize];
+    let vec = self.gc.allocate(vec);
+    self.stack_push(vec);
+    Ok(())
   }
 
   fn exec_create_closure(&mut self) -> OpcodeResult {
@@ -734,7 +643,7 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_create_class(&mut self, loc: BitsRepr) -> OpcodeResult {
+  fn exec_create_class(&mut self, loc: usize) -> OpcodeResult {
     let creator = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
@@ -748,7 +657,7 @@ impl Vm {
   }
 
   /// Create a module and make it the current env
-  fn exec_create_module(&mut self, loc: BitsRepr) -> OpcodeResult {
+  fn exec_create_module(&mut self, loc: usize) -> OpcodeResult {
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
@@ -763,7 +672,7 @@ impl Vm {
     }
   }
 
-  fn exec_scope_resolution(&mut self, ident: BitsRepr) -> OpcodeResult {
+  fn exec_scope_resolution(&mut self, ident: usize) -> OpcodeResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
     let name = self.program.const_at(ident).ok_or(UsageError::InvalidConst(ident))?;
@@ -901,7 +810,7 @@ impl Vm {
 
   /* Utility Functions */
 
-  fn unary_op<F>(&mut self, opcode: &Opcode, f: F) -> Result<(), UsageError>
+  fn unary_op<F>(&mut self, opcode: Opcode, f: F) -> Result<(), UsageError>
   where
     F: FnOnce(Value) -> Result<Value, UsageError>,
   {
@@ -925,7 +834,7 @@ impl Vm {
     }
   }
 
-  fn binary_op<F>(&mut self, opcode: &Opcode, f: F) -> Result<(), UsageError>
+  fn binary_op<F>(&mut self, opcode: Opcode, f: F) -> Result<(), UsageError>
   where
     F: FnOnce(Value, Value) -> Result<Value, UsageError>,
   {
@@ -961,7 +870,7 @@ impl Vm {
     }
   }
 
-  fn global_op<F>(&mut self, index: BitsRepr, f: F) -> OpcodeResult
+  fn global_op<F>(&mut self, index: usize, f: F) -> OpcodeResult
   where
     F: FnOnce(&mut Self, String) -> OpcodeResult,
   {
@@ -972,7 +881,7 @@ impl Vm {
     }
   }
 
-  pub fn ssdb(&mut self) -> Result<(), Error> {
+  pub fn dbg(&mut self) -> Result<(), Error> {
     let mut rl = DefaultEditor::new().map_err(Error::other_system_err)?;
     loop {
       match rl.readline("dbg> ") {
@@ -1001,7 +910,7 @@ impl Vm {
   }
   pub fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize) {
     let mut frame = StackFrame::new(ctx, self.stack_size() - offset);
-    std::mem::swap(&mut self.stack_frame, &mut frame);
+    mem::swap(&mut self.stack_frame, &mut frame);
     self.stack_frames.push(frame);
   }
 
@@ -1013,8 +922,8 @@ impl Vm {
     self.stack.pop()
   }
 
-  pub fn stack_pop_n(&mut self, count: BitsRepr) {
-    let pops = self.stack.len().saturating_sub(count as usize);
+  pub fn stack_pop_n(&mut self, count: usize) {
+    let pops = self.stack.len().saturating_sub(count);
     self.stack.truncate(pops);
   }
 
@@ -1098,15 +1007,15 @@ impl Vm {
   }
 
   #[cold]
-  fn error_at<F>(&self, opcode: Opcode, f: F) -> RuntimeError
+  fn error_at<F>(&self, inst: Instruction, f: F) -> RuntimeError
   where
-    F: FnOnce(OpcodeReflection) -> RuntimeError,
+    F: FnOnce(InstructionReflection) -> RuntimeError,
   {
     self
       .stack_frame
       .ctx
       .meta
-      .reflect(opcode, self.stack_frame.ip)
+      .reflect(inst, self.stack_frame.ip)
       .map(f)
       .unwrap_or_else(|| RuntimeError {
         msg: UsageError::IpOutOfBounds(self.stack_frame.ip).to_string(),
@@ -1127,7 +1036,8 @@ impl Vm {
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumCount, EnumIter, Enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumCount, EnumIter, Enum, FromRepr)]
+#[repr(u8)]
 pub enum Register {
   A,
   B,
@@ -1137,6 +1047,22 @@ pub enum Register {
   F,
   G,
   H,
+}
+
+impl InstructionData for Register {
+  const BITS: u64 = 8;
+
+  fn to_bits(self) -> u64 {
+    self as u8 as u64
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    Self::from_repr((inst & Self::MASK).try_into().ok()?)
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    unsafe { mem::transmute((inst & Self::MASK) as u8) }
+  }
 }
 
 #[derive(Default)]
@@ -1162,7 +1088,7 @@ impl StackFrame {
    */
   pub fn clear_out(&mut self) -> Self {
     let mut old = Self::default();
-    std::mem::swap(&mut old, self);
+    mem::swap(&mut old, self);
     old
   }
 
@@ -1299,53 +1225,116 @@ pub(crate) enum ExecType {
 }
 
 pub mod inst {
+  use std::{
+    fmt::{self, Display, Formatter},
+    mem,
+  };
   use strum::EnumCount;
 
-  trait InstructionData
+  pub trait InstructionData
   where
     Self: Sized,
   {
     const BITS: u64;
     const MASK: u64 = 2u64.pow(Self::BITS as u32) - 1;
 
-    fn bits(self) -> u64;
-    fn data(inst: u64) -> Option<Self>;
+    fn to_bits(self) -> u64;
+
+    fn checked_data(inst: u64) -> Option<Self>;
+
+    fn unchecked_data(inst: u64) -> Self;
+
+    fn bits(self) -> Option<u64> {
+      Self::valid_bits(self.to_bits())
+    }
+
+    fn valid_bits(bits: u64) -> Option<u64> {
+      (bits <= Self::MASK).then_some(bits)
+    }
   }
 
-  struct Instruction(u64);
+  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+  pub struct Instruction(u64);
 
   impl Instruction {
-    fn new<D>(opcode: Opcode, data: D) -> Self
+    pub fn new<D>(opcode: Opcode, data: D) -> Option<Self>
     where
       D: InstructionData,
     {
-      let inst = opcode.bits() | data.bits() << Opcode::BITS;
-
-      Self(inst)
+      let inst = opcode.bits()? | data.bits()? << Opcode::BITS;
+      Some(Self(inst))
     }
 
-    fn opcode(&self) -> Option<Opcode> {
-      Opcode::data(self.0 & Opcode::MASK)
+    pub fn opcode(&self) -> Option<Opcode> {
+      Opcode::checked_data(self.0 & Opcode::MASK)
     }
 
-    fn data<T>(&self) -> Option<T>
+    #[cfg(not(debug_assertions))]
+    pub fn data<T>(&self) -> T
     where
       T: InstructionData,
     {
-      T::data(self.0 >> Opcode::BITS)
+      T::unchecked_data(self.0 >> Opcode::BITS)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn data<T>(&self) -> Option<T>
+    where
+      T: InstructionData,
+    {
+      T::checked_data(self.0 >> Opcode::BITS)
+    }
+
+    /// Returns unchecked data meant for display and debugging purposes
+    pub fn display_data<T>(&self) -> T
+    where
+      T: InstructionData,
+    {
+      T::unchecked_data(self.0 >> Opcode::BITS)
     }
   }
 
-  #[derive(Debug, PartialEq, Eq, strum_macros::EnumCount, strum_macros::FromRepr)]
+  impl Display for Instruction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+      write!(f, "{:064b}", self.0)
+    }
+  }
+
+  pub trait TryIntoInstruction {
+    fn try_into_inst(self) -> Result<Instruction, Opcode>;
+  }
+
+  impl TryIntoInstruction for Opcode {
+    fn try_into_inst(self) -> Result<Instruction, Opcode> {
+      Instruction::new(self, 0).ok_or(self)
+    }
+  }
+
+  impl<D> TryIntoInstruction for (Opcode, D)
+  where
+    D: InstructionData,
+  {
+    fn try_into_inst(self) -> Result<Instruction, Opcode> {
+      Instruction::new(self.0, self.1).ok_or(self.0)
+    }
+  }
+
+  #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, strum_macros::EnumCount, strum_macros::FromRepr)]
   #[repr(u8)]
-  enum Opcode {
+  pub enum Opcode {
+    /// Unknown instruction
+    /// Value given when one cannot be interpreted
+    ///
+    /// Encoding: None
+    #[default]
+    Unknown,
     /// No operation instruction
     ///
     /// Encoding: None
     NoOp,
     /// Looks up a constant value at the specified location.
     ///
-    /// Encoding: | location |
+    /// Encoding: | usize |
     Const,
     /// Pushes a nil value on to the stack
     ///
@@ -1365,30 +1354,30 @@ pub mod inst {
     Pop,
     /// Pops N values off the stack.
     ///
-    /// Encoding: | N |
+    /// Encoding: | usize |
     PopN,
     /// Store the value on the stack in the given location
     ///
-    /// Encoding: | Storage | location |
+    /// Encoding: | Storage | LongAddr |
     Store,
     /// Load a value and push it onto the stack
     ///
-    /// Encoding: | Storage | location |
+    /// Encoding: | Storage | LongAddr |
     Load,
     /// Assigns a value to a member on an object
     ///
     /// \[ Value \] \
     /// \[ Object \]
     ///
-    /// Encoding: | location of constant string for name |
+    /// Encoding: | usize |
     AssignMember,
     /// Initializes a member of an object, keeping the object on the stack for further assignments
     ///
-    /// Encoding: | location of member name |
+    /// Encoding: | usize |
     InitializeMember,
     /// Initializes a method on a class, keeping the class on the stack for further assignments
     ///
-    /// Encoding: | location of member name |
+    /// Encoding: | usize |
     InitializeMethod,
     /// Initializes the constructor on a class, keeping the class on the stack for further assignments
     ///
@@ -1396,11 +1385,11 @@ pub mod inst {
     InitializeConstructor,
     /// Looks up the member on the next value on the stack, replacing it with the member's value
     ///
-    /// Encoding: | location of member name |
+    /// Encoding: | usize |
     LookupMember,
     /// Looks up the member of the next value on the stack, pushing the value
     ///
-    /// Encoding: | location of member name |
+    /// Encoding: | usize |
     PeekMember,
     /// Pops two values off the stack, compares, then pushes the result back on
     ///
@@ -1452,11 +1441,11 @@ pub mod inst {
     Rem,
     /// Peeks at the stack. If the top value is true, the ip in incremented
     ///
-    /// Encoding: | forward jump |
+    /// Encoding: | usize |
     Or,
     /// Peeks at the stack. If the top value is false, the ip is incremented
     ///
-    /// Encoding: | forward jump |
+    /// Encoding: | usize |
     And,
     /// Pops a value off the stack, inverts its truthy value, then pushes that back on
     ///
@@ -1472,19 +1461,19 @@ pub mod inst {
     Println,
     /// Jumps the ip forward unconditionally
     ///
-    /// Encoding: | forward jump |
+    /// Encoding: | usize |
     Jump,
     /// Jumps the ip forward if the value on the stack is falsy
     ///
-    /// Encoding: | forward jump |
+    /// Encoding: | usize |
     JumpIfFalse,
     /// Jumps the instruction pointer backwards a number of instructions
     ///
-    /// Encoding: | backward jump |
+    /// Encoding: | usize |
     Loop,
     /// Calls the value on the stack. Number of arguments is specified by the modifying bits
     ///
-    /// Encoding: | number of args |
+    /// Encoding: | usize |
     Invoke,
     /// Swaps the last two items on the stack and pops
     ///
@@ -1503,18 +1492,18 @@ pub mod inst {
     /// Items come off the top of the stack.
     /// The number of items is specified in the encoding
     ///
-    /// Encoding: | number of items |
+    /// Encoding: | usize |
     CreateVec,
     /// Create a vec of values and push it on the stack.
     /// The last item on the stack is copied as many times as the size indicates
     ///
-    /// Encoding: | size |
+    /// Encoding: | usize |
     CreateSizedVec,
     /// Create a vec of values and push it on the stack.
     /// The last item is the size.
     /// The next is the item to be copied the amount of times specified
     ///
-    /// Encoding: | size |
+    /// Encoding: | usize |
     CreateDynamicVec,
     /// Create a closure. The first item on the stack is the function itself, the second is the capture list
     ///
@@ -1523,17 +1512,17 @@ pub mod inst {
     /// Create a new struct with the number of members as the bits
     /// Values are popped off the stack as key values in that order
     ///
-    /// Encoding: | size |
+    /// Encoding: | usize |
     CreateStruct,
     /// Create a new class.
     /// The const in the encoding is the name
     ///
-    /// Encoding: | const |
+    /// Encoding: | usize |
     CreateClass,
     /// Create a new module.
     /// The const in the encoding is the name
     ///
-    /// Encoding: | const |
+    /// Encoding: | usize |
     CreateModule,
     /// Halt the VM when this instruction is reached and enter the debugger
     ///
@@ -1546,12 +1535,12 @@ pub mod inst {
     /// Defines the identifier on the variable
     /// The const in the encoding is the name
     ///
-    /// Encoding: | const |
+    /// Encoding: | usize |
     Define,
     /// Resolve the specified identifier
     /// The const in the encoding is the name
     ///
-    /// Encoding: | const |
+    /// Encoding: | usize |
     Resolve,
     /// Push a new env
     ///
@@ -1570,6 +1559,10 @@ pub mod inst {
     ///
     /// Encoding: None
     PopRegCtx,
+    /// Panic duck style
+    ///
+    /// Encoding: None
+    Quack,
   }
 
   static_assertions::const_assert!(Opcode::COUNT - 1 < 2usize.pow(Opcode::BITS as u32));
@@ -1577,63 +1570,109 @@ pub mod inst {
   impl InstructionData for Opcode {
     const BITS: u64 = 8;
 
-    fn bits(self) -> u64 {
+    fn to_bits(self) -> u64 {
       self as u8 as u64
     }
 
-    fn data(inst: u64) -> Option<Self> {
+    fn checked_data(inst: u64) -> Option<Self> {
       Self::from_repr((inst & Self::MASK).try_into().ok()?)
+    }
+
+    fn unchecked_data(inst: u64) -> Self {
+      unsafe { mem::transmute((inst & Self::MASK) as u8) }
+    }
+  }
+
+  impl InstructionData for usize {
+    const BITS: u64 = (mem::size_of::<usize>() * 8 - Opcode::BITS as usize) as u64;
+
+    fn to_bits(self) -> u64 {
+      let b = self as u64;
+      b
+    }
+
+    fn checked_data(inst: u64) -> Option<Self> {
+      (inst & Self::MASK).try_into().ok()
+    }
+
+    fn unchecked_data(inst: u64) -> Self {
+      (inst & Self::MASK) as usize
     }
   }
 
   #[derive(Debug, PartialEq, Eq, strum_macros::EnumCount, strum_macros::FromRepr)]
   #[repr(u8)]
-  enum Storage {
+  pub enum Storage {
     Local,
     Global,
+    Reg,
   }
 
   static_assertions::const_assert!(Storage::COUNT - 1 < 2usize.pow(Storage::BITS as u32));
 
   impl InstructionData for Storage {
-    const BITS: u64 = 1;
+    const BITS: u64 = 2;
 
-    fn bits(self) -> u64 {
+    fn to_bits(self) -> u64 {
       self as u8 as u64
     }
 
-    fn data(inst: u64) -> Option<Self> {
+    fn checked_data(inst: u64) -> Option<Self> {
       Self::from_repr((inst & Self::MASK).try_into().ok()?)
+    }
+
+    fn unchecked_data(inst: u64) -> Self {
+      unsafe { mem::transmute((inst & Self::MASK) as u8) }
     }
   }
 
-  #[derive(Debug, PartialEq, Eq)]
-  struct LongAddr(usize);
+  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+  pub struct LongAddr(pub(crate) usize);
 
   impl InstructionData for LongAddr {
     const BITS: u64 = 32;
 
-    fn bits(self) -> u64 {
+    fn to_bits(self) -> u64 {
       self.0 as u64
     }
 
-    fn data(inst: u64) -> Option<Self> {
-      Some(Self((inst & Self::MASK) as usize))
+    fn checked_data(inst: u64) -> Option<Self> {
+      Some(Self::unchecked_data(inst))
+    }
+
+    fn unchecked_data(inst: u64) -> Self {
+      Self((inst & Self::MASK) as usize)
     }
   }
 
-  #[derive(Debug, PartialEq, Eq)]
-  struct ShortAddr(usize);
+  impl From<usize> for LongAddr {
+    fn from(value: usize) -> Self {
+      Self(value)
+    }
+  }
+
+  impl From<LongAddr> for usize {
+    fn from(value: LongAddr) -> Self {
+      value.0
+    }
+  }
+
+  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+  pub struct ShortAddr(pub(crate) usize);
 
   impl InstructionData for ShortAddr {
     const BITS: u64 = 16;
 
-    fn bits(self) -> u64 {
+    fn to_bits(self) -> u64 {
       self.0 as u64
     }
 
-    fn data(inst: u64) -> Option<Self> {
-      Some(Self((inst & Self::MASK) as usize))
+    fn checked_data(inst: u64) -> Option<Self> {
+      (inst & Self::MASK).try_into().map(|d| Self(d)).ok()
+    }
+
+    fn unchecked_data(inst: u64) -> Self {
+      Self((inst & Self::MASK) as usize)
     }
   }
 
@@ -1644,12 +1683,19 @@ pub mod inst {
   {
     const BITS: u64 = T0::BITS + T1::BITS;
 
-    fn bits(self) -> u64 {
-      self.0.bits() | self.1.bits() << T0::BITS
+    fn to_bits(self) -> u64 {
+      self.0.to_bits() | self.1.to_bits() << T0::BITS
     }
 
-    fn data(inst: u64) -> Option<Self> {
-      T0::data(inst & T0::MASK).zip(T1::data(inst >> T0::BITS & T1::MASK))
+    fn checked_data(inst: u64) -> Option<Self> {
+      T0::checked_data(inst & T0::MASK).zip(T1::checked_data(inst >> T0::BITS & T1::MASK))
+    }
+
+    fn unchecked_data(inst: u64) -> Self {
+      (
+        T0::unchecked_data(inst & T0::MASK),
+        T1::unchecked_data(inst >> T0::BITS & T1::MASK),
+      )
     }
   }
 
@@ -1661,19 +1707,27 @@ pub mod inst {
   {
     const BITS: u64 = T0::BITS + T1::BITS + T2::BITS;
 
-    fn bits(self) -> u64 {
-      self.0.bits() | self.1.bits() << T0::BITS | self.2.bits() << T0::BITS + T1::BITS
+    fn to_bits(self) -> u64 {
+      self.0.to_bits() | self.1.to_bits() << T0::BITS | self.2.to_bits() << T0::BITS + T1::BITS
     }
 
-    fn data(inst: u64) -> Option<Self> {
+    fn checked_data(inst: u64) -> Option<Self> {
       match (
-        T0::data(inst & T0::MASK),
-        T1::data(inst >> T0::BITS & T1::MASK),
-        T2::data(inst >> T0::BITS + T1::BITS & T2::MASK),
+        T0::checked_data(inst & T0::MASK),
+        T1::checked_data(inst >> T0::BITS & T1::MASK),
+        T2::checked_data(inst >> T0::BITS + T1::BITS & T2::MASK),
       ) {
         (Some(t0), Some(t1), Some(t2)) => Some((t0, t1, t2)),
         _ => None,
       }
+    }
+
+    fn unchecked_data(inst: u64) -> Self {
+      (
+        T0::unchecked_data(inst & T0::MASK),
+        T1::unchecked_data(inst >> T0::BITS & T1::MASK),
+        T2::unchecked_data(inst >> T0::BITS + T1::BITS & T2::MASK),
+      )
     }
   }
 
@@ -1686,23 +1740,32 @@ pub mod inst {
   {
     const BITS: u64 = T0::BITS + T1::BITS + T2::BITS + T3::BITS;
 
-    fn bits(self) -> u64 {
-      self.0.bits()
-        | self.1.bits() << T0::BITS
-        | self.2.bits() << T0::BITS + T1::BITS
-        | self.3.bits() << T0::BITS + T1::BITS + T2::BITS
+    fn to_bits(self) -> u64 {
+      self.0.to_bits()
+        | self.1.to_bits() << T0::BITS
+        | self.2.to_bits() << T0::BITS + T1::BITS
+        | self.3.to_bits() << T0::BITS + T1::BITS + T2::BITS
     }
 
-    fn data(inst: u64) -> Option<Self> {
+    fn checked_data(inst: u64) -> Option<Self> {
       match (
-        T0::data(inst & T0::MASK),
-        T1::data(inst >> T0::BITS & T1::MASK),
-        T2::data(inst >> T0::BITS + T1::BITS & T2::MASK),
-        T3::data(inst >> T0::BITS + T1::BITS + T2::BITS & T3::MASK),
+        T0::checked_data(inst & T0::MASK),
+        T1::checked_data(inst >> T0::BITS & T1::MASK),
+        T2::checked_data(inst >> T0::BITS + T1::BITS & T2::MASK),
+        T3::checked_data(inst >> T0::BITS + T1::BITS + T2::BITS & T3::MASK),
       ) {
         (Some(t0), Some(t1), Some(t2), Some(t3)) => Some((t0, t1, t2, t3)),
         _ => None,
       }
+    }
+
+    fn unchecked_data(inst: u64) -> Self {
+      (
+        T0::unchecked_data(inst & T0::MASK),
+        T1::unchecked_data(inst >> T0::BITS & T1::MASK),
+        T2::unchecked_data(inst >> T0::BITS + T1::BITS & T2::MASK),
+        T3::unchecked_data(inst >> T0::BITS + T1::BITS + T2::BITS & T3::MASK),
+      )
     }
   }
 
@@ -1713,17 +1776,22 @@ pub mod inst {
     #[test]
     fn opcode_serde() {
       const ADDR: usize = 123;
-
+      const CONST: usize = 1;
       let addr = LongAddr(ADDR);
+
       {
-        let bits = addr.bits();
+        Instruction::new(Opcode::Const, CONST).unwrap();
+      }
+
+      {
+        let bits = addr.bits().unwrap();
         assert_eq!(bits, ADDR as u64);
-        let addr = LongAddr::data(bits).unwrap();
+        let addr = LongAddr::checked_data(bits).unwrap();
         assert_eq!(addr, LongAddr(ADDR));
       }
 
       {
-        let inst = Instruction::new(Opcode::Load, (Storage::Local, LongAddr(ADDR)));
+        let inst = Instruction::new(Opcode::Load, (Storage::Local, LongAddr(ADDR))).unwrap();
 
         let op = inst.opcode().unwrap();
         let (storage, addr) = inst.data::<(Storage, LongAddr)>().unwrap();
@@ -1739,7 +1807,8 @@ pub mod inst {
         let inst = Instruction::new(
           Opcode::Add,
           (Storage::Local, ShortAddr(A_ADDR), Storage::Global, ShortAddr(B_ADDR)),
-        );
+        )
+        .unwrap();
 
         let op = inst.opcode().unwrap();
         let ((a_store, a_addr), (b_store, b_addr)) = inst.data::<((Storage, ShortAddr), (Storage, ShortAddr))>().unwrap();

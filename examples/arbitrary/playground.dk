@@ -2,4 +2,6 @@ let x = 0;
 let y = 1;
 let z = 'a';
 
-println x or y or z;
+println x;
+println y;
+println z;
