@@ -2,7 +2,7 @@ use super::Register;
 use crate::{
   code::{ConstantValue, Reflection},
   prelude::*,
-  UnwrapAnd,
+  util::UnwrapAnd,
 };
 
 pub mod prelude {
@@ -35,7 +35,7 @@ impl Program {
       None
     };
 
-    let index = self.consts.len().try_into().ok()?;
+    let index = self.consts.len();
     self.consts.push(c);
 
     if let Some(string) = string {
@@ -124,13 +124,13 @@ impl Context {
         println!(
           "{} {} {}",
           Self::opcode_column("Const"),
-          Self::value_column(index as usize),
-          self.const_at_column(program, index as usize)
+          Self::value_column(index),
+          self.const_at_column(program, index)
         );
       }
       Opcode::PopN => {
         let n: usize = inst.display_data();
-        println!("{} {}", Self::opcode_column("PopN"), Self::value_column(n as usize))
+        println!("{} {}", Self::opcode_column("PopN"), Self::value_column(n))
       }
       Opcode::Load => {
         let (storage, index): (Storage, LongAddr) = inst.display_data();
@@ -173,8 +173,8 @@ impl Context {
         println!(
           "{} {} {}",
           Self::opcode_column("Define"),
-          Self::value_column(ident as usize),
-          self.const_at_column(program, ident as usize)
+          Self::value_column(ident),
+          self.const_at_column(program, ident)
         )
       }
       Opcode::AssignMember => {
@@ -182,8 +182,8 @@ impl Context {
         println!(
           "{} {} {}",
           Self::opcode_column("AssignMember"),
-          Self::value_column(index as usize),
-          self.const_at_column(program, index as usize)
+          Self::value_column(index),
+          self.const_at_column(program, index)
         );
       }
       Opcode::LookupMember => {
@@ -191,65 +191,49 @@ impl Context {
         println!(
           "{} {} {}",
           Self::opcode_column("LookupMember"),
-          Self::value_column(index as usize),
-          self.const_at_column(program, index as usize)
+          Self::value_column(index),
+          self.const_at_column(program, index)
         );
       }
       Opcode::Jump => {
         let forward: usize = inst.display_data();
-        println!(
-          "{} {: >14}",
-          Self::opcode_column("Jump"),
-          Self::address_of(offset + forward as usize)
-        )
+        println!("{} {: >14}", Self::opcode_column("Jump"), Self::address_of(offset + forward))
       }
       Opcode::JumpIfFalse => {
         let forward: usize = inst.display_data();
         println!(
           "{} {: >14}",
           Self::opcode_column("JumpIfFalse"),
-          Self::address_of(offset + forward as usize)
+          Self::address_of(offset + forward)
         )
       }
       Opcode::Loop => {
         let backward: usize = inst.display_data();
-        println!(
-          "{} {: >14}",
-          Self::opcode_column("Loop"),
-          Self::address_of(offset - backward as usize)
-        )
+        println!("{} {: >14}", Self::opcode_column("Loop"), Self::address_of(offset - backward))
       }
       Opcode::Or => {
         let forward: usize = inst.display_data();
-        println!(
-          "{} {: >14}",
-          Self::opcode_column("Or"),
-          Self::address_of(offset + forward as usize)
-        )
+        println!("{} {: >14}", Self::opcode_column("Or"), Self::address_of(offset + forward))
       }
       Opcode::And => {
         let forward: usize = inst.display_data();
-        println!(
-          "{} {: >14}",
-          Self::opcode_column("And"),
-          Self::address_of(offset + forward as usize)
-        )
+        println!("{} {: >14}", Self::opcode_column("And"), Self::address_of(offset + forward))
       }
       Opcode::Invoke => {
         let args: usize = inst.display_data();
-        println!("{} {}", Self::opcode_column("Call"), Self::value_column(args as usize))
+        println!("{} {}", Self::opcode_column("Call"), Self::value_column(args))
       }
       Opcode::CreateVec => {
         let items: usize = inst.display_data();
-        println!("{} {}", Self::opcode_column("CreateVec"), Self::value_column(items as usize))
+        println!("{} {}", Self::opcode_column("CreateVec"), Self::value_column(items))
       }
       Opcode::Resolve => {
         let ident: usize = inst.display_data();
         println!(
           "{} {} {}",
           Self::opcode_column("Resolve"),
-          Self::value_column(ident as usize),
-          self.const_at_column(program, ident as usize)
+          Self::value_column(ident),
+          self.const_at_column(program, ident)
         )
       }
       x => println!("{}", Self::opcode_column(format!("{:?}", x))),

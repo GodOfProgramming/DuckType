@@ -146,14 +146,11 @@ impl<'p> BytecodeGenerator<'p> {
     }
 
     if let Some(var) = self.declare_global(stmt.ident.clone()) {
-      if let Ok(param_count) = stmt.params.len().try_into() {
-        self.emit_fn(Some(stmt.ident), stmt.params, param_count, *stmt.body, stmt.loc);
+      let nargs = stmt.params.len();
+      self.emit_fn(Some(stmt.ident), stmt.params, nargs, *stmt.body, stmt.loc);
 
-        self.define_global(var, stmt.loc);
-        self.emit(Opcode::Pop, stmt.loc);
-      } else {
-        self.error(stmt.loc, "too many parameters in fn");
-      }
+      self.define_global(var, stmt.loc);
+      self.emit(Opcode::Pop, stmt.loc);
     } else {
       self.error(stmt.loc, "could not create fn name");
     }
@@ -722,11 +719,8 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn lambda_expr(&mut self, expr: LambdaExpression) {
-    if let Ok(param_count) = expr.params.len().try_into() {
-      self.emit_fn(None, expr.params, param_count, *expr.body, expr.loc);
-    } else {
-      self.error(expr.loc, "too many parameters in lambda");
-    }
+    let nargs = expr.params.len();
+    self.emit_fn(None, expr.params, nargs, *expr.body, expr.loc);
   }
 
   fn closure_expr(&mut self, mut expr: ClosureExpression) {
@@ -744,25 +738,20 @@ impl<'p> BytecodeGenerator<'p> {
 
         this.emit((Opcode::CreateVec, params.len()), expr.loc);
 
-        if let Ok(param_count) = expr.params.len().try_into() {
-          expr.params.extend(params);
+        let nargs = expr.params.len();
 
-          this.emit_fn(None, expr.params, param_count, *expr.body, expr.loc);
+        expr.params.extend(params);
 
-          this.emit(Opcode::CreateClosure, expr.loc);
-        } else {
-          this.error(expr.loc, "too many parameters");
-        }
+        this.emit_fn(None, expr.params, nargs, *expr.body, expr.loc);
+
+        this.emit(Opcode::CreateClosure, expr.loc);
       });
     }
   }
 
   fn method_expr(&mut self, expr: MethodExpression) {
-    if let Ok(param_count) = expr.params.len().try_into() {
-      self.emit_fn(Some(expr.name), expr.params, param_count, *expr.body, expr.loc);
-    } else {
-      self.error(expr.loc, "too many parameters in method");
-    }
+    let nargs = expr.params.len();
+    self.emit_fn(Some(expr.name), expr.params, nargs, *expr.body, expr.loc);
   }
 
   fn member_access_expr(&mut self, expr: MemberAccessExpression) {
@@ -1074,7 +1063,7 @@ impl<'p> BytecodeGenerator<'p> {
             return None;
           } else {
             return Some(Lookup {
-              index: index.try_into().ok()?,
+              index,
               kind: LookupKind::Local,
             });
           }

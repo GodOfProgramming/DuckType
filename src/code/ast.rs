@@ -2,7 +2,10 @@ mod expr;
 mod stmt;
 
 use super::{lex::Token, SourceLocation};
-use crate::{prelude::*, util::FileIdType, UnwrapAnd};
+use crate::{
+  prelude::*,
+  util::{FileIdType, UnwrapAnd},
+};
 pub use expr::*;
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
