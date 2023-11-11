@@ -1,233 +1,22 @@
 mod env;
 pub mod memory;
 
-use crate::{prelude::*, util::FileIdType};
-use dlopen2::wrapper::WrapperApi;
-use enum_map::{Enum, EnumMap};
-use ptr::SmartPtr;
-use std::{
-  fmt::{self, Debug, Display, Formatter},
-  mem,
-  ops::{Deref, DerefMut},
-  path::PathBuf,
-};
-use strum::EnumCount;
-use strum_macros::{EnumCount, EnumIter, FromRepr};
-
 pub mod prelude {
   pub use super::{env::prelude::*, memory::*};
   #[allow(unused_imports)]
   pub(crate) use super::{Instruction, InstructionData, LongAddr, Opcode, ShortAddr, Storage, TryIntoInstruction};
 }
 
-#[derive(WrapperApi)]
-pub(crate) struct NativeApi {
-  simple_script_load_module: fn(vm: &mut Vm) -> Result<Value, Error>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumCount, EnumIter, Enum, FromRepr)]
-#[repr(u8)]
-pub enum Register {
-  A,
-  B,
-  C,
-  D,
-  E,
-  F,
-  G,
-  H,
-}
-
-impl InstructionData for Register {
-  const BITS: u64 = 8;
-
-  fn to_bits(self) -> u64 {
-    self as u8 as u64
-  }
-
-  fn checked_data(inst: u64) -> Option<Self> {
-    Self::from_repr((inst & Self::MASK).try_into().ok()?)
-  }
-
-  fn unchecked_data(inst: u64) -> Self {
-    unsafe { mem::transmute((inst & Self::MASK) as u8) }
-  }
-}
-
-#[derive(Default)]
-pub struct StackFrame {
-  pub ip: usize,
-  pub sp: usize,
-  pub ctx: SmartPtr<Context>,
-  pub registers: Vec<EnumMap<Register, Value>>,
-}
-
-impl StackFrame {
-  pub fn new(ctx: SmartPtr<Context>, sp: usize) -> Self {
-    Self {
-      ip: Default::default(),
-      sp,
-      ctx,
-      registers: Default::default(),
-    }
-  }
-
-  /**
-   * Clear the current stack frame, returning the previous
-   */
-  pub fn clear_out(&mut self) -> Self {
-    let mut old = Self::default();
-    mem::swap(&mut old, self);
-    old
-  }
-
-  pub fn reg_store(&mut self, reg: Register, value: Value) {
-    let sz = self.registers.len();
-    self.registers[sz - 1][reg] = value;
-  }
-
-  pub fn reg_load(&self, reg: Register) -> Value {
-    self.registers[self.registers.len() - 1][reg].clone()
-  }
-
-  pub fn new_reg_ctx(&mut self) {
-    self.registers.push(Default::default());
-  }
-
-  pub fn pop_reg_ctx(&mut self) {
-    self.registers.pop();
-  }
-}
-
-#[derive(Default)]
-pub struct Stack(Vec<Value>);
-
-impl Stack {
-  pub(crate) fn with_capacity(sz: usize) -> Self {
-    Self(Vec::with_capacity(sz))
-  }
-}
-
-impl Display for Stack {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    if self.is_empty() {
-      write!(f, "               | [ ]")
-    } else {
-      let formatted = self
-        .iter()
-        .enumerate()
-        .map(|(index, item)| format!("{:#15}| [ {:?} ]", index, item));
-      let look = itertools::join(formatted, "\n");
-      write!(f, "{look}")
-    }
-  }
-}
-
-impl Deref for Stack {
-  type Target = Vec<Value>;
-
-  fn deref(&self) -> &Self::Target {
-    &self.0
-  }
-}
-
-impl DerefMut for Stack {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.0
-  }
-}
-
-pub(crate) struct FileInfo {
-  pub(crate) path: PathBuf,
-  pub(crate) id: FileIdType,
-}
-
-impl FileInfo {
-  pub(crate) fn new(path: impl Into<PathBuf>, id: FileIdType) -> Self {
-    Self { path: path.into(), id }
-  }
-}
-
-#[derive(Default)]
-pub(crate) struct EnvStack {
-  envs: Vec<EnvEntry>,
-}
-
-impl EnvStack {
-  pub(crate) fn len(&self) -> usize {
-    self.envs.len()
-  }
-
-  pub(crate) fn push(&mut self, entry: EnvEntry) {
-    self.envs.push(entry);
-  }
-
-  pub(crate) fn pop(&mut self) -> EnvEntry {
-    self.envs.pop().expect("pop: the env stack should never be empty")
-  }
-
-  pub(crate) fn last(&self) -> &UsertypeHandle<ModuleValue> {
-    match self.envs.last().expect("last: the env stack should never be empty") {
-      EnvEntry::Fn(e) => e,
-      EnvEntry::Mod(e) => e,
-      EnvEntry::File(e) => e,
-      EnvEntry::Block(e) => e,
-      EnvEntry::String(e) => e,
-    }
-  }
-
-  pub(crate) fn last_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
-    match self.envs.last_mut().expect("last_mut: the env stack should never be empty") {
-      EnvEntry::Fn(e) => e,
-      EnvEntry::Mod(e) => e,
-      EnvEntry::File(e) => e,
-      EnvEntry::Block(e) => e,
-      EnvEntry::String(e) => e,
-    }
-  }
-}
-
-pub(crate) enum EnvEntry {
-  Fn(UsertypeHandle<ModuleValue>),
-  Mod(UsertypeHandle<ModuleValue>),
-  File(UsertypeHandle<ModuleValue>),
-  Block(UsertypeHandle<ModuleValue>),
-  String(UsertypeHandle<ModuleValue>),
-}
-
-impl Debug for EnvEntry {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Fn(_) => f.debug_tuple("Fn").finish(),
-      Self::Mod(_) => f.debug_tuple("Mod").finish(),
-      Self::File(_) => f.debug_tuple("File").finish(),
-      Self::Block(_) => f.debug_tuple("Block").finish(),
-      Self::String(_) => f.debug_tuple("String").finish(),
-    }
-  }
-}
-
-pub trait InstructionData
-where
-  Self: Sized,
-{
-  const BITS: u64;
-  const MASK: u64 = 2u64.pow(Self::BITS as u32) - 1;
-
-  fn to_bits(self) -> u64;
-
-  fn checked_data(inst: u64) -> Option<Self>;
-
-  fn unchecked_data(inst: u64) -> Self;
-
-  fn bits(self) -> Option<u64> {
-    Self::valid_bits(self.to_bits())
-  }
-
-  fn valid_bits(bits: u64) -> Option<u64> {
-    (bits <= Self::MASK).then_some(bits)
-  }
-}
+use crate::prelude::*;
+use enum_map::{Enum, EnumMap};
+use ptr::SmartPtr;
+use std::{
+  fmt::{self, Debug, Display, Formatter},
+  mem,
+  ops::{Deref, DerefMut},
+};
+use strum::EnumCount;
+use strum_macros::{EnumCount, EnumIter, FromRepr};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Instruction(u64);
@@ -292,6 +81,28 @@ where
 {
   fn try_into_inst(self) -> Result<Instruction, Opcode> {
     Instruction::new(self.0, self.1).ok_or(self.0)
+  }
+}
+
+pub trait InstructionData
+where
+  Self: Sized,
+{
+  const BITS: u64;
+  const MASK: u64 = 2u64.pow(Self::BITS as u32) - 1;
+
+  fn to_bits(self) -> u64;
+
+  fn checked_data(inst: u64) -> Option<Self>;
+
+  fn unchecked_data(inst: u64) -> Self;
+
+  fn bits(self) -> Option<u64> {
+    Self::valid_bits(self.to_bits())
+  }
+
+  fn valid_bits(bits: u64) -> Option<u64> {
+    (bits <= Self::MASK).then_some(bits)
   }
 }
 
@@ -741,6 +552,177 @@ where
       T2::unchecked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
       T3::unchecked_data(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
     )
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumCount, EnumIter, Enum, FromRepr)]
+#[repr(u8)]
+pub enum Register {
+  A,
+  B,
+  C,
+  D,
+  E,
+  F,
+  G,
+  H,
+}
+
+impl InstructionData for Register {
+  const BITS: u64 = 8;
+
+  fn to_bits(self) -> u64 {
+    self as u8 as u64
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    Self::from_repr((inst & Self::MASK).try_into().ok()?)
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    unsafe { mem::transmute((inst & Self::MASK) as u8) }
+  }
+}
+
+#[derive(Default)]
+pub struct Stack(Vec<Value>);
+
+impl Stack {
+  pub(crate) fn with_capacity(sz: usize) -> Self {
+    Self(Vec::with_capacity(sz))
+  }
+}
+
+impl Display for Stack {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    if self.is_empty() {
+      write!(f, "               | [ ]")
+    } else {
+      let formatted = self
+        .iter()
+        .enumerate()
+        .map(|(index, item)| format!("{:#15}| [ {:?} ]", index, item));
+      let look = itertools::join(formatted, "\n");
+      write!(f, "{look}")
+    }
+  }
+}
+
+impl Deref for Stack {
+  type Target = Vec<Value>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for Stack {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
+
+#[derive(Default)]
+pub struct StackFrame {
+  pub ip: usize,
+  pub sp: usize,
+  pub ctx: SmartPtr<Context>,
+  pub registers: Vec<EnumMap<Register, Value>>,
+}
+
+impl StackFrame {
+  pub fn new(ctx: SmartPtr<Context>, sp: usize) -> Self {
+    Self {
+      ip: Default::default(),
+      sp,
+      ctx,
+      registers: Default::default(),
+    }
+  }
+
+  /**
+   * Clear the current stack frame, returning the previous
+   */
+  pub fn clear_out(&mut self) -> Self {
+    let mut old = Self::default();
+    mem::swap(&mut old, self);
+    old
+  }
+
+  pub fn reg_store(&mut self, reg: Register, value: Value) {
+    let sz = self.registers.len();
+    self.registers[sz - 1][reg] = value;
+  }
+
+  pub fn reg_load(&self, reg: Register) -> Value {
+    self.registers[self.registers.len() - 1][reg].clone()
+  }
+
+  pub fn new_reg_ctx(&mut self) {
+    self.registers.push(Default::default());
+  }
+
+  pub fn pop_reg_ctx(&mut self) {
+    self.registers.pop();
+  }
+}
+
+#[derive(Default)]
+pub(crate) struct EnvStack {
+  envs: Vec<EnvEntry>,
+}
+
+impl EnvStack {
+  pub(crate) fn len(&self) -> usize {
+    self.envs.len()
+  }
+
+  pub(crate) fn push(&mut self, entry: EnvEntry) {
+    self.envs.push(entry);
+  }
+
+  pub(crate) fn pop(&mut self) -> EnvEntry {
+    self.envs.pop().expect("pop: the env stack should never be empty")
+  }
+
+  pub(crate) fn last(&self) -> &UsertypeHandle<ModuleValue> {
+    match self.envs.last().expect("last: the env stack should never be empty") {
+      EnvEntry::Fn(e) => e,
+      EnvEntry::Mod(e) => e,
+      EnvEntry::File(e) => e,
+      EnvEntry::Block(e) => e,
+      EnvEntry::String(e) => e,
+    }
+  }
+
+  pub(crate) fn last_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
+    match self.envs.last_mut().expect("last_mut: the env stack should never be empty") {
+      EnvEntry::Fn(e) => e,
+      EnvEntry::Mod(e) => e,
+      EnvEntry::File(e) => e,
+      EnvEntry::Block(e) => e,
+      EnvEntry::String(e) => e,
+    }
+  }
+}
+
+pub(crate) enum EnvEntry {
+  Fn(UsertypeHandle<ModuleValue>),
+  Mod(UsertypeHandle<ModuleValue>),
+  File(UsertypeHandle<ModuleValue>),
+  Block(UsertypeHandle<ModuleValue>),
+  String(UsertypeHandle<ModuleValue>),
+}
+
+impl Debug for EnvEntry {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Fn(_) => f.debug_tuple("Fn").finish(),
+      Self::Mod(_) => f.debug_tuple("Mod").finish(),
+      Self::File(_) => f.debug_tuple("File").finish(),
+      Self::Block(_) => f.debug_tuple("Block").finish(),
+      Self::String(_) => f.debug_tuple("String").finish(),
+    }
   }
 }
 

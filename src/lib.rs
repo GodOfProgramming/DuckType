@@ -33,6 +33,7 @@ use crate::{
 };
 use clap::Parser;
 use dlopen2::wrapper::Container;
+use dlopen2::wrapper::WrapperApi;
 use exec::memory::{Allocation, Gc};
 use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
@@ -1052,6 +1053,22 @@ impl Vm {
       sp = self.stack_frame.sp
     );
   }
+}
+
+struct FileInfo {
+  path: PathBuf,
+  id: FileIdType,
+}
+
+impl FileInfo {
+  fn new(path: impl Into<PathBuf>, id: FileIdType) -> Self {
+    Self { path: path.into(), id }
+  }
+}
+
+#[derive(WrapperApi)]
+pub(crate) struct NativeApi {
+  simple_script_load_module: fn(vm: &mut Vm) -> Result<Value, Error>,
 }
 
 #[cfg(test)]
