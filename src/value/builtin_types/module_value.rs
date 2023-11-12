@@ -25,12 +25,15 @@ pub struct ModuleValue {
 }
 
 impl ModuleValue {
-  pub fn new() -> Self {
-    Default::default()
+  pub fn new(name: impl ToString) -> Self {
+    Self {
+      name: Some(name.to_string()),
+      ..Default::default()
+    }
   }
 
   pub fn new_global_module(gc: &mut SmartPtr<Gc>, name: impl ToString) -> UsertypeHandle<Self> {
-    let mut this = Gc::allocate_handle(gc, Self::default());
+    let mut this = Gc::allocate_handle(gc, Self::new(name));
 
     let mut lib_paths = Vec::default();
 
@@ -38,7 +41,7 @@ impl ModuleValue {
       lib_paths.extend(paths.split_terminator(PATH_SEPARATOR).map(|v| gc.allocate(v)));
     }
 
-    let module = ModuleBuilder::initialize(gc, name, Some(this.handle.value.clone()), |gc, mut lib| {
+    let module = ModuleBuilder::initialize(gc, LIB_GLOBAL, Some(this.handle.value.clone()), |gc, mut lib| {
       let lib_paths = gc.allocate(lib_paths);
       lib.define(PATHS_MEMBER, lib_paths);
     });
@@ -154,7 +157,18 @@ impl ModuleValue {
   }
 
   fn __dbg__(&self) -> String {
-    self.__str__()
+    self
+      .name
+      .as_ref()
+      .map(|name| {
+        format!(
+          "<mod {} defs: {{ {} }} members: {{ {} }}>",
+          name,
+          itertools::join(self.env.iter().map(|(k, v)| format!("{k}: {v}")), ", "),
+          itertools::join(self.members.iter().map(|(k, v)| format!("{k}: {v}")), ", "),
+        )
+      })
+      .unwrap_or_else(|| String::from("<anonymous mod>"))
   }
 }
 
@@ -165,9 +179,10 @@ impl ModuleBuilder {
   where
     F: FnOnce(&mut SmartPtr<Gc>, UsertypeHandle<ModuleValue>),
   {
+    let name = name.to_string();
     let module = parent
-      .map(|parent| Gc::allocate_handle(gc, ModuleValue::new_child(name.to_string(), parent)))
-      .unwrap_or_else(|| ModuleValue::new_global_module(gc, name));
+      .map(|parent| Gc::allocate_handle(gc, ModuleValue::new_child(&name, parent)))
+      .unwrap_or_else(|| ModuleValue::new_global_module(gc, &name));
     f(gc, module.clone());
     module
   }

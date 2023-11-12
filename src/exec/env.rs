@@ -223,6 +223,10 @@ impl Context {
         let args: usize = inst.display_data();
         println!("{} {}", Self::opcode_column("Call"), Self::value_column(args))
       }
+      Opcode::CreateStruct => {
+        let items: usize = inst.display_data();
+        println!("{} {}", Self::opcode_column("CreateStruct"), Self::value_column(items))
+      }
       Opcode::CreateVec => {
         let items: usize = inst.display_data();
         println!("{} {}", Self::opcode_column("CreateVec"), Self::value_column(items))

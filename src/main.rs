@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use ducktype::prelude::*;
-use std::{io::Read, path::PathBuf};
+use std::{io::Read, path::PathBuf, time::Duration};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -14,7 +14,7 @@ enum Command {
   Uuid,
   Run {
     #[arg()]
-    file: Option<PathBuf>,
+    files: Vec<PathBuf>,
 
     #[clap(last = true)]
     runargs: Vec<String>,
@@ -39,16 +39,18 @@ fn main() -> Result<(), Error> {
 
   match args.command {
     Command::Uuid => println!("{}", Uuid::new_v4()),
-    Command::Run { file, runargs } => {
-      let mut gc = SmartPtr::new(Gc::default());
+    Command::Run { files, runargs } => {
+      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(0)));
 
-      let gmod = ModuleBuilder::initialize(&mut gc, "*main*", None, |gc, mut lib| {
-        lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &runargs);
-      });
+      let mut vm = Vm::new(gc.clone(), runargs.clone());
 
-      let mut vm = Vm::new(gc, runargs.clone());
+      for file in files {
+        println!("running {}", file.display());
+        let gmod = ModuleBuilder::initialize(&mut gc, "*main*", None, |gc, mut lib| {
+          let libval = lib.handle.value.clone();
+          lib.env.extend(stdlib::enable_std(gc, libval, &runargs));
+        });
 
-      if let Some(file) = file {
         let value = vm.run_file(file.clone(), gmod)?;
         println!("=> {value}");
       }
@@ -61,10 +63,11 @@ fn main() -> Result<(), Error> {
       }
     }
     Command::Pipe { runargs } => {
-      let mut gc = SmartPtr::new(Gc::default());
+      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(16)));
 
       let gmod = ModuleBuilder::initialize(&mut gc, "*main*", None, |gc, mut lib| {
-        lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &runargs);
+        let libval = lib.handle.value.clone();
+        lib.env.extend(stdlib::enable_std(gc, libval, &runargs));
       });
 
       let mut vm = Vm::new(gc, runargs.clone());

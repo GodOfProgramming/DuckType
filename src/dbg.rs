@@ -157,10 +157,7 @@ impl GcCmd {
     let output = match self {
       GcCmd::Count => Some(vm.gc.allocations.len().to_string()),
       GcCmd::Clean => {
-        let cleaned = vm
-          .gc
-          .clean(&vm.stack, &vm.stack_frame, &vm.stack_frames, vm.lib_cache.values())?;
-        Some(cleaned.to_string())
+        todo!()
       }
     };
     Ok(CommandOutput::new(output, false))

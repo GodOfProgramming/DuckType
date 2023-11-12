@@ -1,4 +1,4 @@
-use super::{Stack, StackFrame};
+use super::{EnvStack, Stack, StackFrame};
 use crate::{
   exec::Register,
   prelude::*,
@@ -8,6 +8,7 @@ use ahash::RandomState;
 use ptr::{MutPtr, SmartPtr};
 use std::{
   collections::HashSet,
+  fmt::{self, Display, Formatter},
   mem,
   ops::{Deref, DerefMut},
   sync::{
@@ -15,6 +16,7 @@ use std::{
     mpsc,
   },
   thread::{self, JoinHandle},
+  time::{Duration, Instant},
 };
 use strum::IntoEnumIterator;
 
@@ -97,6 +99,15 @@ where
   }
 }
 
+impl<T> Display for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.handle)
+  }
+}
+
 pub struct ValueHandle {
   pub value: Value,
   gc: SmartPtr<Gc>,
@@ -142,6 +153,12 @@ impl Clone for ValueHandle {
   }
 }
 
+impl Display for ValueHandle {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.value)
+  }
+}
+
 impl Drop for ValueHandle {
   fn drop(&mut self) {
     if self.value.is_ptr() {
@@ -164,6 +181,7 @@ pub struct Marker {
 impl Marker {
   pub fn trace(&mut self, value: &Value) {
     if !self.marked_values.contains(&value.bits) {
+      // println!("tracing {value} {:p}", value.pointer());
       self.marked_values.insert(value.bits);
       value.trace_vtable(self);
     }
@@ -225,8 +243,9 @@ impl Default for AsyncDisposal {
 
 type AllocationSet = HashSet<u64, RandomState>;
 
-#[derive(Default)]
 pub struct Gc {
+  next_run: Instant,
+  frequency: Duration,
   pub(crate) allocations: AllocationSet,
   pub(crate) handles: AllocationSet,
   disposer: AsyncDisposal,
@@ -236,8 +255,10 @@ pub struct Gc {
 }
 
 impl Gc {
-  pub fn new() -> Self {
+  pub fn new(frequency: Duration) -> Self {
     Self {
+      next_run: Instant::now() + frequency,
+      frequency,
       allocations: Default::default(),
       handles: Default::default(),
       disposer: AsyncDisposal::new(),
@@ -246,14 +267,37 @@ impl Gc {
     }
   }
 
-  pub fn clean<'v>(
+  pub(crate) fn clean_if_time<'v>(
     &mut self,
     stack: &Stack,
     current_frame: &StackFrame,
     stack_frames: &Vec<StackFrame>,
+    envs: &EnvStack,
     cached_values: impl IntoIterator<Item = &'v Value>,
+    export: Option<&Value>,
   ) -> Result<usize, SystemError> {
-    let marked_allocations = self.trace(stack, current_frame, stack_frames, cached_values);
+    let now = Instant::now();
+
+    if now < self.next_run {
+      return Ok(0);
+    }
+
+    self.next_run = now + self.frequency;
+
+    self.clean(stack, current_frame, stack_frames, envs, cached_values, export)
+  }
+
+  pub(crate) fn clean<'v>(
+    &mut self,
+    stack: &Stack,
+    current_frame: &StackFrame,
+    stack_frames: &Vec<StackFrame>,
+    envs: &EnvStack,
+    cached_values: impl IntoIterator<Item = &'v Value>,
+    export: Option<&Value>,
+  ) -> Result<usize, SystemError> {
+    let marked_allocations = self.trace(stack, current_frame, stack_frames, envs, cached_values, export);
+
     let loose_allocations = self.find_unmarked(marked_allocations);
 
     let cleaned = loose_allocations.len();
@@ -263,18 +307,23 @@ impl Gc {
       debug_assert!(removed);
     }
 
-    self.disposer.dispose(loose_allocations)?;
+    if cleaned > 0 {
+      self.disposer.dispose(loose_allocations)?;
+    }
 
     self.cleans += 1;
+
     Ok(cleaned)
   }
 
-  pub fn trace<'v>(
+  fn trace<'v>(
     &self,
     stack: &Stack,
     current_frame: &StackFrame,
     stack_frames: &Vec<StackFrame>,
+    envs: &EnvStack,
     cached_values: impl IntoIterator<Item = &'v Value>,
+    export: Option<&Value>,
   ) -> AllocationSet {
     let mut marked_allocations = Marker::default();
 
@@ -302,6 +351,16 @@ impl Gc {
           marked_allocations.trace(&ctx[reg]);
         }
       }
+    }
+
+    for env in envs.iter() {
+      let handle = env.module();
+      let value = handle.value();
+      marked_allocations.trace(&value);
+    }
+
+    if let Some(value) = export {
+      marked_allocations.trace(value);
     }
 
     for handle in &self.handles {
@@ -380,6 +439,13 @@ impl Gc {
     let pointer = value.pointer_mut();
     let meta = value.meta();
     (meta.vtable.dealloc)(pointer);
+  }
+}
+
+#[cfg(test)]
+impl Gc {
+  pub fn always_run() -> Self {
+    Self::new(Duration::from_nanos(0))
   }
 }
 
@@ -537,20 +603,27 @@ mod tests {
 
   #[test]
   fn gc_can_allocate_and_clean() {
-    let mut gc = Gc::new();
+    let mut gc = Gc::always_run();
     let ctx = new_ctx();
 
     gc.allocate(SomeType {});
 
     let cleaned = gc
-      .clean(&Default::default(), &StackFrame::new(ctx, 0), &Default::default(), [])
+      .clean(
+        &Default::default(),
+        &StackFrame::new(ctx, 0),
+        &Default::default(),
+        &Default::default(),
+        [],
+        None,
+      )
       .unwrap();
     assert_eq!(cleaned, 1);
   }
 
   #[test]
   fn gc_does_not_clean_more_than_it_needs_to() {
-    let mut gc = Gc::new();
+    let mut gc = Gc::always_run();
     let ctx = new_ctx();
 
     let _x = gc.allocate(1);
@@ -561,7 +634,14 @@ mod tests {
     gc.allocate(SomeType {});
 
     let cleaned = gc
-      .clean(&Default::default(), &StackFrame::new(ctx, 0), &Default::default(), [])
+      .clean(
+        &Default::default(),
+        &StackFrame::new(ctx, 0),
+        &Default::default(),
+        &Default::default(),
+        [],
+        None,
+      )
       .unwrap();
 
     assert_eq!(cleaned, 1);
@@ -569,7 +649,7 @@ mod tests {
 
   #[test]
   fn gc_does_not_clean_open_handles() {
-    let mut gc = SmartPtr::new(Gc::new());
+    let mut gc = SmartPtr::new(Gc::always_run());
     let ctx = new_ctx();
 
     let mut value = StructValue::new([(("child", 0), Value::nil)]);
@@ -579,13 +659,27 @@ mod tests {
     {
       let _handle = Gc::allocate_handle(&mut gc, value);
       let cleaned = gc
-        .clean(&Default::default(), &StackFrame::new(ctx.clone(), 0), &Default::default(), [])
+        .clean(
+          &Default::default(),
+          &StackFrame::new(ctx.clone(), 0),
+          &Default::default(),
+          &Default::default(),
+          [],
+          None,
+        )
         .unwrap();
       assert_eq!(cleaned, 0);
     }
 
     let cleaned = gc
-      .clean(&Default::default(), &StackFrame::new(ctx, 0), &Default::default(), [])
+      .clean(
+        &Default::default(),
+        &StackFrame::new(ctx, 0),
+        &Default::default(),
+        &Default::default(),
+        [],
+        None,
+      )
       .unwrap();
     assert_eq!(cleaned, 2);
   }

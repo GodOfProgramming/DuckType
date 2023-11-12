@@ -1,7 +1,5 @@
-let x = 0;
-let y = 1;
-let z = 'a';
+req "classmod" as Foo;
 
-println x;
-println y;
-println z;
+println "calling const";
+Foo(true);
+println "done calling const";

@@ -32,6 +32,7 @@ use crate::{
   util::{FileIdType, FileMetadata, PlatformMetadata, UnwrapAnd},
 };
 use clap::Parser;
+use dbg::macros::here;
 use dlopen2::wrapper::Container;
 use dlopen2::wrapper::WrapperApi;
 use exec::memory::{Allocation, Gc};
@@ -41,16 +42,9 @@ use std::{
   collections::BTreeMap,
   fs, mem,
   path::{Path, PathBuf},
-  time::{Duration, Instant},
 };
 
 pub const EXTENSION: &str = "dk";
-
-#[cfg(test)]
-const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(100);
-
-#[cfg(not(test))]
-const DEFAULT_GC_FREQUENCY: Duration = Duration::from_millis(16);
 
 const INITIAL_STACK_SIZE: usize = 400;
 
@@ -96,8 +90,6 @@ pub struct Vm {
   // usize for what frame to pop on, string for file path
   opened_files: Vec<FileInfo>,
   opened_native_libs: BTreeMap<PathBuf, Container<NativeApi>>,
-
-  next_gc: Instant,
 }
 
 impl Vm {
@@ -114,7 +106,6 @@ impl Vm {
       lib_cache: Default::default(),
       opened_files: Default::default(),
       opened_native_libs: Default::default(),
-      next_gc: Instant::now() + DEFAULT_GC_FREQUENCY,
     }
   }
 
@@ -132,7 +123,9 @@ impl Vm {
     self.stack_frames = Default::default();
     self.envs.push(EnvEntry::File(env));
 
-    self.execute(RunMode::File)
+    let res = self.execute(RunMode::File);
+
+    res
   }
 
   pub fn run_string(&mut self, source: impl AsRef<str>, env: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
@@ -158,14 +151,12 @@ impl Vm {
     let mut export = None;
 
     'ctx: while let Some(inst) = self.stack_frame.ctx.next(self.stack_frame.ip) {
-      let now = Instant::now();
-      if now > self.next_gc {
-        self.run_gc()?;
-      }
+      self.run_gc(export.as_ref())?;
 
       #[cfg(feature = "runtime-disassembly")]
       {
         self.stack_display();
+
         self
           .stack_frame
           .ctx
@@ -177,8 +168,7 @@ impl Vm {
         .ok_or_else(|| self.error(UsageError::InvalidInstruction(inst)))?;
 
       match opcode {
-        Opcode::Unknown => Err(self.error(UsageError::InvalidInstruction(inst)))?,
-        Opcode::NoOp => self.exec(|this| this.exec_noop())?,
+        Opcode::Unknown => self.exec_unknown(inst)?,
         Opcode::Const => self.exec(|this| this.exec_const(data!(inst)))?,
         Opcode::Nil => self.exec_nil(),
         Opcode::True => self.exec_true(),
@@ -329,8 +319,8 @@ impl Vm {
   /* Operations */
 
   #[cold]
-  fn exec_noop(&self) -> OpResult {
-    Err(UsageError::Infallible)
+  fn exec_unknown(&self, inst: Instruction) -> ExecResult {
+    Err(self.error(UsageError::InvalidInstruction(inst)))
   }
 
   fn exec_const(&mut self, index: LongAddr) -> OpResult {
@@ -454,7 +444,9 @@ impl Vm {
 
     if let ConstantValue::String(name) = name {
       obj.set_member(&mut self.gc, Field::new(loc, name), value.clone())?;
+
       self.stack_push(value);
+
       Ok(())
     } else {
       Err(UsageError::InvalidIdentifier(name.to_string()))
@@ -804,9 +796,15 @@ impl Vm {
         } else {
           self.filemap.add(id, &found_file);
           let new_ctx = code::compile(&mut self.program, Some(id), data)?;
-          let gmod = ModuleBuilder::initialize(&mut self.gc, id, None, |gc, mut lib| {
-            lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &self.args);
-          });
+          let gmod = ModuleBuilder::initialize(
+            &mut self.gc,
+            format!("<file export {}>", found_file.display()),
+            None,
+            |gc, mut lib| {
+              let libval = lib.handle.value.clone();
+              lib.env.extend(stdlib::enable_std(gc, libval, &self.args));
+            },
+          );
 
           self.new_frame(new_ctx, 0);
           self.envs.push(EnvEntry::File(gmod));
@@ -826,7 +824,9 @@ impl Vm {
   where
     F: FnOnce(&mut Self) -> OpResult<T>,
   {
-    f(self).map_err(|e| self.error(e))
+    let r = f(self).map_err(|e| self.error(e));
+
+    r
   }
 
   fn unary_op<F>(&mut self, opcode: Opcode, f: F) -> Result<(), UsageError>
@@ -1010,12 +1010,16 @@ impl Vm {
     self.envs.last_mut()
   }
 
-  pub fn run_gc(&mut self) -> ExecResult {
-    let now = Instant::now();
-    self.next_gc = now + DEFAULT_GC_FREQUENCY;
-    self
-      .gc
-      .clean(&self.stack, &self.stack_frame, &self.stack_frames, self.lib_cache.values())?;
+  pub fn run_gc(&mut self, export: Option<&Value>) -> ExecResult {
+    self.gc.clean_if_time(
+      &self.stack,
+      &self.stack_frame,
+      &self.stack_frames,
+      &self.envs,
+      self.lib_cache.values(),
+      export,
+    )?;
+
     Ok(())
   }
 
@@ -1072,4 +1076,4 @@ pub(crate) struct NativeApi {
 }
 
 #[cfg(test)]
-mod test;
+mod tests;

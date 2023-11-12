@@ -106,7 +106,7 @@ where
   }
 }
 
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, strum_macros::EnumCount, strum_macros::FromRepr)]
+#[derive(Hash, Default, Clone, Copy, Debug, PartialEq, Eq, EnumCount, FromRepr, EnumIter)]
 #[repr(u8)]
 pub enum Opcode {
   /// Unknown instruction
@@ -115,10 +115,6 @@ pub enum Opcode {
   /// Encoding: None
   #[default]
   Unknown,
-  /// No operation instruction
-  ///
-  /// Encoding: None
-  NoOp,
   /// Looks up a constant value at the specified location.
   ///
   /// Encoding: | usize |
@@ -353,6 +349,12 @@ pub enum Opcode {
 }
 
 static_assertions::const_assert!(Opcode::COUNT - 1 < 2usize.pow(Opcode::BITS as u32));
+
+impl Display for Opcode {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{self:?}")
+  }
+}
 
 impl InstructionData for Opcode {
   const BITS: u64 = 8;
@@ -602,7 +604,9 @@ impl Display for Stack {
         .iter()
         .enumerate()
         .map(|(index, item)| format!("{:#15}| [ {:?} ]", index, item));
+
       let look = itertools::join(formatted, "\n");
+
       write!(f, "{look}")
     }
   }
@@ -640,15 +644,6 @@ impl StackFrame {
     }
   }
 
-  /**
-   * Clear the current stack frame, returning the previous
-   */
-  pub fn clear_out(&mut self) -> Self {
-    let mut old = Self::default();
-    mem::swap(&mut old, self);
-    old
-  }
-
   pub fn reg_store(&mut self, reg: Register, value: Value) {
     let sz = self.registers.len();
     self.registers[sz - 1][reg] = value;
@@ -673,6 +668,10 @@ pub(crate) struct EnvStack {
 }
 
 impl EnvStack {
+  pub(crate) fn iter<'v>(&'v self) -> std::slice::Iter<'v, EnvEntry> {
+    self.envs.iter()
+  }
+
   pub(crate) fn len(&self) -> usize {
     self.envs.len()
   }
@@ -712,6 +711,18 @@ pub(crate) enum EnvEntry {
   File(UsertypeHandle<ModuleValue>),
   Block(UsertypeHandle<ModuleValue>),
   String(UsertypeHandle<ModuleValue>),
+}
+
+impl EnvEntry {
+  pub(crate) fn module(&self) -> UsertypeHandle<ModuleValue> {
+    match self {
+      Self::Fn(m) => m.clone(),
+      Self::Mod(m) => m.clone(),
+      Self::File(m) => m.clone(),
+      Self::Block(m) => m.clone(),
+      Self::String(m) => m.clone(),
+    }
+  }
 }
 
 impl Debug for EnvEntry {

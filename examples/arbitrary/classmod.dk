@@ -1,0 +1,7 @@
+export class Foo {
+  self as nil
+
+  new(self, x) {
+    println "in new: " + x;
+  }
+}

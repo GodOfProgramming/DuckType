@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use super::{ConstantValue, FunctionConstant};
 use crate::code::{ast::*, Reflection, SourceLocation};
 use crate::error::CompiletimeErrors;
@@ -7,11 +5,20 @@ use crate::exec::Register;
 use crate::prelude::*;
 use crate::util::FileIdType;
 use ptr::SmartPtr;
+use std::fmt::Debug;
+#[cfg(test)]
+use std::{cell::RefCell, collections::HashSet};
 
 macro_rules! sanity_check {
   () => {
     format!("{} ({}): sanity check", file!(), line!())
   };
+}
+
+#[cfg(test)]
+thread_local! {
+  pub static CAPTURE_OPS: RefCell<bool> = RefCell::new(false);
+  pub static GENERATED_OPS: RefCell<HashSet<Opcode>> = RefCell::new(Default::default());
 }
 
 struct Local {
@@ -105,12 +112,12 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn break_stmt(&mut self, stmt: BreakStatement) {
-    let jmp = self.emit_noop(stmt.loc);
+    let jmp = self.emit_placeholder(stmt.loc);
     self.breaks.push(jmp);
   }
 
   fn cont_stmt(&mut self, stmt: ContStatement) {
-    let jmp = self.emit_noop(stmt.loc);
+    let jmp = self.emit_placeholder(stmt.loc);
     self.continues.push(jmp);
   }
 
@@ -163,7 +170,7 @@ impl<'p> BytecodeGenerator<'p> {
 
       let before_compare = this.current_instruction_count();
       this.emit_expr(stmt.comparison);
-      let exit = this.emit_noop(stmt.loc);
+      let exit = this.emit_placeholder(stmt.loc);
 
       let block = *stmt.block;
       let increment = stmt.increment;
@@ -184,11 +191,11 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn if_stmt(&mut self, stmt: IfStatement) {
     self.emit_expr(stmt.comparison);
-    let end = self.emit_noop(stmt.loc);
+    let end = self.emit_placeholder(stmt.loc);
     self.emit_stmt(*stmt.block);
 
     if let Some(else_stmt) = stmt.else_block {
-      let else_end = self.emit_noop(stmt.loc);
+      let else_end = self.emit_placeholder(stmt.loc);
       self.patch_jump_to_here(end, Opcode::JumpIfFalse);
       self.emit_stmt(*else_stmt);
       self.patch_jump_to_here(else_end, Opcode::Jump);
@@ -229,9 +236,9 @@ impl<'p> BytecodeGenerator<'p> {
       let loc = stmt.loc;
       self.emit_expr(branch_expr);
       self.emit(Opcode::Check, loc);
-      let next_jump = self.emit_noop(loc);
+      let next_jump = self.emit_placeholder(loc);
       self.emit_stmt(branch_stmt);
-      jumps.push(self.emit_noop(loc));
+      jumps.push(self.emit_placeholder(loc));
       if !self.patch_jump_to_here(next_jump, Opcode::JumpIfFalse) {
         break;
       }
@@ -348,7 +355,7 @@ impl<'p> BytecodeGenerator<'p> {
   fn while_stmt(&mut self, stmt: WhileStatement) {
     let before_compare = self.current_instruction_count();
     self.emit_expr(stmt.comparison);
-    let end_jump = self.emit_noop(stmt.loc);
+    let end_jump = self.emit_placeholder(stmt.loc);
 
     let block = *stmt.block;
     self.emit_loop_block(before_compare, stmt.loc, |this| {
@@ -420,14 +427,14 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn and_expr(&mut self, expr: AndExpression) {
     self.emit_expr(*expr.left);
-    let short_circuit = self.emit_noop(expr.loc);
+    let short_circuit = self.emit_placeholder(expr.loc);
     self.emit_expr(*expr.right);
     self.patch_jump_to_here(short_circuit, Opcode::And);
   }
 
   fn or_expr(&mut self, expr: OrExpression) {
     self.emit_expr(*expr.left);
-    let short_circuit = self.emit_noop(expr.loc);
+    let short_circuit = self.emit_placeholder(expr.loc);
     self.emit_expr(*expr.right);
     self.patch_jump_to_here(short_circuit, Opcode::Or);
   }
@@ -781,7 +788,19 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn emit(&mut self, inst: impl TryIntoInstruction + Debug, loc: SourceLocation) {
     match inst.try_into_inst() {
-      Ok(inst) => self.current_ctx().write(inst, loc.line, loc.column),
+      Ok(inst) => {
+        self.current_ctx().write(inst, loc.line, loc.column);
+        #[cfg(test)]
+        {
+          CAPTURE_OPS.with_borrow(|should_cap| {
+            if *should_cap {
+              GENERATED_OPS.with_borrow_mut(|ops| {
+                ops.insert(inst.opcode().unwrap());
+              });
+            }
+          });
+        }
+      }
       Err(opcode) => self.error(loc, format!("failed to create instruction: {opcode:?}")),
     }
   }
@@ -898,9 +917,9 @@ impl<'p> BytecodeGenerator<'p> {
   /**
    * Emits a no op instruction and returns its index, the "jump" is made later with a patch
    */
-  fn emit_noop(&mut self, loc: SourceLocation) -> usize {
+  fn emit_placeholder(&mut self, loc: SourceLocation) -> usize {
     let offset = self.current_ctx().num_instructions();
-    self.emit(Opcode::NoOp, loc);
+    self.emit(Opcode::Unknown, loc);
     offset
   }
 

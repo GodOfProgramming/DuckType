@@ -209,10 +209,6 @@ impl<'src> Scanner<'src> {
         let line = self.line;
         let column = self.column;
 
-        if cfg!(test) {
-          println!("pos = {}, line = {}, col = {}", self.pos, self.line, self.column,);
-        }
-
         let token = match c {
           '(' => Token::LeftParen,
           ')' => Token::RightParen,
@@ -350,10 +346,6 @@ impl<'src> Scanner<'src> {
             continue;
           }
         };
-
-        if cfg!(test) {
-          println!("{}: {:?}", tokens.len(), token);
-        }
 
         tokens.push(token);
         meta.push(SourceLocation {

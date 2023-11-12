@@ -293,6 +293,10 @@ pub enum UsageError {
   #[error("Tried to access undefined member '{0}'")]
   UndefinedMember(String),
 
+  // idx
+  #[error("Tried to access undefined member id '{0}'")]
+  UndefinedMemberId(usize),
+
   /// actual, expected
   #[error("{0} is not a {1}")]
   TypeError(String, String),

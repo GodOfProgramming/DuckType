@@ -1,4 +1,4 @@
-use crate::{prelude::*, util::UnwrapAnd};
+use crate::{prelude::*, value::ConstVoid};
 use ahash::RandomState;
 use bimap::BiHashMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -76,11 +76,14 @@ impl StructValue {
     self.members[idx].value = value;
   }
 
-  fn get_idx_by_id(&self, id: &usize) -> Option<usize> {
-    self.members.binary_search_by_key(id, |m| m.id).ok()
+  fn get_idx_by_id(&self, id: &usize) -> Result<usize, UsageError> {
+    self
+      .members
+      .binary_search_by_key(id, |m| m.id)
+      .map_err(|_| UsageError::UndefinedMemberId(*id))
   }
 
-  fn get_field_by_id(&self, id: &usize) -> Option<Value> {
+  fn get_mem_by_id(&self, id: &usize) -> Option<Value> {
     self
       .members
       .binary_search_by_key(id, |m| m.id)
@@ -100,14 +103,14 @@ impl StructValue {
 
 impl UsertypeFields for StructValue {
   fn get_field(&self, _gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
-    self.get_id_by_field(field).map(|id| self.get_field_by_id(&id))
+    self.get_id_by_field(field).map(|id| self.get_mem_by_id(&id))
   }
 
   fn set_field(&mut self, _gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
     self
       .get_id_by_field(field)
-      .map(|id| self.get_idx_by_id(&id).unwrap_and(|idx| self.set_mem(idx, value)))?;
-    Ok(())
+      .and_then(|id| self.get_idx_by_id(&id))
+      .map(|idx| self.set_mem(idx, value))
   }
 }
 
@@ -122,11 +125,17 @@ impl Display for StructValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     write!(
       f,
-      "{{ {} }}",
+      "struct {{ {} }}",
       self
         .members
         .iter()
-        .map(|m| format!("{}: {}", self.string_ids.get_by_right(&m.id).unwrap(), m.value))
+        .map(|m| {
+          if m.value.pointer() == self as *const _ as ConstVoid {
+            format!("{}: {}", self.string_ids.get_by_right(&m.id).unwrap(), "<self>")
+          } else {
+            format!("{}: {}", self.string_ids.get_by_right(&m.id).unwrap(), m.value)
+          }
+        })
         .collect::<Vec<String>>()
         .join(", ")
     )
