@@ -125,10 +125,10 @@ pub trait ResolvableValue: DisplayValue {
   }
 }
 
-pub trait InvocableValue {
+pub trait InvocableValue: DisplayValue {
   #[allow(unused_variables)]
   fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult {
-    Err(UsageError::UndefinedMethod("__ivk__"))
+    Err(UsageError::UndefinedMethod("__ivk__", self.__str__()))
   }
 }
 

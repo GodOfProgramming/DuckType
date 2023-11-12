@@ -1,19 +1,36 @@
-let brood = req "lib/brood/brood.dk";
+req "lib/brood/brood" as brood;
 
-use brood::describe;
+use brood::suite;
 
-describe("truthy values", |t| {
-  t.expect(true).to_be_truthy();
-  t.expect(!false).to_be_truthy();
-  t.expect(!nil).to_be_truthy();
-  t.expect(0).to_be_truthy();
-  t.expect(1).to_be_truthy();
-});
+suite("Boolean values", |s| {
+  s.describe("truthy values", |t| {
+    t.expect(true).to_be_truthy();
+    t.expect(!false).to_be_truthy();
+    t.expect(!nil).to_be_truthy();
+    t.expect(0).to_be_truthy();
+    t.expect(1).to_be_truthy();
+  });
 
-describe("falsy values", |t| {
-  t.expect(false).to_be_falsy();
-  t.expect(!true).to_be_falsy();
-  t.expect(nil).to_be_falsy();
-  t.expect(!0).to_be_falsy();
-  t.expect(!1).to_be_falsy();
+  s.describe("falsy values", |t| {
+    t.expect(false).to_be_falsy();
+    t.expect(!true).to_be_falsy();
+    t.expect(nil).to_be_falsy();
+    t.expect(!0).to_be_falsy();
+    t.expect(!1).to_be_falsy();
+  });
+
+  s.describe("inequality", |t| {
+    t.expect(1 > 0).to_be(true).context("1 > 0");
+    t.expect(1 >= 1).to_be(true).context("1 >= 0");
+    t.expect(1 < 0).to_be(false).context("1 < 0");
+    t.expect(1 <= 0).to_be(false).context("1 <= 0");
+    t.expect(1 == 0).to_be(false).context("1 == 0");
+    t.expect(1 != 0).to_be(true).context("1 != 0");
+  });
+
+  s.describe("ands and ors", |t| {
+    t.expect(true and false or true).to_be_truthy();
+    t.expect(true and false and false or true).to_be_truthy();
+    t.expect(true and false and (false or true)).to_be_falsy();
+  });
 });

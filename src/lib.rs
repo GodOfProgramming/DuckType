@@ -840,11 +840,11 @@ impl Vm {
 
     let found_file = found_file.ok_or_else(|| self.error(UsageError::BadReq(attempts)))?;
 
-    let id = PlatformMetadata::id_of(&found_file).map_err(Error::other_system_err)?;
+    let file_id = PlatformMetadata::id_of(&found_file).map_err(Error::other_system_err)?;
 
     match found_file.extension().and_then(|s| s.to_str()) {
       Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-        let value = if let Some(value) = self.lib_cache.get(&id) {
+        let value = if let Some(value) = self.lib_cache.get(&file_id) {
           value.clone()
         } else {
           let lib: Container<NativeApi> =
@@ -852,7 +852,7 @@ impl Vm {
 
           let value = lib.simple_script_load_module(self)?;
           self.opened_native_libs.insert(found_file, lib);
-          self.lib_cache.insert(id, value.clone());
+          self.lib_cache.insert(file_id, value.clone());
           value
         };
 
@@ -861,13 +861,14 @@ impl Vm {
         Ok(())
       }
       _ => {
-        let data = fs::read_to_string(&found_file).map_err(Error::other_system_err)?;
+        let source = fs::read_to_string(&found_file).map_err(Error::other_system_err)?;
 
-        if let Some(value) = self.lib_cache.get(&id) {
+        if let Some(value) = self.lib_cache.get(&file_id) {
           self.stack_push(value.clone());
         } else {
-          self.filemap.add(id, &found_file);
-          let new_ctx = code::compile(&mut self.program, Some(id), data)?;
+          self.filemap.add(file_id, &found_file);
+
+          let new_ctx = code::compile_file(&mut self.program, file_id, source).map_err(|e| e.with_filename(&self.filemap))?;
           let gmod = ModuleBuilder::initialize(
             &mut self.gc,
             ModuleType::new_global(format!("<file export {}>", found_file.display())),
@@ -879,7 +880,7 @@ impl Vm {
 
           self.new_frame(new_ctx, 0);
           self.envs.push(EnvEntry::File(gmod));
-          self.opened_files.push(FileInfo::new(found_file, id));
+          self.opened_files.push(FileInfo::new(found_file, file_id));
           let output = self.execute(RunMode::File)?;
           self.stack_push(output);
         }

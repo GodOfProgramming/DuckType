@@ -270,8 +270,8 @@ pub enum UsageError {
   #[error("{0} not implemented for {1}")]
   UnimplementedError(&'static str, Value),
 
-  #[error("{0} is undefined")]
-  UndefinedMethod(&'static str),
+  #[error("{0} is undefined for {0}")]
+  UndefinedMethod(&'static str, String),
 
   /// index, value
   #[error("Index {0} out of bounds in {1}")]

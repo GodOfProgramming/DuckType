@@ -35,23 +35,17 @@ pub(crate) fn compile(
   file_id: Option<FileIdType>,
   source: impl AsRef<str>,
 ) -> Result<SmartPtr<Context>, CompiletimeErrors> {
-  let scanner = Scanner::new(file_id, source.as_ref());
-
-  let (tokens, token_locations) = scanner.into_tokens()?;
+  let (tokens, token_locations) = Scanner::new(file_id, source.as_ref()).into_tokens()?;
 
   let ast = Ast::try_from(file_id, tokens, token_locations)?;
 
-  let optimizer = Optimizer::<1>::new(ast);
-
-  let ast = optimizer.optimize();
+  let ast = Optimizer::<1>::new(ast).optimize();
 
   let source = Rc::new(source.as_ref().to_string());
   let reflection = Reflection::new(Some("<main>"), file_id, Rc::clone(&source));
   let ctx = SmartPtr::new(Context::new(0, reflection));
 
-  let generator = BytecodeGenerator::new(program, file_id, ctx);
-
-  generator.generate(ast)
+  BytecodeGenerator::new(program, file_id, ctx).generate(ast)
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]

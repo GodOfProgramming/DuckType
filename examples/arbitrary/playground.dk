@@ -1,5 +1,1 @@
-req "classmod" as Foo;
-
-println "calling const";
-Foo(true);
-println "done calling const";
+-1;

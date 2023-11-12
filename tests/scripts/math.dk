@@ -1,9 +1,33 @@
-let brood = req "lib/brood/brood.dk";
+req "lib/brood/brood" as brood;
 
-use brood::describe;
+use brood::suite;
+use std::math;
 
-describe("pemdas", |t| {
-  let value = (1 + 2) * 3 - 4.0 / 5 + 6 * 7 - 8 * 9.0 / 10;
-  let expected = 43;
-  t.expect(value).to_be(expected);
+suite("Math Expressions", |s| {
+  s.describe("pemdas", |t| {
+    let value = (1 + 2) * 3 - 4.0 / 5 + 6 * 7 - 8 * 9.0 / 10;
+    let expected = 43;
+    t.expect(value).to_be(expected);
+  });
+
+  s.describe("negative numbers", |t| {
+    let x = 1;
+    let y = -1;
+    t.expect(-x).to_be(y);
+  });
+
+  s.describe("modulus", |t| {
+    let value = 13 % 2;
+    let expected = 1;
+    t.expect(value).to_be(expected);
+  });
+
+  s.describe("fmod", |t| {
+    let EPSILON = 0.001;
+
+    let value = 1.23 % 1.0;
+    let expected = 0.23;
+
+    t.expect(math::abs(expected - value) < EPSILON).to_be(true);
+  });
 });

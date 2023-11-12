@@ -1,10 +1,11 @@
 use super::Register;
+#[cfg(test)]
+use crate::code::gen::{CAPTURE_OPS, GENERATED_OPS};
 use crate::{
   code::{ConstantValue, Reflection},
   prelude::*,
   util::UnwrapAnd,
 };
-
 pub mod prelude {
   pub use super::{Context, Program};
 }
@@ -66,6 +67,16 @@ impl Context {
   }
 
   pub(crate) fn write(&mut self, inst: Instruction, line: usize, column: usize) {
+    #[cfg(test)]
+    {
+      CAPTURE_OPS.with_borrow(|should_cap| {
+        if *should_cap {
+          GENERATED_OPS.with_borrow_mut(|ops| {
+            ops.insert(inst.opcode().unwrap());
+          });
+        }
+      });
+    }
     self.instructions.push(inst);
     self.meta.add(line, column);
   }
@@ -78,6 +89,17 @@ impl Context {
   where
     D: InstructionData,
   {
+    #[cfg(test)]
+    {
+      CAPTURE_OPS.with_borrow(|should_cap| {
+        if *should_cap {
+          GENERATED_OPS.with_borrow_mut(|ops| {
+            ops.insert(op);
+          });
+        }
+      });
+    }
+
     self
       .instructions
       .get_mut(index)

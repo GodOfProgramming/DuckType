@@ -122,11 +122,6 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn class_stmt(&mut self, stmt: ClassStatement) {
-    if self.scope_depth > 0 {
-      self.error(stmt.loc, "classes must be declared at the surface scope");
-      return;
-    }
-
     if let Some(var) = self.declare_global(stmt.ident.clone()) {
       self.emit_expr(stmt.body);
 
@@ -147,11 +142,6 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
-    if self.scope_depth > 0 {
-      self.error(stmt.loc, "functions must be declared at the surface scope, or use a lambda");
-      return;
-    }
-
     if let Some(var) = self.declare_global(stmt.ident.clone()) {
       let nargs = stmt.params.len();
       self.emit_fn(Some(stmt.ident), stmt.params, nargs, *stmt.body, stmt.loc);
@@ -254,11 +244,6 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn mod_stmt(&mut self, stmt: ModStatement) {
-    if self.scope_depth > 0 {
-      self.error(stmt.loc, "modules must be declared at the surface scope");
-      return;
-    }
-
     if let Some(var) = self.declare_global(stmt.ident.clone()) {
       self.emit_expr(stmt.body);
 
@@ -280,11 +265,6 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn req_stmt(&mut self, stmt: ReqStatement) {
-    if self.scope_depth != 0 {
-      self.error(stmt.loc, "req statements can only be used at surface scope");
-      return;
-    }
-
     if let Some(var) = self.declare_global(stmt.ident) {
       self.emit_expr(stmt.expr);
       self.define_global(var, stmt.loc);
@@ -295,7 +275,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn ret_stmt(&mut self, stmt: RetStatement) {
-    if self.scope_depth == 0 {
+    if self.fn_depth == 0 {
       self.error(stmt.loc, "ret can only be used within functions");
       return;
     }
@@ -790,16 +770,6 @@ impl<'p> BytecodeGenerator<'p> {
     match inst.try_into_inst() {
       Ok(inst) => {
         self.current_ctx().write(inst, loc.line, loc.column);
-        #[cfg(test)]
-        {
-          CAPTURE_OPS.with_borrow(|should_cap| {
-            if *should_cap {
-              GENERATED_OPS.with_borrow_mut(|ops| {
-                ops.insert(inst.opcode().unwrap());
-              });
-            }
-          });
-        }
       }
       Err(opcode) => self.error(loc, format!("failed to create instruction: {opcode:?}")),
     }
@@ -1154,37 +1124,39 @@ impl<'p> BytecodeGenerator<'p> {
 
     self.current_fn = Some(SmartPtr::new(Context::new(self.function_id, reflection)));
 
-    let prev_fn_depth = self.fn_depth;
-    self.fn_depth = self.scope_depth;
-
     self.new_scope(|this| {
-      for arg in args {
-        if arg.global {
-          this.error(loc, "parameter cannot be a global variable");
-          continue;
+      let prev_fn_depth = this.fn_depth;
+      this.fn_depth = this.scope_depth;
+
+      this.new_scope(|this| {
+        for arg in args {
+          if arg.global {
+            this.error(loc, "parameter cannot be a global variable");
+            continue;
+          }
+
+          if !this.declare_local(arg, loc) {
+            continue;
+          }
+
+          if !this.define_local() {
+            this.error(loc, sanity_check!())
+          }
         }
 
-        if !this.declare_local(arg, loc) {
-          continue;
-        }
+        this.emit_stmt(body);
 
-        if !this.define_local() {
-          this.error(loc, sanity_check!())
-        }
-      }
+        this.reduce_locals_to_depth(this.fn_depth, loc);
 
-      this.emit_stmt(body);
+        let ctx = this.current_fn.take().unwrap();
 
-      this.reduce_locals_to_depth(this.fn_depth, loc);
+        // restore
+        this.current_fn = prev_fn;
+        this.locals = locals;
+        this.fn_depth = prev_fn_depth;
 
-      let ctx = this.current_fn.take().unwrap();
-
-      // restore
-      this.current_fn = prev_fn;
-      this.locals = locals;
-      this.fn_depth = prev_fn_depth;
-
-      FunctionConstant::new(airity, ctx)
+        FunctionConstant::new(airity, ctx)
+      })
     })
   }
 

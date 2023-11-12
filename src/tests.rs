@@ -235,14 +235,14 @@ impl TestFixture for ScriptTest {
 #[fixture(ScriptTest)]
 mod script_tests {
   use super::*;
-  use std::fs;
-  // use crate::code::gen::{CAPTURE_OPS, GENERATED_OPS};
+  use crate::code::gen::{CAPTURE_OPS, GENERATED_OPS};
   use itertools::Itertools;
+  use std::fs;
   use strum::IntoEnumIterator;
 
   #[test]
   fn run_test_scripts(t: &mut ScriptTest) {
-    // CAPTURE_OPS.set(true);
+    CAPTURE_OPS.set(true);
 
     fs::read_dir("tests/scripts").into_iter().for_each(|dir| {
       dir
@@ -252,20 +252,20 @@ mod script_tests {
         .for_each(|entry| t.run(&entry.path()))
     });
 
-    // GENERATED_OPS.with_borrow(|ops| {
-    //   let mut unaccounted = Vec::new();
-    //   for op in Opcode::iter() {
-    //     if op != Opcode::Unknown {
-    //       if !ops.contains(&op) {
-    //         unaccounted.push(op);
-    //       }
-    //     }
-    //   }
-    //   if !unaccounted.is_empty() {
-    //     panic!("Did not account for opcodes in tests: {}", itertools::join(unaccounted, ", "));
-    //   }
-    // });
+    GENERATED_OPS.with_borrow(|ops| {
+      let mut unaccounted = Vec::new();
+      for op in Opcode::iter() {
+        if !matches!(op, Opcode::Unknown | Opcode::Breakpoint) {
+          if !ops.contains(&op) {
+            unaccounted.push(op);
+          }
+        }
+      }
+      if !unaccounted.is_empty() {
+        panic!("Did not account for opcodes in tests: {}", itertools::join(unaccounted, ", "));
+      }
+    });
 
-    // CAPTURE_OPS.set(false);
+    CAPTURE_OPS.set(false);
   }
 }
