@@ -1,1344 +1,564 @@
 mod env;
 pub mod memory;
 
-use crate::{
-  code::{Compiler, ConstantValue, OpCodeReflection},
-  dbg::{self, Cli, RuntimeErrors},
-  prelude::*,
-  util::{FileIdType, FileMetadata, PlatformMetadata},
-  UnwrapAnd,
-};
-use clap::Parser;
-use dlopen2::wrapper::{Container, WrapperApi};
-use enum_map::{Enum, EnumMap};
-use memory::{Allocation, Gc};
-use ptr::SmartPtr;
-use rustyline::{error::ReadlineError, DefaultEditor};
-use std::{
-  collections::BTreeMap,
-  error::Error,
-  fmt::{self, Debug, Display, Formatter},
-  fs,
-  path::{Path, PathBuf},
-  rc::Rc,
-  time::{Duration, Instant},
-};
-use strum_macros::{EnumCount, EnumIter};
-
-#[derive(WrapperApi)]
-struct NativeApi {
-  simple_script_load_module: fn(vm: &mut Vm) -> ValueResult,
-}
-
 pub mod prelude {
-  pub use super::env::prelude::*;
-  pub use super::memory::*;
-  pub use super::{Opcode, Vm};
+  pub use super::{env::prelude::*, memory::*};
+  #[allow(unused_imports)]
+  pub(crate) use super::{Instruction, InstructionData, LongAddr, Opcode, ShortAddr, Storage, TryIntoInstruction};
 }
 
-type ExecResult<T = ()> = Result<T, RuntimeErrors>;
+use crate::prelude::*;
+use enum_map::{Enum, EnumMap};
+use ptr::SmartPtr;
+use std::{
+  fmt::{self, Debug, Display, Formatter},
+  mem,
+  ops::{Deref, DerefMut},
+};
+use strum::EnumCount;
+use strum_macros::{EnumCount, EnumIter, FromRepr};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Opcode {
-  /** No operation instruction */
-  NoOp,
-  /** Looks up a constant value at the specified location. Location is specified by the tuple */
-  Const(usize),
-  /** Pushes a nil value on to the stack */
-  Nil,
-  /** Pushes a true value on to the stack */
-  True,
-  /** Pushes a false value on to the stack */
-  False,
-  /** Pops a value off the stack */
-  Pop,
-  /** Pops N values off the stack. N is specified by tuple */
-  PopN(usize),
-  /** Looks up a local variable. The index in the stack is specified by the modifying bits */
-  LookupLocal(usize),
-  /** Assigns a value to the local variable indexed by the tuple. The value comes off the top of the stack */
-  AssignLocal(usize),
-  /** Defines a new global variable. The name is stored in the enum. The value comes off the top of the stack */
-  DefineGlobal(usize),
-  /** Looks up a global variable. The name is stored in the enum */
-  LookupGlobal(usize),
-  /** Assigns a value to the global variable. The Name is stored in the enum. The value comes off the top of the stack */
-  AssignGlobal(usize),
-  /** Defines a member on an object type. The first item popped off the stack is the value. The object is next which is left on for further assignments. The member name is specified by the modifying bits */
-  AssignMember(usize),
-  /** Initializes a member of an object, keeping the object on the stack for further assignments */
-  InitializeMember(usize),
-  /** Initializes a method on a class, keeping the class on the stack for further assignments */
-  InitializeMethod(usize),
-  /** Initializes the constructor on a class, keeping the class on the stack for further assignments */
-  InitializeConstructor,
-  /** Uses the constant pointed to by the modifying bits to lookup a value on the next item on the stack */
-  LookupMember(usize),
-  /** Uses the constant pointed to by the modifying bits to peek at a value on the next item on the stack */
-  PeekMember(usize),
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  Equal,
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  NotEqual,
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  Greater,
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  GreaterEqual,
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  Less,
-  /** Pops two values off the stack, compares, then pushes the result back on */
-  LessEqual,
-  /** Pops a value off the stack, and compars it with the peeked value, pushing the new value on */
-  Check,
-  /** Pops two values off the stack, calculates the sum, then pushes the result back on */
-  Add,
-  /** Pops two values off the stack, calculates the difference, then pushes the result back on */
-  Sub,
-  /** Pops two values off the stack, calculates the product, then pushes the result back on */
-  Mul,
-  /** Pops two values off the stack, calculates the quotient, then pushes the result back on */
-  Div,
-  /** Pops two values off the stack, calculates the remainder, then pushes the result back on */
-  Rem,
-  /** Peeks at the stack, if the top value is true short circuits to the instruction pointed to by the tuple */
-  Or(usize),
-  /** Peeks at the stack, if the top value is false short circuits to the instruction pointed to by the tuple */
-  And(usize),
-  /** Pops a value off the stack, inverts its truthy value, then pushes that back on */
-  Not,
-  /** Pops a value off the stack, inverts its numerical value, then pushes that back on */
-  Negate,
-  /** Pops a value off the stack and prints it to the screen */
-  Println,
-  /** Jumps to a code location indicated by the tuple */
-  Jump(usize),
-  /** Jumps to a code location indicated by the tuple */
-  JumpIfFalse(usize),
-  /** Jumps the instruction pointer backwards N instructions. N specified by the tuple */
-  Loop(usize),
-  /** Calls the value on the stack. Number of arguments is specified by the modifying bits */
-  Invoke(usize),
-  /** Exits from a function, returning nil on the previous frame */
-  Ret,
-  /** Exits from a function, returning the last value on the stack to the previous frame */
-  RetValue,
-  /** Returns the first item on the stack which is self */
-  RetSelf,
-  /** Require an external file. The file name is the top of the stack. Must be a string or convertible to */
-  Req,
-  /** Create a vec of values and push it on the stack. Items come off the top of the stack and the number is specified by the modifying bits */
-  CreateVec(usize),
-  /** Create a vec of values and push it on the stack. The last item on the stack is copied as many times as the param indicates */
-  CreateSizedVec(usize),
-  /** Create a vec of values and push it on the stack. The last item is the number of times and the next is the item to be copied the times specified */
-  CreateDynamicVec,
-  /** Create a closure. The first item on the stack is the function itself, the second is the capture list  */
-  CreateClosure,
-  /** Create a new struct */
-  CreateStruct,
-  /** Create a new class. Name is from the bits */
-  CreateClass(usize),
-  /** Create a new module. Name is from the bits */
-  CreateModule(usize),
-  /** Halt the VM when this instruction is reached and enter repl mode */
-  Breakpoint,
-  /** Mark the current value as exported */
-  Export,
-  /** Defines the identifier on the variable */
-  Define(usize),
-  /** Resolve the specified identifier */
-  Resolve(usize),
-  /** Push a new env */
-  EnterBlock,
-  /** Pop an env */
-  PopScope,
-  /** Store a value in the specified register */
-  Store(Register),
-  /** Load a value in the specified register */
-  Load(Register),
-  /**  */
-  PushRegCtx,
-  /**  */
-  PopRegCtx,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Instruction(u64);
 
-#[cfg(test)]
-const DEFAULT_GC_FREQUENCY: Duration = Duration::from_nanos(100);
-
-#[cfg(not(test))]
-const DEFAULT_GC_FREQUENCY: Duration = Duration::from_millis(16);
-
-#[derive(Default)]
-pub(crate) struct EnvStack {
-  envs: Vec<EnvEntry>,
-}
-
-impl EnvStack {
-  fn new(env: UsertypeHandle<ModuleValue>) -> Self {
-    Self {
-      envs: vec![EnvEntry::File(env)],
-    }
+impl Instruction {
+  pub fn new<D>(opcode: Opcode, data: D) -> Option<Self>
+  where
+    D: InstructionData,
+  {
+    let inst = opcode.bits()? | data.bits()? << Opcode::BITS;
+    Some(Self(inst))
   }
 
-  pub(crate) fn push(&mut self, entry: EnvEntry) {
-    self.envs.push(entry);
+  pub fn opcode(&self) -> Option<Opcode> {
+    Opcode::checked_data(self.0 & Opcode::MASK)
   }
 
-  fn pop(&mut self) -> EnvEntry {
-    self.envs.pop().expect("pop: the env stack should never be empty")
+  #[cfg(not(debug_assertions))]
+  pub fn data<T>(&self) -> T
+  where
+    T: InstructionData,
+  {
+    T::unchecked_data(self.0 >> Opcode::BITS)
   }
 
-  fn last(&self) -> &UsertypeHandle<ModuleValue> {
-    match self.envs.last().expect("last: the env stack should never be empty") {
-      EnvEntry::Fn(e) => e,
-      EnvEntry::Mod(e) => e,
-      EnvEntry::File(e) => e,
-      EnvEntry::Block(e) => e,
-    }
+  #[cfg(debug_assertions)]
+  pub fn data<T>(&self) -> Option<T>
+  where
+    T: InstructionData,
+  {
+    T::checked_data(self.0 >> Opcode::BITS)
   }
 
-  fn last_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
-    match self.envs.last_mut().expect("last_mut: the env stack should never be empty") {
-      EnvEntry::Fn(e) => e,
-      EnvEntry::Mod(e) => e,
-      EnvEntry::File(e) => e,
-      EnvEntry::Block(e) => e,
-    }
+  /// Returns unchecked data meant for display and debugging purposes
+  pub fn display_data<T>(&self) -> T
+  where
+    T: InstructionData,
+  {
+    T::unchecked_data(self.0 >> Opcode::BITS)
   }
 }
 
-pub(crate) enum EnvEntry {
-  Fn(UsertypeHandle<ModuleValue>),
-  Mod(UsertypeHandle<ModuleValue>),
-  File(UsertypeHandle<ModuleValue>),
-  Block(UsertypeHandle<ModuleValue>),
-}
-
-impl Debug for EnvEntry {
+impl Display for Instruction {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Fn(_) => f.debug_tuple("Fn").finish(),
-      Self::Mod(_) => f.debug_tuple("Mod").finish(),
-      Self::File(_) => f.debug_tuple("File").finish(),
-      Self::Block(_) => f.debug_tuple("Block").finish(),
-    }
+    write!(f, "{:064b}", self.0)
   }
 }
 
-pub(crate) enum ExecType {
-  File,
-  Fn,
+pub trait TryIntoInstruction {
+  fn try_into_inst(self) -> Result<Instruction, Opcode>;
 }
 
-pub struct Vm {
-  // Don't get rid of current_frame in favor of the vec of stack frames
-  // current_frame will be needed for repl so locals at the 0 depth scope
-  // stay alive
-  pub(crate) current_frame: StackFrame,
-  pub(crate) stack_frames: Vec<StackFrame>,
-  pub gc: SmartPtr<Gc>,
-
-  pub(crate) envs: EnvStack,
-
-  args: Vec<String>,
-
-  lib_cache: BTreeMap<FileIdType, Value>,
-
-  // usize for what frame to pop on, string for file path
-  opened_files: Vec<FileInfo>,
-  opened_native_libs: BTreeMap<PathBuf, Container<NativeApi>>,
-
-  next_gc: Instant,
-}
-
-impl Vm {
-  pub fn new(gc: SmartPtr<Gc>, args: impl Into<Vec<String>>) -> Self {
-    Self {
-      current_frame: Default::default(),
-      stack_frames: Default::default(),
-      gc,
-      envs: Default::default(),
-      args: args.into(),
-      lib_cache: Default::default(),
-      opened_files: Default::default(),
-      opened_native_libs: Default::default(),
-      next_gc: Instant::now() + DEFAULT_GC_FREQUENCY,
-    }
-  }
-
-  pub fn ssdb(&mut self) -> Result<(), Box<dyn Error>> {
-    let mut rl = DefaultEditor::new()?;
-    loop {
-      match rl.readline("dbg> ") {
-        Ok(line) => match shellwords::split(&format!("dbg {}", line)) {
-          Ok(words) => match Cli::try_parse_from(words) {
-            Ok(cli) => match cli.exec(self) {
-              Ok(output) => {
-                rl.add_history_entry(line).ok();
-                output.response.unwrap_and(|response| println!("=> {}", response));
-                if output.quit {
-                  return Ok(());
-                }
-              }
-              Err(e) => println!("{}", e),
-            },
-            Err(e) => println!("{}", e),
-          },
-          Err(e) => println!("{}", e),
-        },
-        Err(ReadlineError::Interrupted) => {
-          println!("Use repl.quit instead of CTRL-C");
-        }
-        Err(e) => Err(e)?,
-      }
-    }
-  }
-
-  pub fn load(&self, file: impl Into<PathBuf>, code: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    Compiler::compile(file.into(), code)
-  }
-
-  pub fn run(
-    &mut self,
-    file: impl Into<PathBuf>,
-    ctx: SmartPtr<Context>,
-    env: UsertypeHandle<ModuleValue>,
-  ) -> Result<Value, RuntimeErrors> {
-    #[cfg(feature = "disassemble")]
-    {
-      ctx.disassemble();
-
-      #[cfg(feature = "quit-after-disassembled")]
-      {
-        std::process::exit(0);
-      }
-    }
-
-    let file = file.into();
-    let id = PlatformMetadata::id_of(&file).unwrap_or(0);
-
-    self.opened_files = vec![FileInfo::new(file, id)];
-    self.current_frame = StackFrame::new(ctx);
-    self.stack_frames = Default::default();
-    self.envs = EnvStack::new(env);
-    self.execute(ExecType::File)
-  }
-
-  fn unary_op<F>(&mut self, opcode: &Opcode, f: F) -> ExecResult
-  where
-    F: FnOnce(Value) -> ValueResult,
-  {
-    let value = self.stack_pop().ok_or_else(|| self.error("cannot operate on empty stack"))?;
-
-    if value.is_ptr() {
-      let key = match opcode {
-        Opcode::Negate => ops::NEG,
-        Opcode::Not => ops::NOT,
-        _ => Err(self.error("invalid unary operation"))?,
-      };
-
-      let callable = value.get_member(&mut self.gc, key).map_err(|e| self.error(e))?;
-      self.call_value(callable, [])
-    } else {
-      self.stack_push(f(value).map_err(|e| self.error(e))?);
-      Ok(())
-    }
-  }
-
-  fn binary_op<F>(&mut self, opcode: &Opcode, f: F) -> ExecResult
-  where
-    F: FnOnce(Value, Value) -> ValueResult,
-  {
-    let bv = self.stack_pop().ok_or_else(|| self.error("cannot operate on empty stack"))?;
-    let av = self.stack_pop().ok_or_else(|| self.error("cannot operate on empty stack"))?;
-
-    if av.is_ptr() {
-      let key = match opcode {
-        Opcode::Add => ops::ADD,
-        Opcode::Sub => ops::SUB,
-        Opcode::Mul => ops::MUL,
-        Opcode::Div => ops::DIV,
-        Opcode::Rem => ops::REM,
-        Opcode::Equal => ops::EQUALITY,
-        Opcode::NotEqual => ops::NOT_EQUAL,
-        Opcode::Less => ops::LESS,
-        Opcode::LessEqual => ops::LESS_EQUAL,
-        Opcode::Greater => ops::GREATER,
-        Opcode::GreaterEqual => ops::GREATER_EQUAL,
-        _ => Err(self.error("invalid binary operation"))?,
-      };
-
-      let callable = av.get_member(&mut self.gc, key).map_err(|e| self.error(e))?;
-      self.call_value(callable, [bv])
-    } else {
-      self.stack_push(f(av, bv).map_err(|e| self.error(e))?);
-      Ok(())
-    }
-  }
-
-  fn global_op<F>(&mut self, index: usize, f: F) -> ExecResult
-  where
-    F: FnOnce(&mut Self, String) -> ExecResult,
-  {
-    match self.current_frame.ctx.global_const_at(index) {
-      Some(ConstantValue::String(name)) => f(self, name.clone()),
-      Some(name) => Err(self.error(format!("global variable ident is not an identifier: {}", name)))?,
-      None => Err(self.error(format!("global variable ident does not exist at index {}", index)))?,
-    }
-  }
-
-  #[cold]
-  fn error<M: ToString>(&self, msg: M) -> RuntimeErrors {
-    let opcode = self.current_frame.ctx.instructions[self.current_frame.ip].clone();
-    RuntimeErrors::single(self.error_at(|opcode_ref| RuntimeError::from_ref(msg, opcode, opcode_ref)))
-  }
-
-  pub(crate) fn execute(&mut self, exec_type: ExecType) -> Result<Value, RuntimeErrors> {
-    dbg::profile_function!();
-
-    self.next_gc = Instant::now() + DEFAULT_GC_FREQUENCY;
-
-    #[cfg(feature = "runtime-disassembly")]
-    {
-      println!("<< {} >>", self.current_frame.ctx.id);
-    }
-
-    let mut export = None;
-
-    'ctx: while let Some(opcode) = self.current_frame.ctx.next(self.current_frame.ip) {
-      let now = Instant::now();
-      if now > self.next_gc {
-        self.run_gc()?;
-      }
-
-      #[cfg(feature = "runtime-disassembly")]
-      {
-        self.stack_display();
-        self.current_frame.ctx.display_instruction(&opcode, self.current_frame.ip);
-      }
-
-      match opcode {
-        Opcode::NoOp => self.exec_noop()?,
-        Opcode::Const(index) => self.exec_const(index)?,
-        Opcode::Nil => self.exec_nil(),
-        Opcode::True => self.exec_true(),
-        Opcode::False => self.exec_false(),
-        Opcode::Pop => self.exec_pop(),
-        Opcode::PopN(count) => self.exec_pop_n(count),
-        Opcode::DefineGlobal(index) => self.exec_define_global(index)?,
-        Opcode::LookupGlobal(index) => self.exec_lookup_global(index)?,
-        Opcode::AssignGlobal(index) => self.exec_assign_global(index)?,
-        Opcode::LookupLocal(index) => self.exec_lookup_local(index)?,
-        Opcode::AssignLocal(index) => self.exec_assign_local(index)?,
-        Opcode::InitializeMember(index) => self.exec_initialize_member(index)?,
-        Opcode::InitializeMethod(index) => self.exec_initialize_method(index)?,
-        Opcode::InitializeConstructor => self.exec_initialize_constructor()?,
-        Opcode::AssignMember(index) => self.exec_assign_member(index)?,
-        Opcode::LookupMember(index) => self.exec_lookup_member(index)?,
-        Opcode::PeekMember(index) => self.exec_peek_member(index)?,
-        Opcode::Check => self.exec_check()?,
-        Opcode::Println => self.exec_print()?,
-        Opcode::Jump(count) => {
-          self.jump(count);
-          continue 'ctx;
-        }
-        Opcode::JumpIfFalse(count) => {
-          if self.exec_jump_if_false(count)? {
-            continue 'ctx;
-          }
-        }
-        Opcode::Loop(count) => {
-          self.loop_back(count);
-          continue 'ctx;
-        }
-        Opcode::Invoke(airity) => {
-          self.current_frame.ip += 1;
-          self.exec_call(airity)?;
-          continue 'ctx;
-        }
-        Opcode::Ret => {
-          export = Some(Value::nil);
-          break 'ctx;
-        }
-        Opcode::RetValue => {
-          let value = self
-            .stack_pop()
-            .ok_or_else(|| self.error("value must be on stack to return"))?;
-
-          export = Some(value);
-          break 'ctx;
-        }
-        Opcode::RetSelf => {
-          let this = self.stack_index_0().ok_or_else(|| self.error("value must be on the stack"))?;
-
-          export = Some(this);
-          break 'ctx;
-        }
-        Opcode::Req => {
-          self.current_frame.ip += 1;
-          self.exec_req()?;
-          continue 'ctx;
-        }
-        Opcode::CreateVec(num_items) => self.exec_create_vec(num_items),
-        Opcode::CreateSizedVec(repeat) => self.exec_sized_vec(repeat)?,
-        Opcode::CreateDynamicVec => self.exec_dyn_vec()?,
-        Opcode::CreateClosure => self.exec_create_closure()?,
-        Opcode::CreateStruct => self.exec_create_struct(),
-        Opcode::CreateClass(name) => self.exec_create_class(name)?,
-        Opcode::CreateModule(name) => self.exec_create_module(name)?,
-        Opcode::Breakpoint => {
-          self.ssdb().ok();
-        }
-        Opcode::Export => {
-          let value = self.stack_pop().ok_or_else(|| self.error("no value on stack to export"))?;
-
-          export = Some(value);
-        }
-        Opcode::Define(ident) => self.exec_define(ident)?,
-        Opcode::Resolve(ident) => self.exec_scope_resolution(ident)?,
-        Opcode::EnterBlock => self.push_scope(),
-        Opcode::PopScope => self.pop_scope(),
-        Opcode::Equal => self.exec_equal(&opcode)?,
-        Opcode::NotEqual => self.exec_not_equal(&opcode)?,
-        Opcode::Greater => self.exec_greater(&opcode)?,
-        Opcode::GreaterEqual => self.exec_greater_equal(&opcode)?,
-        Opcode::Less => self.exec_less(&opcode)?,
-        Opcode::LessEqual => self.exec_less_equal(&opcode)?,
-        Opcode::Add => self.exec_add(&opcode)?,
-        Opcode::Sub => self.exec_sub(&opcode)?,
-        Opcode::Mul => self.exec_mul(&opcode)?,
-        Opcode::Div => self.exec_div(&opcode)?,
-        Opcode::Rem => self.exec_rem(&opcode)?,
-        Opcode::Or(count) => {
-          if self.exec_or(count)? {
-            continue 'ctx;
-          }
-        }
-        Opcode::And(count) => {
-          if self.exec_and(count)? {
-            continue 'ctx;
-          }
-        }
-        Opcode::Not => self.exec_not(&opcode)?,
-        Opcode::Negate => self.exec_negate(&opcode)?,
-        Opcode::Store(reg) => {
-          self.current_frame.reg_store(
-            reg,
-            self
-              .stack_peek()
-              .ok_or_else(|| self.error("expected item on stack to store"))?,
-          );
-        }
-        Opcode::Load(reg) => {
-          self.stack_push(self.current_frame.reg_load(reg));
-        }
-        Opcode::PushRegCtx => self.current_frame.new_reg_ctx(),
-        Opcode::PopRegCtx => self.current_frame.pop_reg_ctx(),
-      }
-
-      self.current_frame.ip += 1;
-    }
-
-    #[cfg(feature = "runtime-disassembly")]
-    {
-      println!("<< END >>");
-    }
-
-    match exec_type {
-      ExecType::File => {
-        let info = self.opened_files.pop().expect("file must be popped when leaving a file");
-        if let Some(export) = &export {
-          self.lib_cache.insert(info.id, export.clone());
-        }
-
-        // pop until a file env is found
-        while !matches!(self.envs.pop(), EnvEntry::File(_)) {}
-      }
-      ExecType::Fn => {
-        // pop until a fn env is found
-        while !matches!(self.envs.pop(), EnvEntry::Fn(_)) {}
-      }
-    }
-
-    if let Some(stack_frame) = self.stack_frames.pop() {
-      // the vm is returning from a function call or req
-      self.current_frame = stack_frame;
-    }
-
-    Ok(export.unwrap_or_default())
-  }
-
-  /* Operations */
-
-  #[cold]
-  fn exec_noop(&self) -> ExecResult {
-    Err(self.error("executed noop opcode, should not happen"))
-  }
-
-  fn exec_const(&mut self, index: usize) -> ExecResult {
-    dbg::profile_function!();
-    let c = self
-      .current_frame
-      .ctx
-      .const_at(index)
-      .ok_or_else(|| self.error("could not lookup constant"))?;
-
-    let env = self.current_env().into();
-    let value = Value::from_constant(&mut self.gc, env, c);
-    self.stack_push(value);
-    Ok(())
-  }
-
-  fn exec_nil(&mut self) {
-    dbg::profile_function!();
-    self.stack_push(Value::nil);
-  }
-
-  fn exec_true(&mut self) {
-    dbg::profile_function!();
-    self.stack_push(Value::from(true));
-  }
-
-  fn exec_false(&mut self) {
-    dbg::profile_function!();
-    self.stack_push(Value::from(false));
-  }
-
-  fn exec_pop(&mut self) {
-    dbg::profile_function!();
-    self.stack_pop();
-  }
-
-  fn exec_pop_n(&mut self, count: usize) {
-    dbg::profile_function!();
-    self.stack_pop_n(count);
-  }
-
-  fn exec_lookup_local(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    let local = self
-      .stack_index(location)
-      .ok_or_else(|| self.error(format!("could not index stack at pos {}", location)))?;
-
-    self.stack_push(local);
-    Ok(())
-  }
-
-  fn exec_assign_local(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    let value = self
-      .stack_peek()
-      .ok_or_else(|| self.error(format!("could not replace stack value at pos {}", location)))?;
-
-    self.stack_assign(location, value);
-    Ok(())
-  }
-
-  fn exec_lookup_global(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    self.global_op(location, |this, name| {
-      let global = this
-        .current_env()
-        .lookup(name)
-        .ok_or_else(|| this.error("use of undefined variable"))?;
-
-      this.stack_push(global);
-      Ok(())
-    })
-  }
-
-  fn exec_define_global(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    self.global_op(location, |this, name| {
-      let v = this
-        .stack_peek()
-        .ok_or_else(|| this.error("can not define global using empty stack"))?;
-
-      if this.current_env_mut().define(name.clone(), v) {
-        Ok(())
-      } else {
-        let level = this.current_env().search_for(0, &name);
-        Err(this.error(format!("tried redefining a global variable at {level:?}: {name}")))
-      }
-    })
-  }
-
-  fn exec_assign_global(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    self.global_op(location, |this, name| {
-      let v = this
-        .stack_peek()
-        .ok_or_else(|| this.error("can not assign to global using empty stack"))?;
-
-      if this.current_env_mut().assign(name, v) {
-        Ok(())
-      } else {
-        Err(this.error("tried to assign to nonexistent global"))
-      }
-    })
-  }
-
-  fn exec_initialize_member(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    let value = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no value on stack to initialize to member"))?;
-
-    let mut obj = self
-      .stack_peek()
-      .ok_or_else(|| self.error("no value on stack to initialize a member to"))?;
-
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or_else(|| self.error("no identifier found at index"))?;
-
-    if let ConstantValue::String(name) = name {
-      obj.set_member(&mut self.gc, name, value).map_err(|e| self.error(e))
-    } else {
-      Err(self.error("invalid name for member"))
-    }
-  }
-
-  fn exec_initialize_method(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    let value = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no value on stack to assign to method"))?;
-
-    let mut obj = self
-      .stack_peek()
-      .ok_or_else(|| self.error("no value on stack to assign a method to"))?;
-
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or_else(|| self.error("no identifier found at index"))?;
-
-    let class = obj
-      .as_class_mut()
-      .ok_or_else(|| self.error("can only create methods on classes"))?;
-
-    let f = value.as_fn().ok_or_else(|| self.error("methods can only be functions"))?;
-
-    if let ConstantValue::String(name) = name {
-      class.set_method(name, f.clone());
-      Ok(())
-    } else {
-      Err(self.error("invalid name for member"))
-    }
-  }
-
-  fn exec_initialize_constructor(&mut self) -> ExecResult {
-    dbg::profile_function!();
-    let value = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no value on stack to assign to constructor"))?;
-
-    let mut obj = self
-      .stack_peek()
-      .ok_or_else(|| self.error("no value on stack to assign a member to"))?;
-
-    let class = obj
-      .as_class_mut()
-      .ok_or_else(|| self.error("can only set constructors on classes"))?;
-
-    class.set_constructor(value);
-    Ok(())
-  }
-
-  fn exec_assign_member(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    let value = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no value on stack to assign to member"))?;
-
-    let mut obj = self.stack_pop().ok_or_else(|| self.error("no object to assign to"))?;
-
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or_else(|| self.error("no ident found at index"))?;
-
-    if let ConstantValue::String(name) = name {
-      obj.set_member(&mut self.gc, name, value.clone()).map_err(|e| self.error(e))?;
-      self.stack_push(value);
-      Ok(())
-    } else {
-      Err(self.error("constant at index is not an identifier"))
-    }
-  }
-
-  fn exec_lookup_member(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    let obj = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no value on stack to perform lookup on"))?;
-
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or_else(|| self.error("no identifier at index"))?;
-
-    if let ConstantValue::String(name) = name {
-      let value = obj.get_member(&mut self.gc, name).map_err(|e| self.error(e))?;
-      self.stack_push(value);
-      Ok(())
-    } else {
-      Err(self.error("member identifier is not a string"))
-    }
-  }
-
-  fn exec_peek_member(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    let value = self.stack_peek().ok_or_else(|| self.error("no object to lookup on"))?;
-
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or_else(|| self.error(format!("no name for member access: {}", value)))?;
-
-    if let ConstantValue::String(name) = name {
-      let member = value.get_member(&mut self.gc, name).map_err(|e| self.error(e))?;
-      self.stack_push(member);
-      Ok(())
-    } else {
-      Err(self.error(format!("invalid lookup for member access: {}", value)))
-    }
-  }
-
-  fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: &Opcode, f: F) -> ExecResult {
-    dbg::profile_function!();
-    self.binary_op(opcode, |a, b| Ok(Value::from(f(a, b))))
-  }
-
-  fn exec_equal(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.exec_bool(opcode, |a, b| a == b)
-  }
-
-  fn exec_not_equal(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.exec_bool(opcode, |a, b| a != b)
-  }
-
-  fn exec_greater(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.exec_bool(opcode, |a, b| a > b)
-  }
-
-  fn exec_greater_equal(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.exec_bool(opcode, |a, b| a >= b)
-  }
-
-  fn exec_less(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.exec_bool(opcode, |a, b| a < b)
-  }
-
-  fn exec_less_equal(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.exec_bool(opcode, |a, b| a <= b)
-  }
-
-  fn exec_check(&mut self) -> ExecResult {
-    dbg::profile_function!();
-    let b = self.stack_pop().ok_or_else(|| self.error("stack pop failed"))?;
-
-    let a = self.stack_peek().ok_or_else(|| self.error("stack peek failed"))?;
-
-    self.stack_push(Value::from(a == b));
-    Ok(())
-  }
-
-  fn exec_add(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.binary_op(opcode, |a, b| a + b)
-  }
-
-  fn exec_sub(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.binary_op(opcode, |a, b| a - b)
-  }
-
-  fn exec_mul(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.binary_op(opcode, |a, b| a * b)
-  }
-
-  fn exec_div(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.binary_op(opcode, |a, b| a / b)
-  }
-
-  fn exec_rem(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.binary_op(opcode, |a, b| a % b)
-  }
-
-  /// when f evaluates to true, short circuit
-  fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, offset: usize, f: F) -> ExecResult<bool> {
-    dbg::profile_function!();
-    let value = self.stack_peek().ok_or_else(|| self.error("no item on the stack to peek"))?;
-    if f(value) {
-      self.jump(offset);
-      Ok(true)
-    } else {
-      self.stack_pop();
-      Ok(false)
-    }
-  }
-
-  fn exec_or(&mut self, offset: usize) -> ExecResult<bool> {
-    dbg::profile_function!();
-    self.exec_logical(offset, |v| v.truthy())
-  }
-
-  fn exec_and(&mut self, offset: usize) -> ExecResult<bool> {
-    dbg::profile_function!();
-    self.exec_logical(offset, |v| v.falsy())
-  }
-
-  fn exec_not(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.unary_op(opcode, |v| Ok(!v))
-  }
-
-  fn exec_negate(&mut self, opcode: &Opcode) -> ExecResult {
-    dbg::profile_function!();
-    self.unary_op(opcode, |v| -v)
-  }
-
-  fn exec_print(&mut self) -> ExecResult {
-    dbg::profile_function!();
-    let value = self.stack_pop().ok_or_else(|| self.error("no value to print"))?;
-    println!("{value}");
-    Ok(())
-  }
-
-  fn exec_jump_if_false(&mut self, offset: usize) -> ExecResult<bool> {
-    dbg::profile_function!();
-    let value = self.stack_pop().ok_or_else(|| self.error("no item on the stack to pop"))?;
-
-    if !value.truthy() {
-      self.jump(offset);
-      Ok(true)
-    } else {
-      Ok(false)
-    }
-  }
-
-  fn exec_call(&mut self, airity: usize) -> ExecResult {
-    dbg::profile_function!();
-    let args = self.stack_drain_from(airity);
-    let callable = self.stack_pop().ok_or_else(|| self.error("cannot operate on empty stack"))?;
-    self.call_value(callable, args)
-  }
-
-  fn exec_create_vec(&mut self, num_items: usize) {
-    dbg::profile_function!();
-    let list = self.stack_drain_from(num_items);
-    let list = self.gc.allocate(list);
-    self.stack_push(list);
-  }
-
-  fn exec_sized_vec(&mut self, repeats: usize) -> ExecResult {
-    let item = self.stack_pop().ok_or_else(|| self.error("no item on the stack to repeat"))?;
-    let vec = vec![item; repeats];
-    let vec = self.gc.allocate(vec);
-    self.stack_push(vec);
-    Ok(())
-  }
-
-  fn exec_dyn_vec(&mut self) -> ExecResult {
-    let repeats = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no item on stack to get vec size from"))?;
-
-    let repeats = repeats
-      .as_i32()
-      .ok_or_else(|| self.error("vec size must evaluate to an i32"))? as usize;
-
-    self.exec_sized_vec(repeats)
-  }
-
-  fn exec_create_closure(&mut self) -> ExecResult {
-    dbg::profile_function!();
-    let function = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no item on the stack to pop for closure function"))?;
-
-    let captures = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no item on the stack to pop for closure captures"))?;
-
-    let f = function.as_fn().ok_or_else(|| self.error("closure must be a function"))?;
-
-    let c = captures.as_vec().ok_or_else(|| self.error("capture list must be a struct"))?;
-
-    let closure = self.gc.allocate(ClosureValue::new(c, f.clone()));
-    self.stack_push(closure);
-    Ok(())
-  }
-
-  fn exec_create_struct(&mut self) {
-    dbg::profile_function!();
-    let v = self.gc.allocate(StructValue::default());
-    self.stack_push(v);
-  }
-
-  fn exec_create_class(&mut self, name_index: usize) -> ExecResult {
-    dbg::profile_function!();
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(name_index)
-      .ok_or_else(|| self.error("could not lookup constant"))?;
-
-    if let ConstantValue::String(name) = name {
-      let v = self.gc.allocate(ClassValue::new(name));
-      self.stack_push(v);
-      Ok(())
-    } else {
-      Err(self.error("mod name is not a string"))
-    }
-  }
-
-  /// Create a module and make it the current env
-  fn exec_create_module(&mut self, name_index: usize) -> ExecResult {
-    dbg::profile_function!();
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(name_index)
-      .ok_or_else(|| self.error("could not lookup constant"))?;
-
-    if let ConstantValue::String(name) = name {
-      let leaf = self.current_env();
-      let module = ModuleValue::new_child(name, leaf.handle.value.clone());
-      let uhandle = Gc::allocate_handle(&mut self.gc, module);
-      self.envs.push(EnvEntry::Mod(uhandle.clone()));
-      self.stack_push(uhandle.handle.value.clone());
-      Ok(())
-    } else {
-      Err(self.error("mod name is not a string"))
-    }
-  }
-
-  fn exec_scope_resolution(&mut self, ident: usize) -> ExecResult {
-    dbg::profile_function!();
-    let obj = self.stack_pop().ok_or_else(|| self.error("no value on stack to resolve"))?;
-
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(ident)
-      .ok_or_else(|| self.error("no identifier at index"))?;
-
-    if let ConstantValue::String(name) = name {
-      let value = obj.resolve(name).map_err(|e| self.error(e))?;
-      self.stack_push(value);
-      Ok(())
-    } else {
-      Err(self.error("member identifier is not a string"))
-    }
-  }
-
-  fn push_scope(&mut self) {
-    dbg::profile_function!();
-    let mut gc = self.gc.clone();
-    let leaf = self.current_env();
-    let handle = Gc::allocate_handle(&mut gc, ModuleValue::new_scope(leaf.handle.value.clone()));
-    self.envs.push(EnvEntry::Block(handle));
-  }
-
-  fn pop_scope(&mut self) {
-    dbg::profile_function!();
-    self.envs.pop();
-  }
-
-  fn exec_define(&mut self, location: usize) -> ExecResult {
-    dbg::profile_function!();
-    let value = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no value on stack to define a member on"))?;
-
-    let mut obj = self
-      .stack_peek()
-      .ok_or_else(|| self.error("no value on stack to define a member to"))?;
-
-    let name = self
-      .current_frame
-      .ctx
-      .const_at(location)
-      .ok_or_else(|| self.error("no identifier found at index"))?;
-
-    if let ConstantValue::String(name) = name {
-      obj.define(name, value).map_err(|e| self.error(e))?;
-      Ok(())
-    } else {
-      Err(self.error("invalid name for member"))
-    }
-  }
-
-  fn exec_req(&mut self) -> ExecResult {
-    dbg::profile_function!();
-    fn try_to_find_file(root: &Path, desired: &PathBuf, attempts: &mut Vec<PathBuf>) -> Option<PathBuf> {
-      let direct = root.join(desired);
-      if direct.exists() {
-        return Some(direct);
-      }
-      attempts.push(direct.clone());
-
-      let direct_with_native_extension = direct.with_extension(dlopen2::utils::PLATFORM_FILE_EXTENSION);
-      if direct_with_native_extension.exists() {
-        return Some(direct_with_native_extension);
-      }
-      attempts.push(direct_with_native_extension);
-
-      let direct_with_script_extension = direct.with_extension("ss");
-      if direct_with_script_extension.exists() {
-        return Some(direct_with_script_extension);
-      }
-      attempts.push(direct_with_script_extension);
-
-      None
-    }
-
-    let value = self
-      .stack_pop()
-      .ok_or_else(|| self.error("no item on stack to require (logic error)"))?;
-
-    let mut attempts = Vec::with_capacity(10);
-
-    let file_str = value.to_string();
-    let this_file = self.opened_files.last().map(|f| f.path.clone());
-
-    let required_file = PathBuf::from(file_str.as_str());
-
-    let mut found_file = None;
-
-    // find relative first, skip if None, None will be during repl so go to cwd
-    if let Some(this_dir) = this_file.and_then(|this_file| this_file.parent().map(|p| p.to_path_buf())) {
-      found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
-    }
-
-    // then try to find from cwd
-    if found_file.is_none() {
-      let this_dir = std::env::current_dir().map_err(|e| self.error(e))?;
-      found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
-    }
-
-    // if still not found, try searching library paths
-    if found_file.is_none() {
-      if let Some(library_mod) = self.current_env().lookup(module_value::LIB_GLOBAL) {
-        if let Some(library_mod) = library_mod.as_struct() {
-          if let Ok(Some(list)) = library_mod
-            .get_field(&mut self.gc, module_value::PATHS_MEMBER)
-            .map(|l| l.map(|l| l.as_vec()))
-          {
-            for item in list.iter() {
-              let base = PathBuf::from(item.to_string());
-              found_file = try_to_find_file(&base, &required_file, &mut attempts);
-              if found_file.is_some() {
-                break;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    let found_file = found_file.ok_or_else(|| self.error(format!("unable to find file, tried: {:#?}", attempts)))?;
-    let id = PlatformMetadata::id_of(&found_file)
-      .map_err(|e| self.error(format!("failed to get file info of {}: {}", found_file.display(), e)))?;
-
-    match found_file.extension().and_then(|s| s.to_str()) {
-      Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-        let value = if let Some(value) = self.lib_cache.get(&id) {
-          value.clone()
-        } else {
-          let lib: Container<NativeApi> =
-            unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
-
-          let value = lib.simple_script_load_module(self).map_err(|e| self.error(e))?;
-          self.opened_native_libs.insert(found_file, lib);
-          self.lib_cache.insert(id, value.clone());
-          value
-        };
-
-        self.stack_push(value);
-
-        Ok(())
-      }
-      _ => {
-        let data =
-          fs::read_to_string(&found_file).map_err(|e| self.error(format!("unable to read file '{}': {}", file_str, e,)))?;
-
-        if let Some(value) = self.lib_cache.get(&id) {
-          self.stack_push(value.clone());
-        } else {
-          let new_ctx = Compiler::compile(found_file.clone(), &data)?;
-          let gmod = ModuleBuilder::initialize(&mut self.gc, id, None, |gc, mut lib| {
-            lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &self.args);
-          });
-
-          #[cfg(feature = "disassemble")]
-          {
-            println!("!!!!! ENTERING {} !!!!!", found_file.display());
-            new_ctx.disassemble();
-            println!("!!!!! LEAVING  {} !!!!!", found_file.display());
-          }
-
-          self.new_frame(new_ctx);
-          self.envs.push(EnvEntry::File(gmod));
-          self.opened_files.push(FileInfo::new(found_file, id));
-          let output = self.execute(ExecType::File)?;
-          self.stack_push(output);
-        }
-
-        Ok(())
-      }
-    }
-  }
-
-  /* Utility Functions */
-
-  pub fn new_frame(&mut self, ctx: SmartPtr<Context>) {
-    let mut frame = StackFrame::new(ctx);
-    std::mem::swap(&mut self.current_frame, &mut frame);
-    self.stack_frames.push(frame);
-  }
-
-  pub fn set_stack(&mut self, stack: Vec<Value>) {
-    self.current_frame.stack = stack;
-  }
-
-  pub fn stack_push(&mut self, value: Value) {
-    self.current_frame.stack.push(value);
-  }
-
-  pub fn stack_pop(&mut self) -> Option<Value> {
-    self.current_frame.stack.pop()
-  }
-
-  pub fn stack_pop_n(&mut self, count: usize) {
-    self
-      .current_frame
-      .stack
-      .truncate(self.current_frame.stack.len().saturating_sub(count));
-  }
-
-  pub fn stack_drain_from(&mut self, index: usize) -> Vec<Value> {
-    self.current_frame.stack.drain(self.stack_size() - index..).collect()
-  }
-
-  pub fn stack_index(&self, index: usize) -> Option<Value> {
-    self.current_frame.stack.get(index).cloned()
-  }
-
-  pub fn stack_index_0(&self) -> Option<Value> {
-    self.current_frame.stack.first().cloned()
-  }
-
-  pub fn stack_index_rev(&self, index: usize) -> Option<Value> {
-    self
-      .current_frame
-      .stack
-      .get(self.current_frame.stack.len() - 1 - index)
-      .cloned()
-  }
-
-  pub fn stack_peek(&self) -> Option<Value> {
-    self.current_frame.stack.last().cloned()
-  }
-
-  pub fn stack_assign(&mut self, index: usize, value: Value) {
-    self.current_frame.stack[index] = value;
-  }
-
-  pub fn stack_append(&mut self, other: Vec<Value>) {
-    self.current_frame.stack.extend(other);
-  }
-
-  pub fn stack_size(&self) -> usize {
-    self.current_frame.stack.len()
-  }
-
-  fn jump(&mut self, count: usize) {
-    self.current_frame.ip = self.current_frame.ip.saturating_add(count);
-  }
-
-  fn loop_back(&mut self, count: usize) {
-    self.current_frame.ip = self.current_frame.ip.saturating_sub(count);
-  }
-
-  fn call_value(&mut self, mut callable: Value, args: impl Into<Vec<Value>>) -> ExecResult {
-    callable.call(self, Args::new(args)).map_err(|e| self.error(e))?;
-
-    #[cfg(feature = "runtime-disassembly")]
-    println!("<< entering {} >>", self.current_frame.ctx.id);
-
-    Ok(())
-  }
-
-  pub fn ctx(&mut self) -> &Context {
-    &self.current_frame.ctx
-  }
-
-  pub fn ctx_mut(&mut self) -> &mut Context {
-    &mut self.current_frame.ctx
-  }
-
-  pub fn current_env(&self) -> &UsertypeHandle<ModuleValue> {
-    self.envs.last()
-  }
-
-  pub fn current_env_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
-    self.envs.last_mut()
-  }
-
-  pub fn run_gc(&mut self) -> ExecResult {
-    let now = Instant::now();
-    self.next_gc = now + DEFAULT_GC_FREQUENCY;
-    self
-      .gc
-      .clean(&self.current_frame, &self.stack_frames, self.lib_cache.values())
-      .map_err(|e| self.error(e))?;
-    Ok(())
-  }
-
-  #[cold]
-  fn error_at<F>(&self, f: F) -> RuntimeError
-  where
-    F: FnOnce(OpCodeReflection) -> RuntimeError,
-  {
-    self
-      .current_frame
-      .ctx
-      .meta
-      .get(self.current_frame.ip)
-      .map(f)
-      .unwrap_or_else(|| RuntimeError {
-        msg: format!("could not fetch info for instruction {:04X}", self.current_frame.ip),
-        file: Rc::clone(&self.current_frame.ctx.meta.file),
-        line: 0,
-        column: 0,
-      })
-  }
-
-  pub fn stack_display(&self) {
-    print!("{}", self.current_frame);
+impl TryIntoInstruction for Opcode {
+  fn try_into_inst(self) -> Result<Instruction, Opcode> {
+    Instruction::new(self, 0).ok_or(self)
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumCount, EnumIter, Enum)]
+impl<D> TryIntoInstruction for (Opcode, D)
+where
+  D: InstructionData,
+{
+  fn try_into_inst(self) -> Result<Instruction, Opcode> {
+    Instruction::new(self.0, self.1).ok_or(self.0)
+  }
+}
+
+pub trait InstructionData
+where
+  Self: Sized,
+{
+  const BITS: u64;
+  const MASK: u64 = 2u64.pow(Self::BITS as u32) - 1;
+
+  fn to_bits(self) -> u64;
+
+  fn checked_data(inst: u64) -> Option<Self>;
+
+  fn unchecked_data(inst: u64) -> Self;
+
+  fn bits(self) -> Option<u64> {
+    Self::valid_bits(self.to_bits())
+  }
+
+  fn valid_bits(bits: u64) -> Option<u64> {
+    (bits <= Self::MASK).then_some(bits)
+  }
+}
+
+#[derive(Hash, Default, Clone, Copy, Debug, PartialEq, Eq, EnumCount, FromRepr, EnumIter)]
+#[repr(u8)]
+pub enum Opcode {
+  /// Unknown instruction
+  /// Value given when one cannot be interpreted
+  ///
+  /// Encoding: None
+  #[default]
+  Unknown,
+  /// Looks up a constant value at the specified location.
+  ///
+  /// Encoding: | usize |
+  Const,
+  /// Pushes a nil value on to the stack
+  ///
+  /// Encoding: None
+  Nil,
+  /// Pushes true on the stack
+  ///
+  /// Encoding: None
+  True,
+  /// Pushes false on the stack
+  ///
+  /// Encoding: None
+  False,
+  /// Pops a value off the stack
+  ///
+  /// Encoding: None
+  Pop,
+  /// Pops N values off the stack.
+  ///
+  /// Encoding: | usize |
+  PopN,
+  /// Store the value on the stack in the given location
+  ///
+  /// Encoding: | Storage | LongAddr |
+  Store,
+  /// Load a value and push it onto the stack
+  ///
+  /// Encoding: | Storage | LongAddr |
+  Load,
+  /// Assigns a value to a member on an object
+  ///
+  /// \[ Value \] \
+  /// \[ Object \]
+  ///
+  /// Encoding: | usize |
+  AssignMember,
+  /// Initializes a member of an object, keeping the object on the stack for further assignments
+  ///
+  /// Encoding: | usize |
+  InitializeMember,
+  /// Initializes a method on a class, keeping the class on the stack for further assignments
+  ///
+  /// Encoding: | usize |
+  InitializeMethod,
+  /// Initializes the constructor on a class, keeping the class on the stack for further assignments
+  ///
+  /// Encoding: None
+  InitializeConstructor,
+  /// Looks up the member on the next value on the stack, replacing it with the member's value
+  ///
+  /// Encoding: | usize |
+  LookupMember,
+  /// Looks up the member of the next value on the stack, pushing the value
+  ///
+  /// Encoding: | usize |
+  PeekMember,
+  /// Pops two values off the stack, compares, then pushes the result back on
+  ///
+  /// Encoding: None
+  Equal,
+  /// Pops two values off the stack, compares, then pushes the result back on
+  ///
+  /// Encoding: None
+  NotEqual,
+  /// Pops two values off the stack, compares, then pushes the result back on
+  ///
+  /// Encoding: None
+  Greater,
+  /// Pops two values off the stack, compares, then pushes the result back on
+  ///
+  /// Encoding: None
+  GreaterEqual,
+  /// Pops two values off the stack, compares, then pushes the result back on
+  ///
+  /// Encoding: None
+  Less,
+  /// Pops two values off the stack, compares, then pushes the result back on
+  ///
+  /// Encoding: None
+  LessEqual,
+  /// Pops a value off the stack, and compares it with the peeked value, pushing the new value on
+  ///
+  /// Encoding: None
+  Check,
+  /// Pops two values off the stack, calculates the sum, then pushes the result back on
+  ///
+  /// Encoding: None
+  Add,
+  /// Pops two values off the stack, calculates the difference, then pushes the result back on
+  ///
+  /// Encoding: None
+  Sub,
+  /// Pops two values off the stack, calculates the product, then pushes the result back on
+  ///
+  /// Encoding: None
+  Mul,
+  /// Pops two values off the stack, calculates the quotient, then pushes the result back on
+  ///
+  /// Encoding: None
+  Div,
+  /// Pops two values off the stack, calculates the remainder, then pushes the result back on
+  ///
+  /// Encoding: None
+  Rem,
+  /// Peeks at the stack. If the top value is true, the ip in incremented
+  ///
+  /// Encoding: | usize |
+  Or,
+  /// Peeks at the stack. If the top value is false, the ip is incremented
+  ///
+  /// Encoding: | usize |
+  And,
+  /// Pops a value off the stack, inverts its truthy value, then pushes that back on
+  ///
+  /// Encoding: None
+  Not,
+  /// Pops a value off the stack, inverts its numerical value, then pushes that back on
+  ///
+  /// Encoding: None
+  Negate,
+  /// Pops a value off the stack and prints it to the screen
+  ///
+  /// Encoding: None
+  Println,
+  /// Jumps the ip forward unconditionally
+  ///
+  /// Encoding: | usize |
+  Jump,
+  /// Jumps the ip forward if the value on the stack is falsy
+  ///
+  /// Encoding: | usize |
+  JumpIfFalse,
+  /// Jumps the instruction pointer backwards a number of instructions
+  ///
+  /// Encoding: | usize |
+  Loop,
+  /// Calls the value on the stack. Number of arguments is specified by the modifying bits
+  ///
+  /// Encoding: | usize |
+  Invoke,
+  /// Swaps the last two items on the stack and pops
+  ///
+  /// Encoding: None
+  SwapPop,
+  /// Exits from a function, returning nil on the previous frame
+  ///
+  /// Encoding: None
+  Ret,
+  /// Load an external file, or pull from the cache if already loaded.
+  /// The file name is the value on the stack
+  ///
+  /// Encoding: None
+  Req,
+  /// Create a vec of values and push it on the stack.
+  /// Items come off the top of the stack.
+  /// The number of items is specified in the encoding
+  ///
+  /// Encoding: | usize |
+  CreateVec,
+  /// Create a vec of values and push it on the stack.
+  /// The last item on the stack is copied as many times as the size indicates
+  ///
+  /// Encoding: | usize |
+  CreateSizedVec,
+  /// Create a vec of values and push it on the stack.
+  /// The last item is the size.
+  /// The next is the item to be copied the amount of times specified
+  ///
+  /// Encoding: | usize |
+  CreateDynamicVec,
+  /// Create a closure. The first item on the stack is the function itself, the second is the capture list
+  ///
+  /// Encoding: None
+  CreateClosure,
+  /// Create a new struct with the number of members as the bits
+  /// Values are popped off the stack as key values in that order
+  ///
+  /// Encoding: | usize |
+  CreateStruct,
+  /// Create a new class.
+  /// The const in the encoding is the name
+  ///
+  /// Encoding: | usize |
+  CreateClass,
+  /// Create a new module.
+  /// The const in the encoding is the name
+  ///
+  /// Encoding: | usize |
+  CreateModule,
+  /// Halt the VM when this instruction is reached and enter the debugger
+  ///
+  /// Encoding: None
+  Breakpoint,
+  /// Mark the current value as exported
+  ///
+  /// Encoding: None
+  Export,
+  /// Defines the identifier on the variable
+  /// The const in the encoding is the name
+  ///
+  /// Encoding: | usize |
+  Define,
+  /// Resolve the specified identifier
+  /// The const in the encoding is the name
+  ///
+  /// Encoding: | usize |
+  Resolve,
+  /// Push a new env
+  ///
+  /// Encoding: None
+  EnterBlock,
+  /// Pop an env
+  ///
+  /// Encoding: None
+  PopScope,
+  /// Push a register context
+  /// TODO remove this, it's a crap solution
+  ///
+  /// Encoding: None
+  PushRegCtx,
+  /// Pop a register context
+  ///
+  /// Encoding: None
+  PopRegCtx,
+  /// Panic duck style
+  ///
+  /// Encoding: None
+  Quack,
+}
+
+static_assertions::const_assert!(Opcode::COUNT - 1 < 2usize.pow(Opcode::BITS as u32));
+
+impl Display for Opcode {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{self:?}")
+  }
+}
+
+impl InstructionData for Opcode {
+  const BITS: u64 = 8;
+
+  fn to_bits(self) -> u64 {
+    self as u8 as u64
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    Self::from_repr((inst & Self::MASK).try_into().ok()?)
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    unsafe { mem::transmute((inst & Self::MASK) as u8) }
+  }
+}
+
+impl InstructionData for usize {
+  const BITS: u64 = (mem::size_of::<usize>() * 8 - Opcode::BITS as usize) as u64;
+
+  fn to_bits(self) -> u64 {
+    self as u64
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    (inst & Self::MASK).try_into().ok()
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    (inst & Self::MASK) as usize
+  }
+}
+
+#[derive(Debug, PartialEq, Eq, strum_macros::EnumCount, strum_macros::FromRepr)]
+#[repr(u8)]
+pub enum Storage {
+  Local,
+  Global,
+  Reg,
+}
+
+static_assertions::const_assert!(Storage::COUNT - 1 < 2usize.pow(Storage::BITS as u32));
+
+impl InstructionData for Storage {
+  const BITS: u64 = 2;
+
+  fn to_bits(self) -> u64 {
+    self as u8 as u64
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    Self::from_repr((inst & Self::MASK).try_into().ok()?)
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    unsafe { mem::transmute((inst & Self::MASK) as u8) }
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LongAddr(pub(crate) usize);
+
+impl InstructionData for LongAddr {
+  const BITS: u64 = 32;
+
+  fn to_bits(self) -> u64 {
+    self.0 as u64
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    Some(Self::unchecked_data(inst))
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    Self((inst & Self::MASK) as usize)
+  }
+}
+
+impl From<usize> for LongAddr {
+  fn from(value: usize) -> Self {
+    Self(value)
+  }
+}
+
+impl From<LongAddr> for usize {
+  fn from(value: LongAddr) -> Self {
+    value.0
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShortAddr(pub(crate) usize);
+
+impl InstructionData for ShortAddr {
+  const BITS: u64 = 16;
+
+  fn to_bits(self) -> u64 {
+    self.0 as u64
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    (inst & Self::MASK).try_into().map(Self).ok()
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    Self((inst & Self::MASK) as usize)
+  }
+}
+
+impl<T0, T1> InstructionData for (T0, T1)
+where
+  T0: InstructionData,
+  T1: InstructionData,
+{
+  const BITS: u64 = T0::BITS + T1::BITS;
+
+  fn to_bits(self) -> u64 {
+    self.0.to_bits() | self.1.to_bits() << T0::BITS
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    T0::checked_data(inst & T0::MASK).zip(T1::checked_data(inst >> T0::BITS & T1::MASK))
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    (
+      T0::unchecked_data(inst & T0::MASK),
+      T1::unchecked_data(inst >> T0::BITS & T1::MASK),
+    )
+  }
+}
+
+impl<T0, T1, T2> InstructionData for (T0, T1, T2)
+where
+  T0: InstructionData,
+  T1: InstructionData,
+  T2: InstructionData,
+{
+  const BITS: u64 = T0::BITS + T1::BITS + T2::BITS;
+
+  fn to_bits(self) -> u64 {
+    self.0.to_bits() | self.1.to_bits() << T0::BITS | self.2.to_bits() << (T0::BITS + T1::BITS)
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    match (
+      T0::checked_data(inst & T0::MASK),
+      T1::checked_data(inst >> T0::BITS & T1::MASK),
+      T2::checked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+    ) {
+      (Some(t0), Some(t1), Some(t2)) => Some((t0, t1, t2)),
+      _ => None,
+    }
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    (
+      T0::unchecked_data(inst & T0::MASK),
+      T1::unchecked_data(inst >> T0::BITS & T1::MASK),
+      T2::unchecked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+    )
+  }
+}
+
+impl<T0, T1, T2, T3> InstructionData for (T0, T1, T2, T3)
+where
+  T0: InstructionData,
+  T1: InstructionData,
+  T2: InstructionData,
+  T3: InstructionData,
+{
+  const BITS: u64 = T0::BITS + T1::BITS + T2::BITS + T3::BITS;
+
+  fn to_bits(self) -> u64 {
+    self.0.to_bits()
+      | self.1.to_bits() << T0::BITS
+      | self.2.to_bits() << (T0::BITS + T1::BITS)
+      | self.3.to_bits() << (T0::BITS + T1::BITS + T2::BITS)
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    match (
+      T0::checked_data(inst & T0::MASK),
+      T1::checked_data(inst >> T0::BITS & T1::MASK),
+      T2::checked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+      T3::checked_data(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
+    ) {
+      (Some(t0), Some(t1), Some(t2), Some(t3)) => Some((t0, t1, t2, t3)),
+      _ => None,
+    }
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    (
+      T0::unchecked_data(inst & T0::MASK),
+      T1::unchecked_data(inst >> T0::BITS & T1::MASK),
+      T2::unchecked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+      T3::unchecked_data(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
+    )
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumCount, EnumIter, Enum, FromRepr)]
+#[repr(u8)]
 pub enum Register {
   A,
   B,
@@ -1350,31 +570,78 @@ pub enum Register {
   H,
 }
 
+impl InstructionData for Register {
+  const BITS: u64 = 8;
+
+  fn to_bits(self) -> u64 {
+    self as u8 as u64
+  }
+
+  fn checked_data(inst: u64) -> Option<Self> {
+    Self::from_repr((inst & Self::MASK).try_into().ok()?)
+  }
+
+  fn unchecked_data(inst: u64) -> Self {
+    unsafe { mem::transmute((inst & Self::MASK) as u8) }
+  }
+}
+
+#[derive(Default)]
+pub struct Stack(Vec<Value>);
+
+impl Stack {
+  pub(crate) fn with_capacity(sz: usize) -> Self {
+    Self(Vec::with_capacity(sz))
+  }
+}
+
+impl Display for Stack {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    if self.is_empty() {
+      write!(f, "               | [ ]")
+    } else {
+      let formatted = self
+        .iter()
+        .enumerate()
+        .map(|(index, item)| format!("{:#15}| [ {:?} ]", index, item));
+
+      let look = itertools::join(formatted, "\n");
+
+      write!(f, "{look}")
+    }
+  }
+}
+
+impl Deref for Stack {
+  type Target = Vec<Value>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for Stack {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
+
 #[derive(Default)]
 pub struct StackFrame {
   pub ip: usize,
+  pub sp: usize,
   pub ctx: SmartPtr<Context>,
-  pub stack: Vec<Value>,
   pub registers: Vec<EnumMap<Register, Value>>,
 }
 
 impl StackFrame {
-  pub fn new(ctx: SmartPtr<Context>) -> Self {
+  pub fn new(ctx: SmartPtr<Context>, sp: usize) -> Self {
     Self {
       ip: Default::default(),
+      sp,
       ctx,
-      stack: Default::default(),
       registers: Default::default(),
     }
-  }
-
-  /**
-   * Clear the current stack frame, returning the previous
-   */
-  pub fn clear_out(&mut self) -> Self {
-    let mut old = Self::default();
-    std::mem::swap(&mut old, self);
-    old
   }
 
   pub fn reg_store(&mut self, reg: Register, value: Value) {
@@ -1395,26 +662,130 @@ impl StackFrame {
   }
 }
 
-impl Display for StackFrame {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    if self.stack.is_empty() {
-      writeln!(f, "               | [ ]")
-    } else {
-      for (index, item) in self.stack.iter().enumerate() {
-        writeln!(f, "{:#15}| [ {:?} ]", index, item)?;
-      }
-      Ok(())
+#[derive(Default)]
+pub(crate) struct EnvStack {
+  envs: Vec<EnvEntry>,
+}
+
+impl EnvStack {
+  pub(crate) fn iter<'v>(&'v self) -> std::slice::Iter<'v, EnvEntry> {
+    self.envs.iter()
+  }
+
+  pub(crate) fn len(&self) -> usize {
+    self.envs.len()
+  }
+
+  pub(crate) fn push(&mut self, entry: EnvEntry) {
+    self.envs.push(entry);
+  }
+
+  pub(crate) fn pop(&mut self) -> EnvEntry {
+    self.envs.pop().expect("pop: the env stack should never be empty")
+  }
+
+  pub(crate) fn last(&self) -> &UsertypeHandle<ModuleValue> {
+    match self.envs.last().expect("last: the env stack should never be empty") {
+      EnvEntry::Fn(e) => e,
+      EnvEntry::Mod(e) => e,
+      EnvEntry::File(e) => e,
+      EnvEntry::Block(e) => e,
+      EnvEntry::String(e) => e,
+    }
+  }
+
+  pub(crate) fn last_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
+    match self.envs.last_mut().expect("last_mut: the env stack should never be empty") {
+      EnvEntry::Fn(e) => e,
+      EnvEntry::Mod(e) => e,
+      EnvEntry::File(e) => e,
+      EnvEntry::Block(e) => e,
+      EnvEntry::String(e) => e,
     }
   }
 }
 
-pub(crate) struct FileInfo {
-  path: PathBuf,
-  id: FileIdType,
+pub(crate) enum EnvEntry {
+  Fn(UsertypeHandle<ModuleValue>),
+  Mod(UsertypeHandle<ModuleValue>),
+  File(UsertypeHandle<ModuleValue>),
+  Block(UsertypeHandle<ModuleValue>),
+  String(UsertypeHandle<ModuleValue>),
 }
 
-impl FileInfo {
-  fn new(path: PathBuf, id: FileIdType) -> Self {
-    Self { path, id }
+impl EnvEntry {
+  pub(crate) fn module(&self) -> UsertypeHandle<ModuleValue> {
+    match self {
+      Self::Fn(m) => m.clone(),
+      Self::Mod(m) => m.clone(),
+      Self::File(m) => m.clone(),
+      Self::Block(m) => m.clone(),
+      Self::String(m) => m.clone(),
+    }
+  }
+}
+
+impl Debug for EnvEntry {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Fn(_) => f.debug_tuple("Fn").finish(),
+      Self::Mod(_) => f.debug_tuple("Mod").finish(),
+      Self::File(_) => f.debug_tuple("File").finish(),
+      Self::Block(_) => f.debug_tuple("Block").finish(),
+      Self::String(_) => f.debug_tuple("String").finish(),
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn opcode_serde() {
+    const ADDR: usize = 123;
+    const CONST: usize = 1;
+    let addr = LongAddr(ADDR);
+
+    {
+      Instruction::new(Opcode::Const, CONST).unwrap();
+    }
+
+    {
+      let bits = addr.bits().unwrap();
+      assert_eq!(bits, ADDR as u64);
+      let addr = LongAddr::checked_data(bits).unwrap();
+      assert_eq!(addr, LongAddr(ADDR));
+    }
+
+    {
+      let inst = Instruction::new(Opcode::Load, (Storage::Local, LongAddr(ADDR))).unwrap();
+
+      let op = inst.opcode().unwrap();
+      let (storage, addr) = inst.data::<(Storage, LongAddr)>().unwrap();
+
+      assert_eq!(op, Opcode::Load);
+      assert_eq!(storage, Storage::Local);
+      assert_eq!(addr, LongAddr(ADDR));
+    }
+
+    {
+      const A_ADDR: usize = 12;
+      const B_ADDR: usize = 34;
+      let inst = Instruction::new(
+        Opcode::Add,
+        (Storage::Local, ShortAddr(A_ADDR), Storage::Global, ShortAddr(B_ADDR)),
+      )
+      .unwrap();
+
+      let op = inst.opcode().unwrap();
+      let ((a_store, a_addr), (b_store, b_addr)) = inst.data::<((Storage, ShortAddr), (Storage, ShortAddr))>().unwrap();
+
+      assert_eq!(op, Opcode::Add);
+      assert_eq!(a_store, Storage::Local);
+      assert_eq!(a_addr, ShortAddr(A_ADDR));
+      assert_eq!(b_store, Storage::Global);
+      assert_eq!(b_addr, ShortAddr(B_ADDR));
+    }
   }
 }

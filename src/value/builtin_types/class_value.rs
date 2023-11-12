@@ -1,21 +1,25 @@
 use crate::prelude::*;
-use std::collections::BTreeMap;
+use ahash::RandomState;
+use std::collections::HashMap;
 
 #[derive(Default, Usertype)]
 #[uuid("2034facf-835a-495c-b504-26efc0ca3f95")]
 pub struct ClassValue {
   pub name: String,
   #[trace]
+  pub creator: Value,
+  #[trace]
   pub initializer: Option<Value>,
   #[trace]
-  pub methods: BTreeMap<String, FunctionValue>,
+  pub methods: HashMap<String, FunctionValue, RandomState>,
   #[trace]
-  pub static_members: BTreeMap<String, Value>,
+  pub static_members: HashMap<String, Value, RandomState>,
 }
 
 impl ClassValue {
-  pub fn new(name: impl ToString) -> Self {
+  pub fn new(name: impl ToString, creator: Value) -> Self {
     Self {
+      creator,
       name: name.to_string(),
       initializer: None,
       methods: Default::default(),
@@ -27,12 +31,14 @@ impl ClassValue {
     self.initializer = Some(value);
   }
 
-  pub fn get_method(&self, gc: &mut Gc, this: &Value, name: &str) -> Option<Value> {
-    self
-      .methods
-      .get(name)
-      .cloned()
-      .map(|method| gc.allocate(MethodValue::new(this.clone(), method)))
+  pub fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> Option<Value> {
+    field.name.and_then(|name| {
+      self
+        .methods
+        .get(name)
+        .cloned()
+        .map(|method| gc.allocate(MethodValue::new(this.clone(), method)))
+    })
   }
 
   pub fn set_method<N: ToString>(&mut self, name: N, value: FunctionValue) {
@@ -49,31 +55,37 @@ impl ClassValue {
 }
 
 impl UsertypeFields for ClassValue {
-  fn get_field(&self, _gc: &mut Gc, field: &str) -> ValueResult<Option<Value>> {
-    Ok(self.get_static(field))
+  fn get_field(&self, _gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
+    Ok(field.name.and_then(|name| self.get_static(name)))
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
-    self.set_static(field, value);
-    Ok(())
+  fn set_field(&mut self, _gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
+    if let Some(name) = field.name {
+      self.set_static(name, value);
+      Ok(())
+    } else {
+      Err(UsageError::EmptyField)
+    }
   }
 }
 
 #[methods]
 impl ClassValue {
-  fn __ivk__(&mut self, vm: &mut Vm, class: Value, args: Args) -> ValueResult<()> {
-    let instance = vm.gc.allocate(InstanceValue::new(StructValue::default(), class.clone()));
+  fn __ivk__(&mut self, vm: &mut Vm, class: Value, airity: usize) -> UsageResult {
+    let self_type = self.creator.call(vm, 0)?;
+
+    let instance = vm.gc.allocate(InstanceValue::new(self_type, class.clone()));
+
     if let Some(initializer) = &mut self.initializer {
       if let Some(initializer) = initializer.as_fn_mut() {
-        let args = Args::new_with_this(instance.clone(), args.list);
-        initializer.__ivk__(vm, Value::nil, args)?;
+        vm.stack_push(instance);
+        initializer.__ivk__(vm, Value::nil, airity + 1)
       } else {
-        Err(ValueError::Todo(format!("invalid type for constructor {}", initializer)))?;
+        Err(UsageError::MethodType)
       }
     } else {
-      vm.stack_push(instance);
-    };
-    Ok(())
+      Ok(instance)
+    }
   }
 
   fn __str__(&self) -> String {

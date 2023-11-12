@@ -17,7 +17,6 @@ pub enum Statement {
   Break(BreakStatement),
   Cont(ContStatement),
   Class(ClassStatement),
-  DefaultConstructorRet(DefaultConstructorRet),
   Export(ExportStatement),
   Fn(FnStatement),
   For(ForStatement),
@@ -26,7 +25,8 @@ pub enum Statement {
   Loop(LoopStatement),
   Match(MatchStatement),
   Mod(ModStatement),
-  Print(PrintlnStatement),
+  Println(PrintlnStatement),
+  Quack(QuackStatement),
   Req(ReqStatement),
   Ret(RetStatement),
   Use(UseStatement),
@@ -60,7 +60,6 @@ impl Statement {
       Statement::Break(_) => (),
       Statement::Cont(_) => (),
       Statement::Class(c) => c.body.dump(tmpl),
-      Statement::DefaultConstructorRet(_) => (),
       Statement::Export(_) => (),
       Statement::Fn(_) => (),
       Statement::For(_) => (),
@@ -84,7 +83,8 @@ impl Statement {
       Statement::Loop(_) => (),
       Statement::Match(_) => (),
       Statement::Mod(m) => m.body.dump(tmpl),
-      Statement::Print(_) => (),
+      Statement::Println(_) => (),
+      Statement::Quack(_) => (),
       Statement::Req(_) => (),
       Statement::Ret(_) => (),
       Statement::Use(u) => {
@@ -107,7 +107,6 @@ impl Display for Statement {
       Self::Break(_) => write!(f, "break"),
       Self::Cont(_) => write!(f, "cont"),
       Self::Class(c) => write!(f, "class {}", c.ident.name),
-      Self::DefaultConstructorRet(_) => write!(f, "default constructor ret"),
       Self::Export(_) => write!(f, "export"),
       Self::Fn(function) => write!(f, "fn {}", function.ident.name),
       Self::For(_) => write!(f, "for"),
@@ -116,7 +115,8 @@ impl Display for Statement {
       Self::Loop(_) => write!(f, "loop"),
       Self::Match(_) => write!(f, "match"),
       Self::Mod(_) => write!(f, "mod"),
-      Self::Print(_) => write!(f, "print"),
+      Self::Println(_) => write!(f, "println"),
+      Self::Quack(_) => write!(f, "quack"),
       Self::Req(_) => write!(f, "req"),
       Self::Ret(_) => write!(f, "ret"),
       Self::While(_) => write!(f, "while"),
@@ -148,12 +148,6 @@ impl From<ContStatement> for Statement {
 impl From<ClassStatement> for Statement {
   fn from(stmt: ClassStatement) -> Self {
     Self::Class(stmt)
-  }
-}
-
-impl From<DefaultConstructorRet> for Statement {
-  fn from(stmt: DefaultConstructorRet) -> Self {
-    Self::DefaultConstructorRet(stmt)
   }
 }
 
@@ -207,7 +201,13 @@ impl From<ModStatement> for Statement {
 
 impl From<PrintlnStatement> for Statement {
   fn from(stmt: PrintlnStatement) -> Self {
-    Self::Print(stmt)
+    Self::Println(stmt)
+  }
+}
+
+impl From<QuackStatement> for Statement {
+  fn from(stmt: QuackStatement) -> Self {
+    Self::Quack(stmt)
   }
 }
 

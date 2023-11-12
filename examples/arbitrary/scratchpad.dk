@@ -1,0 +1,3 @@
+req "examples/lib/ansi.dk" as ansi;
+
+println ansi;

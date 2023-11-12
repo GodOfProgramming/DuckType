@@ -1,13 +1,10 @@
+use ahash::RandomState;
+
 use crate::prelude::*;
 use std::{
-  collections::{btree_map::Entry, BTreeMap},
-  env,
+  collections::{hash_map::Entry, HashMap},
+  iter::{self, Once},
 };
-
-pub const PATHS_ENV_VAR: &str = "SS_LIBRARY_PATHS";
-pub const LIB_GLOBAL: &str = "$G";
-pub const PATHS_MEMBER: &str = "paths";
-pub const PATH_SEPARATOR: char = ';';
 
 #[derive(Default, Usertype)]
 #[uuid("fc79ffad-9286-4188-9905-76ae73108f9e")]
@@ -15,49 +12,37 @@ pub struct ModuleValue {
   name: Option<String>,
 
   #[trace]
-  pub members: BTreeMap<String, Value>,
+  pub members: HashMap<String, Value, RandomState>,
   #[trace]
-  pub env: BTreeMap<String, Value>,
+  pub env: HashMap<String, Value, RandomState>,
   #[trace]
   pub parent: Value,
 }
 
 impl ModuleValue {
-  pub fn new() -> Self {
-    Default::default()
-  }
-
-  pub fn new_global_module(gc: &mut SmartPtr<Gc>, name: impl ToString) -> UsertypeHandle<Self> {
-    let mut this = Gc::allocate_handle(gc, Self::default());
-
-    let mut lib_paths = Vec::default();
-
-    if let Ok(paths) = env::var(PATHS_ENV_VAR) {
-      lib_paths.extend(paths.split_terminator(PATH_SEPARATOR).map(|v| gc.allocate(v)));
-    }
-
-    let module = ModuleBuilder::initialize(gc, name, Some(this.handle.value.clone()), |gc, mut lib| {
-      let lib_paths = gc.allocate(lib_paths);
-      lib.define(PATHS_MEMBER, lib_paths);
-    });
-
-    this.define(LIB_GLOBAL, module);
-
-    this
-  }
-
-  pub(crate) fn new_scope(parent: Value) -> Self {
+  pub fn new(name: impl ToString) -> Self {
     Self {
-      name: None,
+      name: Some(name.to_string()),
+      ..Default::default()
+    }
+  }
+
+  fn new_global_module(name: impl ToString) -> Self {
+    Self::new(name)
+  }
+
+  pub(crate) fn new_child(name: impl ToString, parent: Value) -> Self {
+    Self {
+      name: Some(name.to_string()),
       members: Default::default(),
       env: Default::default(),
       parent,
     }
   }
 
-  pub(crate) fn new_child(name: impl ToString, parent: Value) -> Self {
+  pub(crate) fn new_scope(parent: Value) -> Self {
     Self {
-      name: Some(name.to_string()),
+      name: None,
       members: Default::default(),
       env: Default::default(),
       parent,
@@ -79,7 +64,7 @@ impl ModuleValue {
       self
         .parent
         .cast_to_mut::<Self>()
-        .map(|m| m.assign(name, value))
+        .map(|m| m.assign(&name, value))
         .unwrap_or(false)
     }
   }
@@ -87,6 +72,24 @@ impl ModuleValue {
   /// Looks up the value specified in the current module
   pub fn resolve<T: AsRef<str>>(&self, name: T) -> Option<Value> {
     self.env.get(name.as_ref()).cloned()
+  }
+
+  /// Looks up the value specified in the current module
+  pub fn lookup_path<'t, I, T>(&'t self, path: &'t I) -> UsageResult<Option<Value>>
+  where
+    I: IntoModPath<'t, T> + 't,
+    T: AsRef<str> + 't,
+  {
+    let mut retval: Option<Value> = None;
+
+    for part in path.into_mod_path() {
+      match retval {
+        Some(rt) => retval = Some(rt.resolve(part)?),
+        None => retval = self.lookup(part),
+      }
+    }
+
+    Ok(retval)
   }
 
   pub fn search_for(&self, depth: usize, name: impl Into<String>) -> Option<usize> {
@@ -109,30 +112,38 @@ impl ModuleValue {
 }
 
 impl UsertypeFields for ModuleValue {
-  fn get_field(&self, _gc: &mut Gc, field: &str) -> ValueResult<Option<Value>> {
-    self
-      .members
-      .get(field)
-      .cloned()
-      .map(Ok)
-      .or_else(|| Some(Err(ValueError::UndefinedMember(field.to_string()))))
-      .transpose()
+  fn get_field(&self, _gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
+    if let Some(name) = field.name {
+      self
+        .members
+        .get(name)
+        .cloned()
+        .map(Ok)
+        .or_else(|| Some(Err(UsageError::UndefinedMember(name.to_string()))))
+        .transpose()
+    } else {
+      Err(UsageError::EmptyField)
+    }
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
-    self.members.insert(field.to_string(), value);
-    Ok(())
+  fn set_field(&mut self, _gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
+    if let Some(name) = field.name {
+      self.members.insert(name.to_string(), value);
+      Ok(())
+    } else {
+      Err(UsageError::EmptyField)
+    }
   }
 }
 
 #[methods]
 impl ModuleValue {
-  fn __def__(&mut self, field: &str, value: Value) -> ValueResult<bool> {
+  fn __def__(&mut self, field: &str, value: Value) -> UsageResult<bool> {
     Ok(self.define(field, value))
   }
 
-  fn __res__(&self, field: &str) -> ValueResult {
-    self.resolve(field).ok_or(ValueError::NameError(field.to_string()))
+  fn __res__(&self, field: &str) -> UsageResult {
+    self.resolve(field).ok_or(UsageError::NameError(field.to_string()))
   }
 
   fn __str__(&self) -> String {
@@ -144,21 +155,103 @@ impl ModuleValue {
   }
 
   fn __dbg__(&self) -> String {
-    self.__str__()
+    self
+      .name
+      .as_ref()
+      .map(|name| {
+        format!(
+          "<mod {} defs: {{ {} }} members: {{ {} }}>",
+          name,
+          itertools::join(self.env.iter().map(|(k, v)| format!("{k}: {v}")), ", "),
+          itertools::join(self.members.iter().map(|(k, v)| format!("{k}: {v}")), ", "),
+        )
+      })
+      .unwrap_or_else(|| String::from("<anonymous mod>"))
+  }
+}
+
+pub enum ModuleType<T>
+where
+  T: ToString,
+{
+  Global { name: T },
+  Child { name: T, parent: Value },
+  Scope { parent: Value },
+}
+
+impl<T> ModuleType<T>
+where
+  T: ToString,
+{
+  pub fn new_global(name: T) -> Self {
+    Self::Global { name }
+  }
+
+  pub fn new_child(name: T, parent: Value) -> Self {
+    Self::Child { name, parent }
+  }
+
+  pub fn new_scope(parent: Value) -> Self {
+    Self::Scope { parent }
   }
 }
 
 pub struct ModuleBuilder;
 
 impl ModuleBuilder {
-  pub fn initialize<F>(gc: &mut SmartPtr<Gc>, name: impl ToString, parent: Option<Value>, f: F) -> UsertypeHandle<ModuleValue>
+  pub fn initialize<T, F>(gc: &mut SmartPtr<Gc>, module_type: ModuleType<T>, f: F) -> UsertypeHandle<ModuleValue>
   where
+    T: ToString,
     F: FnOnce(&mut SmartPtr<Gc>, UsertypeHandle<ModuleValue>),
   {
-    let module = parent
-      .map(|parent| Gc::allocate_handle(gc, ModuleValue::new_child(name.to_string(), parent)))
-      .unwrap_or_else(|| ModuleValue::new_global_module(gc, name));
+    let module = match module_type {
+      ModuleType::Global { name } => ModuleValue::new_global_module(name),
+      ModuleType::Child { name, parent } => ModuleValue::new_child(name, parent),
+      ModuleType::Scope { parent } => ModuleValue::new_scope(parent),
+    };
+
+    let module = Gc::allocate_handle(gc, module);
+
     f(gc, module.clone());
+
     module
+  }
+}
+
+pub trait IntoModPath<'t, T>
+where
+  T: AsRef<str> + 't,
+{
+  type Iter: Iterator<Item = &'t T> + 't;
+  fn into_mod_path(&'t self) -> Self::Iter;
+}
+
+impl<'t, T> IntoModPath<'t, T> for T
+where
+  T: AsRef<str> + 't,
+{
+  type Iter = Once<&'t T>;
+  fn into_mod_path(&'t self) -> Self::Iter {
+    iter::once(self)
+  }
+}
+
+impl<'t, T> IntoModPath<'t, T> for [T]
+where
+  T: AsRef<str> + 't,
+{
+  type Iter = std::slice::Iter<'t, T>;
+  fn into_mod_path(&'t self) -> Self::Iter {
+    self.iter()
+  }
+}
+
+impl<'t, T, const N: usize> IntoModPath<'t, T> for [T; N]
+where
+  T: AsRef<str> + 't,
+{
+  type Iter = std::slice::Iter<'t, T>;
+  fn into_mod_path(&'t self) -> Self::Iter {
+    self.iter()
   }
 }

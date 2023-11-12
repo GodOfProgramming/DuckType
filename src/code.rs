@@ -1,12 +1,12 @@
-use crate::{dbg, prelude::*};
+use crate::{error::CompiletimeErrors, prelude::*, util::FileIdType};
 use ast::Ast;
 use gen::BytecodeGenerator;
 use lex::Scanner;
 use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
+  collections::BTreeMap,
   convert::TryFrom,
-  error::Error,
   fmt::{self, Debug, Display, Formatter, Result as FmtResult},
   path::PathBuf,
   rc::Rc,
@@ -18,80 +18,50 @@ pub mod gen;
 pub mod lex;
 pub mod opt;
 
-#[derive(Default)]
-pub struct Compiler;
-
-impl Compiler {
-  pub fn compile(file: PathBuf, source: &str) -> Result<SmartPtr<Context>, Vec<RuntimeError>> {
-    dbg::profile_function!();
-
-    let file = Rc::new(file);
-    let mut scanner = Scanner::new(Rc::clone(&file), source);
-
-    let (tokens, meta) = scanner.scan().map_err(|errs| Self::reformat_errors(source, errs))?;
-
-    let (ast, errors) = Ast::from(tokens, meta);
-
-    if !errors.is_empty() {
-      #[cfg(feature = "visit-ast")]
-      {
-        ast.dump(&file);
-      }
-
-      return Err(Self::reformat_errors(source, errors));
-    }
-
-    let optimizer = Optimizer::<1>::new(ast);
-
-    let ast = optimizer.optimize();
-
-    let source = Rc::new(source.to_string());
-    let reflection = Reflection::new(file, Rc::clone(&source));
-    let ctx = SmartPtr::new(Context::new(Some("*main*"), reflection));
-
-    let generator = BytecodeGenerator::new(ctx);
-
-    generator.generate(ast).map_err(|errs| Self::reformat_errors(&source, errs))
-  }
-
-  fn reformat_errors(source: &str, errs: Vec<RuntimeError>) -> Vec<RuntimeError> {
-    errs
-      .into_iter()
-      .map(|mut e| {
-        if let Some(src) = source.lines().nth(e.line - 1) {
-          e.format_with_src_line(src);
-        }
-        e
-      })
-      .collect()
-  }
+pub(crate) fn compile_file(
+  program: &mut Program,
+  file_id: FileIdType,
+  source: impl AsRef<str>,
+) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+  compile(program, Some(file_id), source)
 }
 
-#[derive(Debug, Clone, PartialEq)]
+pub(crate) fn compile_string(program: &mut Program, source: impl AsRef<str>) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+  compile(program, None, source)
+}
+
+pub(crate) fn compile(
+  program: &mut Program,
+  file_id: Option<FileIdType>,
+  source: impl AsRef<str>,
+) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+  let scanner = Scanner::new(file_id, source.as_ref());
+
+  let (tokens, token_locations) = scanner.into_tokens()?;
+
+  let ast = Ast::try_from(file_id, tokens, token_locations)?;
+
+  let optimizer = Optimizer::<1>::new(ast);
+
+  let ast = optimizer.optimize();
+
+  let source = Rc::new(source.as_ref().to_string());
+  let reflection = Reflection::new(Some("<main>"), file_id, Rc::clone(&source));
+  let ctx = SmartPtr::new(Context::new(0, reflection));
+
+  let generator = BytecodeGenerator::new(program, file_id, ctx);
+
+  generator.generate(ast)
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceLocation {
-  pub file: Rc<PathBuf>,
-  pub line: usize,
-  pub column: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpCodeInfo {
-  pub line: usize,
-  pub column: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpCodeReflection<'src> {
-  pub file: Rc<PathBuf>,
-  pub source_line: &'src str,
   pub line: usize,
   pub column: usize,
 }
 
 #[derive(Debug)]
 pub enum ConstantValue {
-  Nil,
-  Bool(bool),
   Integer(i32),
   Float(f64),
   String(String),
@@ -102,17 +72,16 @@ pub enum ConstantValue {
 #[derive(Clone)]
 pub struct FunctionConstant {
   pub airity: usize,
-  pub locals: usize,
   pub ctx: SmartPtr<Context>,
 }
 
 impl FunctionConstant {
-  pub fn new(airity: usize, locals: usize, ctx: SmartPtr<Context>) -> Self {
-    Self { airity, locals, ctx }
+  pub fn new(airity: usize, ctx: SmartPtr<Context>) -> Self {
+    Self { airity, ctx }
   }
 
   fn name(&self) -> &str {
-    self.ctx.name.as_ref().map(|n| n.as_ref()).unwrap_or("<lambda>")
+    self.ctx.meta.name.as_deref().unwrap_or("<lambda>")
   }
 }
 
@@ -125,8 +94,6 @@ impl Debug for FunctionConstant {
 impl Display for ConstantValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     match self {
-      Self::Nil => write!(f, "nil"),
-      Self::Bool(v) => write!(f, "{}", v),
       Self::Integer(v) => write!(f, "{}", v),
       Self::Float(v) => write!(f, "{}", v),
       Self::String(v) => write!(f, "{}", v),
@@ -138,34 +105,68 @@ impl Display for ConstantValue {
 
 #[derive(Debug)]
 pub struct Reflection {
-  pub file: Rc<PathBuf>,
+  pub name: Option<String>,
+  pub file_id: Option<FileIdType>,
   pub source: Rc<String>,
-  pub opcode_info: Vec<OpCodeInfo>,
+  pub opcode_info: Vec<OpcodeInfo>,
 }
 
 impl Reflection {
-  pub(crate) fn new(file: Rc<PathBuf>, source: Rc<String>) -> Self {
+  pub(crate) fn new(name: Option<impl ToString>, file_id: Option<FileIdType>, source: Rc<String>) -> Self {
     Reflection {
-      file,
+      name: name.map(|n| n.to_string()),
+      file_id,
       source,
       opcode_info: Default::default(),
     }
   }
 
   pub(crate) fn add(&mut self, line: usize, column: usize) {
-    self.opcode_info.push(OpCodeInfo { line, column });
+    self.opcode_info.push(OpcodeInfo { line, column });
   }
 
-  pub fn get(&self, offset: usize) -> Option<OpCodeReflection<'_>> {
-    if let Some(info) = self.opcode_info.get(offset).cloned() {
-      self.source.lines().nth(info.line - 1).map(|src| OpCodeReflection {
-        file: Rc::clone(&self.file),
-        source_line: src,
-        line: info.line,
-        column: info.column,
-      })
-    } else {
-      None
-    }
+  pub fn info(&self, offset: usize) -> Option<OpcodeInfo> {
+    self.opcode_info.get(offset).cloned()
   }
+
+  pub fn reflect(&self, inst: Instruction, offset: usize) -> Option<InstructionReflection<'_>> {
+    self.info(offset).map(|info| InstructionReflection {
+      inst,
+      file_id: self.file_id,
+      source: &self.source,
+      line: info.line,
+      column: info.column,
+    })
+  }
+}
+
+#[derive(Default)]
+pub struct FileMap {
+  map: BTreeMap<FileIdType, PathBuf>,
+}
+
+impl FileMap {
+  pub(crate) fn add(&mut self, id: FileIdType, path: impl Into<PathBuf>) {
+    self.map.insert(id, path.into());
+  }
+
+  pub(crate) fn get(&self, id: Option<FileIdType>) -> PathBuf {
+    id.and_then(|id| self.map.get(&id).cloned())
+      .unwrap_or_else(|| PathBuf::from("<anonymous>"))
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpcodeInfo {
+  pub line: usize,
+  pub column: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstructionReflection<'src> {
+  pub inst: Instruction,
+  pub file_id: Option<FileIdType>,
+  pub source: &'src str,
+  pub line: usize,
+  pub column: usize,
 }

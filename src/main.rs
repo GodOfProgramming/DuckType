@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
-use simple_script::prelude::*;
-use std::{fs, path::PathBuf, process};
+use ducktype::prelude::*;
+use std::{io::Read, path::PathBuf, time::Duration};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -14,77 +14,67 @@ enum Command {
   Uuid,
   Run {
     #[arg()]
-    file: Option<PathBuf>,
+    files: Vec<PathBuf>,
 
+    #[clap(last = true)]
+    runargs: Vec<String>,
+  },
+  Pipe {
     #[clap(last = true)]
     runargs: Vec<String>,
   },
 }
 
-#[tokio::main]
-async fn main() {
-  #[cfg(feature = "profile")]
-  let _server = {
-    puffin::set_scopes_on(true);
-    let addr = format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT);
-    puffin_http::Server::new(&addr).unwrap()
-  };
-
+fn main() -> Result<(), Error> {
   let args = Args::parse();
 
   match args.command {
     Command::Uuid => println!("{}", Uuid::new_v4()),
-    Command::Run { file, runargs } => {
-      let mut exit_code = 0;
+    Command::Run { files, runargs } => {
+      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(16)));
 
-      let mut gc = SmartPtr::new(Gc::default());
+      let mut vm = Vm::new(gc.clone(), runargs.clone());
 
-      let gmod = ModuleBuilder::initialize(&mut gc, "*main*", None, |gc, mut lib| {
-        lib.env = stdlib::enable_std(gc, lib.handle.value.clone(), &runargs);
+      #[cfg(feature = "profile")]
+      let guard = {
+        pprof::ProfilerGuardBuilder::default()
+          .frequency(1000)
+          .blocklist(&["libc", "libgcc", "libdl", "libm", "libpthread", "linux-vdso"])
+          .build()
+          .unwrap()
+      };
+
+      for file in files {
+        let gmod = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*main*"), |gc, mut lib| {
+          let libval = lib.value();
+          lib.env.extend(stdlib::enable_std(gc, libval, &runargs));
+        });
+
+        let value = vm.run_file(file.clone(), gmod)?;
+        println!("=> {value}");
+      }
+
+      #[cfg(feature = "profile")]
+      if let Ok(report) = guard.report().build() {
+        use std::fs::File;
+        let file = File::create("target/flamegraph.svg").unwrap();
+        report.flamegraph(file).unwrap();
+      }
+    }
+    Command::Pipe { runargs } => {
+      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(16)));
+
+      let gmod = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*main*"), |gc, mut lib| {
+        let libval = lib.value();
+        lib.env.extend(stdlib::enable_std(gc, libval, &runargs));
       });
 
-      let vm = Vm::new(gc, runargs.clone());
-
-      if let Some(file) = file {
-        if !run_file(vm, file, gmod) {
-          exit_code = 1;
-        }
-      }
-
-      process::exit(exit_code);
+      let mut vm = Vm::new(gc, runargs.clone());
+      let mut input = String::new();
+      std::io::stdin().read_to_string(&mut input).map_err(SystemError::IoError)?;
+      let value = vm.run_string(input, gmod)?;
+      println!("=> {value}");
     }
   }
-}
-
-fn run_file(mut vm: Vm, file: PathBuf, env: UsertypeHandle<ModuleValue>) -> bool {
-  if !file.exists() {
-    println!("error: could not find source file '{}'", file.display());
-    return false;
-  }
-
-  match fs::read_to_string(&file) {
-    Ok(contents) => match vm.load(file.clone(), &contents) {
-      Ok(ctx) => match vm.run(file.clone(), ctx.clone(), env.clone()) {
-        Ok(result) => {
-          println!("=> {result}");
-          true
-        }
-        Err(errors) => {
-          println!("{errors}");
-          false
-        }
-      },
-      Err(errs) => {
-        println!("errors detected when compiling! ({})", errs.len());
-        for err in errs {
-          println!("{} ({}, {}): {}", err.file.display(), err.line, err.column, err.msg);
-        }
-        false
-      }
-    },
-    Err(err) => {
-      println!("error detected reading file {}: {}", file.display(), err);
-      false
-    }
-  }
+  Ok(())
 }

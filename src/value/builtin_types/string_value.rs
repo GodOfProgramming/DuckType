@@ -1,47 +1,62 @@
 use crate::prelude::*;
 use std::{
+  collections::hash_map::DefaultHasher,
   fmt::{Display, Formatter, Result as FmtResult},
+  hash::Hash,
   ops::{Deref, DerefMut},
 };
 
 #[derive(Default, Usertype, Fields)]
 #[uuid("71d35fbb-2091-40c3-ae3c-5b62b259e8a4")]
 pub struct StringValue {
-  str: String,
+  data: String,
+  hash: DefaultHasher,
+}
+
+impl StringValue {
+  pub fn new(data: impl ToString) -> Self {
+    let data = data.to_string();
+    let mut hash = DefaultHasher::new();
+    data.hash(&mut hash);
+    Self { data, hash }
+  }
 }
 
 #[methods]
 impl StringValue {
-  fn len(&self) -> ValueResult<i32> {
-    Ok(self.str.len() as i32)
+  fn len(&self) -> UsageResult<i32> {
+    Ok(self.data.len() as i32)
   }
 
-  fn replace_with(&mut self, other: &Self) -> ValueResult<()> {
-    self.str = other.str.clone();
+  fn replace_with(&mut self, other: &Self) -> UsageResult<()> {
+    self.data = other.data.clone();
     Ok(())
   }
 
-  fn clone(&self) -> ValueResult<Self> {
-    Ok(Self { str: self.str.clone() })
-  }
-
-  fn reverse(&self) -> ValueResult<Self> {
+  fn clone(&self) -> UsageResult<Self> {
     Ok(Self {
-      str: self.str.chars().rev().collect::<String>(),
+      data: self.data.clone(),
+      hash: self.hash.clone(),
     })
   }
 
-  fn __add__(&self, other: Value) -> ValueResult<Self> {
-    Ok(Self {
-      str: format!("{}{}", self, other),
-    })
+  fn reverse(&self) -> UsageResult<Self> {
+    Ok(Self::new(self.data.chars().rev().collect::<String>()))
   }
 
-  fn __eq__(&self, other: &Self) -> ValueResult<bool> {
-    Ok(self.str == other.str)
+  fn __add__(&self, other: Value) -> UsageResult<Self> {
+    Ok(Self::new(format!("{}{}", self, other)))
   }
 
-  fn __index__(&self, index: i32) -> ValueResult {
+  fn __eq__(&self, other: Value) -> UsageResult<bool> {
+    Ok(other.cast_to::<Self>().map(|other| self.data == other.data).unwrap_or(false))
+  }
+
+  fn __neq__(&self, other: Value) -> UsageResult<bool> {
+    self.__eq__(other).map(|v| !v)
+  }
+
+  fn __index__(&self, index: i32) -> UsageResult {
     Ok(self.chars().nth(index as usize).map(|c| c.into()).unwrap_or_default())
   }
 
@@ -56,19 +71,19 @@ impl StringValue {
 
 impl Display for StringValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    write!(f, "{}", self.str)
+    write!(f, "{}", self.data)
   }
 }
 
 impl From<String> for StringValue {
   fn from(str: String) -> Self {
-    Self { str }
+    Self::new(str)
   }
 }
 
 impl From<&str> for StringValue {
   fn from(str: &str) -> Self {
-    Self { str: str.to_string() }
+    Self::new(str)
   }
 }
 
@@ -76,13 +91,13 @@ impl Deref for StringValue {
   type Target = String;
 
   fn deref(&self) -> &Self::Target {
-    &self.str
+    &self.data
   }
 }
 
 impl DerefMut for StringValue {
   fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.str
+    &mut self.data
   }
 }
 
@@ -92,6 +107,6 @@ mod test {
 
   #[test]
   fn default_is_empty_string() {
-    assert_eq!(StringValue::default().str, String::default());
+    assert_eq!(StringValue::default().data, String::default());
   }
 }

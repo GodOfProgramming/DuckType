@@ -1,0 +1,3 @@
+req "other_module" as a_class;
+
+export mod test_module { }

@@ -1,0 +1,100 @@
+---
+$schema: "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json"
+name: "DuckType"
+env:
+  IDENT: "[A-Za-z_]\\w*"
+  CONST_IDENT: "[A-Z_]+"
+  INTERPOLATED: "\\${\\s*.*\\s*}"
+  REG: "\\/.*\\/"
+  HEX: "[0-9a-fA-F]"
+patterns:
+  - include: "#all"
+repository:
+  all:
+    patterns:
+      - include: "#comments"
+      - include: "#strings"
+      - include: "#keywords"
+      - include: "#support"
+      - include: "#meta"
+      - include: "#ident"
+      - include: "#numbers"
+  keywords:
+    patterns:
+      - name: "keyword.control"
+        match: "\\b(break|cont|else|for|if|loop|match|quack|ret|while|__breakpoint__)\\b"
+      - name: "keyword.operator"
+        match: "\\b(and|or)\\b|\\+|\\-|\\/|\\*"
+      - name: "keyword.declaration"
+        match: "\\b(let|class|struct|mod|fn|req|as|export|new|use)\\b"
+      - name: "constant.language.null"
+        match: "\\b(nil)\\b"
+      - name: "constant.language.boolean"
+        match: "\\b(true|false)\\b"
+  support:
+    patterns:
+      - name: "support.class"
+        patterns:
+          - include: "#class"
+      - name: "support.module"
+        patterns:
+          - include: "#module"
+      - name: "support.function"
+        patterns:
+          - include: "#function"
+      - name: "support.function.builtin"
+        match: "\\b(println)\\b"
+  meta:
+    patterns:
+      - name: "meta.function"
+        patterns:
+          - include: "#function"
+      - name: "meta.definition.function"
+        patterns:
+          - include: "#function"
+  class:
+    patterns:
+      - name: "entity.name.type.class"
+        match: "(?<=class)\\s+${ IDENT }"
+  module:
+    patterns:
+      - name: "entity.name.type.module"
+        match: "((?<=mod)\\s+${ IDENT })|(${ IDENT }(?=::))"
+  function:
+    name: "entity.name.function"
+    match: "((?<=fn)\\s+${ IDENT })|(${ IDENT }(?>\\())"
+  strings:
+    patterns:
+      - name: "string.quoted.double"
+        begin: '"'
+        end: '"'
+        patterns:
+          - include: "#string_content"
+      - name: "string.quoted.single"
+        begin: "'"
+        end: "'"
+  string_content:
+    patterns:
+      - name: "constant.character.escape"
+        match: "\\\\(?:[\"\\\\/bfnrt]|u${ HEX }{4}|x${ HEX }{2})"
+  numbers:
+    patterns:
+      - name: "constant.numeric"
+        match: "-?(0([0-7]+|[xX]${ HEX }+)?|([1-9]\\d*(?:(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)?))"
+  ident:
+    patterns:
+      - name: "variable.language"
+        match: "\\b(self)\\b"
+      - name: "variable.other.constant"
+        match: "\\b(${ CONST_IDENT })\\b"
+      - name: "entity.name.type"
+        match: "\\b([A-Z]\\w*|i32|f64|number|str|char|bool|vec)\\b"
+      - name: "variable.other.readwrite.global"
+        match: "\\b(\\$(?=\\w)\\w*)\\b"
+      - name: "variable.other.readwrite"
+        match: "\\b(${ IDENT })\\b"
+  comments:
+    patterns:
+      - name: "comment.line.pound"
+        match: "#.*"
+scopeName: "source.dk"

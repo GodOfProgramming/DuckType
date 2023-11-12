@@ -1,13 +1,14 @@
-use super::StackFrame;
+use super::{EnvStack, Stack, StackFrame};
 use crate::{
-  dbg,
   exec::Register,
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
 };
+use ahash::RandomState;
 use ptr::{MutPtr, SmartPtr};
 use std::{
   collections::HashSet,
+  fmt::{self, Display, Formatter},
   mem,
   ops::{Deref, DerefMut},
   sync::{
@@ -15,6 +16,7 @@ use std::{
     mpsc,
   },
   thread::{self, JoinHandle},
+  time::{Duration, Instant},
 };
 use strum::IntoEnumIterator;
 
@@ -97,6 +99,15 @@ where
   }
 }
 
+impl<T> Display for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.handle)
+  }
+}
+
 pub struct ValueHandle {
   pub value: Value,
   gc: SmartPtr<Gc>,
@@ -142,6 +153,12 @@ impl Clone for ValueHandle {
   }
 }
 
+impl Display for ValueHandle {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.value)
+  }
+}
+
 impl Drop for ValueHandle {
   fn drop(&mut self) {
     if self.value.is_ptr() {
@@ -158,26 +175,27 @@ impl Drop for ValueHandle {
 
 #[derive(Default)]
 pub struct Marker {
-  marked_values: HashSet<u64>,
+  marked_values: AllocationSet,
 }
 
 impl Marker {
   pub fn trace(&mut self, value: &Value) {
     if !self.marked_values.contains(&value.bits) {
+      // println!("tracing {value} {:p}", value.pointer());
       self.marked_values.insert(value.bits);
       value.trace_vtable(self);
     }
   }
 }
 
-impl From<Marker> for HashSet<u64> {
+impl From<Marker> for AllocationSet {
   fn from(value: Marker) -> Self {
     value.marked_values
   }
 }
 
 pub struct AsyncDisposal {
-  chute: Option<mpsc::Sender<u64>>,
+  chute: Option<mpsc::Sender<Vec<u64>>>,
   th: Option<JoinHandle<()>>,
 }
 
@@ -186,9 +204,11 @@ impl AsyncDisposal {
     let (sender, receiver) = mpsc::channel();
 
     let th = thread::spawn(move || {
-      while let Ok(alloc) = receiver.recv() {
-        let value = Value { bits: alloc };
-        Gc::drop_value(value);
+      while let Ok(allocations) = receiver.recv() {
+        for alloc in allocations {
+          let value = Value { bits: alloc };
+          Gc::drop_value(value);
+        }
       }
     });
 
@@ -198,10 +218,10 @@ impl AsyncDisposal {
     }
   }
 
-  fn dispose(&mut self, alloc: u64) -> Result<(), mpsc::SendError<u64>> {
+  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), mpsc::SendError<Vec<u64>>> {
     match &self.chute {
-      Some(chute) => chute.send(alloc)?,
-      None => Err(mpsc::SendError::<u64>(alloc))?,
+      Some(chute) => chute.send(allocations)?,
+      None => Err(mpsc::SendError::<Vec<u64>>(allocations))?,
     };
     Ok(())
   }
@@ -221,84 +241,137 @@ impl Default for AsyncDisposal {
   }
 }
 
-#[derive(Default)]
+type AllocationSet = HashSet<u64, RandomState>;
+
 pub struct Gc {
-  allocations: HashSet<u64>,
-  handles: HashSet<u64>,
+  next_run: Instant,
+  frequency: Duration,
+  pub(crate) allocations: AllocationSet,
+  pub(crate) handles: AllocationSet,
   disposer: AsyncDisposal,
+
+  pub(crate) cleans: usize,
+  // generational_allocations: Vec<AllocationSet>,
 }
 
 impl Gc {
-  pub fn new() -> Self {
+  pub fn new(frequency: Duration) -> Self {
     Self {
+      next_run: Instant::now() + frequency,
+      frequency,
       allocations: Default::default(),
       handles: Default::default(),
       disposer: AsyncDisposal::new(),
+      cleans: 0,
+      // generational_allocations: Default::default(),
     }
   }
 
-  pub fn clean<'v>(
+  pub(crate) fn clean_if_time<'v>(
     &mut self,
+    stack: &Stack,
     current_frame: &StackFrame,
     stack_frames: &Vec<StackFrame>,
+    envs: &EnvStack,
     cached_values: impl IntoIterator<Item = &'v Value>,
-  ) -> Result<usize, ValueError> {
-    dbg::profile_function!();
+    export: Option<&Value>,
+  ) -> Result<usize, SystemError> {
+    let now = Instant::now();
 
+    if now < self.next_run {
+      return Ok(0);
+    }
+
+    self.next_run = now + self.frequency;
+
+    self.clean(stack, current_frame, stack_frames, envs, cached_values, export)
+  }
+
+  pub(crate) fn clean<'v>(
+    &mut self,
+    stack: &Stack,
+    current_frame: &StackFrame,
+    stack_frames: &Vec<StackFrame>,
+    envs: &EnvStack,
+    cached_values: impl IntoIterator<Item = &'v Value>,
+    export: Option<&Value>,
+  ) -> Result<usize, SystemError> {
+    let marked_allocations = self.trace(stack, current_frame, stack_frames, envs, cached_values, export);
+
+    let loose_allocations = self.find_unmarked(marked_allocations);
+
+    let cleaned = loose_allocations.len();
+
+    for alloc in &loose_allocations {
+      let removed = self.allocations.remove(alloc);
+      debug_assert!(removed);
+    }
+
+    if cleaned > 0 {
+      self.disposer.dispose(loose_allocations)?;
+    }
+
+    self.cleans += 1;
+
+    Ok(cleaned)
+  }
+
+  fn trace<'v>(
+    &self,
+    stack: &Stack,
+    current_frame: &StackFrame,
+    stack_frames: &Vec<StackFrame>,
+    envs: &EnvStack,
+    cached_values: impl IntoIterator<Item = &'v Value>,
+    export: Option<&Value>,
+  ) -> AllocationSet {
     let mut marked_allocations = Marker::default();
 
-    {
-      dbg::profile_scope!("cache");
-      for value in cached_values {
-        marked_allocations.trace(value);
+    for value in stack.iter() {
+      marked_allocations.trace(value)
+    }
+
+    for value in cached_values {
+      marked_allocations.trace(value);
+    }
+
+    for value in &self.handles {
+      marked_allocations.trace(&Value { bits: *value });
+    }
+
+    for ctx in &current_frame.registers {
+      for reg in Register::iter() {
+        marked_allocations.trace(&ctx[reg]);
       }
     }
 
-    {
-      dbg::profile_scope!("handles");
-      for value in &self.handles {
-        marked_allocations.trace(&Value { bits: *value });
-      }
-    }
-
-    {
-      dbg::profile_scope!("current frame stack");
-      for value in &current_frame.stack {
-        marked_allocations.trace(value);
-      }
-
-      for ctx in &current_frame.registers {
+    for frame in stack_frames {
+      for ctx in &frame.registers {
         for reg in Register::iter() {
           marked_allocations.trace(&ctx[reg]);
         }
       }
     }
 
-    {
-      dbg::profile_scope!("all frame stacks");
-      for frame in stack_frames {
-        for value in &frame.stack {
-          marked_allocations.trace(value);
-        }
-
-        for ctx in &frame.registers {
-          for reg in Register::iter() {
-            marked_allocations.trace(&ctx[reg]);
-          }
-        }
-      }
+    for env in envs.iter() {
+      let handle = env.module();
+      let value = handle.value();
+      marked_allocations.trace(&value);
     }
 
-    {
-      dbg::profile_scope!("handles");
-      for handle in &self.handles {
-        marked_allocations.trace(&Value { bits: *handle })
-      }
+    if let Some(value) = export {
+      marked_allocations.trace(value);
     }
 
-    let marked_allocations: HashSet<u64> = marked_allocations.into();
+    for handle in &self.handles {
+      marked_allocations.trace(&Value { bits: *handle })
+    }
 
-    let unmarked_allocations: Vec<u64> = self
+    marked_allocations.into()
+  }
+
+  fn find_unmarked(&self, marked_allocations: AllocationSet) -> Vec<u64> {
+    self
       .allocations
       .difference(&marked_allocations)
       .filter(|a| {
@@ -307,17 +380,7 @@ impl Gc {
         value.meta().ref_count.load(Ordering::Relaxed) == 0
       })
       .cloned()
-      .collect();
-
-    let cleaned = unmarked_allocations.len();
-
-    for alloc in &unmarked_allocations {
-      let removed = self.allocations.remove(alloc);
-      debug_assert!(removed);
-      self.disposer.dispose(*alloc)?;
-    }
-
-    Ok(cleaned)
+      .collect()
   }
 
   pub fn handle_from(this: &mut SmartPtr<Self>, value: Value) -> ValueHandle {
@@ -376,6 +439,13 @@ impl Gc {
     let pointer = value.pointer_mut();
     let meta = value.meta();
     (meta.vtable.dealloc)(pointer);
+  }
+}
+
+#[cfg(test)]
+impl Gc {
+  pub fn always_run() -> Self {
+    Self::new(Duration::from_nanos(0))
   }
 }
 
@@ -511,9 +581,11 @@ where
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::code::Reflection;
+  use crate::{code::Reflection, util::FileIdType};
   use ptr::SmartPtr;
   use std::rc::Rc;
+
+  const FILE_ID: FileIdType = 0;
 
   #[derive(Usertype, Fields)]
   #[uuid("random")]
@@ -524,25 +596,34 @@ mod tests {
 
   fn new_ctx() -> SmartPtr<Context> {
     SmartPtr::new(Context::new(
-      Some("main"),
-      Reflection::new(Rc::new(Default::default()), Rc::new(Default::default())),
+      0,
+      Reflection::new(Some("main"), Some(FILE_ID), Rc::new(Default::default())),
     ))
   }
 
   #[test]
   fn gc_can_allocate_and_clean() {
-    let mut gc = Gc::new();
+    let mut gc = Gc::always_run();
     let ctx = new_ctx();
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []).unwrap();
+    let cleaned = gc
+      .clean(
+        &Default::default(),
+        &StackFrame::new(ctx, 0),
+        &Default::default(),
+        &Default::default(),
+        [],
+        None,
+      )
+      .unwrap();
     assert_eq!(cleaned, 1);
   }
 
   #[test]
   fn gc_does_not_clean_more_than_it_needs_to() {
-    let mut gc = Gc::new();
+    let mut gc = Gc::always_run();
     let ctx = new_ctx();
 
     let _x = gc.allocate(1);
@@ -552,27 +633,54 @@ mod tests {
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []).unwrap();
+    let cleaned = gc
+      .clean(
+        &Default::default(),
+        &StackFrame::new(ctx, 0),
+        &Default::default(),
+        &Default::default(),
+        [],
+        None,
+      )
+      .unwrap();
 
     assert_eq!(cleaned, 1);
   }
 
   #[test]
   fn gc_does_not_clean_open_handles() {
-    let mut gc = SmartPtr::new(Gc::new());
+    let mut gc = SmartPtr::new(Gc::always_run());
     let ctx = new_ctx();
 
-    let mut value = StructValue::default();
+    let mut value = StructValue::new([(("child", 0), Value::nil)]);
     let child = gc.allocate(SomeType {});
-    value.set("child", child);
+    value.set_field(&mut gc, Field::named("child"), child).unwrap();
 
     {
       let _handle = Gc::allocate_handle(&mut gc, value);
-      let cleaned = gc.clean(&StackFrame::new(ctx.clone()), &Default::default(), []).unwrap();
+      let cleaned = gc
+        .clean(
+          &Default::default(),
+          &StackFrame::new(ctx.clone(), 0),
+          &Default::default(),
+          &Default::default(),
+          [],
+          None,
+        )
+        .unwrap();
       assert_eq!(cleaned, 0);
     }
 
-    let cleaned = gc.clean(&StackFrame::new(ctx), &Default::default(), []).unwrap();
+    let cleaned = gc
+      .clean(
+        &Default::default(),
+        &StackFrame::new(ctx, 0),
+        &Default::default(),
+        &Default::default(),
+        [],
+        None,
+      )
+      .unwrap();
     assert_eq!(cleaned, 2);
   }
 }

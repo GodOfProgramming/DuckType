@@ -4,7 +4,7 @@ use crate::{
     lex::Token,
     SourceLocation,
   },
-  UnwrapAnd,
+  util::UnwrapAnd,
 };
 
 use super::Statement;
@@ -68,6 +68,30 @@ impl AstStatement for PrintlnStatement {
 }
 
 #[derive(Debug)]
+pub struct QuackStatement {
+  pub expr: Expression,
+  pub loc: SourceLocation,
+}
+
+impl QuackStatement {
+  pub(super) fn new(expr: Expression, loc: SourceLocation) -> Self {
+    Self { expr, loc }
+  }
+}
+
+impl AstStatement for QuackStatement {
+  fn stmt(ast: &mut AstGenerator) {
+    ast.meta_at::<0>().unwrap_and(|loc| {
+      ast.expression().unwrap_and(|expr| {
+        if ast.consume(Token::Semicolon, "expected ';' after quack") {
+          ast.statements.push(Statement::from(Self::new(expr, loc)));
+        }
+      });
+    });
+  }
+}
+
+#[derive(Debug)]
 pub struct ReqStatement {
   pub expr: Expression,
   pub ident: Ident,
@@ -88,9 +112,7 @@ impl AstStatement for ReqStatement {
           if let Some(Token::Identifier(ident)) = ast.current() {
             ast.advance();
             if ast.consume(Token::Semicolon, "expected ';' after ident") {
-              ast
-                .statements
-                .push(Statement::from(ReqStatement::new(expr, Ident::new(ident), loc)));
+              ast.statements.push(Statement::from(Self::new(expr, Ident::new(ident), loc)));
             }
           }
         }

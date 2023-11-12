@@ -4,7 +4,7 @@ use crate::{
     lex::Token,
     SourceLocation,
   },
-  UnwrapAnd,
+  util::UnwrapAnd,
 };
 
 use super::Statement;
@@ -60,7 +60,7 @@ impl FnStatement {
 
 impl AstStatement for FnStatement {
   fn stmt(ast: &mut AstGenerator) {
-    if let Some(stmt) = ast.parse_fn() {
+    if let Some(stmt) = ast.parse_fn(true) {
       ast.statements.push(stmt);
     }
   }

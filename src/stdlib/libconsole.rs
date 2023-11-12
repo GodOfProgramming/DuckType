@@ -9,7 +9,7 @@ pub fn console(_: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
   lib.define("readln", Value::native(readln));
 }
 
-fn write(_: &mut Vm, args: Args) -> ValueResult {
+fn write(_: &mut Vm, args: Args) -> UsageResult {
   for arg in &args.list {
     print!("{}", arg);
   }
@@ -17,7 +17,7 @@ fn write(_: &mut Vm, args: Args) -> ValueResult {
   Ok(Value::nil)
 }
 
-fn flush(_: &mut Vm, args: Args) -> ValueResult {
+fn flush(_: &mut Vm, args: Args) -> UsageResult {
   for arg in &args.list {
     print!("{}", arg);
   }
@@ -27,7 +27,7 @@ fn flush(_: &mut Vm, args: Args) -> ValueResult {
   Ok(Value::nil)
 }
 
-fn writeln(_: &mut Vm, args: Args) -> ValueResult {
+fn writeln(_: &mut Vm, args: Args) -> UsageResult {
   for arg in &args.list {
     print!("{}", arg);
   }
@@ -36,7 +36,7 @@ fn writeln(_: &mut Vm, args: Args) -> ValueResult {
   Ok(Value::nil)
 }
 
-fn flushln(_: &mut Vm, args: Args) -> ValueResult {
+fn flushln(_: &mut Vm, args: Args) -> UsageResult {
   for arg in &args.list {
     print!("{}", arg);
   }
@@ -48,8 +48,8 @@ fn flushln(_: &mut Vm, args: Args) -> ValueResult {
 }
 
 #[native]
-fn readln() -> ValueResult<String> {
+fn readln() -> UsageResult<String> {
   let mut buf = String::new();
-  stdin().read_line(&mut buf)?;
+  stdin().read_line(&mut buf).map_err(UsageError::native)?;
   Ok(buf.trim().to_string())
 }

@@ -1,4 +1,4 @@
-use crate::{code::ast::Ast, dbg};
+use crate::code::ast::Ast;
 
 pub struct Optimizer<const O: usize> {
   ast: Ast,
@@ -10,7 +10,6 @@ impl<const O: usize> Optimizer<O> {
   }
 
   pub fn optimize(self) -> Ast {
-    dbg::profile_function!();
     self.ast
   }
 }

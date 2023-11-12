@@ -2,13 +2,13 @@ use super::*;
 use std::f64::consts::PI;
 use tfix::{fixture, TestFixture};
 
-const ALL_TOKENS: &str = include_str!("all_tokens.ss");
+const ALL_TOKENS: &str = include_str!("all_tokens.dk");
 
-const CONSECUTIVE_TOKENS: &str = include_str!("consecutive_tokens.ss");
+const CONSECUTIVE_TOKENS: &str = include_str!("consecutive_tokens.dk");
 
-const SCANNING_ERRORS: &str = include_str!("scanning_errors.ss");
+const SCANNING_ERRORS: &str = include_str!("scanning_errors.dk");
 
-const TOKEN_META_TEST: &str = include_str!("token_meta_test.ss");
+const TOKEN_META_TEST: &str = include_str!("token_meta_test.dk");
 
 #[derive(Default)]
 struct ScannerTest {
@@ -16,19 +16,15 @@ struct ScannerTest {
 }
 
 impl ScannerTest {
-  fn file() -> Rc<PathBuf> {
-    Rc::new(PathBuf::from("test"))
-  }
-
   fn scanner(&self) -> Scanner {
-    Scanner::new(Self::file(), &self.tokens)
+    Scanner::new(None, &self.tokens)
   }
 
   fn test_scan<F: FnOnce(Vec<Token>, Vec<SourceLocation>)>(&self, f: F) {
-    match self.scanner().scan() {
+    match self.scanner().into_tokens() {
       Ok((actual, meta)) => f(actual, meta),
       Err(errors) => {
-        for error in errors {
+        for error in errors.into_iter() {
           println!("{}", error);
         }
         panic!("failed to scan");
@@ -36,15 +32,15 @@ impl ScannerTest {
     }
   }
 
-  fn test_failure<F: FnOnce(Vec<RuntimeError>)>(&self, f: F) {
-    match self.scanner().scan() {
+  fn test_failure<F: FnOnce(CompiletimeErrors)>(&self, f: F) {
+    match self.scanner().into_tokens() {
       Ok((_actual, _meta)) => panic!("should not have succeeded"),
       Err(errors) => f(errors),
     }
   }
 
-  fn mk_meta(&self, file: Rc<PathBuf>, line: usize, column: usize) -> SourceLocation {
-    SourceLocation { file, line, column }
+  fn mk_meta(&self, line: usize, column: usize) -> SourceLocation {
+    SourceLocation { line, column }
   }
 }
 
@@ -226,21 +222,21 @@ mod tests {
   #[test]
   fn returns_errors_at_right_location_when_detected(t: &mut ScannerTest) {
     let expected = vec![
-      RuntimeError {
+      CompiletimeError {
         msg: String::from("invalid character: '^'"),
-        file: ScannerTest::file(),
+        file_display: None,
         line: 6,
         column: 8,
       },
-      RuntimeError {
+      CompiletimeError {
         msg: String::from("invalid character: '?'"),
-        file: ScannerTest::file(),
+        file_display: None,
         line: 7,
         column: 9,
       },
-      RuntimeError {
+      CompiletimeError {
         msg: String::from("invalid character: '`'"),
-        file: ScannerTest::file(),
+        file_display: None,
         line: 7,
         column: 10,
       },
@@ -257,7 +253,7 @@ mod tests {
         expected.len(),
       );
 
-      for (a, e) in actual.iter().zip(expected.iter()) {
+      for (a, e) in actual.into_iter().zip(expected.into_iter()) {
         assert_eq!(a, e, "actual = {:?}, expected = {:?}", a, e);
       }
     });
@@ -265,8 +261,6 @@ mod tests {
 
   #[test]
   fn produces_the_correct_meta_information(t: &mut ScannerTest) {
-    let file = ScannerTest::file();
-
     let expected_tokens = vec![
       Token::Fn,
       Token::Identifier(String::from("foo")),
@@ -284,19 +278,19 @@ mod tests {
     ];
 
     let expected_meta = vec![
-      t.mk_meta(Rc::clone(&file), 1, 1),
-      t.mk_meta(Rc::clone(&file), 1, 4),
-      t.mk_meta(Rc::clone(&file), 1, 7),
-      t.mk_meta(Rc::clone(&file), 1, 8),
-      t.mk_meta(Rc::clone(&file), 1, 10),
-      t.mk_meta(Rc::clone(&file), 2, 3),
-      t.mk_meta(Rc::clone(&file), 2, 11),
-      t.mk_meta(Rc::clone(&file), 2, 12),
-      t.mk_meta(Rc::clone(&file), 3, 1),
-      t.mk_meta(Rc::clone(&file), 5, 1),
-      t.mk_meta(Rc::clone(&file), 5, 4),
-      t.mk_meta(Rc::clone(&file), 5, 5),
-      t.mk_meta(file, 5, 6),
+      t.mk_meta(1, 1),
+      t.mk_meta(1, 4),
+      t.mk_meta(1, 7),
+      t.mk_meta(1, 8),
+      t.mk_meta(1, 10),
+      t.mk_meta(2, 3),
+      t.mk_meta(2, 11),
+      t.mk_meta(2, 12),
+      t.mk_meta(3, 1),
+      t.mk_meta(5, 1),
+      t.mk_meta(5, 4),
+      t.mk_meta(5, 5),
+      t.mk_meta(5, 6),
     ];
 
     t.tokens = TOKEN_META_TEST.to_string();

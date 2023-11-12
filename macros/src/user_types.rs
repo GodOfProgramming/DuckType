@@ -74,19 +74,27 @@ pub(crate) fn derive_fields(struct_def: ItemStruct) -> TokenStream {
   quote! {
     #[automatically_derived]
     impl UsertypeFields for #name {
-      fn get_field(&self, gc: &mut Gc, field: &str) -> ValueResult<Option<Value>> {
-        match field {
-          #(#ident_strs => Ok(Some(gc.allocate(&self.#idents))),)*
-          _ => Ok(None),
+      fn get_field(&self, gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
+        if let Some(name) = field.name {
+          match name {
+            #(#ident_strs => Ok(Some(gc.allocate(&self.#idents))),)*
+            _ => Ok(None),
+          }
+        } else {
+          Err(UsageError::EmptyField)
         }
       }
 
-      fn set_field(&mut self, gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
-        match field {
-          #(#ident_strs => self.#idents = value.try_into()?,)*
-          _ => Err(ValueError::InvalidAssignment(field.to_string()))?,
+      fn set_field(&mut self, gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
+        if let Some(name) = field.name {
+          match name {
+            #(#ident_strs => self.#idents = value.try_into()?,)*
+            _ => Err(UsageError::UndefinedMember(name.to_string()))?,
+          }
+          Ok(())
+        } else {
+          Err(UsageError::EmptyField)
         }
-        Ok(())
       }
     }
   }
@@ -172,13 +180,13 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
                   let output = #me::#name(this, #args)?;
                   Ok(vm.gc.allocate(output))
                 } else {
-                  Err(ValueError::BadCast(#name_str, #me_str, this))
+                  Err(UsageError::BadCast(#name_str, #me_str, this))
                 }
               } else {
-                Err(ValueError::MissingSelf(#name_str))
+                Err(UsageError::MissingSelf(#name_str))
               }
             } else {
-              Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))
+              Err(UsageError::ArgumentError(args.list.len(), #nargs + 1))
             }
           })
         });
@@ -192,13 +200,13 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
                   let output = #me::#name(this, #args)?;
                   Ok(vm.gc.allocate(output))
                 } else {
-                  Err(ValueError::BadCast(#name_str, #me_str, this))
+                  Err(UsageError::BadCast(#name_str, #me_str, this))
                 }
               } else {
-                Err(ValueError::MissingSelf(#name_str))
+                Err(UsageError::MissingSelf(#name_str))
               }
             } else {
-              Err(ValueError::ArgumentError(args.list.len(), #nargs + 1))
+              Err(UsageError::ArgumentError(args.list.len(), #nargs + 1))
             }
           })
         });
@@ -222,7 +230,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
           let output = #me::#name(#args)?;
           Ok(vm.gc.allocate(output))
         } else {
-          Err(ValueError::ArgumentError(args.list.len(), #nargs))
+          Err(UsageError::ArgumentError(args.list.len(), #nargs))
         }
       })
     });
@@ -235,7 +243,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       let name_str = Literal::string(&name.to_string());
       let args = common::make_arg_list(nargs, name_str);
       quote! {
-        fn #name(vm: &mut Vm, mut args: Args) -> ValueResult {
+        fn #name(vm: &mut Vm, mut args: Args) -> UsageResult {
           #constructor
 
           if args.list.len() == #nargs {
@@ -243,7 +251,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
             let output = #name(#args)?;
             Ok(vm.gc.allocate(output))
           } else {
-            Err(ValueError::ArgumentError(args.list.len(), #nargs))
+            Err(UsageError::ArgumentError(args.list.len(), #nargs))
           }
         }
       }
@@ -329,11 +337,15 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     impl UsertypeMethods for #me {
       #constructor_impl
 
-      fn get_method(&self, gc: &mut Gc, this: &Value, field: &str) -> ValueResult<Option<Value>> {
-        match field {
-           #(#method_strs => Ok(Some(#method_lambda_bodies)),)*
-           #(#static_strs => Ok(Some(#static_lambda_bodies)),)*
-          _ => Ok(None),
+      fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>> {
+        if let Some(name) = field.name {
+          match name {
+            #(#method_strs => Ok(Some(#method_lambda_bodies)),)*
+            #(#static_strs => Ok(Some(#static_lambda_bodies)),)*
+            _ => Ok(None),
+          }
+        } else {
+          Err(UsageError::EmptyField)
         }
       }
     }

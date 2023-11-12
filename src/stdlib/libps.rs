@@ -10,12 +10,12 @@ pub fn ps(gc: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
 }
 
 #[native]
-fn exit(code: i32) -> ValueResult {
+fn exit(code: i32) -> UsageResult {
   std::process::exit(code);
 }
 
 #[native]
-fn thread_sleep(seconds: f64) -> ValueResult<()> {
+fn thread_sleep(seconds: f64) -> UsageResult<()> {
   std::thread::sleep(Duration::from_secs_f64(seconds));
   Ok(())
 }

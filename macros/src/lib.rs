@@ -4,7 +4,6 @@ mod user_types;
 
 use proc_macro::TokenStream;
 use proc_macro2::Literal;
-use quote::ToTokens;
 use syn::{
   parenthesized,
   parse::{Parse, ParseStream},
@@ -98,9 +97,4 @@ pub fn native(args: TokenStream, input: TokenStream) -> TokenStream {
     }
   }
   .into()
-}
-
-#[allow(unused)]
-fn message(location: impl ToTokens, msg: impl Into<String>) -> proc_macro2::TokenStream {
-  syn::Error::new_spanned(location, msg.into()).to_compile_error()
 }

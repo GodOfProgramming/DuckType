@@ -29,14 +29,14 @@ impl ClosureValue {
 
 #[methods]
 impl ClosureValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, args: Args) -> ValueResult<()> {
-    self.function.check_args(&args)?;
+  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult {
+    self.function.check_args(airity)?;
 
-    let mut captures_with_args = Vec::with_capacity(self.captures.len() + args.list.len());
-    captures_with_args.extend(self.captures.clone());
-    captures_with_args.extend(args.list);
+    for capture in &self.captures {
+      vm.stack_push(capture.clone());
+    }
 
-    self.function.invoke(vm, Args::new(captures_with_args))
+    self.function.invoke(vm, self.captures.len())
   }
 
   fn __str__(&self) -> String {

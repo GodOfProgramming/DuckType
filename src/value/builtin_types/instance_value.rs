@@ -1,43 +1,34 @@
 use crate::prelude::*;
 
-#[derive(Usertype, Default)]
+#[derive(Usertype)]
 #[uuid("988a6bd1-4a54-416f-aad5-0d1cc8ce652e")]
 pub struct InstanceValue {
   #[trace]
-  pub data: StructValue,
+  pub data: Value,
   #[trace]
   pub class: Value,
 }
 
 impl InstanceValue {
-  pub fn new(data: StructValue, class: Value) -> Self {
+  pub fn new(data: Value, class: Value) -> Self {
     Self { data, class }
   }
 }
 
 impl UsertypeFields for InstanceValue {
-  fn get_field(&self, gc: &mut Gc, field: &str) -> ValueResult<Option<Value>> {
-    if field == "__class__" {
-      Ok(Some(self.class.clone()))
-    } else {
-      self.data.get_field(gc, field)
-    }
+  fn get_field(&self, gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
+    self.data.get_member(gc, field)
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: &str, value: Value) -> ValueResult<()> {
-    if field == "__class__" {
-      Err(ValueError::Immutable(field.to_string()))
-    } else {
-      self.data.set(field, value);
-      Ok(())
-    }
+  fn set_field(&mut self, gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
+    self.data.set_member(gc, field, value)
   }
 }
 
 impl UsertypeMethods for InstanceValue {
-  fn get_method(&self, gc: &mut Gc, this: &Value, name: &str) -> ValueResult<Option<Value>> {
+  fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>> {
     if let Some(class) = self.class.as_class() {
-      Ok(class.get_method(gc, this, name))
+      Ok(class.get_method(gc, this, field))
     } else {
       Ok(None)
     }
@@ -59,8 +50,12 @@ impl DebugValue for InstanceValue {
 impl ResolvableValue for InstanceValue {}
 
 impl InvocableValue for InstanceValue {
-  fn __ivk__(&mut self, vm: &mut Vm, this: Value, args: Args) -> ValueResult<()> {
-    let mut callable = self.get(&mut vm.gc, &this, "__ivk__")?;
-    callable.call(vm, args)
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult {
+    let mut callable = self
+      .get(&mut vm.gc, &this, Field::named("__ivk__"))?
+      .map(Ok)
+      .unwrap_or(Err(UsageError::UnexpectedNil))?;
+
+    callable.call(vm, airity)
   }
 }

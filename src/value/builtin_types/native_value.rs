@@ -2,9 +2,9 @@ use super::Args;
 use crate::prelude::*;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-pub type NativeFn = for<'a> fn(&mut Vm, Args) -> ValueResult;
+pub type NativeFn = for<'a> fn(&mut Vm, Args) -> UsageResult;
 
-type NativeClosureType = dyn FnMut(&mut Vm, Args) -> ValueResult;
+type NativeClosureType = dyn FnMut(&mut Vm, Args) -> UsageResult;
 
 #[derive(Usertype, Fields)]
 #[uuid("3c90ac96-ba86-4ceb-9b9a-591af85ca17b")]
@@ -17,7 +17,7 @@ impl NativeClosureValue {
   pub fn new<T, F>(name: T, callee: F) -> Self
   where
     T: ToString,
-    F: FnMut(&mut Vm, Args) -> ValueResult + 'static,
+    F: FnMut(&mut Vm, Args) -> UsageResult + 'static,
   {
     Self {
       name: name.to_string(),
@@ -32,10 +32,9 @@ impl NativeClosureValue {
     format!("{}", self)
   }
 
-  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, args: Args) -> ValueResult<()> {
-    let output = (*self.callee)(vm, args)?;
-    vm.stack_push(output);
-    Ok(())
+  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, airity: usize) -> UsageResult {
+    let args = vm.stack_drain_from(airity);
+    (*self.callee)(vm, Args::new(args))
   }
 }
 
@@ -50,23 +49,21 @@ impl Display for NativeClosureValue {
 pub struct NativeMethodValue {
   #[trace]
   pub this: Value,
-  callee: Value,
+  callee: NativeFn,
 }
 
 impl NativeMethodValue {
   pub fn new_native_fn(this: Value, callee: NativeFn) -> Self {
-    Self {
-      this,
-      callee: Value::native(callee),
-    }
+    Self { this, callee }
   }
 }
 
 #[methods]
 impl NativeMethodValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, mut args: Args) -> ValueResult<()> {
-    args.list.push(self.this.clone());
-    self.callee.call(vm, args)
+  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, airity: usize) -> UsageResult {
+    let args = vm.stack_drain_from(airity);
+    let args = Args::new_with_this(self.this.clone(), args);
+    (self.callee)(vm, args)
   }
 
   fn __str__(&self) -> String {
@@ -76,6 +73,6 @@ impl NativeMethodValue {
 
 impl Display for NativeMethodValue {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-    write!(f, "<native method {}>", self.callee)
+    write!(f, "<native method 0x{:p}>", self.callee)
   }
 }

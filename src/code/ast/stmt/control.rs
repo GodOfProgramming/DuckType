@@ -1,7 +1,7 @@
 use super::{AstGenerator, AstStatement, Expression, ExpressionStatement, Statement};
 use crate::{
   code::{lex::Token, SourceLocation},
-  UnwrapAnd,
+  util::UnwrapAnd,
 };
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ impl BlockStatement {
 impl AstStatement for BlockStatement {
   fn stmt(ast: &mut AstGenerator) {
     ast.meta_at::<1>().unwrap_and(|block_loc| {
-      ast.block(block_loc).unwrap_and(|block| {
+      ast.normal_block(block_loc).unwrap_and(|block| {
         ast.statements.push(Statement::from(block));
       });
     });
@@ -83,17 +83,6 @@ impl AstStatement for ContStatement {
 }
 
 #[derive(Debug)]
-pub struct DefaultConstructorRet {
-  pub loc: SourceLocation,
-}
-
-impl DefaultConstructorRet {
-  pub(crate) fn new(loc: SourceLocation) -> Self {
-    Self { loc }
-  }
-}
-
-#[derive(Debug)]
 pub struct ForStatement {
   pub initializer: Box<Statement>,
   pub comparison: Expression,
@@ -151,7 +140,7 @@ impl AstStatement for ForStatement {
               let prev = ast.in_loop;
               ast.in_loop = true;
               ast.meta_at::<1>().unwrap_and(|block_loc| {
-                if let Some(block) = ast.block(block_loc) {
+                if let Some(block) = ast.normal_block(block_loc) {
                   ast.statements.push(Statement::from(Self::new(
                     initializer,
                     comparison,
@@ -226,7 +215,7 @@ impl AstStatement for LoopStatement {
     ast.in_loop = true;
 
     if let Some(loc) = ast.meta_at::<1>() {
-      if let Some(block) = ast.block(loc.clone()) {
+      if let Some(block) = ast.normal_block(loc) {
         ast
           .statements
           .push(Statement::from(LoopStatement::new(Statement::from(block), loc)));
@@ -286,7 +275,7 @@ impl AstStatement for MatchStatement {
 
             if let Some(eval_loc) = ast.meta_at::<0>() {
               let stmt = if ast.advance_if_matches(Token::LeftBrace) {
-                if let Some(block) = ast.block(eval_loc) {
+                if let Some(block) = ast.normal_block(eval_loc) {
                   Statement::from(block)
                 } else {
                   break;
@@ -320,7 +309,7 @@ impl AstStatement for MatchStatement {
 
         let default = if ast.advance_if_matches(Token::Else) && ast.advance_if_matches(Token::LeftBrace) {
           if let Some(else_loc) = ast.meta_at::<2>() {
-            ast.block(else_loc).map(Statement::from)
+            ast.normal_block(else_loc).map(Statement::from)
           } else {
             // sanity check
             ast.error::<0>(String::from("could not find original token"));
@@ -343,13 +332,16 @@ pub struct RetStatement {
 }
 
 impl RetStatement {
-  pub(super) fn new(expr: Option<Expression>, loc: SourceLocation) -> Self {
+  pub(crate) fn new(expr: Option<Expression>, loc: SourceLocation) -> Self {
     Self { expr, loc }
   }
 }
 
 impl AstStatement for RetStatement {
   fn stmt(ast: &mut AstGenerator) {
+    if !ast.returnable {
+      ast.error::<1>("cannot return from this scope");
+    }
     ast.meta_at::<1>().unwrap_and(|loc| {
       if let Some(current) = ast.current() {
         let expr = if current == Token::Semicolon {
@@ -398,7 +390,7 @@ impl AstStatement for WhileStatement {
       ast.in_loop = true;
 
       ast.meta_at::<1>().unwrap_and(|loc| {
-        if let Some(block) = ast.block(loc.clone()) {
+        if let Some(block) = ast.normal_block(loc) {
           ast
             .statements
             .push(Statement::from(WhileStatement::new(expr, Statement::from(block), loc)));

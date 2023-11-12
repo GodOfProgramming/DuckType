@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Display};
 
 use crate::code::{
-  ast::{AstExpression, AstGenerator, BlockStatement, DefaultConstructorRet, Ident, Params, SelfRules, Statement},
+  ast::{AstExpression, AstGenerator, BlockStatement, Ident, Params, RetStatement, SelfRules, Statement, SELF_IDENT},
   lex::{NumberToken, Token},
-  ConstantValue, SourceLocation,
+  SourceLocation,
 };
 
 use super::Expression;
@@ -71,6 +71,7 @@ impl AstExpression for IdentExpression {
 #[derive(Debug)]
 pub struct ClassExpression {
   pub name: Ident,
+  pub creator: Box<Expression>,
   pub initializer: Option<Box<Expression>>,
   pub methods: Vec<(Ident, Expression)>,
   pub loc: SourceLocation,
@@ -79,12 +80,14 @@ pub struct ClassExpression {
 impl ClassExpression {
   pub(super) fn new(
     name: Ident,
+    creator: Expression,
     initializer: Option<Expression>,
     methods: Vec<(Ident, Expression)>,
     loc: SourceLocation,
   ) -> Self {
     Self {
       name,
+      creator: Box::new(creator),
       initializer: initializer.map(Box::new),
       methods,
       loc,
@@ -108,6 +111,7 @@ impl AstExpression for ClassExpression {
       return None;
     }
 
+    let mut creator = None;
     let mut initializer = None;
     let mut class_members = Vec::default();
     let mut declared_functions = BTreeSet::default();
@@ -115,20 +119,41 @@ impl AstExpression for ClassExpression {
     while let Some(token) = ast.current() {
       let member_loc = ast.meta_at::<0>()?;
       match token {
+        Token::Identifier(ident) if ident == SELF_IDENT => {
+          ast.advance();
+          ast.consume(Token::As, "expected 'as' keyword after self");
+          let initializer = ast.expression()?;
+          if creator.is_none() {
+            creator = Some(Expression::from(LambdaExpression::new(
+              Vec::default(),
+              Statement::Ret(RetStatement::new(Some(initializer), member_loc)),
+              member_loc,
+            )));
+          } else {
+            ast.error::<0>("self is already defined");
+          }
+        }
         Token::New => {
           ast.advance();
           if initializer.is_none() {
             if ast.consume(Token::LeftParen, "expected '(' after 'new'") {
-              initializer = LambdaExpression::expr(ast, SelfRules::Require, Token::RightParen, |_this, params, mut body| {
-                body
-                  .statements
-                  .push(Statement::from(DefaultConstructorRet::new(member_loc.clone())));
-                Some(Expression::from(LambdaExpression::new(
-                  params.list,
-                  Statement::from(body),
-                  member_loc,
-                )))
-              });
+              initializer = LambdaExpression::expr(
+                ast,
+                false,
+                SelfRules::Require,
+                Token::RightParen,
+                |_this, params, mut body| {
+                  body.statements.push(Statement::from(RetStatement::new(
+                    Some(IdentExpression::new(Ident::new(SELF_IDENT), member_loc).into()),
+                    member_loc,
+                  )));
+                  Some(Expression::from(LambdaExpression::new(
+                    params.list,
+                    Statement::from(body),
+                    member_loc,
+                  )))
+                },
+              );
             }
           } else {
             ast.error::<0>(String::from("duplicate initializer found"));
@@ -142,7 +167,7 @@ impl AstExpression for ClassExpression {
               if let Some(params) = ast.parse_parameters(Token::RightParen) {
                 if let Some(ident) = ast.fn_ident(fn_name, &params) {
                   if !declared_functions.contains(&ident.name) {
-                    if let Some(function) = ast.parse_lambda(params, |_this, params, body| {
+                    if let Some(function) = ast.parse_lambda(true, params, |_this, params, body| {
                       declared_functions.insert(ident.name.clone());
                       if params.found_self {
                         Some(Expression::from(MethodExpression::new(
@@ -178,12 +203,18 @@ impl AstExpression for ClassExpression {
       return None;
     }
 
-    Some(Expression::from(ClassExpression::new(
-      name,
-      initializer,
-      class_members,
-      class_loc,
-    )))
+    if let Some(creator) = creator.take() {
+      Some(Expression::from(ClassExpression::new(
+        name,
+        creator,
+        initializer,
+        class_members,
+        class_loc,
+      )))
+    } else {
+      ast.error::<0>("self must be defined in classes");
+      None
+    }
   }
 }
 
@@ -221,7 +252,7 @@ impl ClosureExpression {
       }
     }
 
-    LambdaExpression::expr(ast, SelfRules::Disallow, param_term, |_this, params, body| {
+    LambdaExpression::expr(ast, true, SelfRules::Disallow, param_term, |_this, params, body| {
       Some(Expression::from(ClosureExpression::new(
         vetted_captures,
         params.list,
@@ -248,7 +279,7 @@ impl LambdaExpression {
     }
   }
 
-  fn expr<F>(ast: &mut AstGenerator, self_rules: SelfRules, param_term: Token, f: F) -> Option<Expression>
+  fn expr<F>(ast: &mut AstGenerator, can_return: bool, self_rules: SelfRules, param_term: Token, f: F) -> Option<Expression>
   where
     F: FnOnce(&mut AstGenerator, Params, BlockStatement) -> Option<Expression>,
   {
@@ -263,7 +294,7 @@ impl LambdaExpression {
         ast.error::<0>(String::from("missing 'self' in function"));
         None
       }
-      _ => ast.parse_lambda(params, f),
+      _ => ast.parse_lambda(can_return, params, f),
     }
   }
 }
@@ -281,7 +312,7 @@ impl From<ClosureExpression> for LambdaExpression {
 impl AstExpression for LambdaExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     let loc = ast.meta_at::<0>()?;
-    LambdaExpression::expr(ast, SelfRules::Disallow, Token::Pipe, |_this, params, body| {
+    LambdaExpression::expr(ast, true, SelfRules::Disallow, Token::Pipe, |_this, params, body| {
       Some(Expression::from(LambdaExpression::new(
         params.list,
         Statement::from(body),
@@ -292,14 +323,35 @@ impl AstExpression for LambdaExpression {
 }
 
 #[derive(Debug)]
+pub enum LiteralValue {
+  Nil,
+  Bool(bool),
+  I32(i32),
+  F64(f64),
+  String(String),
+}
+
+impl Display for LiteralValue {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      LiteralValue::Nil => write!(f, "nil"),
+      LiteralValue::Bool(b) => write!(f, "{b}"),
+      LiteralValue::I32(n) => write!(f, "{n}"),
+      LiteralValue::F64(n) => write!(f, "{n}"),
+      LiteralValue::String(s) => write!(f, "{s}"),
+    }
+  }
+}
+
+#[derive(Debug)]
 pub struct LiteralExpression {
-  pub value: ConstantValue,
+  pub value: LiteralValue,
 
   pub loc: SourceLocation, // location of the literal
 }
 
 impl LiteralExpression {
-  pub(super) fn new(value: ConstantValue, loc: SourceLocation) -> Self {
+  pub(super) fn new(value: LiteralValue, loc: SourceLocation) -> Self {
     Self { value, loc }
   }
 }
@@ -311,20 +363,20 @@ impl AstExpression for LiteralExpression {
     if let Some(prev) = ast.previous() {
       match prev {
         Token::Nil => {
-          expr = Some(Expression::from(Self::new(ConstantValue::Nil, ast.meta_at::<1>()?)));
+          expr = Some(Expression::from(Self::new(LiteralValue::Nil, ast.meta_at::<1>()?)));
         }
         Token::True => {
-          expr = Some(Expression::from(Self::new(ConstantValue::Bool(true), ast.meta_at::<1>()?)));
+          expr = Some(Expression::from(Self::new(LiteralValue::Bool(true), ast.meta_at::<1>()?)));
         }
         Token::False => {
-          expr = Some(Expression::from(Self::new(ConstantValue::Bool(false), ast.meta_at::<1>()?)));
+          expr = Some(Expression::from(Self::new(LiteralValue::Bool(false), ast.meta_at::<1>()?)));
         }
-        Token::String(s) => expr = Some(Expression::from(Self::new(ConstantValue::String(s), ast.meta_at::<1>()?))),
+        Token::String(s) => expr = Some(Expression::from(Self::new(LiteralValue::String(s), ast.meta_at::<1>()?))),
         Token::Number(n) => {
           expr = Some(Expression::from(Self::new(
             match n {
-              NumberToken::I32(i) => ConstantValue::Integer(i),
-              NumberToken::F64(f) => ConstantValue::Float(f),
+              NumberToken::I32(i) => LiteralValue::I32(i),
+              NumberToken::F64(f) => LiteralValue::F64(f),
             },
             ast.meta_at::<1>()?,
           )))
@@ -456,7 +508,7 @@ impl AstExpression for ModExpression {
               if let Some(params) = ast.parse_parameters(Token::RightParen) {
                 if let Some(ident) = ast.fn_ident(fn_name, &params) {
                   if !declared_items.contains(&ident.name) {
-                    if let Some(function) = ast.parse_lambda(params, |this, params, body| {
+                    if let Some(function) = ast.parse_lambda(true, params, |this, params, body| {
                       declared_items.insert(ident.name.clone());
                       if params.found_self {
                         this.error::<0>("cannot use ast in module function");
@@ -480,11 +532,11 @@ impl AstExpression for ModExpression {
           }
         }
         Token::RightBrace => break,
-        t => ast.error::<0>(format!("unexpected token in class {t}")),
+        t => ast.error::<0>(format!("unexpected token in module {t}")),
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '}' after class body") {
+    if !ast.consume(Token::RightBrace, "expected '}' after module body") {
       return None;
     }
 
@@ -515,7 +567,6 @@ impl AstExpression for StructExpression {
     let mut members = Vec::default();
 
     while let Some(token) = ast.current() {
-      let struct_meta = struct_meta.clone();
       if token == Token::RightBrace {
         break;
       }

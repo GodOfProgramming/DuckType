@@ -1,4 +1,7 @@
-use crate::util;
+use crate::{
+  error::CompiletimeError,
+  util::{self, FileIdType},
+};
 
 use super::*;
 use std::{ops::RangeInclusive, str};
@@ -91,6 +94,7 @@ pub enum Token {
   Nil,
   Or,
   Println,
+  Quack,
   Req,
   Ret,
   Struct,
@@ -133,7 +137,7 @@ impl From<i32> for Token {
 }
 
 impl TryFrom<&[u8]> for Token {
-  type Error = Box<dyn Error>;
+  type Error = Box<dyn std::error::Error>;
 
   fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
     Ok(match str::from_utf8(bytes)? {
@@ -156,6 +160,7 @@ impl TryFrom<&[u8]> for Token {
       "nil" => Self::Nil,
       "or" => Self::Or,
       "println" => Self::Println,
+      "quack" => Self::Quack,
       "req" => Self::Req,
       "ret" => Self::Ret,
       "struct" => Self::Struct,
@@ -169,31 +174,29 @@ impl TryFrom<&[u8]> for Token {
 }
 
 pub struct Scanner<'src> {
-  file: Rc<PathBuf>,
+  file_id: Option<FileIdType>,
   src: &'src [u8],
   start_pos: usize,
   pos: usize,
   line: usize,
   column: usize,
-  errors: Option<Vec<RuntimeError>>,
+  errors: CompiletimeErrors,
 }
 
 impl<'src> Scanner<'src> {
-  pub fn new(file: Rc<PathBuf>, source: &'src str) -> Self {
+  pub fn new(file_id: Option<FileIdType>, source: &'src str) -> Self {
     Scanner {
-      file,
+      file_id,
       src: source.as_bytes(),
       start_pos: 0,
       pos: 0,
       line: 0,
       column: 0,
-      errors: None,
+      errors: Default::default(),
     }
   }
 
-  pub fn scan(&mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), Vec<RuntimeError>> {
-    dbg::profile_function!();
-
+  pub fn into_tokens(mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), CompiletimeErrors> {
     let mut tokens = Vec::new();
     let mut meta = Vec::new();
 
@@ -205,10 +208,6 @@ impl<'src> Scanner<'src> {
 
         let line = self.line;
         let column = self.column;
-
-        if cfg!(test) {
-          println!("pos = {}, line = {}, col = {}", self.pos, self.line, self.column,);
-        }
 
         let token = match c {
           '(' => Token::LeftParen,
@@ -348,13 +347,8 @@ impl<'src> Scanner<'src> {
           }
         };
 
-        if cfg!(test) {
-          println!("{}: {:?}", tokens.len(), token);
-        }
-
         tokens.push(token);
         meta.push(SourceLocation {
-          file: Rc::clone(&self.file),
           line: line + 1,
           column: column + 1,
         });
@@ -367,26 +361,20 @@ impl<'src> Scanner<'src> {
       }
     }
 
-    if let Some(errs) = self.errors.take() {
-      Err(errs)
-    } else {
+    if self.errors.is_empty() {
       Ok((tokens, meta))
+    } else {
+      Err(self.errors)
     }
   }
 
   fn error(&mut self, msg: impl ToString) {
-    if self.errors.is_none() {
-      self.errors = Some(Vec::new());
-    }
-
-    if let Some(errs) = &mut self.errors {
-      errs.push(RuntimeError {
-        msg: msg.to_string(),
-        file: Rc::clone(&self.file),
-        line: self.line + 1,
-        column: self.column + 1,
-      });
-    }
+    self.errors.add(CompiletimeError {
+      msg: msg.to_string(),
+      file_display: self.file_id.map(FileDisplay::Id),
+      line: self.line + 1,
+      column: self.column + 1,
+    });
   }
 
   /// supports the following numbers
@@ -490,7 +478,7 @@ impl<'src> Scanner<'src> {
           collect_digits!(self, Self::is_digit, exp);
           let lexeme = exp.iter().collect::<String>();
 
-          match i32::from_str_radix(&lexeme, 10) {
+          match lexeme.parse::<i32>() {
             Ok(mut exp) => {
               if negate {
                 exp = -exp;
@@ -512,7 +500,7 @@ impl<'src> Scanner<'src> {
 
       Some(Token::Number(NumberToken::F64(number)))
     } else {
-      match i32::from_str_radix(&lexeme, 10) {
+      match lexeme.parse::<i32>() {
         Ok(mut int) => {
           if let Some(c) = self.peek() {
             if c == 'e' || c == 'E' {
@@ -528,7 +516,7 @@ impl<'src> Scanner<'src> {
               collect_digits!(self, Self::is_digit, exp);
               let lexeme = exp.iter().collect::<String>();
 
-              match i32::from_str_radix(&lexeme, 10) {
+              match lexeme.parse::<i32>() {
                 Ok(mut exp) => {
                   if negate {
                     exp = -exp;

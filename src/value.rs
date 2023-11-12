@@ -69,8 +69,6 @@ impl Value {
 
   pub fn from_constant(gc: &mut Gc, env: Value, v: &ConstantValue) -> Self {
     match v {
-      ConstantValue::Nil => Self::nil,
-      ConstantValue::Bool(v) => Self::from(*v),
       ConstantValue::Integer(v) => Self::from(*v),
       ConstantValue::Float(v) => Self::from(*v),
       ConstantValue::String(v) => gc.allocate(v),
@@ -337,7 +335,7 @@ impl Value {
   pub fn new_native_closure<N, F>(gc: &mut Gc, name: N, f: F) -> Self
   where
     N: ToString,
-    F: FnMut(&mut Vm, Args) -> ValueResult + 'static,
+    F: FnMut(&mut Vm, Args) -> UsageResult + 'static,
   {
     gc.allocate(NativeClosureValue::new(name, f))
   }
@@ -424,44 +422,36 @@ impl Value {
     self.is_type::<NIL_TAG>()
   }
 
-  pub fn call(&mut self, vm: &mut Vm, args: Args) -> ValueResult<()> {
+  pub fn call(&mut self, vm: &mut Vm, airity: usize) -> UsageResult {
     if self.tag() == Tag::NativeFn {
+      let args = vm.stack_drain_from(airity);
       let f = self.as_native_fn_unchecked();
-      let output = f(vm, args)?;
-      vm.stack_push(output);
-      Ok(())
+      let output = f(vm, Args::new(args))?;
+      Ok(output)
     } else {
-      (self.vtable().invoke)(self.pointer_mut(), vm as *mut Vm as MutVoid, self.clone(), args)
+      (self.vtable().invoke)(self.pointer_mut(), MutPtr::new(vm), self.clone(), airity)
     }
   }
 
   // value methods
 
-  pub fn get_member(&self, gc: &mut Gc, name: &str) -> ValueResult {
-    if self.is_ptr() {
-      (self.vtable().get_member)(self, gc as *mut Gc as MutVoid, name)
-    } else {
-      Err(ValueError::InvalidLookup(self.clone()))
-    }
+  pub fn get_member(&self, gc: &mut Gc, name: Field) -> UsageResult<Option<Value>> {
+    (self.vtable().get_member)(self, MutPtr::new(gc), name)
   }
 
-  pub fn set_member(&mut self, gc: &mut Gc, name: &str, value: Value) -> ValueResult<()> {
-    if self.is_ptr() {
-      (self.vtable().set_member)(self.pointer_mut(), gc as *mut Gc as MutVoid, name, value)
-    } else {
-      Err(ValueError::InvalidLookup(self.clone()))
-    }
+  pub fn set_member(&mut self, gc: &mut Gc, name: Field, value: Value) -> UsageResult<()> {
+    (self.vtable().set_member)(self.pointer_mut(), MutPtr::new(gc), name, value)
   }
 
-  pub fn define(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> ValueResult<bool> {
+  pub fn define(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> UsageResult<bool> {
     (self.vtable().define)(self.pointer_mut(), name.as_ref(), value.into())
   }
 
-  pub fn assign(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> ValueResult<bool> {
+  pub fn assign(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> UsageResult<bool> {
     (self.vtable().assign)(self.pointer_mut(), name.as_ref(), value.into())
   }
 
-  pub fn resolve(&self, name: impl AsRef<str>) -> ValueResult {
+  pub fn resolve(&self, name: impl AsRef<str>) -> UsageResult {
     (self.vtable().resolve)(self.pointer(), name.as_ref())
   }
 
@@ -552,13 +542,13 @@ impl Hash for Value {
 }
 
 impl TryFrom<Value> for i32 {
-  type Error = ValueError;
+  type Error = UsageError;
 
   fn try_from(value: Value) -> Result<Self, Self::Error> {
     match value.tag() {
       Tag::I32 => Ok(value.as_i32_unchecked()),
       Tag::F64 => Ok(value.as_f64_unchecked() as i32),
-      _ => Err(ValueError::CoercionError(value, "i32")),
+      _ => Err(UsageError::CoercionError(value, "i32")),
     }
   }
 }
@@ -721,7 +711,7 @@ impl PartialOrd for Value {
 }
 
 impl Add for Value {
-  type Output = ValueResult;
+  type Output = UsageResult;
 
   fn add(self, rhs: Self) -> Self::Output {
     match self.tag() {
@@ -730,7 +720,7 @@ impl Add for Value {
         match rhs.tag() {
           Tag::F64 => Ok(Self::from(v + rhs.as_f64_unchecked())),
           Tag::I32 => Ok(Self::from(v + rhs.as_i32_unchecked() as f64)),
-          _ => Err(ValueError::CoercionError(self, "f64")),
+          _ => Err(UsageError::CoercionError(self, "f64")),
         }
       }
       Tag::I32 => {
@@ -738,7 +728,7 @@ impl Add for Value {
         match rhs.tag() {
           Tag::F64 => Ok(Self::from(v as f64 + rhs.as_f64_unchecked())),
           Tag::I32 => Ok(Self::from(v + rhs.as_i32_unchecked())),
-          _ => Err(ValueError::CoercionError(rhs, "i32")),
+          _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
       Tag::Bool => todo!(),
@@ -747,22 +737,22 @@ impl Add for Value {
         match rhs.tag() {
           Tag::I32 => match char::from_u32((v as u32 as i32 + rhs.as_i32_unchecked()) as u32) {
             Some(c) => Ok(Self::from(c)),
-            None => Err(ValueError::Todo("could not add i32 with char".to_string())),
+            None => Err(UsageError::InvalidOperation('+', self, rhs)),
           },
           Tag::Char => match char::from_u32(v as u32 + rhs.as_char_unchecked() as u32) {
             Some(c) => Ok(Self::from(c)),
-            None => Err(ValueError::CoercionError(rhs, "i32")),
+            None => Err(UsageError::CoercionError(rhs, "i32")),
           },
-          _ => Err(ValueError::CoercionError(rhs, "char")),
+          _ => Err(UsageError::CoercionError(rhs, "char")),
         }
       }
-      _ => Err(ValueError::UnimplementedError("add", self)),
+      _ => Err(UsageError::UnimplementedError("add", self)),
     }
   }
 }
 
 impl Sub for Value {
-  type Output = ValueResult;
+  type Output = UsageResult;
 
   fn sub(self, rhs: Self) -> Self::Output {
     match self.tag() {
@@ -771,7 +761,7 @@ impl Sub for Value {
         match rhs.tag() {
           Tag::F64 => Ok(Self::from(v - rhs.as_f64_unchecked())),
           Tag::I32 => Ok(Self::from(v - rhs.as_i32_unchecked() as f64)),
-          _ => Err(ValueError::CoercionError(self, "f64")),
+          _ => Err(UsageError::CoercionError(self, "f64")),
         }
       }
       Tag::I32 => {
@@ -779,7 +769,7 @@ impl Sub for Value {
         match rhs.tag() {
           Tag::F64 => Ok(Self::from(v as f64 - rhs.as_f64_unchecked())),
           Tag::I32 => Ok(Self::from(v - rhs.as_i32_unchecked())),
-          _ => Err(ValueError::CoercionError(rhs, "i32")),
+          _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
       Tag::Bool => todo!(),
@@ -788,22 +778,22 @@ impl Sub for Value {
         match rhs.tag() {
           Tag::I32 => match char::from_u32((v as u32 as i32 - rhs.as_i32_unchecked()) as u32) {
             Some(c) => Ok(Self::from(c)),
-            None => Err(ValueError::Todo("could not sub i32 with char".to_string())),
+            None => Err(UsageError::InvalidOperation('-', self, rhs)),
           },
           Tag::Char => match char::from_u32(v as u32 - rhs.as_char_unchecked() as u32) {
             Some(c) => Ok(Self::from(c)),
-            None => Err(ValueError::InvalidOperation('-', self, rhs)),
+            None => Err(UsageError::InvalidOperation('-', self, rhs)),
           },
-          _ => Err(ValueError::CoercionError(rhs, "char")),
+          _ => Err(UsageError::CoercionError(rhs, "char")),
         }
       }
-      _ => Err(ValueError::UnimplementedError("sub", self)),
+      _ => Err(UsageError::UnimplementedError("sub", self)),
     }
   }
 }
 
 impl Mul for Value {
-  type Output = ValueResult;
+  type Output = UsageResult;
 
   fn mul(self, rhs: Self) -> Self::Output {
     match self.tag() {
@@ -812,7 +802,7 @@ impl Mul for Value {
         match rhs.tag() {
           Tag::F64 => Ok(Self::from(v * rhs.as_f64_unchecked())),
           Tag::I32 => Ok(Self::from(v * rhs.as_i32_unchecked() as f64)),
-          _ => Err(ValueError::CoercionError(rhs, "f64")),
+          _ => Err(UsageError::CoercionError(rhs, "f64")),
         }
       }
       Tag::I32 => {
@@ -820,7 +810,7 @@ impl Mul for Value {
         match rhs.tag() {
           Tag::F64 => Ok(Self::from(v as f64 * rhs.as_f64_unchecked())),
           Tag::I32 => Ok(Self::from(v * rhs.as_i32_unchecked())),
-          _ => Err(ValueError::CoercionError(rhs, "i32")),
+          _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
       Tag::Bool => todo!(),
@@ -829,22 +819,22 @@ impl Mul for Value {
         match rhs.tag() {
           Tag::I32 => match char::from_u32((v as u32 as i32 * rhs.as_i32_unchecked()) as u32) {
             Some(c) => Ok(Self::from(c)),
-            None => Err(ValueError::InvalidOperation('*', self, rhs)),
+            None => Err(UsageError::InvalidOperation('*', self, rhs)),
           },
           Tag::Char => match char::from_u32(v as u32 * rhs.as_char_unchecked() as u32) {
             Some(c) => Ok(Self::from(c)),
-            None => Err(ValueError::InvalidOperation('*', self, rhs)),
+            None => Err(UsageError::InvalidOperation('*', self, rhs)),
           },
-          _ => Err(ValueError::CoercionError(rhs, "char")),
+          _ => Err(UsageError::CoercionError(rhs, "char")),
         }
       }
-      _ => Err(ValueError::UnimplementedError("mul", self)),
+      _ => Err(UsageError::UnimplementedError("mul", self)),
     }
   }
 }
 
 impl Div for Value {
-  type Output = ValueResult;
+  type Output = UsageResult;
 
   // TODO if is infinity, set to reserved INF value
   fn div(self, rhs: Self) -> Self::Output {
@@ -854,7 +844,7 @@ impl Div for Value {
         match rhs.tag() {
           Tag::F64 => Ok(Self::from(v / rhs.as_f64_unchecked())),
           Tag::I32 => Ok(Self::from(v / rhs.as_i32_unchecked() as f64)),
-          _ => Err(ValueError::CoercionError(rhs, "f64")),
+          _ => Err(UsageError::CoercionError(rhs, "f64")),
         }
       }
       Tag::I32 => {
@@ -862,7 +852,7 @@ impl Div for Value {
         match rhs.tag() {
           Tag::F64 => Ok(Self::from(v as f64 / rhs.as_f64_unchecked())),
           Tag::I32 => Ok(Self::from(v / rhs.as_i32_unchecked())),
-          _ => Err(ValueError::CoercionError(rhs, "i32")),
+          _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
       Tag::Bool => todo!(),
@@ -871,22 +861,22 @@ impl Div for Value {
         match rhs.tag() {
           Tag::I32 => match char::from_u32((v as u32 as i32 / rhs.as_i32_unchecked()) as u32) {
             Some(c) => Ok(Self::from(c)),
-            None => Err(ValueError::InvalidOperation('/', self, rhs)),
+            None => Err(UsageError::InvalidOperation('/', self, rhs)),
           },
           Tag::Char => match char::from_u32(v as u32 / rhs.as_char_unchecked() as u32) {
             Some(c) => Ok(Self::from(c)),
-            None => Err(ValueError::InvalidOperation('/', self, rhs)),
+            None => Err(UsageError::InvalidOperation('/', self, rhs)),
           },
-          _ => Err(ValueError::CoercionError(rhs, "char")),
+          _ => Err(UsageError::CoercionError(rhs, "char")),
         }
       }
-      _ => Err(ValueError::UnimplementedError("div", self)),
+      _ => Err(UsageError::UnimplementedError("div", self)),
     }
   }
 }
 
 impl Rem for Value {
-  type Output = ValueResult;
+  type Output = UsageResult;
 
   fn rem(self, rhs: Self) -> Self::Output {
     match self.tag() {
@@ -895,7 +885,7 @@ impl Rem for Value {
         match rhs.tag() {
           Tag::F64 => Ok(Self::from(v % rhs.as_f64_unchecked())),
           Tag::I32 => Ok(Self::from(v % rhs.as_i32_unchecked() as f64)),
-          _ => Err(ValueError::CoercionError(rhs, "f64")),
+          _ => Err(UsageError::CoercionError(rhs, "f64")),
         }
       }
       Tag::I32 => {
@@ -903,7 +893,7 @@ impl Rem for Value {
         match rhs.tag() {
           Tag::F64 => Ok(Self::from(v as f64 % rhs.as_f64_unchecked())),
           Tag::I32 => Ok(Self::from(v % rhs.as_i32_unchecked())),
-          _ => Err(ValueError::CoercionError(rhs, "i32")),
+          _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
       Tag::Bool => todo!(),
@@ -912,28 +902,28 @@ impl Rem for Value {
         match rhs.tag() {
           Tag::I32 => match char::from_u32((v as u32 as i32 % rhs.as_i32_unchecked()) as u32) {
             Some(c) => Ok(Self::from(c)),
-            None => Err(ValueError::InvalidOperation('%', self, rhs)),
+            None => Err(UsageError::InvalidOperation('%', self, rhs)),
           },
           Tag::Char => match char::from_u32(v as u32 % rhs.as_char_unchecked() as u32) {
             Some(c) => Ok(Self::from(c)),
-            None => Err(ValueError::InvalidOperation('/', self, rhs)),
+            None => Err(UsageError::InvalidOperation('/', self, rhs)),
           },
-          _ => Err(ValueError::CoercionError(rhs, "char")),
+          _ => Err(UsageError::CoercionError(rhs, "char")),
         }
       }
-      _ => Err(ValueError::UnimplementedError("rem", self)),
+      _ => Err(UsageError::UnimplementedError("rem", self)),
     }
   }
 }
 
 impl Neg for Value {
-  type Output = ValueResult;
+  type Output = UsageResult;
 
   fn neg(self) -> Self::Output {
     match self.tag() {
       Tag::F64 => Ok(Value::from(-self.as_f64_unchecked())),
       Tag::I32 => Ok(Value::from(-self.as_i32_unchecked())),
-      _ => Err(ValueError::UnimplementedError("negate", self)),
+      _ => Err(UsageError::UnimplementedError("negate", self)),
     }
   }
 }
@@ -947,14 +937,14 @@ impl Not for Value {
 }
 
 pub struct VTable {
-  get_member: fn(&Value, MutVoid, &str) -> ValueResult,
-  set_member: fn(MutVoid, MutVoid, &str, Value) -> ValueResult<()>,
+  get_member: fn(&Value, MutPtr<Gc>, Field) -> UsageResult<Option<Value>>,
+  set_member: fn(MutVoid, MutPtr<Gc>, Field, Value) -> UsageResult<()>,
 
-  define: fn(MutVoid, &str, Value) -> ValueResult<bool>,
-  assign: fn(MutVoid, &str, Value) -> ValueResult<bool>,
-  resolve: fn(ConstVoid, &str) -> ValueResult,
+  define: fn(MutVoid, &str, Value) -> UsageResult<bool>,
+  assign: fn(MutVoid, &str, Value) -> UsageResult<bool>,
+  resolve: fn(ConstVoid, &str) -> UsageResult,
 
-  invoke: fn(MutVoid, MutVoid, Value, Args) -> ValueResult<()>,
+  invoke: fn(MutVoid, MutPtr<Vm>, Value, usize) -> UsageResult,
 
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
@@ -969,15 +959,17 @@ pub struct VTable {
 impl VTable {
   pub const fn new<T: Usertype>() -> Self {
     Self {
-      get_member: |this, gc, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::cast_mut(gc), this, name),
-      set_member: |this, gc, name, value| <T as Usertype>::set(Self::cast_mut(this), Self::cast_mut(gc), name, value),
+      get_member: |this, gc, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::typed_cast_mut(gc.raw()), this, name),
+      set_member: |this, gc, name, value| {
+        <T as Usertype>::set(Self::cast_mut(this), Self::typed_cast_mut(gc.raw()), name, value)
+      },
 
       define: |this, name, value| <T as ResolvableValue>::__def__(Self::cast_mut(this), name, value),
       assign: |this, name, value| <T as ResolvableValue>::__def__(Self::cast_mut(this), name, value).map(|new| !new),
       resolve: |this, field| <T as ResolvableValue>::__res__(Self::cast(this), field),
 
-      invoke: |this, vm, this_value, args| {
-        <T as InvocableValue>::__ivk__(Self::cast_mut(this), Self::cast_mut(vm), this_value, args)
+      invoke: |this, vm, this_value, airity| {
+        <T as InvocableValue>::__ivk__(Self::cast_mut(this), Self::typed_cast_mut(vm.raw()), this_value, airity)
       },
 
       display_string: |this| <T as DisplayValue>::__str__(Self::cast(this)),
@@ -997,6 +989,10 @@ impl VTable {
 
   fn cast_mut<'t, T>(ptr: MutVoid) -> &'t mut T {
     unsafe { &mut *(ptr as *mut T) }
+  }
+
+  fn typed_cast_mut<T>(ptr: *mut T) -> &'static mut T {
+    unsafe { &mut *ptr }
   }
 }
 

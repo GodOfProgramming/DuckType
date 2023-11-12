@@ -1,0 +1,33 @@
+req "lib/brood/bench" as bench;
+
+use bench::benchmark;
+
+let REPS = 10_000_000;
+
+let x = 0;
+
+benchmark("simple math", REPS, [x] |timer: Timer, i| {
+  timer.start();
+  i += 1;
+  x += i + i * i / i % i;
+  timer.stop();
+});
+
+fn simple_function() {}
+
+benchmark("function calls", REPS, |timer: Timer, _i| {
+  timer.start();
+  simple_function();
+  timer.stop();
+});
+
+let $OBJ = struct {
+  foobarbaz: "foobarbaz"
+};
+
+# global & member access took 9.154016394 seconds
+benchmark("global & member access", REPS, |timer: Timer, _| {
+  timer.start();
+  $OBJ.foobarbaz;
+  timer.stop();
+});
