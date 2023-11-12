@@ -150,9 +150,10 @@ impl Vm {
   pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
     let mut export = None;
 
+    // Execute instructions in the current stack frame's context
+    //
+    // The GC is checked at every instruction that does or could involve an allocation
     'ctx: while let Some(inst) = self.stack_frame.ctx.next(self.stack_frame.ip) {
-      self.run_gc(export.as_ref())?;
-
       #[cfg(feature = "runtime-disassembly")]
       {
         self.stack_display();
@@ -168,13 +169,12 @@ impl Vm {
         .ok_or_else(|| self.error(UsageError::InvalidInstruction(inst)))?;
 
       match opcode {
-        Opcode::Unknown => self.exec_unknown(inst)?,
-        Opcode::Const => self.exec(|this| this.exec_const(data!(inst)))?,
-        Opcode::Nil => self.exec_nil(),
-        Opcode::True => self.exec_true(),
-        Opcode::False => self.exec_false(),
         Opcode::Pop => self.exec_pop(),
         Opcode::PopN => self.exec(|this| Ok(this.exec_pop_n(data!(inst))))?,
+        Opcode::Const => {
+          self.exec(|this| this.exec_const(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
         Opcode::Store => {
           let (storage, addr) = self.exec(|_| Ok(data!(inst)))?;
           match storage {
@@ -198,12 +198,61 @@ impl Vm {
             }
           }
         }
-        Opcode::InitializeMember => self.exec(|this| this.exec_initialize_member(data!(inst)))?,
-        Opcode::InitializeMethod => self.exec(|this| this.exec_initialize_method(data!(inst)))?,
-        Opcode::InitializeConstructor => self.exec(|this| this.exec_initialize_constructor())?,
-        Opcode::AssignMember => self.exec(|this| this.exec_assign_member(data!(inst)))?,
-        Opcode::LookupMember => self.exec(|this| this.exec_lookup_member(data!(inst)))?,
-        Opcode::PeekMember => self.exec(|this| this.exec_peek_member(data!(inst)))?,
+        Opcode::Nil => self.exec_nil(),
+        Opcode::True => self.exec_true(),
+        Opcode::False => self.exec_false(),
+        Opcode::InitializeMember => {
+          self.exec(|this| this.exec_initialize_member(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::AssignMember => {
+          self.exec(|this| this.exec_assign_member(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::LookupMember => {
+          self.exec(|this| this.exec_lookup_member(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::PeekMember => {
+          self.exec(|this| this.exec_peek_member(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::InitializeConstructor => {
+          self.exec(|this| this.exec_initialize_constructor())?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::InitializeMethod => {
+          self.exec(|this| this.exec_initialize_method(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateVec => {
+          self.exec(|this| Ok(this.exec_create_vec(data!(inst))))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateSizedVec => {
+          self.exec(|this| this.exec_sized_vec(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateDynamicVec => {
+          self.exec(|this| this.exec_dyn_vec())?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateClosure => {
+          self.exec(|this| this.exec_create_closure())?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateStruct => {
+          self.exec(|this| this.exec_create_struct(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateClass => {
+          self.exec(|this| this.exec_create_class(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateModule => {
+          self.exec(|this| this.exec_create_module(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
         Opcode::Check => self.exec(|this| this.exec_check())?,
         Opcode::Println => self.exec(|this| this.exec_println())?,
         Opcode::Jump => {
@@ -231,15 +280,9 @@ impl Vm {
         Opcode::Req => {
           self.stack_frame.ip += 1;
           self.exec_req()?;
+          self.check_gc(export.as_ref())?;
           continue 'ctx;
         }
-        Opcode::CreateVec => self.exec(|this| Ok(this.exec_create_vec(data!(inst))))?,
-        Opcode::CreateSizedVec => self.exec(|this| this.exec_sized_vec(data!(inst)))?,
-        Opcode::CreateDynamicVec => self.exec(|this| this.exec_dyn_vec())?,
-        Opcode::CreateClosure => self.exec(|this| this.exec_create_closure())?,
-        Opcode::CreateStruct => self.exec(|this| this.exec_create_struct(data!(inst)))?,
-        Opcode::CreateClass => self.exec(|this| this.exec_create_class(data!(inst)))?,
-        Opcode::CreateModule => self.exec(|this| this.exec_create_module(data!(inst)))?,
         Opcode::Breakpoint => {
           self.dbg()?;
         }
@@ -249,19 +292,50 @@ impl Vm {
         }
         Opcode::Define => self.exec(|this| this.exec_define_global(data!(inst)))?,
         Opcode::Resolve => self.exec(|this| this.exec_scope_resolution(data!(inst)))?,
-        Opcode::EnterBlock => self.push_scope(),
+        Opcode::EnterBlock => {
+          self.push_scope();
+          self.check_gc(export.as_ref())?;
+        }
         Opcode::PopScope => self.pop_scope(),
-        Opcode::Equal => self.exec(|this| this.exec_equal(opcode))?,
-        Opcode::NotEqual => self.exec(|this| this.exec_not_equal(opcode))?,
-        Opcode::Greater => self.exec(|this| this.exec_greater(opcode))?,
-        Opcode::GreaterEqual => self.exec(|this| this.exec_greater_equal(opcode))?,
-        Opcode::Less => self.exec(|this| this.exec_less(opcode))?,
-        Opcode::LessEqual => self.exec(|this| this.exec_less_equal(opcode))?,
-        Opcode::Add => self.exec(|this| this.exec_add(opcode))?,
-        Opcode::Sub => self.exec(|this| this.exec_sub(opcode))?,
-        Opcode::Mul => self.exec(|this| this.exec_mul(opcode))?,
-        Opcode::Div => self.exec(|this| this.exec_div(opcode))?,
-        Opcode::Rem => self.exec(|this| this.exec_rem(opcode))?,
+        Opcode::Equal => {
+          self.exec(|this| this.exec_equal(opcode))?;
+        }
+        Opcode::NotEqual => {
+          self.exec(|this| this.exec_not_equal(opcode))?;
+        }
+        Opcode::Greater => {
+          self.exec(|this| this.exec_greater(opcode))?;
+        }
+        Opcode::GreaterEqual => {
+          self.exec(|this| this.exec_greater_equal(opcode))?;
+        }
+        Opcode::Less => {
+          self.exec(|this| this.exec_less(opcode))?;
+        }
+        Opcode::LessEqual => {
+          self.exec(|this| this.exec_less_equal(opcode))?;
+        }
+        Opcode::Add => {
+          self.exec(|this| this.exec_add(opcode))?;
+        }
+        Opcode::Sub => {
+          self.exec(|this| this.exec_sub(opcode))?;
+        }
+        Opcode::Mul => {
+          self.exec(|this| this.exec_mul(opcode))?;
+        }
+        Opcode::Div => {
+          self.exec(|this| this.exec_div(opcode))?;
+        }
+        Opcode::Rem => {
+          self.exec(|this| this.exec_rem(opcode))?;
+        }
+        Opcode::Negate => {
+          self.exec(|this| this.exec_negate(opcode))?;
+        }
+        Opcode::Not => {
+          self.exec(|this| this.exec_not(opcode))?;
+        }
         Opcode::Or => {
           let val = self.exec(|this| this.exec_or(data!(inst)))?;
           if val {
@@ -274,8 +348,6 @@ impl Vm {
             continue 'ctx;
           }
         }
-        Opcode::Not => self.exec(|this| this.exec_not(opcode))?,
-        Opcode::Negate => self.exec(|this| this.exec_negate(opcode))?,
         Opcode::PushRegCtx => self.stack_frame.new_reg_ctx(),
         Opcode::PopRegCtx => self.stack_frame.pop_reg_ctx(),
         Opcode::SwapPop => {
@@ -284,8 +356,9 @@ impl Vm {
         }
         Opcode::Quack => {
           let value = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
-          panic!("{value}");
+          Err(self.error(UsageError::Quack(value)))?;
         }
+        Opcode::Unknown => self.exec_unknown(inst)?,
       }
 
       self.stack_frame.ip += 1;
@@ -1008,7 +1081,7 @@ impl Vm {
     self.envs.last_mut()
   }
 
-  pub fn run_gc(&mut self, export: Option<&Value>) -> ExecResult {
+  pub fn check_gc(&mut self, export: Option<&Value>) -> ExecResult {
     self.gc.clean_if_time(
       &self.stack,
       &self.stack_frame,

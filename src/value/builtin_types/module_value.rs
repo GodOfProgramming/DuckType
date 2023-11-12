@@ -12,8 +12,6 @@ pub struct ModuleValue {
   name: Option<String>,
 
   #[trace]
-  pub members: HashMap<String, Value, RandomState>,
-  #[trace]
   pub env: HashMap<String, Value, RandomState>,
   #[trace]
   pub parent: Value,
@@ -34,7 +32,6 @@ impl ModuleValue {
   pub(crate) fn new_child(name: impl ToString, parent: Value) -> Self {
     Self {
       name: Some(name.to_string()),
-      members: Default::default(),
       env: Default::default(),
       parent,
     }
@@ -43,7 +40,6 @@ impl ModuleValue {
   pub(crate) fn new_scope(parent: Value) -> Self {
     Self {
       name: None,
-      members: Default::default(),
       env: Default::default(),
       parent,
     }
@@ -112,27 +108,12 @@ impl ModuleValue {
 }
 
 impl UsertypeFields for ModuleValue {
-  fn get_field(&self, _gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
-    if let Some(name) = field.name {
-      self
-        .members
-        .get(name)
-        .cloned()
-        .map(Ok)
-        .or_else(|| Some(Err(UsageError::UndefinedMember(name.to_string()))))
-        .transpose()
-    } else {
-      Err(UsageError::EmptyField)
-    }
+  fn get_field(&self, _gc: &mut Gc, _field: Field) -> UsageResult<Option<Value>> {
+    Err(UsageError::Immutable(self.__str__()))
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
-    if let Some(name) = field.name {
-      self.members.insert(name.to_string(), value);
-      Ok(())
-    } else {
-      Err(UsageError::EmptyField)
-    }
+  fn set_field(&mut self, _gc: &mut Gc, _field: Field, _value: Value) -> UsageResult<()> {
+    Err(UsageError::Immutable(self.__str__()))
   }
 }
 
@@ -160,10 +141,9 @@ impl ModuleValue {
       .as_ref()
       .map(|name| {
         format!(
-          "<mod {} defs: {{ {} }} members: {{ {} }}>",
+          "<mod {} {{ {} }}>",
           name,
           itertools::join(self.env.iter().map(|(k, v)| format!("{k}: {v}")), ", "),
-          itertools::join(self.members.iter().map(|(k, v)| format!("{k}: {v}")), ", "),
         )
       })
       .unwrap_or_else(|| String::from("<anonymous mod>"))

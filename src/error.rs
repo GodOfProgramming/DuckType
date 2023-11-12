@@ -320,6 +320,12 @@ pub enum UsageError {
   #[error("unexpected nil value")]
   UnexpectedNil,
 
+  #[error("Expected field name but found none")]
+  EmptyField,
+
+  #[error("quack {0}")]
+  Quack(Value),
+
   /* Below can only be reached from bad bytecode generation */
   #[error("Empty stack")]
   EmptyStack,
@@ -356,9 +362,6 @@ pub enum UsageError {
 
   #[error("capture list must be a vec")]
   CaptureType,
-
-  #[error("Expected field name but found none")]
-  EmptyField,
 
   #[error("Invalid instruction: {0}")]
   InvalidInstruction(Instruction),

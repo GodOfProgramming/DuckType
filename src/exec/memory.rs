@@ -2,7 +2,7 @@ use super::{EnvStack, Stack, StackFrame};
 use crate::{
   exec::Register,
   prelude::*,
-  value::{tags::*, MutVoid, ValueMeta},
+  value::{tags::*, Mark, MutVoid, ValueMeta},
 };
 use ahash::RandomState;
 use ptr::{MutPtr, SmartPtr};
@@ -458,8 +458,9 @@ struct AllocatedObject<T: Usertype> {
 impl<T: Usertype> AllocatedObject<T> {
   fn new(obj: T) -> Self {
     let meta = ValueMeta {
-      ref_count: AtomicUsize::new(0),
       vtable: &T::VTABLE,
+      ref_count: AtomicUsize::new(0),
+      mark: Mark::default(),
     };
     Self { obj, meta }
   }

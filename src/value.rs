@@ -996,7 +996,18 @@ impl VTable {
   }
 }
 
+#[derive(Default)]
+pub(crate) enum Mark {
+  #[default]
+  White,
+  Black,
+}
+
 pub(crate) struct ValueMeta {
   pub(crate) vtable: &'static VTable,
+
+  /// Reference count to values that exist in native code and can't be traced
   pub(crate) ref_count: AtomicUsize,
+
+  pub(crate) mark: Mark,
 }
