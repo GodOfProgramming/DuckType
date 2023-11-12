@@ -69,4 +69,6 @@ disassemble = []
 runtime-disassembly = []
 print-precedence = []
 quit-after-disassemble = []
+
+[target.'cfg(unix)'.features]
 profile = []

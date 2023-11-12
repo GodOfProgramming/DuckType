@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, value::prelude::module_value::ModuleType};
 use ptr::SmartPtr;
 use std::path::Path;
 use tfix::{fixture, TestFixture};
@@ -12,7 +12,7 @@ struct IntegrationTest {
 impl IntegrationTest {
   fn new() -> Self {
     let mut gc = SmartPtr::new(Gc::always_run());
-    let env = ModuleBuilder::initialize(&mut gc, "*test*", None, |gc, mut lib| {
+    let env = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*test*"), |gc, mut lib| {
       let libval = lib.handle.value.clone();
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
     });
@@ -217,7 +217,7 @@ struct ScriptTest {
 impl ScriptTest {
   pub fn run(&mut self, script: &Path) {
     println!("running {:?}", script);
-    let env = ModuleBuilder::initialize(&mut self.vm.gc, "*test*", None, |gc, mut lib| {
+    let env = ModuleBuilder::initialize(&mut self.vm.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
       let libval = lib.handle.value.clone();
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
     });

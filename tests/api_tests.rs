@@ -12,7 +12,7 @@ struct ApiTest {
 impl TestFixture for ApiTest {
   fn set_up() -> Self {
     let mut gc = SmartPtr::new(Gc::new(Duration::from_nanos(0)));
-    let env = ModuleBuilder::initialize(&mut gc, "*test*", None, |gc, mut lib| {
+    let env = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*test*"), |gc, mut lib| {
       let libval = lib.handle.value.clone();
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
     });
@@ -77,7 +77,7 @@ mod tests {
       })
     }
 
-    let mut env = ModuleBuilder::initialize(&mut t.vm.gc, "*test*", None, |gc, mut lib| {
+    let mut env = ModuleBuilder::initialize(&mut t.vm.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
       let libval = lib.handle.value.clone();
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
     });

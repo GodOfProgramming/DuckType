@@ -26,15 +26,6 @@ enum Command {
 }
 
 fn main() -> Result<(), Error> {
-  #[cfg(feature = "profile")]
-  let guard = {
-    pprof::ProfilerGuardBuilder::default()
-      .frequency(1000)
-      .blocklist(&["libc", "libgcc", "libdl", "libm", "libpthread", "linux-vdso"])
-      .build()
-      .unwrap()
-  };
-
   let args = Args::parse();
 
   match args.command {
@@ -44,10 +35,18 @@ fn main() -> Result<(), Error> {
 
       let mut vm = Vm::new(gc.clone(), runargs.clone());
 
+      #[cfg(feature = "profile")]
+      let guard = {
+        pprof::ProfilerGuardBuilder::default()
+          .frequency(1000)
+          .blocklist(&["libc", "libgcc", "libdl", "libm", "libpthread", "linux-vdso"])
+          .build()
+          .unwrap()
+      };
+
       for file in files {
-        println!("running {}", file.display());
-        let gmod = ModuleBuilder::initialize(&mut gc, "*main*", None, |gc, mut lib| {
-          let libval = lib.handle.value.clone();
+        let gmod = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*main*"), |gc, mut lib| {
+          let libval = lib.value();
           lib.env.extend(stdlib::enable_std(gc, libval, &runargs));
         });
 
@@ -65,8 +64,8 @@ fn main() -> Result<(), Error> {
     Command::Pipe { runargs } => {
       let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(16)));
 
-      let gmod = ModuleBuilder::initialize(&mut gc, "*main*", None, |gc, mut lib| {
-        let libval = lib.handle.value.clone();
+      let gmod = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*main*"), |gc, mut lib| {
+        let libval = lib.value();
         lib.env.extend(stdlib::enable_std(gc, libval, &runargs));
       });
 

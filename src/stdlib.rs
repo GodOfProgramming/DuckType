@@ -4,14 +4,47 @@ mod libps;
 mod libstr;
 mod libtime;
 
-use crate::prelude::*;
+use crate::{prelude::*, value::prelude::module_value::ModuleType};
 use ahash::RandomState;
-use std::collections::{BTreeMap, HashMap};
+use std::{
+  collections::{BTreeMap, HashMap},
+  env,
+};
+
+pub(crate) mod names {
+  pub const STD: &str = "std";
+
+  pub const DEBUG: &str = "debug";
+
+  pub const OBJ: &str = "obj";
+
+  pub const REFLECT: &str = "reflect";
+
+  pub const ENV: &str = "env";
+  pub(crate) mod env {
+    pub const ARGV: &str = "ARGV";
+    pub const PATHS_ENV_VAR: &str = "SS_LIBRARY_PATHS";
+    pub const PATHS: &str = "paths";
+    pub const PATH_SEPARATOR: char = ';';
+  }
+
+  pub const TIME: &str = "time";
+
+  pub const STR: &str = "str";
+
+  pub const CONSOLE: &str = "console";
+
+  pub const PS: &str = "ps";
+
+  pub const MATH: &str = "math";
+
+  pub const IO: &str = "io";
+}
 
 pub fn enable_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> HashMap<String, Value, RandomState> {
   let mut loaded_libs = BTreeMap::default();
 
-  loaded_libs.insert("std", load_std(gc, gmod, args));
+  loaded_libs.insert(names::STD, load_std(gc, gmod, args));
 
   loaded_libs.into_iter().map(|(k, v)| (k.into(), v.into())).collect()
 }
@@ -21,46 +54,54 @@ where
   F: FnOnce(&mut SmartPtr<Gc>, UsertypeHandle<ModuleValue>),
 {
   let libval = lib.value();
-  lib.define(name, ModuleBuilder::initialize(gc, name, Some(libval), init));
+  lib.define(name, ModuleBuilder::initialize(gc, ModuleType::new_child(name, libval), init));
 }
 
 fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHandle<ModuleValue> {
-  ModuleBuilder::initialize(gc, "std", Some(gmod), |gc, mut lib| {
+  ModuleBuilder::initialize(gc, ModuleType::new_child(names::STD, gmod), |gc, mut lib| {
     let lib = &mut lib;
 
-    lib.define("debug", Value::native(debug));
+    lib.define(names::DEBUG, Value::native(debug));
 
-    defmod(gc, lib, "obj", |_, _lib| {
+    defmod(gc, lib, names::OBJ, |_, _lib| {
       // lib.define("fields", Value::native(fields));
     });
 
-    defmod(gc, lib, "reflect", |_, mut lib| {
+    defmod(gc, lib, names::REFLECT, |_, mut lib| {
       lib.define("defined", Value::native(defined));
     });
 
-    defmod(gc, lib, "env", |gc, mut lib| {
+    defmod(gc, lib, names::ENV, |gc, mut lib| {
       let args = args.iter().map(|arg| gc.allocate(arg.clone())).collect::<Vec<Value>>();
       let args = gc.allocate(args);
-      lib.define("ARGV", args);
+      lib.define(names::env::ARGV, args);
+
+      let mut lib_paths = Vec::default();
+
+      if let Ok(paths) = env::var(names::env::PATHS_ENV_VAR) {
+        lib_paths.extend(paths.split_terminator(names::env::PATH_SEPARATOR).map(|v| gc.allocate(v)));
+      }
+
+      lib.define(names::env::PATHS, gc.allocate(lib_paths));
     });
 
-    defmod(gc, lib, "time", |gc, mut lib| {
+    defmod(gc, lib, names::TIME, |gc, mut lib| {
       defmod(gc, &mut lib, "mono", libtime::mono);
     });
 
-    defmod(gc, lib, "str", libstr::string);
+    defmod(gc, lib, names::STR, libstr::string);
 
-    defmod(gc, lib, "console", libconsole::console);
+    defmod(gc, lib, names::CONSOLE, libconsole::console);
 
-    defmod(gc, lib, "ps", libps::ps);
+    defmod(gc, lib, names::PS, libps::ps);
 
-    defmod(gc, lib, "math", |_, mut lib| {
+    defmod(gc, lib, names::MATH, |_, mut lib| {
       lib.define("rand_i32", Value::native(math_rand_i32));
       lib.define("abs", Value::native(math_abs));
     });
 
     let libval = lib.value();
-    lib.define("io", libio::simple_script_autogen_create_module(gc, libval));
+    lib.define(names::IO, libio::simple_script_autogen_create_module(gc, libval));
   })
 }
 

@@ -38,7 +38,7 @@ pub use function_value::FunctionValue;
 pub use instance_value::InstanceValue;
 use macros::{methods, Fields};
 pub use method_value::MethodValue;
-pub use module_value::{ModuleBuilder, ModuleValue};
+pub use module_value::{ModuleBuilder, ModuleType, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
 use std::{
   collections::{BTreeMap, HashMap},

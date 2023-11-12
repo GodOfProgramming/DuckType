@@ -36,6 +36,7 @@ use dbg::macros::here;
 use dlopen2::wrapper::Container;
 use dlopen2::wrapper::WrapperApi;
 use exec::memory::{Allocation, Gc};
+use prelude::module_value::ModuleType;
 use ptr::SmartPtr;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
@@ -748,19 +749,18 @@ impl Vm {
 
     // if still not found, try searching library paths
     if found_file.is_none() {
-      if let Some(library_mod) = self.current_env().lookup(module_value::LIB_GLOBAL) {
-        if let Some(library_mod) = library_mod.as_struct() {
-          if let Ok(Some(list)) = library_mod
-            .get_field(&mut self.gc, Field::named(module_value::PATHS_MEMBER))
-            .map(|l| l.map(|l| l.as_vec()))
-          {
-            for item in list.iter() {
-              let base = PathBuf::from(item.to_string());
-              found_file = try_to_find_file(&base, &required_file, &mut attempts);
-              if found_file.is_some() {
-                break;
-              }
-            }
+      use stdlib::names::{env::*, *};
+      if let Some(paths) = self
+        .current_env()
+        .lookup_path(&[STD, ENV, PATHS])
+        .map(|l| l.map(|l| l.as_vec()))
+        .map_err(|e| self.error(e))?
+      {
+        for path in &paths {
+          let base = PathBuf::from(path.to_string());
+          found_file = try_to_find_file(&base, &required_file, &mut attempts);
+          if found_file.is_some() {
+            break;
           }
         }
       }
@@ -798,8 +798,7 @@ impl Vm {
           let new_ctx = code::compile(&mut self.program, Some(id), data)?;
           let gmod = ModuleBuilder::initialize(
             &mut self.gc,
-            format!("<file export {}>", found_file.display()),
-            None,
+            ModuleType::new_global(format!("<file export {}>", found_file.display())),
             |gc, mut lib| {
               let libval = lib.handle.value.clone();
               lib.env.extend(stdlib::enable_std(gc, libval, &self.args));
