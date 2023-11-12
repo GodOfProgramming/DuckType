@@ -31,7 +31,7 @@ fn main() -> Result<(), Error> {
   match args.command {
     Command::Uuid => println!("{}", Uuid::new_v4()),
     Command::Run { files, runargs } => {
-      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(0)));
+      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(16)));
 
       let mut vm = Vm::new(gc.clone(), runargs.clone());
 
