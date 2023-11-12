@@ -32,7 +32,6 @@ use crate::{
   util::{FileIdType, FileMetadata, PlatformMetadata, UnwrapAnd},
 };
 use clap::Parser;
-use dbg::macros::here;
 use dlopen2::wrapper::Container;
 use dlopen2::wrapper::WrapperApi;
 use exec::memory::{Allocation, Gc};

@@ -176,7 +176,7 @@ where
 {
   Global { name: T },
   Child { name: T, parent: Value },
-  Scope { name: T, parent: Value },
+  Scope { parent: Value },
 }
 
 impl<T> ModuleType<T>
@@ -191,8 +191,8 @@ where
     Self::Child { name, parent }
   }
 
-  pub fn new_scope(name: T, parent: Value) -> Self {
-    Self::Scope { name, parent }
+  pub fn new_scope(parent: Value) -> Self {
+    Self::Scope { parent }
   }
 }
 
@@ -207,7 +207,7 @@ impl ModuleBuilder {
     let module = match module_type {
       ModuleType::Global { name } => ModuleValue::new_global_module(name),
       ModuleType::Child { name, parent } => ModuleValue::new_child(name, parent),
-      ModuleType::Scope { name, parent } => ModuleValue::new_scope(parent),
+      ModuleType::Scope { parent } => ModuleValue::new_scope(parent),
     };
 
     let module = Gc::allocate_handle(gc, module);
