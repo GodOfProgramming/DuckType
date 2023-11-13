@@ -301,15 +301,7 @@ impl Gc {
   ) -> Result<usize, SystemError> {
     self.ref_check_native_handles();
 
-    let marked_allocations = Self::trace(
-      stack,
-      current_frame,
-      stack_frames,
-      envs,
-      &self.native_handles,
-      cached_values,
-      export,
-    );
+    let marked_allocations = self.trace(stack, current_frame, stack_frames, envs, cached_values, export);
 
     let unmarked_allocations = self.find_unmarked(marked_allocations);
 
@@ -330,15 +322,19 @@ impl Gc {
   }
 
   fn trace<'v>(
+    &self,
     stack: &Stack,
     current_frame: &StackFrame,
     stack_frames: &Vec<StackFrame>,
     envs: &EnvStack,
-    native_handles: &AllocationSet,
     cached_values: impl IntoIterator<Item = &'v Value>,
     export: Option<&Value>,
   ) -> AllocationSet {
     let mut marked_allocations = Marker::default();
+
+    for handle in &self.native_handles {
+      marked_allocations.trace(&Value { bits: *handle });
+    }
 
     for value in stack.iter() {
       marked_allocations.trace(value)
@@ -366,10 +362,6 @@ impl Gc {
       let handle = env.module();
       let value = handle.value();
       marked_allocations.trace(&value);
-    }
-
-    for handle in native_handles {
-      marked_allocations.trace(&Value { bits: *handle });
     }
 
     if let Some(value) = export {

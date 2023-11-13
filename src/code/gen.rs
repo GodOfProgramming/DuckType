@@ -532,26 +532,26 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn index_op_assign(&mut self, expr: IndexExpression, op: Opcode, value: Expression, loc: SourceLocation) {
     if let Some(index_ident) = self.add_const_ident(Ident::new(ops::INDEX)) {
+      self.emit(Opcode::PushRegCtx, expr.loc);
+
+      // index
+      self.emit_expr(*expr.indexable);
+      self.emit((Opcode::Store, (Storage::Reg, Register::A)), expr.loc);
+      self.emit((Opcode::LookupMember, index_ident), expr.loc);
+      self.emit_expr(*expr.index);
+      self.emit((Opcode::Store, (Storage::Reg, Register::B)), expr.loc);
+      self.emit((Opcode::Invoke, 1), expr.loc);
+      self.emit(Opcode::SwapPop, expr.loc);
+
+      // value
+      self.emit_expr(value);
+
+      // do op
+      self.emit(op, loc);
+      self.emit((Opcode::Store, (Storage::Reg, Register::C)), expr.loc);
+      self.emit(Opcode::Pop, expr.loc);
+
       if let Some(idxeq_ident) = self.add_const_ident(Ident::new(ops::INDEX_ASSIGN)) {
-        self.emit(Opcode::PushRegCtx, expr.loc);
-
-        // index
-        self.emit_expr(*expr.indexable);
-        self.emit((Opcode::Store, (Storage::Reg, Register::A)), expr.loc);
-        self.emit((Opcode::LookupMember, index_ident), expr.loc);
-        self.emit_expr(*expr.index);
-        self.emit((Opcode::Store, (Storage::Reg, Register::B)), expr.loc);
-        self.emit((Opcode::Invoke, 1), expr.loc);
-        self.emit(Opcode::SwapPop, expr.loc);
-
-        // value
-        self.emit_expr(value);
-
-        // do op
-        self.emit(op, loc);
-        self.emit((Opcode::Store, (Storage::Reg, Register::C)), expr.loc);
-        self.emit(Opcode::Pop, expr.loc);
-
         self.emit((Opcode::Load, (Storage::Reg, Register::A)), expr.loc);
         self.emit((Opcode::LookupMember, idxeq_ident), expr.loc);
         self.emit((Opcode::Load, (Storage::Reg, Register::B)), expr.loc);
