@@ -8,7 +8,6 @@ pub mod prelude {
 }
 
 use crate::prelude::*;
-use enum_map::{Enum, EnumMap};
 use ptr::SmartPtr;
 use std::{
   fmt::{self, Debug, Display, Formatter},
@@ -48,6 +47,10 @@ impl Instruction {
     T: InstructionData,
   {
     T::checked_data(self.0 >> Opcode::BITS)
+  }
+
+  pub fn has_data(&self) -> bool {
+    self.0 >> Opcode::BITS != 0
   }
 
   /// Returns unchecked data meant for display and debugging purposes
@@ -176,51 +179,69 @@ pub enum Opcode {
   PeekMember,
   /// Pops two values off the stack, compares, then pushes the result back on
   ///
-  /// Encoding: None
+  /// With data two locations are looked up, compared, and the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   Equal,
   /// Pops two values off the stack, compares, then pushes the result back on
   ///
-  /// Encoding: None
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   NotEqual,
   /// Pops two values off the stack, compares, then pushes the result back on
   ///
-  /// Encoding: None
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   Greater,
   /// Pops two values off the stack, compares, then pushes the result back on
   ///
-  /// Encoding: None
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   GreaterEqual,
   /// Pops two values off the stack, compares, then pushes the result back on
   ///
-  /// Encoding: None
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   Less,
   /// Pops two values off the stack, compares, then pushes the result back on
   ///
-  /// Encoding: None
-  LessEqual,
-  /// Pops a value off the stack, and compares it with the peeked value, pushing the new value on
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: None
-  Check,
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  LessEqual,
   /// Pops two values off the stack, calculates the sum, then pushes the result back on
   ///
-  /// Encoding: None
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   Add,
   /// Pops two values off the stack, calculates the difference, then pushes the result back on
   ///
-  /// Encoding: None
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   Sub,
   /// Pops two values off the stack, calculates the product, then pushes the result back on
   ///
-  /// Encoding: None
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   Mul,
   /// Pops two values off the stack, calculates the quotient, then pushes the result back on
   ///
-  /// Encoding: None
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   Div,
   /// Pops two values off the stack, calculates the remainder, then pushes the result back on
   ///
-  /// Encoding: None
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   Rem,
   /// Peeks at the stack. If the top value is true, the ip in incremented
   ///
@@ -238,6 +259,10 @@ pub enum Opcode {
   ///
   /// Encoding: None
   Negate,
+  /// Pops a value off the stack, and compares it with the peeked value, pushing the new value on
+  ///
+  /// Encoding: None
+  Check,
   /// Pops a value off the stack and prints it to the screen
   ///
   /// Encoding: None
@@ -464,6 +489,18 @@ impl InstructionData for ShortAddr {
   }
 }
 
+impl From<usize> for ShortAddr {
+  fn from(value: usize) -> Self {
+    Self(value)
+  }
+}
+
+impl From<ShortAddr> for usize {
+  fn from(value: ShortAddr) -> Self {
+    value.0
+  }
+}
+
 impl<T0, T1> InstructionData for (T0, T1)
 where
   T0: InstructionData,
@@ -557,35 +594,6 @@ where
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumCount, EnumIter, Enum, FromRepr)]
-#[repr(u8)]
-pub enum Register {
-  A,
-  B,
-  C,
-  D,
-  E,
-  F,
-  G,
-  H,
-}
-
-impl InstructionData for Register {
-  const BITS: u64 = 8;
-
-  fn to_bits(self) -> u64 {
-    self as u8 as u64
-  }
-
-  fn checked_data(inst: u64) -> Option<Self> {
-    Self::from_repr((inst & Self::MASK).try_into().ok()?)
-  }
-
-  fn unchecked_data(inst: u64) -> Self {
-    unsafe { mem::transmute((inst & Self::MASK) as u8) }
-  }
-}
-
 #[derive(Default)]
 pub struct Stack(Vec<Value>);
 
@@ -626,12 +634,14 @@ impl DerefMut for Stack {
   }
 }
 
+pub(crate) const MAX_REG: usize = 16;
+
 #[derive(Default)]
 pub struct StackFrame {
   pub ip: usize,
   pub sp: usize,
   pub ctx: SmartPtr<Context>,
-  pub registers: Vec<EnumMap<Register, Value>>,
+  pub registers: Vec<[Value; MAX_REG]>,
 }
 
 impl StackFrame {
@@ -644,13 +654,13 @@ impl StackFrame {
     }
   }
 
-  pub fn reg_store(&mut self, reg: Register, value: Value) {
+  pub fn reg_store(&mut self, reg: impl Into<usize>, value: Value) {
     let sz = self.registers.len();
-    self.registers[sz - 1][reg] = value;
+    self.registers[sz - 1][reg.into()] = value;
   }
 
-  pub fn reg_load(&self, reg: Register) -> Value {
-    self.registers[self.registers.len() - 1][reg].clone()
+  pub fn reg_load(&self, reg: impl Into<usize>) -> Value {
+    self.registers[self.registers.len() - 1][reg.into()].clone()
   }
 
   pub fn new_reg_ctx(&mut self) {

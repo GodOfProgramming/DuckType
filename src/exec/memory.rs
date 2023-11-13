@@ -1,6 +1,5 @@
-use super::{EnvStack, Stack, StackFrame};
+use super::{EnvStack, Stack, StackFrame, MAX_REG};
 use crate::{
-  exec::Register,
   prelude::*,
   value::{tags::*, Mark, MutVoid, ValueMeta},
 };
@@ -18,7 +17,6 @@ use std::{
   thread::{self, JoinHandle},
   time::{Duration, Instant},
 };
-use strum::IntoEnumIterator;
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
@@ -345,14 +343,14 @@ impl Gc {
     }
 
     for ctx in &current_frame.registers {
-      for reg in Register::iter() {
+      for reg in 0..MAX_REG {
         marked_allocations.trace(&ctx[reg]);
       }
     }
 
     for frame in stack_frames {
       for ctx in &frame.registers {
-        for reg in Register::iter() {
+        for reg in 0..MAX_REG {
           marked_allocations.trace(&ctx[reg]);
         }
       }

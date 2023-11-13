@@ -1,4 +1,3 @@
-use super::Register;
 #[cfg(test)]
 use crate::code::gen::{CAPTURE_OPS, GENERATED_OPS};
 use crate::{
@@ -147,7 +146,7 @@ impl Context {
           "{} {} {}",
           Self::opcode_column("Const"),
           Self::value_column(index),
-          self.const_at_column(program, index)
+          Self::const_at_column(program, index)
         );
       }
       Opcode::PopN => {
@@ -157,37 +156,41 @@ impl Context {
       Opcode::Load => {
         let (storage, index): (Storage, LongAddr) = inst.display_data();
         match storage {
-          Storage::Local => {
-            println!("{} {}", Self::opcode_column("Load Local"), Self::value_column(index))
-          }
-          Storage::Global => println!(
-            "{} {} {}",
-            Self::opcode_column("Load Global"),
-            Self::value_column(index),
-            self.const_at_column(program, index),
+          Storage::Local => println!(
+            "{} {}",
+            Self::opcode_column("Load Local"),
+            Self::storage_column(program, storage, index)
           ),
-          Storage::Reg => {
-            let (_, reg): (Storage, Register) = inst.display_data();
-            println!("{} {}", Self::opcode_column("Load Reg"), Self::reg_column(reg))
-          }
+          Storage::Global => println!(
+            "{} {}",
+            Self::opcode_column("Load Global"),
+            Self::storage_column(program, storage, index)
+          ),
+          Storage::Reg => println!(
+            "{} {}",
+            Self::opcode_column("Load Reg"),
+            Self::storage_column(program, storage, index)
+          ),
         }
       }
       Opcode::Store => {
         let (storage, index): (Storage, LongAddr) = inst.display_data();
         match storage {
-          Storage::Local => {
-            println!("{} {}", Self::opcode_column("Store Local"), Self::value_column(index))
-          }
-          Storage::Global => println!(
-            "{} {} {}",
-            Self::opcode_column("Store Global"),
-            Self::value_column(index),
-            self.const_at_column(program, index),
+          Storage::Local => println!(
+            "{} {}",
+            Self::opcode_column("Store Local"),
+            Self::storage_column(program, storage, index)
           ),
-          Storage::Reg => {
-            let (_, reg): (Storage, Register) = inst.display_data();
-            println!("{} {}", Self::opcode_column("Store Reg"), Self::reg_column(reg))
-          }
+          Storage::Global => println!(
+            "{} {}",
+            Self::opcode_column("Store Global"),
+            Self::storage_column(program, storage, index)
+          ),
+          Storage::Reg => println!(
+            "{} {}",
+            Self::opcode_column("Store Reg"),
+            Self::storage_column(program, storage, index)
+          ),
         }
       }
       Opcode::Define => {
@@ -196,7 +199,7 @@ impl Context {
           "{} {} {}",
           Self::opcode_column("Define"),
           Self::value_column(ident),
-          self.const_at_column(program, ident)
+          Self::const_at_column(program, ident)
         )
       }
       Opcode::AssignMember => {
@@ -205,7 +208,7 @@ impl Context {
           "{} {} {}",
           Self::opcode_column("AssignMember"),
           Self::value_column(index),
-          self.const_at_column(program, index)
+          Self::const_at_column(program, index)
         );
       }
       Opcode::LookupMember => {
@@ -214,7 +217,7 @@ impl Context {
           "{} {} {}",
           Self::opcode_column("LookupMember"),
           Self::value_column(index),
-          self.const_at_column(program, index)
+          Self::const_at_column(program, index)
         );
       }
       Opcode::Jump => {
@@ -259,7 +262,52 @@ impl Context {
           "{} {} {}",
           Self::opcode_column("Resolve"),
           Self::value_column(ident),
-          self.const_at_column(program, ident)
+          Self::const_at_column(program, ident)
+        )
+      }
+      Opcode::Add if inst.has_data() => {
+        let (st_a, addr_a, st_b, addr_b) = inst.display_data::<(Storage, ShortAddr, Storage, ShortAddr)>();
+        println!(
+          "{} {} {}",
+          Self::opcode_column("Add"),
+          Self::storage_column(program, st_a, addr_a),
+          Self::storage_column(program, st_b, addr_b)
+        )
+      }
+      Opcode::Sub if inst.has_data() => {
+        let (st_a, addr_a, st_b, addr_b) = inst.display_data::<(Storage, ShortAddr, Storage, ShortAddr)>();
+        println!(
+          "{} {} {}",
+          Self::opcode_column("Sub"),
+          Self::storage_column(program, st_a, addr_a),
+          Self::storage_column(program, st_b, addr_b)
+        )
+      }
+      Opcode::Mul if inst.has_data() => {
+        let (st_a, addr_a, st_b, addr_b) = inst.display_data::<(Storage, ShortAddr, Storage, ShortAddr)>();
+        println!(
+          "{} {} {}",
+          Self::opcode_column("Mul"),
+          Self::storage_column(program, st_a, addr_a),
+          Self::storage_column(program, st_b, addr_b)
+        )
+      }
+      Opcode::Div if inst.has_data() => {
+        let (st_a, addr_a, st_b, addr_b) = inst.display_data::<(Storage, ShortAddr, Storage, ShortAddr)>();
+        println!(
+          "{} {} {}",
+          Self::opcode_column("Div"),
+          Self::storage_column(program, st_a, addr_a),
+          Self::storage_column(program, st_b, addr_b)
+        )
+      }
+      Opcode::Rem if inst.has_data() => {
+        let (st_a, addr_a, st_b, addr_b) = inst.display_data::<(Storage, ShortAddr, Storage, ShortAddr)>();
+        println!(
+          "{} {} {}",
+          Self::opcode_column("Rem"),
+          Self::storage_column(program, st_a, addr_a),
+          Self::storage_column(program, st_b, addr_b)
         )
       }
       x => println!("{}", Self::opcode_column(format!("{:?}", x))),
@@ -270,18 +318,23 @@ impl Context {
     format!("{:<20}", opcode.to_string())
   }
 
-  fn reg_column(value: Register) -> String {
-    format!("{: >4?}", value)
-  }
-
   fn value_column(value: impl Into<usize>) -> String {
     format!("{: >4}", value.into())
   }
 
-  fn const_at_column(&self, program: &Program, index: impl Into<usize>) -> String {
+  fn const_at_column(program: &Program, index: impl Into<usize>) -> String {
     let cval = &ConstantValue::StaticString("????");
     let value = program.const_at(index).unwrap_or(cval);
     format!("{value: >4?}")
+  }
+
+  fn storage_column(program: &Program, storage: Storage, index: impl Into<usize>) -> String {
+    let index = index.into();
+    match storage {
+      Storage::Local => Self::value_column(index),
+      Storage::Global => format!("{} {}", Self::value_column(index), Self::const_at_column(program, index),),
+      Storage::Reg => Self::value_column(index),
+    }
   }
 
   pub fn address_of(offset: usize) -> String {

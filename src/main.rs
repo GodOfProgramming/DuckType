@@ -5,6 +5,9 @@ use uuid::Uuid;
 
 #[derive(Debug, Parser)]
 struct Args {
+  #[arg(short, long)]
+  optimize: bool,
+
   #[command(subcommand)]
   command: Command,
 }
@@ -33,7 +36,7 @@ fn main() -> Result<(), Error> {
     Command::Run { files, runargs } => {
       let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(16)));
 
-      let mut vm = Vm::new(gc.clone(), runargs.clone());
+      let mut vm = Vm::new(gc.clone(), args.optimize, runargs.clone());
 
       #[cfg(feature = "profile")]
       let guard = {
@@ -69,7 +72,7 @@ fn main() -> Result<(), Error> {
         lib.env.extend(stdlib::enable_std(gc, libval, &runargs));
       });
 
-      let mut vm = Vm::new(gc, runargs.clone());
+      let mut vm = Vm::new(gc, args.optimize, runargs.clone());
       let mut input = String::new();
       std::io::stdin().read_to_string(&mut input).map_err(SystemError::IoError)?;
       let value = vm.run_string(input, gmod)?;

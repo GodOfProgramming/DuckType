@@ -8,7 +8,7 @@ struct ValueTest {
 impl TestFixture for ValueTest {
   fn set_up() -> Self {
     Self {
-      vm: Vm::new(SmartPtr::new(Gc::always_run()), []),
+      vm: Vm::new(SmartPtr::new(Gc::always_run()), false, []),
     }
   }
 }

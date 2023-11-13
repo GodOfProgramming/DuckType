@@ -9,27 +9,13 @@ use crate::code::{
 use super::Expression;
 
 #[derive(Debug)]
-pub struct GroupExpression {
-  pub expr: Box<Expression>,
-
-  pub loc: SourceLocation, // location of the left paren
-}
-
-impl GroupExpression {
-  pub(super) fn new(expr: Expression, loc: SourceLocation) -> Self {
-    Self {
-      expr: Box::new(expr),
-      loc,
-    }
-  }
-}
+pub struct GroupExpression;
 
 impl AstExpression for GroupExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    let paren_meta = ast.meta_at::<1>()?;
     let expr = ast.expression()?;
     if ast.consume(Token::RightParen, "expected ')' after expression") {
-      Some(Expression::from(GroupExpression::new(expr, paren_meta)))
+      Some(expr)
     } else {
       None
     }
@@ -343,6 +329,36 @@ impl Display for LiteralValue {
   }
 }
 
+impl From<()> for LiteralValue {
+  fn from(_: ()) -> Self {
+    LiteralValue::Nil
+  }
+}
+
+impl From<bool> for LiteralValue {
+  fn from(value: bool) -> Self {
+    LiteralValue::Bool(value)
+  }
+}
+
+impl From<i32> for LiteralValue {
+  fn from(value: i32) -> Self {
+    LiteralValue::I32(value)
+  }
+}
+
+impl From<f64> for LiteralValue {
+  fn from(value: f64) -> Self {
+    LiteralValue::F64(value)
+  }
+}
+
+impl From<String> for LiteralValue {
+  fn from(value: String) -> Self {
+    LiteralValue::String(value)
+  }
+}
+
 #[derive(Debug)]
 pub struct LiteralExpression {
   pub value: LiteralValue,
@@ -351,7 +367,7 @@ pub struct LiteralExpression {
 }
 
 impl LiteralExpression {
-  pub(super) fn new(value: LiteralValue, loc: SourceLocation) -> Self {
+  pub(crate) fn new(value: LiteralValue, loc: SourceLocation) -> Self {
     Self { value, loc }
   }
 }

@@ -366,6 +366,9 @@ pub enum UsageError {
   #[error("Invalid instruction: {0}")]
   InvalidInstruction(Instruction),
 
+  #[error("Used a register in an invalid context")]
+  InvalidRegisterUsage,
+
   #[error("{0}")]
   Preformated(Error),
 
