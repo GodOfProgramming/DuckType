@@ -740,9 +740,9 @@ impl Vm {
     if let ConstantValue::String(name) = name {
       let leaf = self.current_env();
       let module = ModuleValue::new_child(name, leaf.handle.value.clone());
-      let uhandle = Gc::allocate_handle(&mut self.gc, module);
-      self.envs.push(EnvEntry::Mod(uhandle.clone()));
-      self.stack_push(uhandle.handle.value.clone());
+      let handle = self.gc.allocate_typed_handle(module);
+      self.envs.push(EnvEntry::Mod(handle.clone()));
+      self.stack_push(handle.value());
       Ok(())
     } else {
       Err(UsageError::InvalidIdentifier(name.to_string()))
@@ -764,9 +764,8 @@ impl Vm {
   }
 
   fn push_scope(&mut self) {
-    let mut gc = self.gc.clone();
-    let leaf = self.current_env();
-    let handle = Gc::allocate_handle(&mut gc, ModuleValue::new_scope(leaf.handle.value.clone()));
+    let leaf = self.current_env().value();
+    let handle = self.gc.allocate_typed_handle(ModuleValue::new_scope(leaf));
     self.envs.push(EnvEntry::Block(handle));
   }
 

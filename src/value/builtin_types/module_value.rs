@@ -190,7 +190,7 @@ impl ModuleBuilder {
       ModuleType::Scope { parent } => ModuleValue::new_scope(parent),
     };
 
-    let module = Gc::allocate_handle(gc, module);
+    let module = gc.allocate_typed_handle(module);
 
     f(gc, module.clone());
 

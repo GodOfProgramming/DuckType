@@ -170,48 +170,6 @@ impl Value {
     self.cast_to_mut::<StringValue>()
   }
 
-  // array
-
-  pub fn is_vec(&self) -> bool {
-    self.is::<VecValue>()
-  }
-
-  pub fn as_vec(&self) -> Option<&'static VecValue> {
-    self.cast_to::<VecValue>()
-  }
-
-  pub fn as_vec_mut(&mut self) -> Option<&mut VecValue> {
-    self.cast_to_mut::<VecValue>()
-  }
-
-  // struct
-
-  pub fn is_struct(&self) -> bool {
-    self.is::<StructValue>()
-  }
-
-  pub fn as_struct(&self) -> Option<&StructValue> {
-    self.cast_to::<StructValue>()
-  }
-
-  pub fn as_struct_mut(&mut self) -> Option<&mut StructValue> {
-    self.cast_to_mut::<StructValue>()
-  }
-
-  // class
-
-  pub fn is_class(&self) -> bool {
-    self.is::<ClassValue>()
-  }
-
-  pub fn as_class(&self) -> Option<&ClassValue> {
-    self.cast_to::<ClassValue>()
-  }
-
-  pub fn as_class_mut(&mut self) -> Option<&mut ClassValue> {
-    self.cast_to_mut::<ClassValue>()
-  }
-
   // module
 
   pub fn is_module(&self) -> bool {
@@ -998,6 +956,7 @@ impl VTable {
 pub(crate) enum Mark {
   #[default]
   White,
+  Gray,
   Black,
 }
 

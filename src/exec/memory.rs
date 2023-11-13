@@ -5,7 +5,7 @@ use crate::{
   value::{tags::*, Mark, MutVoid, ValueMeta},
 };
 use ahash::RandomState;
-use ptr::{MutPtr, SmartPtr};
+use ptr::MutPtr;
 use std::{
   collections::HashSet,
   fmt::{self, Display, Formatter},
@@ -110,14 +110,14 @@ where
 
 pub struct ValueHandle {
   pub value: Value,
-  gc: SmartPtr<Gc>,
 }
 
 impl ValueHandle {
-  pub fn new(gc: SmartPtr<Gc>, mut value: Value) -> ValueHandle {
-    value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
-
-    Self { value, gc }
+  pub fn new(mut value: Value) -> ValueHandle {
+    if value.is_ptr() {
+      value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
+    }
+    Self { value }
   }
 }
 
@@ -148,7 +148,6 @@ impl Clone for ValueHandle {
 
     Self {
       value: self.value.clone(),
-      gc: self.gc.clone(),
     }
   }
 }
@@ -164,10 +163,16 @@ impl Drop for ValueHandle {
     if self.value.is_ptr() {
       let meta = self.value.meta();
 
-      let ref_count = meta.ref_count.load(Ordering::Relaxed).saturating_sub(1);
-      meta.ref_count.store(ref_count, Ordering::Relaxed);
-      if ref_count == 0 {
-        self.gc.drop_handle(self.value.clone());
+      #[cfg(debug_assertions)]
+      let before = meta.ref_count.load(Ordering::Relaxed);
+
+      meta.ref_count.fetch_sub(1, Ordering::Relaxed);
+
+      #[cfg(debug_assertions)]
+      {
+        let after = meta.ref_count.load(Ordering::Relaxed);
+
+        debug_assert!(before > after);
       }
     }
   }
@@ -247,11 +252,10 @@ pub struct Gc {
   next_run: Instant,
   frequency: Duration,
   pub(crate) allocations: AllocationSet,
-  pub(crate) handles: AllocationSet,
+  native_handles: AllocationSet,
   disposer: AsyncDisposal,
 
-  pub(crate) cleans: usize,
-  // generational_allocations: Vec<AllocationSet>,
+  cleans: usize,
 }
 
 impl Gc {
@@ -260,10 +264,9 @@ impl Gc {
       next_run: Instant::now() + frequency,
       frequency,
       allocations: Default::default(),
-      handles: Default::default(),
+      native_handles: Default::default(),
       disposer: AsyncDisposal::new(),
       cleans: 0,
-      // generational_allocations: Default::default(),
     }
   }
 
@@ -296,19 +299,29 @@ impl Gc {
     cached_values: impl IntoIterator<Item = &'v Value>,
     export: Option<&Value>,
   ) -> Result<usize, SystemError> {
-    let marked_allocations = self.trace(stack, current_frame, stack_frames, envs, cached_values, export);
+    self.ref_check_native_handles();
 
-    let loose_allocations = self.find_unmarked(marked_allocations);
+    let marked_allocations = Self::trace(
+      stack,
+      current_frame,
+      stack_frames,
+      envs,
+      &self.native_handles,
+      cached_values,
+      export,
+    );
 
-    let cleaned = loose_allocations.len();
+    let unmarked_allocations = self.find_unmarked(marked_allocations);
 
-    for alloc in &loose_allocations {
+    let cleaned = unmarked_allocations.len();
+
+    for alloc in &unmarked_allocations {
       let removed = self.allocations.remove(alloc);
       debug_assert!(removed);
     }
 
     if cleaned > 0 {
-      self.disposer.dispose(loose_allocations)?;
+      self.disposer.dispose(unmarked_allocations)?;
     }
 
     self.cleans += 1;
@@ -317,11 +330,11 @@ impl Gc {
   }
 
   fn trace<'v>(
-    &self,
     stack: &Stack,
     current_frame: &StackFrame,
     stack_frames: &Vec<StackFrame>,
     envs: &EnvStack,
+    native_handles: &AllocationSet,
     cached_values: impl IntoIterator<Item = &'v Value>,
     export: Option<&Value>,
   ) -> AllocationSet {
@@ -333,10 +346,6 @@ impl Gc {
 
     for value in cached_values {
       marked_allocations.trace(value);
-    }
-
-    for value in &self.handles {
-      marked_allocations.trace(&Value { bits: *value });
     }
 
     for ctx in &current_frame.registers {
@@ -359,12 +368,12 @@ impl Gc {
       marked_allocations.trace(&value);
     }
 
-    if let Some(value) = export {
-      marked_allocations.trace(value);
+    for handle in native_handles {
+      marked_allocations.trace(&Value { bits: *handle });
     }
 
-    for handle in &self.handles {
-      marked_allocations.trace(&Value { bits: *handle })
+    if let Some(value) = export {
+      marked_allocations.trace(value);
     }
 
     marked_allocations.into()
@@ -383,20 +392,21 @@ impl Gc {
       .collect()
   }
 
-  pub fn handle_from(this: &mut SmartPtr<Self>, value: Value) -> ValueHandle {
-    this.handles.insert(value.bits);
-    ValueHandle::new(this.clone(), value)
+  pub fn handle_from(&mut self, value: Value) -> ValueHandle {
+    self.allocations.remove(&value.bits);
+    self.native_handles.insert(value.bits);
+
+    ValueHandle::new(value)
+  }
+
+  pub fn allocate_typed_handle<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
+    let value = self.allocate(item);
+    let handle = self.handle_from(value);
+    UsertypeHandle::new(handle)
   }
 
   pub fn terminate(&mut self) {
     self.disposer.terminate()
-  }
-
-  pub fn allocate_handle<T: Usertype>(this: &mut SmartPtr<Self>, item: T) -> UsertypeHandle<T> {
-    let value = this.allocate(item);
-    let new = this.handles.insert(value.bits);
-    debug_assert!(new);
-    UsertypeHandle::new(ValueHandle::new(this.clone(), value))
   }
 
   fn allocate_usertype<T: Usertype>(&mut self, item: T) -> Value {
@@ -429,16 +439,25 @@ impl Gc {
     Box::into_raw(Box::new(item))
   }
 
-  fn drop_handle(&mut self, value: Value) {
-    let present = self.handles.remove(&value.bits);
-    debug_assert!(present);
-  }
-
   fn drop_value(mut value: Value) {
     debug_assert!(value.is_ptr());
     let pointer = value.pointer_mut();
     let meta = value.meta();
     (meta.vtable.dealloc)(pointer);
+  }
+
+  fn ref_check_native_handles(&mut self) {
+    let transferred = self
+      .native_handles
+      .iter()
+      .map(|alloc| Value { bits: *alloc })
+      .filter(|v| v.meta().ref_count.load(Ordering::Relaxed) == 0)
+      .collect::<Vec<Value>>();
+
+    for transfer in transferred {
+      self.native_handles.remove(&transfer.bits);
+      self.allocations.insert(transfer.bits);
+    }
   }
 }
 
@@ -653,12 +672,12 @@ mod tests {
     let mut gc = SmartPtr::new(Gc::always_run());
     let ctx = new_ctx();
 
-    let mut value = StructValue::new([(("child", 0), Value::nil)]);
+    let mut struct_value = StructValue::new([(("child", 0), Value::nil)]);
     let child = gc.allocate(SomeType {});
-    value.set_field(&mut gc, Field::named("child"), child).unwrap();
+    struct_value.set_field(&mut gc, Field::named("child"), child).unwrap();
 
     {
-      let _handle = Gc::allocate_handle(&mut gc, value);
+      let _handle = gc.allocate_typed_handle(struct_value);
       let cleaned = gc
         .clean(
           &Default::default(),
