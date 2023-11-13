@@ -623,7 +623,6 @@ impl Display for Value {
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
       Tag::NativeFn => write!(f, "<native fn {:p}>", &self.as_native_fn_unchecked()),
-      Tag::NativeVTable => todo!(),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
     }
@@ -646,7 +645,6 @@ impl Debug for Value {
         addr = format!("0x{:0>width$x}", self.bits(), width = PTR_WIDTH),
         width = PTR_DISPLAY_WIDTH,
       ),
-      Tag::NativeVTable => todo!(),
       Tag::Pointer => write!(
         f,
         "<@{addr:<width$} {} : {}>",
