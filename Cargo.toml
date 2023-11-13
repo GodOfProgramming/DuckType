@@ -1,6 +1,6 @@
 [package]
 name = "DuckType"
-version = "0.43.0"
+version = "0.44.0"
 authors = ["Jonathan Dickert <jonathan.dickert@protonmail.com>"]
 edition = "2021"
 default-run = "duck"
@@ -48,10 +48,13 @@ ptr = { path = "lib/ptr" }
 tfix = { path = "lib/tfix" }
 macros = { path = "macros" }
 
-
 [dev-dependencies]
 pretty_assertions = "1.4"
 evalexpr = "11.1"
+
+[profile.release]
+strip = true
+lto = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.48", features = [

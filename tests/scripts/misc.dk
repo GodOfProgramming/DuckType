@@ -1,0 +1,9 @@
+req "lib/brood/brood" as brood;
+
+use brood::suite;
+
+suite("Misc", |s| {
+  s.describe("println doesn't cause a crash", |t| {
+    println nil;
+  });
+});

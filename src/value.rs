@@ -170,48 +170,6 @@ impl Value {
     self.cast_to_mut::<StringValue>()
   }
 
-  // array
-
-  pub fn is_vec(&self) -> bool {
-    self.is::<VecValue>()
-  }
-
-  pub fn as_vec(&self) -> Option<&'static VecValue> {
-    self.cast_to::<VecValue>()
-  }
-
-  pub fn as_vec_mut(&mut self) -> Option<&mut VecValue> {
-    self.cast_to_mut::<VecValue>()
-  }
-
-  // struct
-
-  pub fn is_struct(&self) -> bool {
-    self.is::<StructValue>()
-  }
-
-  pub fn as_struct(&self) -> Option<&StructValue> {
-    self.cast_to::<StructValue>()
-  }
-
-  pub fn as_struct_mut(&mut self) -> Option<&mut StructValue> {
-    self.cast_to_mut::<StructValue>()
-  }
-
-  // class
-
-  pub fn is_class(&self) -> bool {
-    self.is::<ClassValue>()
-  }
-
-  pub fn as_class(&self) -> Option<&ClassValue> {
-    self.cast_to::<ClassValue>()
-  }
-
-  pub fn as_class_mut(&mut self) -> Option<&mut ClassValue> {
-    self.cast_to_mut::<ClassValue>()
-  }
-
   // module
 
   pub fn is_module(&self) -> bool {
@@ -623,7 +581,6 @@ impl Display for Value {
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
       Tag::NativeFn => write!(f, "<native fn {:p}>", &self.as_native_fn_unchecked()),
-      Tag::NativeVTable => todo!(),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
     }
@@ -646,7 +603,6 @@ impl Debug for Value {
         addr = format!("0x{:0>width$x}", self.bits(), width = PTR_WIDTH),
         width = PTR_DISPLAY_WIDTH,
       ),
-      Tag::NativeVTable => todo!(),
       Tag::Pointer => write!(
         f,
         "<@{addr:<width$} {} : {}>",
@@ -996,7 +952,19 @@ impl VTable {
   }
 }
 
+#[derive(Default)]
+pub(crate) enum Mark {
+  #[default]
+  White,
+  Gray,
+  Black,
+}
+
 pub(crate) struct ValueMeta {
   pub(crate) vtable: &'static VTable,
+
+  /// Reference count to values that exist in native code and can't be traced
   pub(crate) ref_count: AtomicUsize,
+
+  pub(crate) mark: Mark,
 }

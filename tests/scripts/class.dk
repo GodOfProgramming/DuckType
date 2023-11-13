@@ -1,0 +1,17 @@
+req "lib/brood/brood" as brood;
+
+use brood::suite;
+
+suite("Classes", |s| {
+  class TestClass {
+    self as nil
+
+    fn static_method(x, y) {
+      ret x + y;
+    }
+  }
+
+  s.describe("static methods", |t| {
+    t.expect(TestClass.static_method(1, 2)).to_be(3);
+  });
+});

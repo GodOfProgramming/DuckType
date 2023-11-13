@@ -241,6 +241,7 @@ impl<'src> Scanner<'src> {
             } else {
               match self.peek_n(1) {
                 Some(d) if Self::is_digit(d) => {
+                  self.advance();
                   if let Some(tok) = self.make_number(true) {
                     should_advance = false;
                     tok

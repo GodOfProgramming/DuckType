@@ -270,8 +270,8 @@ pub enum UsageError {
   #[error("{0} not implemented for {1}")]
   UnimplementedError(&'static str, Value),
 
-  #[error("{0} is undefined")]
-  UndefinedMethod(&'static str),
+  #[error("{0} is undefined for {0}")]
+  UndefinedMethod(&'static str, String),
 
   /// index, value
   #[error("Index {0} out of bounds in {1}")]
@@ -320,6 +320,12 @@ pub enum UsageError {
   #[error("unexpected nil value")]
   UnexpectedNil,
 
+  #[error("Expected field name but found none")]
+  EmptyField,
+
+  #[error("quack {0}")]
+  Quack(Value),
+
   /* Below can only be reached from bad bytecode generation */
   #[error("Empty stack")]
   EmptyStack,
@@ -356,9 +362,6 @@ pub enum UsageError {
 
   #[error("capture list must be a vec")]
   CaptureType,
-
-  #[error("Expected field name but found none")]
-  EmptyField,
 
   #[error("Invalid instruction: {0}")]
   InvalidInstruction(Instruction),

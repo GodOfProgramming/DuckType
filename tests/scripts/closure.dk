@@ -1,31 +1,33 @@
-let brood = req "lib/brood/brood.dk";
+req "lib/brood/brood" as brood;
 
-use brood::describe;
+use brood::suite;
 
-class Number {
-  self as struct {
-    n: 0,
-  }
+suite("Closures", |s| {
+  s.describe("captured values", |t| {
+    class Number {
+      self as struct {
+        n: 0,
+      }
 
-  new(self, n) {
-    self.n = n;
-  }
+      new(self, n) {
+        self.n = n;
+      }
 
-  fn add_and_store(self, n) {
-    ret self.n += n;
-  }
-}
+      fn add_and_store(self, n) {
+        ret self.n += n;
+      }
+    }
 
-fn generator() {
-  let x = Number(0);
-  ret [x] |offset| {
-    ret x.add_and_store(offset + 1);
-  };
-}
+    fn generator() {
+      let x = Number(0);
+      ret [x] |offset| {
+        ret x.add_and_store(offset + 1);
+      };
+    }
 
-describe("captured values", |t| {
-  let gen = generator();
-  t.expect(gen(0)).to_be(1);
-  t.expect(gen(1)).to_be(3);
-  t.expect(gen(2)).to_be(6);
+    let gen = generator();
+    t.expect(gen(0)).to_be(1);
+    t.expect(gen(1)).to_be(3);
+    t.expect(gen(2)).to_be(6);
+  });
 });

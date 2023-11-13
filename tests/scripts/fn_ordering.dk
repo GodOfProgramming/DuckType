@@ -1,37 +1,39 @@
-req "lib/brood/brood.dk" as brood;
+req "lib/brood/brood" as brood;
 
-use brood::describe;
+use brood::suite;
 
-let $COUNTER = 1;
+suite("Function Parameter Evaluation Order", |s| {
+  let $COUNTER = 1;
 
-class SomeClass {
-  self as nil
+  class SomeClass {
+    self as nil
 
-  fn second(self, t) {
-    t.expect($COUNTER).to_be(2);
+    fn second(self, t) {
+      t.expect($COUNTER).to_be(2);
+      $COUNTER += 1;
+      ret self;
+    }
+
+    fn fourth(self, t) {
+      t.expect($COUNTER).to_be(4);
+    }
+  }
+
+  fn first(t) {
+    t.expect($COUNTER).to_be(1);
     $COUNTER += 1;
-    ret self;
+    ret t;
   }
 
-  fn fourth(self, t) {
+  fn third(t) {
+    t.expect($COUNTER).to_be(3);
+    $COUNTER += 1;
+    ret t;
+  }
+
+  s.describe("ordering of functions", |t| {
+    let instance = SomeClass();
+    instance.second(first(t)).fourth(third(t));
     t.expect($COUNTER).to_be(4);
-  }
-}
-
-fn first(t) {
-  t.expect($COUNTER).to_be(1);
-  $COUNTER += 1;
-  ret t;
-}
-
-fn third(t) {
-  t.expect($COUNTER).to_be(3);
-  $COUNTER += 1;
-  ret t;
-}
-
-describe("ordering of functions", |t| {
-  let instance = SomeClass();
-  instance.second(first(t)).fourth(third(t));
-  t.expect($COUNTER).to_be(4);
+  });
 });

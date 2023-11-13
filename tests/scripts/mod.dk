@@ -1,34 +1,37 @@
-let brood = req "lib/brood/brood.dk";
+req "lib/brood/brood" as brood;
 
-use brood::describe;
+use brood::suite;
 
-let $TEST_STRING = "foobarbaz";
+suite("Modules", |s| {
+  s.describe("general usage", |t| {
+    let $TEST_STRING = "foobarbaz";
 
-mod Foo {
-  class Bar {
-    self as struct {
-      value: nil,
+    mod Foo {
+      class Bar {
+        self as struct {
+          value: nil,
+        }
+
+        new(self, value) {
+          self.value = value;
+        }
+
+        fn display_string(self) {
+          ret self.value;
+        }
+      }
+
+      mod Baz {
+        fn foobarbaz() {
+          ret $TEST_STRING;
+        }
+      }
     }
 
-    new(self, value) {
-      self.value = value;
-    }
+    let test_string = "foobar";
+    let bar = Foo::Bar(test_string);
 
-    fn display_string(self) {
-      ret self.value;
-    }
-  }
-
-  mod Baz {
-    fn foobarbaz() {
-      ret $TEST_STRING;
-    }
-  }
-}
-
-describe("modules", |t| {
-  let test_string = "foobar";
-  let bar = Foo::Bar(test_string);
-  t.expect(bar.display_string()).to_be(test_string);
-  t.expect(Foo::Baz::foobarbaz()).to_be($TEST_STRING);
+    t.expect(bar.display_string()).to_be(test_string);
+    t.expect(Foo::Baz::foobarbaz()).to_be($TEST_STRING);
+  });
 });

@@ -27,7 +27,7 @@ impl UsertypeFields for InstanceValue {
 
 impl UsertypeMethods for InstanceValue {
   fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>> {
-    if let Some(class) = self.class.as_class() {
+    if let Some(class) = self.class.cast_to::<ClassValue>() {
       Ok(class.get_method(gc, this, field))
     } else {
       Ok(None)

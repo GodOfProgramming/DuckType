@@ -150,9 +150,10 @@ impl Vm {
   pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
     let mut export = None;
 
+    // Execute instructions in the current stack frame's context
+    //
+    // The GC is checked at every instruction that does or could involve an allocation
     'ctx: while let Some(inst) = self.stack_frame.ctx.next(self.stack_frame.ip) {
-      self.run_gc(export.as_ref())?;
-
       #[cfg(feature = "runtime-disassembly")]
       {
         self.stack_display();
@@ -168,13 +169,12 @@ impl Vm {
         .ok_or_else(|| self.error(UsageError::InvalidInstruction(inst)))?;
 
       match opcode {
-        Opcode::Unknown => self.exec_unknown(inst)?,
-        Opcode::Const => self.exec(|this| this.exec_const(data!(inst)))?,
-        Opcode::Nil => self.exec_nil(),
-        Opcode::True => self.exec_true(),
-        Opcode::False => self.exec_false(),
         Opcode::Pop => self.exec_pop(),
         Opcode::PopN => self.exec(|this| Ok(this.exec_pop_n(data!(inst))))?,
+        Opcode::Const => {
+          self.exec(|this| this.exec_const(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
         Opcode::Store => {
           let (storage, addr) = self.exec(|_| Ok(data!(inst)))?;
           match storage {
@@ -198,12 +198,61 @@ impl Vm {
             }
           }
         }
-        Opcode::InitializeMember => self.exec(|this| this.exec_initialize_member(data!(inst)))?,
-        Opcode::InitializeMethod => self.exec(|this| this.exec_initialize_method(data!(inst)))?,
-        Opcode::InitializeConstructor => self.exec(|this| this.exec_initialize_constructor())?,
-        Opcode::AssignMember => self.exec(|this| this.exec_assign_member(data!(inst)))?,
-        Opcode::LookupMember => self.exec(|this| this.exec_lookup_member(data!(inst)))?,
-        Opcode::PeekMember => self.exec(|this| this.exec_peek_member(data!(inst)))?,
+        Opcode::Nil => self.exec_nil(),
+        Opcode::True => self.exec_true(),
+        Opcode::False => self.exec_false(),
+        Opcode::InitializeMember => {
+          self.exec(|this| this.exec_initialize_member(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::AssignMember => {
+          self.exec(|this| this.exec_assign_member(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::LookupMember => {
+          self.exec(|this| this.exec_lookup_member(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::PeekMember => {
+          self.exec(|this| this.exec_peek_member(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::InitializeConstructor => {
+          self.exec(|this| this.exec_initialize_constructor())?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::InitializeMethod => {
+          self.exec(|this| this.exec_initialize_method(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateVec => {
+          self.exec(|this| Ok(this.exec_create_vec(data!(inst))))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateSizedVec => {
+          self.exec(|this| this.exec_sized_vec(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateDynamicVec => {
+          self.exec(|this| this.exec_dyn_vec())?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateClosure => {
+          self.exec(|this| this.exec_create_closure())?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateStruct => {
+          self.exec(|this| this.exec_create_struct(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateClass => {
+          self.exec(|this| this.exec_create_class(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
+        Opcode::CreateModule => {
+          self.exec(|this| this.exec_create_module(data!(inst)))?;
+          self.check_gc(export.as_ref())?;
+        }
         Opcode::Check => self.exec(|this| this.exec_check())?,
         Opcode::Println => self.exec(|this| this.exec_println())?,
         Opcode::Jump => {
@@ -231,15 +280,9 @@ impl Vm {
         Opcode::Req => {
           self.stack_frame.ip += 1;
           self.exec_req()?;
+          self.check_gc(export.as_ref())?;
           continue 'ctx;
         }
-        Opcode::CreateVec => self.exec(|this| Ok(this.exec_create_vec(data!(inst))))?,
-        Opcode::CreateSizedVec => self.exec(|this| this.exec_sized_vec(data!(inst)))?,
-        Opcode::CreateDynamicVec => self.exec(|this| this.exec_dyn_vec())?,
-        Opcode::CreateClosure => self.exec(|this| this.exec_create_closure())?,
-        Opcode::CreateStruct => self.exec(|this| this.exec_create_struct(data!(inst)))?,
-        Opcode::CreateClass => self.exec(|this| this.exec_create_class(data!(inst)))?,
-        Opcode::CreateModule => self.exec(|this| this.exec_create_module(data!(inst)))?,
         Opcode::Breakpoint => {
           self.dbg()?;
         }
@@ -249,19 +292,50 @@ impl Vm {
         }
         Opcode::Define => self.exec(|this| this.exec_define_global(data!(inst)))?,
         Opcode::Resolve => self.exec(|this| this.exec_scope_resolution(data!(inst)))?,
-        Opcode::EnterBlock => self.push_scope(),
+        Opcode::EnterBlock => {
+          self.push_scope();
+          self.check_gc(export.as_ref())?;
+        }
         Opcode::PopScope => self.pop_scope(),
-        Opcode::Equal => self.exec(|this| this.exec_equal(opcode))?,
-        Opcode::NotEqual => self.exec(|this| this.exec_not_equal(opcode))?,
-        Opcode::Greater => self.exec(|this| this.exec_greater(opcode))?,
-        Opcode::GreaterEqual => self.exec(|this| this.exec_greater_equal(opcode))?,
-        Opcode::Less => self.exec(|this| this.exec_less(opcode))?,
-        Opcode::LessEqual => self.exec(|this| this.exec_less_equal(opcode))?,
-        Opcode::Add => self.exec(|this| this.exec_add(opcode))?,
-        Opcode::Sub => self.exec(|this| this.exec_sub(opcode))?,
-        Opcode::Mul => self.exec(|this| this.exec_mul(opcode))?,
-        Opcode::Div => self.exec(|this| this.exec_div(opcode))?,
-        Opcode::Rem => self.exec(|this| this.exec_rem(opcode))?,
+        Opcode::Equal => {
+          self.exec(|this| this.exec_equal(opcode))?;
+        }
+        Opcode::NotEqual => {
+          self.exec(|this| this.exec_not_equal(opcode))?;
+        }
+        Opcode::Greater => {
+          self.exec(|this| this.exec_greater(opcode))?;
+        }
+        Opcode::GreaterEqual => {
+          self.exec(|this| this.exec_greater_equal(opcode))?;
+        }
+        Opcode::Less => {
+          self.exec(|this| this.exec_less(opcode))?;
+        }
+        Opcode::LessEqual => {
+          self.exec(|this| this.exec_less_equal(opcode))?;
+        }
+        Opcode::Add => {
+          self.exec(|this| this.exec_add(opcode))?;
+        }
+        Opcode::Sub => {
+          self.exec(|this| this.exec_sub(opcode))?;
+        }
+        Opcode::Mul => {
+          self.exec(|this| this.exec_mul(opcode))?;
+        }
+        Opcode::Div => {
+          self.exec(|this| this.exec_div(opcode))?;
+        }
+        Opcode::Rem => {
+          self.exec(|this| this.exec_rem(opcode))?;
+        }
+        Opcode::Negate => {
+          self.exec(|this| this.exec_negate(opcode))?;
+        }
+        Opcode::Not => {
+          self.exec(|this| this.exec_not(opcode))?;
+        }
         Opcode::Or => {
           let val = self.exec(|this| this.exec_or(data!(inst)))?;
           if val {
@@ -274,8 +348,6 @@ impl Vm {
             continue 'ctx;
           }
         }
-        Opcode::Not => self.exec(|this| this.exec_not(opcode))?,
-        Opcode::Negate => self.exec(|this| this.exec_negate(opcode))?,
         Opcode::PushRegCtx => self.stack_frame.new_reg_ctx(),
         Opcode::PopRegCtx => self.stack_frame.pop_reg_ctx(),
         Opcode::SwapPop => {
@@ -284,8 +356,9 @@ impl Vm {
         }
         Opcode::Quack => {
           let value = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
-          panic!("{value}");
+          Err(self.error(UsageError::Quack(value)))?;
         }
+        Opcode::Unknown => self.exec_unknown(inst)?,
       }
 
       self.stack_frame.ip += 1;
@@ -416,7 +489,7 @@ impl Vm {
 
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
-    let class = obj.as_class_mut().ok_or(UsageError::MethodAssignment)?;
+    let class = obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment)?;
 
     let f = value.as_fn().ok_or(UsageError::MethodType)?;
 
@@ -431,7 +504,7 @@ impl Vm {
   fn exec_initialize_constructor(&mut self) -> OpResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-    let class = obj.as_class_mut().ok_or(UsageError::MethodAssignment)?;
+    let class = obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment)?;
     class.set_constructor(value);
     Ok(())
   }
@@ -614,7 +687,7 @@ impl Vm {
     let function = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let captures = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let f = function.as_fn().ok_or(UsageError::ClosureType)?;
-    let c = captures.as_vec().ok_or(UsageError::CaptureType)?;
+    let c = captures.cast_to::<VecValue>().ok_or(UsageError::CaptureType)?;
 
     let closure = self.gc.allocate(ClosureValue::new(c, f.clone()));
     self.stack_push(closure);
@@ -667,9 +740,9 @@ impl Vm {
     if let ConstantValue::String(name) = name {
       let leaf = self.current_env();
       let module = ModuleValue::new_child(name, leaf.handle.value.clone());
-      let uhandle = Gc::allocate_handle(&mut self.gc, module);
-      self.envs.push(EnvEntry::Mod(uhandle.clone()));
-      self.stack_push(uhandle.handle.value.clone());
+      let handle = self.gc.allocate_typed_handle(module);
+      self.envs.push(EnvEntry::Mod(handle.clone()));
+      self.stack_push(handle.value());
       Ok(())
     } else {
       Err(UsageError::InvalidIdentifier(name.to_string()))
@@ -691,9 +764,8 @@ impl Vm {
   }
 
   fn push_scope(&mut self) {
-    let mut gc = self.gc.clone();
-    let leaf = self.current_env();
-    let handle = Gc::allocate_handle(&mut gc, ModuleValue::new_scope(leaf.handle.value.clone()));
+    let leaf = self.current_env().value();
+    let handle = self.gc.allocate_typed_handle(ModuleValue::new_scope(leaf));
     self.envs.push(EnvEntry::Block(handle));
   }
 
@@ -752,10 +824,10 @@ impl Vm {
       if let Some(paths) = self
         .current_env()
         .lookup_path(&[STD, ENV, PATHS])
-        .map(|l| l.map(|l| l.as_vec()))
+        .map(|l| l.and_then(|l| l.cast_to::<VecValue>()))
         .map_err(|e| self.error(e))?
       {
-        for path in &paths {
+        for path in paths.iter() {
           let base = PathBuf::from(path.to_string());
           found_file = try_to_find_file(&base, &required_file, &mut attempts);
           if found_file.is_some() {
@@ -767,11 +839,11 @@ impl Vm {
 
     let found_file = found_file.ok_or_else(|| self.error(UsageError::BadReq(attempts)))?;
 
-    let id = PlatformMetadata::id_of(&found_file).map_err(Error::other_system_err)?;
+    let file_id = PlatformMetadata::id_of(&found_file).map_err(Error::other_system_err)?;
 
     match found_file.extension().and_then(|s| s.to_str()) {
       Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-        let value = if let Some(value) = self.lib_cache.get(&id) {
+        let value = if let Some(value) = self.lib_cache.get(&file_id) {
           value.clone()
         } else {
           let lib: Container<NativeApi> =
@@ -779,7 +851,7 @@ impl Vm {
 
           let value = lib.simple_script_load_module(self)?;
           self.opened_native_libs.insert(found_file, lib);
-          self.lib_cache.insert(id, value.clone());
+          self.lib_cache.insert(file_id, value.clone());
           value
         };
 
@@ -788,13 +860,14 @@ impl Vm {
         Ok(())
       }
       _ => {
-        let data = fs::read_to_string(&found_file).map_err(Error::other_system_err)?;
+        let source = fs::read_to_string(&found_file).map_err(Error::other_system_err)?;
 
-        if let Some(value) = self.lib_cache.get(&id) {
+        if let Some(value) = self.lib_cache.get(&file_id) {
           self.stack_push(value.clone());
         } else {
-          self.filemap.add(id, &found_file);
-          let new_ctx = code::compile(&mut self.program, Some(id), data)?;
+          self.filemap.add(file_id, &found_file);
+
+          let new_ctx = code::compile_file(&mut self.program, file_id, source).map_err(|e| e.with_filename(&self.filemap))?;
           let gmod = ModuleBuilder::initialize(
             &mut self.gc,
             ModuleType::new_global(format!("<file export {}>", found_file.display())),
@@ -806,7 +879,7 @@ impl Vm {
 
           self.new_frame(new_ctx, 0);
           self.envs.push(EnvEntry::File(gmod));
-          self.opened_files.push(FileInfo::new(found_file, id));
+          self.opened_files.push(FileInfo::new(found_file, file_id));
           let output = self.execute(RunMode::File)?;
           self.stack_push(output);
         }
@@ -1008,7 +1081,7 @@ impl Vm {
     self.envs.last_mut()
   }
 
-  pub fn run_gc(&mut self, export: Option<&Value>) -> ExecResult {
+  pub fn check_gc(&mut self, export: Option<&Value>) -> ExecResult {
     self.gc.clean_if_time(
       &self.stack,
       &self.stack_frame,
