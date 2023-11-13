@@ -158,6 +158,26 @@ fn opt_binary_expr(mut expr: BinaryExpression) -> Expression {
           BinaryOperator::Greater => lit_expr!(l > r),
           BinaryOperator::GreaterEq => lit_expr!(l >= r),
         },
+        (LiteralValue::String(l), LiteralValue::String(r)) => match expr.op {
+          BinaryOperator::Add => lit_expr!(format!("{l}{r}")),
+          BinaryOperator::Equal => lit_expr!(l == r),
+          BinaryOperator::NotEq => lit_expr!(l != r),
+          BinaryOperator::Less => lit_expr!(l < r),
+          BinaryOperator::LessEq => lit_expr!(l <= r),
+          BinaryOperator::Greater => lit_expr!(l > r),
+          BinaryOperator::GreaterEq => lit_expr!(l >= r),
+          _ => Expression::from(expr),
+        },
+        (LiteralValue::String(s), literal) => match expr.op {
+          BinaryOperator::Add => lit_expr!(format!("{s}{literal}")),
+          BinaryOperator::Equal => lit_expr!(false),
+          BinaryOperator::NotEq => lit_expr!(false),
+          BinaryOperator::Less => lit_expr!(false),
+          BinaryOperator::LessEq => lit_expr!(false),
+          BinaryOperator::Greater => lit_expr!(false),
+          BinaryOperator::GreaterEq => lit_expr!(false),
+          _ => Expression::from(expr),
+        },
         _ => Expression::from(expr),
       }
     }
@@ -167,30 +187,22 @@ fn opt_binary_expr(mut expr: BinaryExpression) -> Expression {
       StorageLocation::Ident(r.ident.clone()),
       expr.loc,
     )),
-    (Expression::Ident(l), Expression::Binary(_)) => Expression::from(BinaryRegisterExpression::new(
-      StorageLocation::Ident(l.ident.clone()),
-      expr.op,
-      StorageLocation::Stack(expr.right),
-      expr.loc,
-    )),
-    (Expression::Ident(l), Expression::BinaryRegister(_)) => Expression::from(BinaryRegisterExpression::new(
-      StorageLocation::Ident(l.ident.clone()),
-      expr.op,
-      StorageLocation::Stack(expr.right),
-      expr.loc,
-    )),
-    (Expression::Binary(_), Expression::Ident(r)) => Expression::from(BinaryRegisterExpression::new(
-      StorageLocation::Stack(expr.left),
-      expr.op,
-      StorageLocation::Ident(r.ident.clone()),
-      expr.loc,
-    )),
-    (Expression::BinaryRegister(_), Expression::Ident(r)) => Expression::from(BinaryRegisterExpression::new(
-      StorageLocation::Stack(expr.left),
-      expr.op,
-      StorageLocation::Ident(r.ident.clone()),
-      expr.loc,
-    )),
+    (Expression::Ident(l), Expression::Binary(_) | Expression::BinaryRegister(_)) => {
+      Expression::from(BinaryRegisterExpression::new(
+        StorageLocation::Ident(l.ident.clone()),
+        expr.op,
+        StorageLocation::Stack(expr.right),
+        expr.loc,
+      ))
+    }
+    (Expression::Binary(_) | Expression::BinaryRegister(_), Expression::Ident(r)) => {
+      Expression::from(BinaryRegisterExpression::new(
+        StorageLocation::Stack(expr.left),
+        expr.op,
+        StorageLocation::Ident(r.ident.clone()),
+        expr.loc,
+      ))
+    }
     (_, _) => Expression::from(expr),
   }
 }
