@@ -198,16 +198,22 @@ impl AstExpression for BinaryExpression {
 }
 
 #[derive(Debug)]
+pub enum StorageLocation {
+  Stack(Box<Expression>),
+  Ident(Ident),
+}
+
+#[derive(Debug)]
 pub struct BinaryRegisterExpression {
-  pub left: Ident,
+  pub left: StorageLocation,
   pub op: BinaryOperator,
-  pub right: Ident,
+  pub right: StorageLocation,
 
   pub loc: SourceLocation,
 }
 
 impl BinaryRegisterExpression {
-  pub(crate) fn new(left: Ident, op: BinaryOperator, right: Ident, loc: SourceLocation) -> Self {
+  pub(crate) fn new(left: StorageLocation, op: BinaryOperator, right: StorageLocation, loc: SourceLocation) -> Self {
     Self { left, op, right, loc }
   }
 }

@@ -10,6 +10,7 @@ pub use ops::*;
 
 #[derive(Debug)]
 pub enum Expression {
+  Empty,
   And(AndExpression),
   Assign(AssignExpression),
   Binary(BinaryExpression),
@@ -38,6 +39,7 @@ impl Expression {
   #[cfg(feature = "visit-ast")]
   pub(super) fn dump(&self, tmpl: &mut TemplateBuffer) {
     match self {
+      Expression::Empty => (),
       Expression::And(_) => (),
       Expression::Assign(_) => (),
       Expression::Binary(_) => (),
@@ -102,6 +104,7 @@ impl Expression {
 impl Display for Expression {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     match self {
+      Self::Empty => panic!("Empty expressions are just placeholders and should not make it out of optimization"),
       Self::And(_) => write!(f, "and"),
       Self::Assign(_) => write!(f, "assign"),
       Self::Binary(_) => write!(f, "binary"),

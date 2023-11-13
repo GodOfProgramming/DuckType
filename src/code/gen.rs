@@ -400,47 +400,66 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn binary_register_expr(&mut self, expr: BinaryRegisterExpression) {
-    if let Some((left, right)) = self
-      .resolve_ident(&expr.left, expr.loc)
-      .zip(self.resolve_ident(&expr.right, expr.loc))
-    {
-      let left = match left {
-        Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
-        Lookup::Global => {
-          if let Some(var) = self.declare_global(expr.left) {
-            (Storage::Global, ShortAddr(var))
-          } else {
-            self.error(expr.loc, "could not declare global ident");
-            return;
-          }
-        }
-      };
-
-      let right = match right {
-        Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
-        Lookup::Global => {
-          if let Some(var) = self.declare_global(expr.right) {
-            (Storage::Global, ShortAddr(var))
-          } else {
-            self.error(expr.loc, "could not declare global ident");
-            return;
-          }
-        }
-      };
-
-      match expr.op {
-        BinaryOperator::Equal => self.emit((Opcode::Equal, (left, right)), expr.loc),
-        BinaryOperator::NotEq => self.emit((Opcode::NotEqual, (left, right)), expr.loc),
-        BinaryOperator::Less => self.emit((Opcode::Less, (left, right)), expr.loc),
-        BinaryOperator::LessEq => self.emit((Opcode::LessEqual, (left, right)), expr.loc),
-        BinaryOperator::Greater => self.emit((Opcode::Greater, (left, right)), expr.loc),
-        BinaryOperator::GreaterEq => self.emit((Opcode::GreaterEqual, (left, right)), expr.loc),
-        BinaryOperator::Add => self.emit((Opcode::Add, (left, right)), expr.loc),
-        BinaryOperator::Sub => self.emit((Opcode::Sub, (left, right)), expr.loc),
-        BinaryOperator::Mul => self.emit((Opcode::Mul, (left, right)), expr.loc),
-        BinaryOperator::Div => self.emit((Opcode::Div, (left, right)), expr.loc),
-        BinaryOperator::Mod => self.emit((Opcode::Rem, (left, right)), expr.loc),
+    let left = match expr.left {
+      StorageLocation::Stack(expr) => {
+        self.emit_expr(*expr);
+        (Storage::Stack, ShortAddr(0))
       }
+      StorageLocation::Ident(ident) => {
+        if let Some(var) = self.resolve_ident(&ident, expr.loc) {
+          match var {
+            Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
+            Lookup::Global => {
+              if let Some(var) = self.declare_global(ident) {
+                (Storage::Global, ShortAddr(var))
+              } else {
+                self.error(expr.loc, "could not declare global ident");
+                return;
+              }
+            }
+          }
+        } else {
+          return;
+        }
+      }
+    };
+
+    let right = match expr.right {
+      StorageLocation::Stack(expr) => {
+        self.emit_expr(*expr);
+        (Storage::Stack, ShortAddr(0))
+      }
+      StorageLocation::Ident(ident) => {
+        if let Some(var) = self.resolve_ident(&ident, expr.loc) {
+          match var {
+            Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
+            Lookup::Global => {
+              if let Some(var) = self.declare_global(ident) {
+                (Storage::Global, ShortAddr(var))
+              } else {
+                self.error(expr.loc, "could not declare global ident");
+                return;
+              }
+            }
+          }
+        } else {
+          return;
+        }
+      }
+    };
+
+    match expr.op {
+      BinaryOperator::Equal => self.emit((Opcode::Equal, (left, right)), expr.loc),
+      BinaryOperator::NotEq => self.emit((Opcode::NotEqual, (left, right)), expr.loc),
+      BinaryOperator::Less => self.emit((Opcode::Less, (left, right)), expr.loc),
+      BinaryOperator::LessEq => self.emit((Opcode::LessEqual, (left, right)), expr.loc),
+      BinaryOperator::Greater => self.emit((Opcode::Greater, (left, right)), expr.loc),
+      BinaryOperator::GreaterEq => self.emit((Opcode::GreaterEqual, (left, right)), expr.loc),
+      BinaryOperator::Add => self.emit((Opcode::Add, (left, right)), expr.loc),
+      BinaryOperator::Sub => self.emit((Opcode::Sub, (left, right)), expr.loc),
+      BinaryOperator::Mul => self.emit((Opcode::Mul, (left, right)), expr.loc),
+      BinaryOperator::Div => self.emit((Opcode::Div, (left, right)), expr.loc),
+      BinaryOperator::Mod => self.emit((Opcode::Rem, (left, right)), expr.loc),
     }
   }
 
@@ -845,6 +864,7 @@ impl<'p> BytecodeGenerator<'p> {
       println!("expr {}", expr);
     }
     match expr {
+      Expression::Empty => panic!("Empty expressions are just placeholders and should not make it out of optimization"),
       Expression::And(expr) => self.and_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::Binary(expr) => self.binary_expr(expr),

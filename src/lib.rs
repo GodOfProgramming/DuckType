@@ -158,15 +158,22 @@ impl Vm {
     // Execute instructions in the current stack frame's context
     //
     // The GC is checked at every instruction that does or could involve an allocation
-    'ctx: while let Some(inst) = self.stack_frame.ctx.next(self.stack_frame.ip) {
+    'ctx: while let Some(inst) = self.stack_frame.ctx.fetch(self.stack_frame.ip) {
       #[cfg(feature = "runtime-disassembly")]
       {
         self.stack_display();
 
-        self
-          .stack_frame
-          .ctx
-          .display_instruction(&self.program, inst, self.stack_frame.ip);
+        println!(
+          "{}",
+          InstructionDisassembler {
+            ctx: &ContextDisassembler {
+              program: &self.program,
+              ctx: self.ctx(),
+            },
+            inst,
+            offset: self.stack_frame.ip,
+          }
+        );
       }
 
       let opcode = inst
@@ -189,6 +196,7 @@ impl Vm {
               let value = self.exec(|this| this.stack_peek().ok_or(UsageError::EmptyStack))?;
               self.stack_frame.reg_store(addr, value);
             }
+            storage => Err(self.error(UsageError::InvalidStorageOperation(storage)))?,
           }
         }
         Opcode::Load => {
@@ -197,6 +205,7 @@ impl Vm {
             Storage::Local => self.exec(|this| this.exec_load_local(addr))?,
             Storage::Global => self.exec(|this| this.exec_load_global(addr))?,
             Storage::Reg => self.stack_push(self.stack_frame.reg_load(addr)),
+            storage => Err(self.error(UsageError::InvalidStorageOperation(storage)))?,
           }
         }
         Opcode::Nil => self.exec_nil(),
@@ -1149,16 +1158,17 @@ impl Vm {
     }
   }
 
-  fn load_from_storage(&self, st: Storage, addr: impl Into<usize>) -> OpResult<Value> {
+  fn load_from_storage(&mut self, st: Storage, addr: impl Into<usize>) -> OpResult<Value> {
     let addr = addr.into();
     match st {
+      Storage::Stack => self.stack_pop().ok_or(UsageError::EmptyStack),
       Storage::Local => self
         .stack_index(self.stack_frame.sp + addr)
         .ok_or(UsageError::InvalidStackIndex(addr)),
       Storage::Global => self.global_op(addr, |this, name| {
         this.current_env().lookup(&name).ok_or(UsageError::UndefinedVar(name))
       }),
-      Storage::Reg => Err(UsageError::InvalidRegisterUsage),
+      st => Err(UsageError::InvalidStorageOperation(st)),
     }
   }
 
@@ -1256,7 +1266,7 @@ impl Vm {
     Ok(())
   }
 
-  pub fn ctx(&mut self) -> &Context {
+  pub fn ctx(&self) -> &Context {
     &self.stack_frame.ctx
   }
 

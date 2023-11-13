@@ -4,7 +4,10 @@ pub mod memory;
 pub mod prelude {
   pub use super::{env::prelude::*, memory::*};
   #[allow(unused_imports)]
-  pub(crate) use super::{Instruction, InstructionData, LongAddr, Opcode, ShortAddr, Storage, TryIntoInstruction};
+  pub(crate) use super::{
+    env::{ContextDisassembler, InstructionDisassembler},
+    Instruction, InstructionData, LongAddr, Opcode, ShortAddr, Storage, TryIntoInstruction,
+  };
 }
 
 use crate::prelude::*;
@@ -373,7 +376,7 @@ pub enum Opcode {
   Quack,
 }
 
-static_assertions::const_assert!(Opcode::COUNT - 1 < 2usize.pow(Opcode::BITS as u32));
+static_assertions::const_assert!(Opcode::COUNT < 2usize.pow(Opcode::BITS as u32));
 
 impl Display for Opcode {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -416,15 +419,16 @@ impl InstructionData for usize {
 #[derive(Debug, PartialEq, Eq, strum_macros::EnumCount, strum_macros::FromRepr)]
 #[repr(u8)]
 pub enum Storage {
+  Stack,
   Local,
   Global,
   Reg,
 }
 
-static_assertions::const_assert!(Storage::COUNT - 1 < 2usize.pow(Storage::BITS as u32));
+static_assertions::const_assert!(Storage::COUNT < 2usize.pow(Storage::BITS as u32));
 
 impl InstructionData for Storage {
-  const BITS: u64 = 2;
+  const BITS: u64 = 3;
 
   fn to_bits(self) -> u64 {
     self as u8 as u64

@@ -1,34 +1,41 @@
 use crate::util::UnwrapAnd;
 
 use super::{
-  ast::{BinaryExpression, BinaryOperator, BinaryRegisterExpression, Expression, LiteralExpression, LiteralValue, Statement},
+  ast::{
+    BinaryExpression, BinaryOperator, BinaryRegisterExpression, Expression, LiteralExpression, LiteralValue, Statement,
+    StorageLocation,
+  },
   Ast,
 };
 
 pub fn optimize(ast: &mut Ast) {
-  for stmt in ast.statements.iter_mut() {
+  opt_stmts(&mut ast.statements);
+}
+
+fn opt_stmts(stmts: &mut [Statement]) {
+  for stmt in stmts.iter_mut() {
     opt_stmt(stmt);
   }
 }
 
 fn opt_stmt(stmt: &mut Statement) {
   match stmt {
-    Statement::Block(_) => (),
+    Statement::Block(stmt) => opt_stmts(&mut stmt.statements),
     Statement::Break(_) => (),
     Statement::Cont(_) => (),
     Statement::Class(_) => (),
     Statement::Export(stmt) => opt_expr(&mut stmt.expr),
-    Statement::Fn(_) => (),
+    Statement::Fn(stmt) => opt_stmt(&mut stmt.body),
     Statement::For(_) => (),
     Statement::If(_) => (),
-    Statement::Let(_) => (),
+    Statement::Let(stmt) => stmt.value.as_mut().unwrap_and(opt_expr),
     Statement::Loop(_) => (),
     Statement::Match(_) => (),
     Statement::Mod(_) => (),
     Statement::Println(stmt) => opt_expr(&mut stmt.expr),
     Statement::Quack(_) => (),
     Statement::Req(_) => (),
-    Statement::Ret(_) => (),
+    Statement::Ret(stmt) => stmt.expr.as_mut().unwrap_and(opt_expr),
     Statement::Use(_) => (),
     Statement::While(_) => (),
     Statement::Expression(stmt) => opt_expr(&mut stmt.expr),
@@ -37,37 +44,44 @@ fn opt_stmt(stmt: &mut Statement) {
 }
 
 fn opt_expr(expr: &mut Expression) {
-  let replacement = match expr {
-    Expression::And(_) => None,
-    Expression::Assign(_) => None,
-    Expression::Binary(expr) => opt_binary_expr(expr),
-    Expression::BinaryRegister(_) => None, // optimization
-    Expression::Call(_) => None,
-    Expression::Class(_) => None,
-    Expression::Closure(_) => None,
-    Expression::Ident(_) => None,
-    Expression::Index(_) => None,
-    Expression::Lambda(_) => None,
-    Expression::Literal(_) => None,
-    Expression::MemberAccess(_) => None,
-    Expression::Method(_) => None,
-    Expression::Mod(_) => None,
-    Expression::Or(_) => None,
-    Expression::Req(_) => None,
-    Expression::ScopeResolution(_) => None,
-    Expression::Struct(_) => None,
-    Expression::Unary(_) => None,
-    Expression::Vec(_) => None,
-    Expression::VecWithSize(_) => None,
-    Expression::VecWithDynamicSize(_) => None,
+  match expr {
+    Expression::Empty => (),
+    Expression::And(_) => (),
+    Expression::Assign(expr) => opt_expr(&mut expr.value),
+    Expression::Binary(_) => {
+      let mut tmp = Expression::Empty;
+      std::mem::swap(expr, &mut tmp);
+      if let Expression::Binary(texpr) = tmp {
+        *expr = opt_binary_expr(texpr);
+      }
+    }
+    Expression::BinaryRegister(_) => (), // optimization
+    Expression::Call(_) => (),
+    Expression::Class(_) => (),
+    Expression::Closure(expr) => {
+      opt_stmt(&mut expr.body);
+    }
+    Expression::Ident(_) => (),
+    Expression::Index(_) => (),
+    Expression::Lambda(expr) => {
+      opt_stmt(&mut expr.body);
+    }
+    Expression::Literal(_) => (),
+    Expression::MemberAccess(_) => (),
+    Expression::Method(_) => (),
+    Expression::Mod(_) => (),
+    Expression::Or(_) => (),
+    Expression::Req(_) => (),
+    Expression::ScopeResolution(_) => (),
+    Expression::Struct(_) => (),
+    Expression::Unary(_) => (),
+    Expression::Vec(_) => (),
+    Expression::VecWithSize(_) => (),
+    Expression::VecWithDynamicSize(_) => (),
   };
-
-  replacement.unwrap_and(|rep| {
-    *expr = rep;
-  });
 }
 
-fn opt_binary_expr(expr: &mut BinaryExpression) -> Option<Expression> {
+fn opt_binary_expr(mut expr: BinaryExpression) -> Expression {
   opt_expr(&mut expr.left);
   opt_expr(&mut expr.right);
 
@@ -75,22 +89,19 @@ fn opt_binary_expr(expr: &mut BinaryExpression) -> Option<Expression> {
     (Expression::Literal(left), Expression::Literal(right)) => {
       macro_rules! lit_expr {
         ($op:expr) => {
-          Some(Expression::from(LiteralExpression::new(
-            LiteralValue::from($op),
-            expr.loc,
-          )))
+          Expression::from(LiteralExpression::new(LiteralValue::from($op), expr.loc))
         };
       }
 
       macro_rules! lit_expr_i32_f64 {
         ($l:ident $op:tt $r:ident) => {
-          Some(Expression::from(LiteralExpression::new(LiteralValue::from((*$l as f64) $op *$r), expr.loc)))
+          Expression::from(LiteralExpression::new(LiteralValue::from((*$l as f64) $op *$r), expr.loc))
         };
       }
 
       macro_rules! lit_expr_f64_i32 {
         ($l:ident $op:tt $r:ident) => {
-          Some(Expression::from(LiteralExpression::new(LiteralValue::from(*$l $op (*$r as f64)), expr.loc)))
+          Expression::from(LiteralExpression::new(LiteralValue::from(*$l $op (*$r as f64)), expr.loc))
         };
       }
 
@@ -147,19 +158,39 @@ fn opt_binary_expr(expr: &mut BinaryExpression) -> Option<Expression> {
           BinaryOperator::Greater => lit_expr!(l > r),
           BinaryOperator::GreaterEq => lit_expr!(l >= r),
         },
-        _ => None,
+        _ => Expression::from(expr),
       }
     }
-    (Expression::Ident(l), Expression::Ident(r)) => {
-      let l = &l.ident;
-      let r = &r.ident;
-      Some(Expression::from(BinaryRegisterExpression::new(
-        l.clone(),
-        expr.op,
-        r.clone(),
-        expr.loc,
-      )))
-    }
-    (_, _) => None,
+    (Expression::Ident(l), Expression::Ident(r)) => Expression::from(BinaryRegisterExpression::new(
+      StorageLocation::Ident(l.ident.clone()),
+      expr.op,
+      StorageLocation::Ident(r.ident.clone()),
+      expr.loc,
+    )),
+    (Expression::Ident(l), Expression::Binary(_)) => Expression::from(BinaryRegisterExpression::new(
+      StorageLocation::Ident(l.ident.clone()),
+      expr.op,
+      StorageLocation::Stack(expr.right),
+      expr.loc,
+    )),
+    (Expression::Ident(l), Expression::BinaryRegister(_)) => Expression::from(BinaryRegisterExpression::new(
+      StorageLocation::Ident(l.ident.clone()),
+      expr.op,
+      StorageLocation::Stack(expr.right),
+      expr.loc,
+    )),
+    (Expression::Binary(_), Expression::Ident(r)) => Expression::from(BinaryRegisterExpression::new(
+      StorageLocation::Stack(expr.left),
+      expr.op,
+      StorageLocation::Ident(r.ident.clone()),
+      expr.loc,
+    )),
+    (Expression::BinaryRegister(_), Expression::Ident(r)) => Expression::from(BinaryRegisterExpression::new(
+      StorageLocation::Stack(expr.left),
+      expr.op,
+      StorageLocation::Ident(r.ident.clone()),
+      expr.loc,
+    )),
+    (_, _) => Expression::from(expr),
   }
 }

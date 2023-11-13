@@ -6,9 +6,9 @@ use syn::{FnArg, Item, ItemFn, ItemMod, ItemStruct};
 pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
   let ident = &item.sig.ident;
   let name_str = ident.to_string();
-  let nargs = common::count_args!(item);
+  let nargs = common::count_args!(item) - if with_vm { 1 } else { 0 };
 
-  let args = common::make_arg_list(nargs - if with_vm { 1 } else { 0 }, name_str);
+  let args = common::make_arg_list(nargs, name_str);
 
   let call_expr = if with_vm {
     quote! {
@@ -30,7 +30,7 @@ pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
         let value = vm.gc.allocate(output);
         Ok(value)
       } else {
-        Err(UsageError::ArgumentError(args.list.len(), #nargs + 1))
+        Err(UsageError::ArgumentError(args.list.len(), #nargs))
       }
     }
   }

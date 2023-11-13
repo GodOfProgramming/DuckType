@@ -1,12 +1,52 @@
-let a = 1;
-let b = 2;
-let c = 3;
-let d = 4.0;
-let e = 5;
-let f = 6;
-let g = 7;
-let h = 8;
-let i = 9.0;
-let j = 10;
+fn cmplx_math() {
+  let a = 1;
+  let b = 2;
+  let c = 3;
+  let d = 4.0;
+  let e = 5;
+  let f = 6;
+  let g = 7;
+  let h = 8;
+  let i = 9.0;
+  let j = 10;
 
-println (a + b) * c - d / e + f * g - h * i / j;
+  ret (a + b) * c - d / e + f * g - h * i / j;
+}
+
+fn aio() {
+  let x = 1;
+  let y = 2;
+  let z = 3;
+  ret x + y + z;
+}
+
+fn sep() {
+  let x = 1;
+  let y = 2;
+  let z = 3;
+  let tmp = x + y;
+  ret tmp + z;
+}
+
+let x = 0;
+let clo = [x] |i| {
+  i += 1;
+  x += i + i * i / i % i;
+};
+
+println "--- cmp ---";
+println std::reflect::disasm(cmplx_math);
+println "";
+println "";
+println "--- aio ---";
+println std::reflect::disasm(aio);
+println "";
+println "";
+println "--- sep ---";
+println std::reflect::disasm(sep);
+println "";
+println "";
+println "--- clo ---";
+println std::reflect::disasm(clo);
+
+export cmplx_math();
