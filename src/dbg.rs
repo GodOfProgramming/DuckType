@@ -153,14 +153,8 @@ pub enum GcCmd {
   Clean,
 }
 impl GcCmd {
-  fn exec(&self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
-    let output = match self {
-      GcCmd::Count => Some(vm.gc.allocations.len().to_string()),
-      GcCmd::Clean => {
-        todo!()
-      }
-    };
-    Ok(CommandOutput::new(output, false))
+  fn exec(&self, _vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
+    todo!()
   }
 }
 
