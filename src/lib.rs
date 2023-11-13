@@ -489,7 +489,7 @@ impl Vm {
 
     let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
-    let class = obj.as_class_mut().ok_or(UsageError::MethodAssignment)?;
+    let class = obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment)?;
 
     let f = value.as_fn().ok_or(UsageError::MethodType)?;
 
@@ -504,7 +504,7 @@ impl Vm {
   fn exec_initialize_constructor(&mut self) -> OpResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-    let class = obj.as_class_mut().ok_or(UsageError::MethodAssignment)?;
+    let class = obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment)?;
     class.set_constructor(value);
     Ok(())
   }
@@ -687,7 +687,7 @@ impl Vm {
     let function = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let captures = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let f = function.as_fn().ok_or(UsageError::ClosureType)?;
-    let c = captures.as_vec().ok_or(UsageError::CaptureType)?;
+    let c = captures.cast_to::<VecValue>().ok_or(UsageError::CaptureType)?;
 
     let closure = self.gc.allocate(ClosureValue::new(c, f.clone()));
     self.stack_push(closure);
@@ -825,10 +825,10 @@ impl Vm {
       if let Some(paths) = self
         .current_env()
         .lookup_path(&[STD, ENV, PATHS])
-        .map(|l| l.map(|l| l.as_vec()))
+        .map(|l| l.and_then(|l| l.cast_to::<VecValue>()))
         .map_err(|e| self.error(e))?
       {
-        for path in &paths {
+        for path in paths.iter() {
           let base = PathBuf::from(path.to_string());
           found_file = try_to_find_file(&base, &required_file, &mut attempts);
           if found_file.is_some() {
