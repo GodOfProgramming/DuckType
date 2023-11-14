@@ -6,6 +6,8 @@ use crate::{
   code::{ConstantValue, Reflection},
   prelude::*,
 };
+
+use super::Stack;
 pub mod prelude {
   pub use super::{Context, Program};
 }
@@ -107,14 +109,20 @@ impl Context {
     }
   }
 
-  pub fn disassemble(&self, program: &Program) -> String {
-    ContextDisassembler { ctx: self, program }.to_string()
+  pub fn disassemble(&self, stack: &Stack, program: &Program) -> String {
+    ContextDisassembler {
+      ctx: self,
+      stack,
+      program,
+    }
+    .to_string()
   }
 }
 
 pub(crate) struct ContextDisassembler<'a> {
-  pub(crate) program: &'a Program,
   pub(crate) ctx: &'a Context,
+  pub(crate) stack: &'a Stack,
+  pub(crate) program: &'a Program,
 }
 
 impl<'a> Display for ContextDisassembler<'a> {
@@ -161,7 +169,6 @@ impl<'p> InstructionDisassembler<'p> {
       Storage::Stack => format!("{: >4}", "st"),
       Storage::Local => Self::value_column(index),
       Storage::Global => format!("{} {}", Self::value_column(index), Self::const_at_column(program, index),),
-      Storage::Reg => Self::value_column(index),
     }
   }
 
@@ -173,7 +180,7 @@ impl<'p> InstructionDisassembler<'p> {
 impl<'p> Display for InstructionDisassembler<'p> {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     let InstructionDisassembler { ctx, inst, offset } = self;
-    let ContextDisassembler { program, ctx } = ctx;
+    let ContextDisassembler { ctx, stack, program } = ctx;
 
     write!(f, "{} ", Self::address_of(*offset))?;
     if let Some(curr) = ctx.meta.info(*offset) {
@@ -225,12 +232,6 @@ impl<'p> Display for InstructionDisassembler<'p> {
             Self::opcode_column("Load Global"),
             Self::storage_column(program, storage, index)
           ),
-          Storage::Reg => write!(
-            f,
-            "{} {}",
-            Self::opcode_column("Load Reg"),
-            Self::storage_column(program, storage, index)
-          ),
         }
       }
       Opcode::Store => {
@@ -247,12 +248,6 @@ impl<'p> Display for InstructionDisassembler<'p> {
             f,
             "{} {}",
             Self::opcode_column("Store Global"),
-            Self::storage_column(program, storage, index)
-          ),
-          Storage::Reg => write!(
-            f,
-            "{} {}",
-            Self::opcode_column("Store Reg"),
             Self::storage_column(program, storage, index)
           ),
         }
@@ -397,6 +392,16 @@ impl<'p> Display for InstructionDisassembler<'p> {
           Self::opcode_column("Rem"),
           Self::storage_column(program, st_a, addr_a),
           Self::storage_column(program, st_b, addr_b)
+        )
+      }
+      Opcode::Swap => {
+        let (addr_a, addr_b) = inst.display_data::<(ShortAddr, ShortAddr)>();
+        write!(
+          f,
+          "{} {} {}",
+          Self::opcode_column("Swap"),
+          Self::value_column(stack.len() - 1 - addr_a.0),
+          Self::value_column(stack.len() - 1 - addr_b.0)
         )
       }
       x => write!(f, "{}", Self::opcode_column(format!("{:?}", x))),

@@ -1,3 +1,2 @@
-req "examples/lib/ansi.dk" as ansi;
-
-println ansi;
+let va = ["value"];
+va[0] += "operand";

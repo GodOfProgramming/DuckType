@@ -167,8 +167,9 @@ impl Vm {
           "{}",
           InstructionDisassembler {
             ctx: &ContextDisassembler {
-              program: &self.program,
               ctx: self.ctx(),
+              stack: &self.stack,
+              program: &self.program,
             },
             inst,
             offset: self.stack_frame.ip,
@@ -190,22 +191,17 @@ impl Vm {
         Opcode::Store => {
           let (storage, addr) = self.exec(|_| Ok(data!(inst)))?;
           match storage {
+            Storage::Stack => self.exec(|this| this.exec_store_stack(addr))?,
             Storage::Local => self.exec(|this| this.exec_store_local(addr))?,
             Storage::Global => self.exec(|this| this.exec_store_global(addr))?,
-            Storage::Reg => {
-              let value = self.exec(|this| this.stack_peek().ok_or(UsageError::EmptyStack))?;
-              self.stack_frame.reg_store(addr, value);
-            }
-            storage => Err(self.error(UsageError::InvalidStorageOperation(storage)))?,
           }
         }
         Opcode::Load => {
           let (storage, addr): (Storage, LongAddr) = self.exec(|_| Ok(data!(inst)))?;
           match storage {
+            Storage::Stack => self.exec(|this| this.exec_load_stack(addr))?,
             Storage::Local => self.exec(|this| this.exec_load_local(addr))?,
             Storage::Global => self.exec(|this| this.exec_load_global(addr))?,
-            Storage::Reg => self.stack_push(self.stack_frame.reg_load(addr)),
-            storage => Err(self.error(UsageError::InvalidStorageOperation(storage)))?,
           }
         }
         Opcode::Nil => self.exec_nil(),
@@ -402,8 +398,7 @@ impl Vm {
             continue 'ctx;
           }
         }
-        Opcode::PushRegCtx => self.stack_frame.new_reg_ctx(),
-        Opcode::PopRegCtx => self.stack_frame.pop_reg_ctx(),
+        Opcode::Swap => self.exec(|this| this.exec_swap(data!(inst)))?,
         Opcode::SwapPop => {
           let idx = self.stack_size() - 2;
           self.stack.swap_remove(idx);
@@ -479,17 +474,17 @@ impl Vm {
     self.stack_pop_n(count);
   }
 
-  fn exec_load_local(&mut self, loc: LongAddr) -> OpResult {
-    let local = self
-      .stack_index(self.stack_frame.sp + loc.0)
-      .ok_or(UsageError::InvalidStackIndex(loc.0))?;
-    self.stack_push(local);
+  fn exec_load_stack(&mut self, loc: LongAddr) -> OpResult {
+    let value = self.stack_load_rev(loc.0).ok_or(UsageError::InvalidStackIndex(loc.0))?;
+    self.stack_push(value);
     Ok(())
   }
 
-  fn exec_store_local(&mut self, loc: LongAddr) -> OpResult {
-    let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-    self.stack_assign(self.stack_frame.sp + loc.0, value);
+  fn exec_load_local(&mut self, loc: LongAddr) -> OpResult {
+    let local = self
+      .stack_load(self.stack_frame.sp + loc.0)
+      .ok_or(UsageError::InvalidStackIndex(loc.0))?;
+    self.stack_push(local);
     Ok(())
   }
 
@@ -500,16 +495,16 @@ impl Vm {
       Ok(())
     })
   }
+  fn exec_store_stack(&mut self, loc: LongAddr) -> OpResult {
+    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    self.stack_store_rev(loc.0, value);
+    Ok(())
+  }
 
-  fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
-    self.global_op_mut(loc.into(), |this, name| {
-      let value = this.stack_peek().ok_or(UsageError::EmptyStack)?;
-      if this.current_env_mut().assign(&name, value) {
-        Ok(())
-      } else {
-        Err(UsageError::UndefinedVar(name))
-      }
-    })
+  fn exec_store_local(&mut self, loc: LongAddr) -> OpResult {
+    let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
+    self.stack_store(self.stack_frame.sp + loc.0, value);
+    Ok(())
   }
 
   fn exec_define_global(&mut self, loc: LongAddr) -> OpResult {
@@ -520,6 +515,17 @@ impl Vm {
       } else {
         let level = this.current_env().search_for(0, &name);
         Err(UsageError::Redefine { level, name })
+      }
+    })
+  }
+
+  fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
+    self.global_op_mut(loc.into(), |this, name| {
+      let value = this.stack_peek().ok_or(UsageError::EmptyStack)?;
+      if this.current_env_mut().assign(&name, value) {
+        Ok(())
+      } else {
+        Err(UsageError::UndefinedVar(name))
       }
     })
   }
@@ -606,6 +612,12 @@ impl Vm {
     } else {
       Err(UsageError::InvalidIdentifier(name.to_string()))
     }
+  }
+
+  fn exec_swap(&mut self, (addr_a, addr_b): (ShortAddr, ShortAddr)) -> OpResult {
+    let st_sz = self.stack_size() - 1;
+    self.stack.swap(st_sz - addr_a.0, st_sz - addr_b.0);
+    Ok(())
   }
 
   fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: Opcode, f: F) -> OpResult {
@@ -823,7 +835,7 @@ impl Vm {
   }
 
   fn exec_call(&mut self, airity: usize) -> OpResult {
-    let callable = self.stack_index_rev(airity).ok_or(UsageError::EmptyStack)?;
+    let callable = self.stack_load_rev(airity).ok_or(UsageError::EmptyStack)?;
     self.call_value(callable, airity)
   }
 
@@ -1163,12 +1175,11 @@ impl Vm {
     match st {
       Storage::Stack => self.stack_pop().ok_or(UsageError::EmptyStack),
       Storage::Local => self
-        .stack_index(self.stack_frame.sp + addr)
+        .stack_load(self.stack_frame.sp + addr)
         .ok_or(UsageError::InvalidStackIndex(addr)),
       Storage::Global => self.global_op(addr, |this, name| {
         this.current_env().lookup(&name).ok_or(UsageError::UndefinedVar(name))
       }),
-      st => Err(UsageError::InvalidStorageOperation(st)),
     }
   }
 
@@ -1223,24 +1234,25 @@ impl Vm {
     self.stack.drain(size - index..).collect()
   }
 
-  pub fn stack_index(&self, index: usize) -> Option<Value> {
+  pub fn stack_load(&self, index: usize) -> Option<Value> {
     self.stack.get(index).cloned()
   }
 
-  pub fn stack_index_0(&self) -> Option<Value> {
-    self.stack.first().cloned()
+  pub fn stack_load_rev(&self, index: usize) -> Option<Value> {
+    self.stack.get(self.stack_size() - 1 - index).cloned()
   }
 
-  pub fn stack_index_rev(&self, index: usize) -> Option<Value> {
-    self.stack.get(self.stack.len() - 1 - index).cloned()
+  pub fn stack_store(&mut self, index: usize, value: Value) {
+    self.stack[index] = value;
+  }
+
+  pub fn stack_store_rev(&mut self, index: usize, value: Value) {
+    let st_len = self.stack_size();
+    self.stack[st_len - 1 - index] = value;
   }
 
   pub fn stack_peek(&self) -> Option<Value> {
     self.stack.last().cloned()
-  }
-
-  pub fn stack_assign(&mut self, index: usize, value: Value) {
-    self.stack[index] = value;
   }
 
   pub fn stack_append(&mut self, other: Vec<Value>) {
@@ -1283,15 +1295,9 @@ impl Vm {
   }
 
   pub fn check_gc(&mut self, export: Option<&Value>) -> ExecResult {
-    self.gc.clean_if_time(
-      &self.stack,
-      &self.stack_frame,
-      &self.stack_frames,
-      &self.envs,
-      self.lib_cache.values(),
-      export,
-    )?;
-
+    self
+      .gc
+      .clean_if_time(&self.stack, &self.envs, self.lib_cache.values(), export)?;
     Ok(())
   }
 

@@ -586,34 +586,65 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn index_op_assign(&mut self, expr: IndexExpression, op: Opcode, value: Expression, loc: SourceLocation) {
     if let Some(index_ident) = self.add_const_ident(Ident::new(ops::INDEX)) {
-      self.emit(Opcode::PushRegCtx, expr.loc);
-
-      // index
       self.emit_expr(*expr.indexable);
-      self.emit((Opcode::Store, (Storage::Reg, LongAddr(1))), expr.loc);
+      // [indexable]
+      self.emit((Opcode::Load, (Storage::Stack, LongAddr(0))), expr.loc);
+      // [indexable]
+      // [indexable]
       self.emit((Opcode::LookupMember, index_ident), expr.loc);
+      // [__index__]
+      // [indexable]
       self.emit_expr(*expr.index);
-      self.emit((Opcode::Store, (Storage::Reg, LongAddr(2))), expr.loc);
+      // [index]
+      // [__index__]
+      // [indexable]
+      self.emit((Opcode::Load, (Storage::Stack, LongAddr(0))), expr.loc);
+      // [index]
+      // [index]
+      // [__index__]
+      // [indexable]
+      self.emit((Opcode::Swap, (ShortAddr(1), ShortAddr(2))), expr.loc);
+      // [index]
+      // [__index__]
+      // [index]
+      // [indexable]
       self.emit((Opcode::Invoke, 1), expr.loc);
+      // [idxval]
+      // [__index__]
+      // [index]
+      // [indexable]
       self.emit(Opcode::SwapPop, expr.loc);
-
-      // value
+      // [idxval]
+      // [index]
+      // [indexable]
       self.emit_expr(value);
-
-      // do op
+      // [value]
+      // [idxval]
+      // [index]
+      // [indexable]
       self.emit(op, loc);
-      self.emit((Opcode::Store, (Storage::Reg, LongAddr(3))), expr.loc);
-      self.emit(Opcode::Pop, expr.loc);
+      // [output]
+      // [index]
+      // [indexable]
+      self.emit((Opcode::Swap, (ShortAddr(0), ShortAddr(2))), expr.loc);
+      // [indexable]
+      // [index]
+      // [output]
 
       if let Some(idxeq_ident) = self.add_const_ident(Ident::new(ops::INDEX_ASSIGN)) {
-        self.emit((Opcode::Load, (Storage::Reg, LongAddr(1))), expr.loc);
         self.emit((Opcode::LookupMember, idxeq_ident), expr.loc);
-        self.emit((Opcode::Load, (Storage::Reg, LongAddr(2))), expr.loc);
-        self.emit((Opcode::Load, (Storage::Reg, LongAddr(3))), expr.loc);
+        // [__idxeq__]
+        // [index]
+        // [output]
+        self.emit((Opcode::Swap, (ShortAddr(0), ShortAddr(2))), expr.loc);
+        // [output]
+        // [index]
+        // [__idxeq__]
         self.emit((Opcode::Invoke, 2), expr.loc);
+        // [result]
+        // [__idxeq__]
         self.emit(Opcode::SwapPop, expr.loc);
-
-        self.emit(Opcode::PopRegCtx, expr.loc);
+        // [result]
       }
     }
   }

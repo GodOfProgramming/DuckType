@@ -136,11 +136,11 @@ fn defined(vm: &mut Vm, name: &StringValue) -> UsageResult<bool> {
 #[native(with_vm)]
 fn disasm(vm: &mut Vm, value: Value) -> UsageResult<String> {
   if let Some(f) = value.cast_to::<FunctionValue>() {
-    Ok(f.context().disassemble(&vm.program))
+    Ok(f.context().disassemble(&vm.stack, &vm.program))
   } else if let Some(f) = value.cast_to::<ClosureValue>() {
-    Ok(f.context().disassemble(&vm.program))
+    Ok(f.context().disassemble(&vm.stack, &vm.program))
   } else if let Some(f) = value.cast_to::<MethodValue>() {
-    Ok(f.context().disassemble(&vm.program))
+    Ok(f.context().disassemble(&vm.stack, &vm.program))
   } else {
     Ok(String::new())
   }
