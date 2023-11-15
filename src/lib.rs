@@ -60,7 +60,7 @@ pub(crate) enum RunMode {
 }
 
 #[cfg(debug_assertions)]
-macro_rules! data {
+macro_rules! decode {
   ($inst:ident) => {
     $inst.data().ok_or(UsageError::InvalidInstruction($inst))?
   };
@@ -127,7 +127,7 @@ impl Vm {
     self.stack_frames = Default::default();
     self.envs.push(EnvEntry::File(env));
 
-    let res = self.execute(RunMode::File);
+    let res = self.run(RunMode::File);
 
     res
   }
@@ -142,17 +142,17 @@ impl Vm {
     self.stack_frames = Default::default();
     self.envs.push(EnvEntry::String(env));
 
-    self.execute(RunMode::String)
+    self.run(RunMode::String)
   }
 
   pub fn run_fn(&mut self, ctx: SmartPtr<Context>, env: UsertypeHandle<ModuleValue>, airity: usize) -> ExecResult<Value> {
     self.new_frame(ctx, airity);
     self.envs.push(EnvEntry::Fn(env));
 
-    self.execute(RunMode::Fn)
+    self.run(RunMode::Fn)
   }
 
-  pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
+  fn run(&mut self, exec_type: RunMode) -> ExecResult<Value> {
     let mut export = None;
 
     // Execute instructions in the current stack frame's context
@@ -167,7 +167,7 @@ impl Vm {
           "{}",
           InstructionDisassembler {
             ctx: &ContextDisassembler {
-              ctx: self.ctx(),
+              ctx: &self.stack_frame.ctx,
               stack: &self.stack,
               program: &self.program,
             },
@@ -183,101 +183,101 @@ impl Vm {
 
       match opcode {
         Opcode::Pop => self.exec_pop(),
-        Opcode::PopN => self.exec(|this| Ok(this.exec_pop_n(data!(inst))))?,
+        Opcode::PopN => self.execute(|this| Ok(this.exec_pop_n(decode!(inst))))?,
         Opcode::Const => {
-          self.exec(|this| this.exec_const(data!(inst)))?;
+          self.execute(|this| this.exec_const(decode!(inst)))?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::Store => {
-          let (storage, addr) = self.exec(|_| Ok(data!(inst)))?;
+          let (storage, addr) = self.execute(|_| Ok(decode!(inst)))?;
           match storage {
-            Storage::Stack => self.exec(|this| this.exec_store_stack(addr))?,
-            Storage::Local => self.exec(|this| this.exec_store_local(addr))?,
-            Storage::Global => self.exec(|this| this.exec_store_global(addr))?,
+            Storage::Stack => self.execute(|this| this.exec_store_stack(addr))?,
+            Storage::Local => self.execute(|this| this.exec_store_local(addr))?,
+            Storage::Global => self.execute(|this| this.exec_store_global(addr))?,
           }
         }
         Opcode::Load => {
-          let (storage, addr): (Storage, LongAddr) = self.exec(|_| Ok(data!(inst)))?;
+          let (storage, addr): (Storage, LongAddr) = self.execute(|_| Ok(decode!(inst)))?;
           match storage {
-            Storage::Stack => self.exec(|this| this.exec_load_stack(addr))?,
-            Storage::Local => self.exec(|this| this.exec_load_local(addr))?,
-            Storage::Global => self.exec(|this| this.exec_load_global(addr))?,
+            Storage::Stack => self.execute(|this| this.exec_load_stack(addr))?,
+            Storage::Local => self.execute(|this| this.exec_load_local(addr))?,
+            Storage::Global => self.execute(|this| this.exec_load_global(addr))?,
           }
         }
         Opcode::Nil => self.exec_nil(),
         Opcode::True => self.exec_true(),
         Opcode::False => self.exec_false(),
         Opcode::InitializeMember => {
-          self.exec(|this| this.exec_initialize_member(data!(inst)))?;
+          self.execute(|this| this.exec_initialize_member(decode!(inst)))?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::AssignMember => {
-          self.exec(|this| this.exec_assign_member(data!(inst)))?;
+          self.execute(|this| this.exec_assign_member(decode!(inst)))?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::LookupMember => {
-          self.exec(|this| this.exec_lookup_member(data!(inst)))?;
+          self.execute(|this| this.exec_lookup_member(decode!(inst)))?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::PeekMember => {
-          self.exec(|this| this.exec_peek_member(data!(inst)))?;
+          self.execute(|this| this.exec_peek_member(decode!(inst)))?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::InitializeConstructor => {
-          self.exec(|this| this.exec_initialize_constructor())?;
+          self.execute(|this| this.exec_initialize_constructor())?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::InitializeMethod => {
-          self.exec(|this| this.exec_initialize_method(data!(inst)))?;
+          self.execute(|this| this.exec_initialize_method(decode!(inst)))?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::CreateVec => {
-          self.exec(|this| Ok(this.exec_create_vec(data!(inst))))?;
+          self.execute(|this| Ok(this.exec_create_vec(decode!(inst))))?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::CreateSizedVec => {
-          self.exec(|this| this.exec_sized_vec(data!(inst)))?;
+          self.execute(|this| this.exec_sized_vec(decode!(inst)))?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::CreateDynamicVec => {
-          self.exec(|this| this.exec_dyn_vec())?;
+          self.execute(|this| this.exec_dyn_vec())?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::CreateClosure => {
-          self.exec(|this| this.exec_create_closure())?;
+          self.execute(|this| this.exec_create_closure())?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::CreateStruct => {
-          self.exec(|this| this.exec_create_struct(data!(inst)))?;
+          self.execute(|this| this.exec_create_struct(decode!(inst)))?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::CreateClass => {
-          self.exec(|this| this.exec_create_class(data!(inst)))?;
+          self.execute(|this| this.exec_create_class(decode!(inst)))?;
           self.check_gc(export.as_ref())?;
         }
         Opcode::CreateModule => {
-          self.exec(|this| this.exec_create_module(data!(inst)))?;
+          self.execute(|this| this.exec_create_module(decode!(inst)))?;
           self.check_gc(export.as_ref())?;
         }
-        Opcode::Check => self.exec(|this| this.exec_check())?,
-        Opcode::Println => self.exec(|this| this.exec_println())?,
+        Opcode::Check => self.execute(|this| this.exec_check())?,
+        Opcode::Println => self.execute(|this| this.exec_println())?,
         Opcode::Jump => {
-          self.exec(|this| Ok(this.jump(data!(inst))))?;
+          self.execute(|this| Ok(this.jump(decode!(inst))))?;
           continue 'ctx;
         }
         Opcode::JumpIfFalse => {
-          let val = self.exec(|this| this.exec_jump_if_false(data!(inst)))?;
+          let val = self.execute(|this| this.exec_jump_if_false(decode!(inst)))?;
           if val {
             continue 'ctx;
           }
         }
         Opcode::Loop => {
-          self.exec(|this| Ok(this.loop_back(data!(inst))))?;
+          self.execute(|this| Ok(this.loop_back(decode!(inst))))?;
           continue 'ctx;
         }
         Opcode::Invoke => {
           self.stack_frame.ip += 1;
-          self.exec(|this| this.exec_call(data!(inst)))?;
+          self.execute(|this| this.exec_call(decode!(inst)))?;
           continue 'ctx;
         }
         Opcode::Ret => {
@@ -293,11 +293,11 @@ impl Vm {
           self.dbg()?;
         }
         Opcode::Export => {
-          let value = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
+          let value = self.execute(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
           export = Some(value);
         }
-        Opcode::Define => self.exec(|this| this.exec_define_global(data!(inst)))?,
-        Opcode::Resolve => self.exec(|this| this.exec_scope_resolution(data!(inst)))?,
+        Opcode::Define => self.execute(|this| this.exec_define_global(decode!(inst)))?,
+        Opcode::Resolve => self.execute(|this| this.exec_scope_resolution(decode!(inst)))?,
         Opcode::EnterBlock => {
           self.push_scope();
           self.check_gc(export.as_ref())?;
@@ -305,106 +305,106 @@ impl Vm {
         Opcode::PopScope => self.pop_scope(),
         Opcode::Equal => {
           if inst.has_data() {
-            self.exec(|this| this.exec_equal_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_equal_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_equal(opcode))?;
+            self.execute(|this| this.exec_equal(opcode))?;
           }
         }
         Opcode::NotEqual => {
           if inst.has_data() {
-            self.exec(|this| this.exec_not_equal_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_not_equal_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_not_equal(opcode))?;
+            self.execute(|this| this.exec_not_equal(opcode))?;
           }
         }
         Opcode::Greater => {
           if inst.has_data() {
-            self.exec(|this| this.exec_greater_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_greater_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_greater(opcode))?;
+            self.execute(|this| this.exec_greater(opcode))?;
           }
         }
         Opcode::GreaterEqual => {
           if inst.has_data() {
-            self.exec(|this| this.exec_greater_equal_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_greater_equal_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_greater_equal(opcode))?;
+            self.execute(|this| this.exec_greater_equal(opcode))?;
           }
         }
         Opcode::Less => {
           if inst.has_data() {
-            self.exec(|this| this.exec_less_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_less_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_less(opcode))?;
+            self.execute(|this| this.exec_less(opcode))?;
           }
         }
         Opcode::LessEqual => {
           if inst.has_data() {
-            self.exec(|this| this.exec_less_equal_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_less_equal_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_less_equal(opcode))?;
+            self.execute(|this| this.exec_less_equal(opcode))?;
           }
         }
         Opcode::Add => {
           if inst.has_data() {
-            self.exec(|this| this.exec_add_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_add_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_add(opcode))?;
+            self.execute(|this| this.exec_add(opcode))?;
           }
         }
         Opcode::Sub => {
           if inst.has_data() {
-            self.exec(|this| this.exec_sub_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_sub_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_sub(opcode))?;
+            self.execute(|this| this.exec_sub(opcode))?;
           }
         }
         Opcode::Mul => {
           if inst.has_data() {
-            self.exec(|this| this.exec_mul_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_mul_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_mul(opcode))?;
+            self.execute(|this| this.exec_mul(opcode))?;
           }
         }
         Opcode::Div => {
           if inst.has_data() {
-            self.exec(|this| this.exec_div_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_div_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_div(opcode))?;
+            self.execute(|this| this.exec_div(opcode))?;
           }
         }
         Opcode::Rem => {
           if inst.has_data() {
-            self.exec(|this| this.exec_rem_fast(opcode, data!(inst)))?;
+            self.execute(|this| this.exec_rem_fast(opcode, decode!(inst)))?;
           } else {
-            self.exec(|this| this.exec_rem(opcode))?;
+            self.execute(|this| this.exec_rem(opcode))?;
           }
         }
         Opcode::Negate => {
-          self.exec(|this| this.exec_negate(opcode))?;
+          self.execute(|this| this.exec_negate(opcode))?;
         }
         Opcode::Not => {
-          self.exec(|this| this.exec_not(opcode))?;
+          self.execute(|this| this.exec_not(opcode))?;
         }
         Opcode::Or => {
-          let val = self.exec(|this| this.exec_or(data!(inst)))?;
+          let val = self.execute(|this| this.exec_or(decode!(inst)))?;
           if val {
             continue 'ctx;
           }
         }
         Opcode::And => {
-          let val = self.exec(|this| this.exec_and(data!(inst)))?;
+          let val = self.execute(|this| this.exec_and(decode!(inst)))?;
           if val {
             continue 'ctx;
           }
         }
-        Opcode::Swap => self.exec(|this| this.exec_swap(data!(inst)))?,
+        Opcode::Swap => self.execute(|this| this.exec_swap(decode!(inst)))?,
         Opcode::SwapPop => {
           let idx = self.stack_size() - 2;
           self.stack.swap_remove(idx);
         }
         Opcode::Quack => {
-          let value = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
+          let value = self.execute(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
           Err(self.error(UsageError::Quack(value)))?;
         }
         Opcode::Unknown => self.exec_unknown(inst)?,
@@ -1062,7 +1062,7 @@ impl Vm {
           self.new_frame(new_ctx, 0);
           self.envs.push(EnvEntry::File(gmod));
           self.opened_files.push(FileInfo::new(found_file, file_id));
-          let output = self.execute(RunMode::File)?;
+          let output = self.run(RunMode::File)?;
           self.stack_push(output);
         }
 
@@ -1073,7 +1073,7 @@ impl Vm {
 
   /* Utility Functions */
 
-  fn exec<F, T>(&mut self, f: F) -> ExecResult<T>
+  fn execute<F, T>(&mut self, f: F) -> ExecResult<T>
   where
     F: FnOnce(&mut Self) -> OpResult<T>,
   {
@@ -1276,14 +1276,6 @@ impl Vm {
     self.stack_push(value);
 
     Ok(())
-  }
-
-  pub fn ctx(&self) -> &Context {
-    &self.stack_frame.ctx
-  }
-
-  pub fn ctx_mut(&mut self) -> &mut Context {
-    &mut self.stack_frame.ctx
   }
 
   pub fn current_env(&self) -> &UsertypeHandle<ModuleValue> {

@@ -102,8 +102,15 @@ where
 
   fn to_bits(self) -> u64;
 
+  /// This function acts as a safety measure in case encoding logic goes wrong
+  ///
+  /// This is used in debug mode to validate encoding is done correctly
   fn checked_data(inst: u64) -> Option<Self>;
 
+  /// Returns the data with minimal to no error checking
+  ///
+  /// The encoding process should take care of any issues and the only way
+  /// data should be decoded wrong is explicitly converting to the wrong underlying type
   fn unchecked_data(inst: u64) -> Self;
 
   fn encode(self) -> Option<u64> {
