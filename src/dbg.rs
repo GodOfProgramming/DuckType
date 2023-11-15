@@ -137,7 +137,7 @@ impl StackCmd {
         vm.stack_display();
         None
       }
-      StackCmd::Index { index } => Some(if let Some(value) = vm.stack_index(*index) {
+      StackCmd::Index { index } => Some(if let Some(value) = vm.stack_load(*index) {
         format!("{}", value)
       } else {
         format!("invalid stack index {}", index)

@@ -17,7 +17,7 @@ impl IntegrationTest {
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
     });
 
-    let vm = Vm::new(gc, []);
+    let vm = Vm::new(gc, false, []);
 
     Self {
       script: Default::default(),
@@ -228,7 +228,9 @@ impl ScriptTest {
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
     let gc = SmartPtr::new(Gc::always_run());
-    Self { vm: Vm::new(gc, vec![]) }
+    Self {
+      vm: Vm::new(gc, false, vec![]),
+    }
   }
 }
 

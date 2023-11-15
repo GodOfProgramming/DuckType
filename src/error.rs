@@ -1,6 +1,7 @@
 use crate::{
   code::{FileMap, InstructionReflection},
   exec::prelude::Instruction,
+  prelude::Storage,
   util::FileIdType,
   value::Value,
 };
@@ -365,6 +366,9 @@ pub enum UsageError {
 
   #[error("Invalid instruction: {0}")]
   InvalidInstruction(Instruction),
+
+  #[error("Used storage type {0:?} in an invalid context")]
+  InvalidStorageOperation(Storage),
 
   #[error("{0}")]
   Preformated(Error),

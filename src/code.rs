@@ -2,7 +2,6 @@ use crate::{error::CompiletimeErrors, prelude::*, util::FileIdType};
 use ast::Ast;
 use gen::BytecodeGenerator;
 use lex::Scanner;
-use opt::Optimizer;
 use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
@@ -18,28 +17,40 @@ pub mod gen;
 pub mod lex;
 pub mod opt;
 
+pub(crate) struct CompileOpts {
+  pub(crate) optimize: bool,
+}
+
 pub(crate) fn compile_file(
   program: &mut Program,
   file_id: FileIdType,
   source: impl AsRef<str>,
+  opts: CompileOpts,
 ) -> Result<SmartPtr<Context>, CompiletimeErrors> {
-  compile(program, Some(file_id), source)
+  compile(program, Some(file_id), source, opts)
 }
 
-pub(crate) fn compile_string(program: &mut Program, source: impl AsRef<str>) -> Result<SmartPtr<Context>, CompiletimeErrors> {
-  compile(program, None, source)
+pub(crate) fn compile_string(
+  program: &mut Program,
+  source: impl AsRef<str>,
+  opts: CompileOpts,
+) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+  compile(program, None, source, opts)
 }
 
 pub(crate) fn compile(
   program: &mut Program,
   file_id: Option<FileIdType>,
   source: impl AsRef<str>,
+  opts: CompileOpts,
 ) -> Result<SmartPtr<Context>, CompiletimeErrors> {
   let (tokens, token_locations) = Scanner::new(file_id, source.as_ref()).into_tokens()?;
 
-  let ast = Ast::try_from(file_id, tokens, token_locations)?;
+  let mut ast = Ast::try_from(file_id, tokens, token_locations)?;
 
-  let ast = Optimizer::<1>::new(ast).optimize();
+  if opts.optimize {
+    opt::optimize(&mut ast);
+  }
 
   let source = Rc::new(source.as_ref().to_string());
   let reflection = Reflection::new(Some("<main>"), file_id, Rc::clone(&source));

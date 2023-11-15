@@ -18,7 +18,7 @@ impl TestFixture for ApiTest {
     });
 
     Self {
-      vm: Vm::new(gc, []),
+      vm: Vm::new(gc, false, []),
       env,
     }
   }

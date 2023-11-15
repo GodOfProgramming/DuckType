@@ -26,16 +26,13 @@ pub trait FileMetadata {
 }
 
 pub(crate) trait UnwrapAnd<T> {
-  fn unwrap_and(self, f: impl FnOnce(T)) -> bool;
+  fn unwrap_and(self, f: impl FnOnce(T));
 }
 
 impl<T> UnwrapAnd<T> for Option<T> {
-  fn unwrap_and(self, f: impl FnOnce(T)) -> bool {
+  fn unwrap_and(self, f: impl FnOnce(T)) {
     if let Some(inner) = self {
       f(inner);
-      true
-    } else {
-      false
     }
   }
 }

@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use std::{fs, io::Read, ops::Deref, path::PathBuf};
 
-pub use io::simple_script_autogen_create_module;
+pub use io::duck_type_autogen_create_module;
 
 fn open_file(path: (Option<&String>, Option<&io::PathValue>)) -> UsageResult<fs::File> {
   let path = match path {
@@ -109,4 +109,12 @@ mod io {
       &self.internal
     }
   }
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::prelude::*;
+
+  #[macros::native]
+  mod for_testing_full_generation {}
 }

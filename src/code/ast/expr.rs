@@ -10,13 +10,14 @@ pub use ops::*;
 
 #[derive(Debug)]
 pub enum Expression {
+  Empty,
   And(AndExpression),
   Assign(AssignExpression),
   Binary(BinaryExpression),
+  BinaryRegister(BinaryRegisterExpression),
   Call(CallExpression),
   Class(ClassExpression),
   Closure(ClosureExpression),
-  Group(GroupExpression),
   Ident(IdentExpression),
   Index(IndexExpression),
   Lambda(LambdaExpression),
@@ -38,9 +39,11 @@ impl Expression {
   #[cfg(feature = "visit-ast")]
   pub(super) fn dump(&self, tmpl: &mut TemplateBuffer) {
     match self {
+      Expression::Empty => (),
       Expression::And(_) => (),
       Expression::Assign(_) => (),
       Expression::Binary(_) => (),
+      Expression::BinaryRegister(_) => (),
       Expression::Call(_) => (),
       Expression::Class(c) => {
         if let Some(init) = &c.initializer {
@@ -74,7 +77,6 @@ impl Expression {
         }
       }
       Expression::Closure(c) => c.body.dump(tmpl),
-      Expression::Group(_) => (),
       Expression::Ident(_) => (),
       Expression::Index(_) => (),
       Expression::Lambda(l) => l.body.dump(tmpl),
@@ -102,13 +104,14 @@ impl Expression {
 impl Display for Expression {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     match self {
+      Self::Empty => panic!("Empty expressions are just placeholders and should not make it out of optimization"),
       Self::And(_) => write!(f, "and"),
       Self::Assign(_) => write!(f, "assign"),
       Self::Binary(_) => write!(f, "binary"),
+      Self::BinaryRegister(_) => write!(f, "binary_reg"),
       Self::Call(_) => write!(f, "call"),
       Self::Class(_) => write!(f, "class"),
       Self::Closure(_) => write!(f, "closure"),
-      Self::Group(_) => write!(f, "group"),
       Self::Ident(i) => write!(f, "ident {}", i.ident.name),
       Self::Index(_) => write!(f, "index"),
       Self::Lambda(_) => write!(f, "lambda"),
@@ -146,6 +149,12 @@ impl From<BinaryExpression> for Expression {
   }
 }
 
+impl From<BinaryRegisterExpression> for Expression {
+  fn from(expr: BinaryRegisterExpression) -> Self {
+    Self::BinaryRegister(expr)
+  }
+}
+
 impl From<AndExpression> for Expression {
   fn from(expr: AndExpression) -> Self {
     Self::And(expr)
@@ -155,12 +164,6 @@ impl From<AndExpression> for Expression {
 impl From<OrExpression> for Expression {
   fn from(expr: OrExpression) -> Self {
     Self::Or(expr)
-  }
-}
-
-impl From<GroupExpression> for Expression {
-  fn from(expr: GroupExpression) -> Self {
-    Self::Group(expr)
   }
 }
 

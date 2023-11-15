@@ -32,6 +32,7 @@ use crate::{
   util::{FileIdType, FileMetadata, PlatformMetadata, UnwrapAnd},
 };
 use clap::Parser;
+use code::CompileOpts;
 use dlopen2::wrapper::Container;
 use dlopen2::wrapper::WrapperApi;
 use exec::memory::{Allocation, Gc};
@@ -82,6 +83,7 @@ pub struct Vm {
   program: Program,
   pub(crate) envs: EnvStack,
 
+  opt: bool,
   args: Vec<String>,
 
   filemap: FileMap,
@@ -93,7 +95,7 @@ pub struct Vm {
 }
 
 impl Vm {
-  pub fn new(gc: SmartPtr<Gc>, args: impl Into<Vec<String>>) -> Self {
+  pub fn new(gc: SmartPtr<Gc>, opt: bool, args: impl Into<Vec<String>>) -> Self {
     Self {
       stack_frame: Default::default(),
       stack_frames: Default::default(),
@@ -101,6 +103,7 @@ impl Vm {
       gc,
       program: Default::default(),
       envs: Default::default(),
+      opt,
       args: args.into(),
       filemap: Default::default(),
       lib_cache: Default::default(),
@@ -117,7 +120,8 @@ impl Vm {
     self.opened_files = vec![FileInfo::new(&file, file_id)];
 
     let source = fs::read_to_string(&file).map_err(Error::other_system_err)?;
-    let ctx = code::compile_file(&mut self.program, file_id, source).map_err(|e| e.with_filename(&self.filemap))?;
+    let opts = CompileOpts { optimize: self.opt };
+    let ctx = code::compile_file(&mut self.program, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
 
     self.stack_frame = StackFrame::new(ctx, self.stack_size());
     self.stack_frames = Default::default();
@@ -131,7 +135,8 @@ impl Vm {
   pub fn run_string(&mut self, source: impl AsRef<str>, env: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     self.opened_files = vec![];
 
-    let ctx = code::compile_string(&mut self.program, source)?;
+    let opts = CompileOpts { optimize: self.opt };
+    let ctx = code::compile_string(&mut self.program, source, opts)?;
 
     self.stack_frame = StackFrame::new(ctx, self.stack_size());
     self.stack_frames = Default::default();
@@ -153,15 +158,23 @@ impl Vm {
     // Execute instructions in the current stack frame's context
     //
     // The GC is checked at every instruction that does or could involve an allocation
-    'ctx: while let Some(inst) = self.stack_frame.ctx.next(self.stack_frame.ip) {
+    'ctx: while let Some(inst) = self.stack_frame.ctx.fetch(self.stack_frame.ip) {
       #[cfg(feature = "runtime-disassembly")]
       {
         self.stack_display();
 
-        self
-          .stack_frame
-          .ctx
-          .display_instruction(&self.program, inst, self.stack_frame.ip);
+        println!(
+          "{}",
+          InstructionDisassembler {
+            ctx: &ContextDisassembler {
+              ctx: self.ctx(),
+              stack: &self.stack,
+              program: &self.program,
+            },
+            inst,
+            offset: self.stack_frame.ip,
+          }
+        );
       }
 
       let opcode = inst
@@ -178,24 +191,17 @@ impl Vm {
         Opcode::Store => {
           let (storage, addr) = self.exec(|_| Ok(data!(inst)))?;
           match storage {
+            Storage::Stack => self.exec(|this| this.exec_store_stack(addr))?,
             Storage::Local => self.exec(|this| this.exec_store_local(addr))?,
             Storage::Global => self.exec(|this| this.exec_store_global(addr))?,
-            Storage::Reg => {
-              let (_, reg): (Storage, Register) = self.exec(|_| Ok(data!(inst)))?;
-              let value = self.exec(|this| this.stack_peek().ok_or(UsageError::EmptyStack))?;
-              self.stack_frame.reg_store(reg, value);
-            }
           }
         }
         Opcode::Load => {
-          let (storage, index): (Storage, LongAddr) = self.exec(|_| Ok(data!(inst)))?;
+          let (storage, addr): (Storage, LongAddr) = self.exec(|_| Ok(data!(inst)))?;
           match storage {
-            Storage::Local => self.exec(|this| this.exec_load_local(index))?,
-            Storage::Global => self.exec(|this| this.exec_load_global(index))?,
-            Storage::Reg => {
-              let (_, reg): (Storage, Register) = self.exec(|_| Ok(data!(inst)))?;
-              self.stack_push(self.stack_frame.reg_load(reg))
-            }
+            Storage::Stack => self.exec(|this| this.exec_load_stack(addr))?,
+            Storage::Local => self.exec(|this| this.exec_load_local(addr))?,
+            Storage::Global => self.exec(|this| this.exec_load_global(addr))?,
           }
         }
         Opcode::Nil => self.exec_nil(),
@@ -298,37 +304,81 @@ impl Vm {
         }
         Opcode::PopScope => self.pop_scope(),
         Opcode::Equal => {
-          self.exec(|this| this.exec_equal(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_equal_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_equal(opcode))?;
+          }
         }
         Opcode::NotEqual => {
-          self.exec(|this| this.exec_not_equal(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_not_equal_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_not_equal(opcode))?;
+          }
         }
         Opcode::Greater => {
-          self.exec(|this| this.exec_greater(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_greater_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_greater(opcode))?;
+          }
         }
         Opcode::GreaterEqual => {
-          self.exec(|this| this.exec_greater_equal(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_greater_equal_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_greater_equal(opcode))?;
+          }
         }
         Opcode::Less => {
-          self.exec(|this| this.exec_less(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_less_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_less(opcode))?;
+          }
         }
         Opcode::LessEqual => {
-          self.exec(|this| this.exec_less_equal(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_less_equal_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_less_equal(opcode))?;
+          }
         }
         Opcode::Add => {
-          self.exec(|this| this.exec_add(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_add_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_add(opcode))?;
+          }
         }
         Opcode::Sub => {
-          self.exec(|this| this.exec_sub(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_sub_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_sub(opcode))?;
+          }
         }
         Opcode::Mul => {
-          self.exec(|this| this.exec_mul(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_mul_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_mul(opcode))?;
+          }
         }
         Opcode::Div => {
-          self.exec(|this| this.exec_div(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_div_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_div(opcode))?;
+          }
         }
         Opcode::Rem => {
-          self.exec(|this| this.exec_rem(opcode))?;
+          if inst.has_data() {
+            self.exec(|this| this.exec_rem_fast(opcode, data!(inst)))?;
+          } else {
+            self.exec(|this| this.exec_rem(opcode))?;
+          }
         }
         Opcode::Negate => {
           self.exec(|this| this.exec_negate(opcode))?;
@@ -348,8 +398,7 @@ impl Vm {
             continue 'ctx;
           }
         }
-        Opcode::PushRegCtx => self.stack_frame.new_reg_ctx(),
-        Opcode::PopRegCtx => self.stack_frame.pop_reg_ctx(),
+        Opcode::Swap => self.exec(|this| this.exec_swap(data!(inst)))?,
         Opcode::SwapPop => {
           let idx = self.stack_size() - 2;
           self.stack.swap_remove(idx);
@@ -425,47 +474,58 @@ impl Vm {
     self.stack_pop_n(count);
   }
 
+  fn exec_load_stack(&mut self, loc: LongAddr) -> OpResult {
+    let value = self.stack_load_rev(loc.0).ok_or(UsageError::InvalidStackIndex(loc.0))?;
+    self.stack_push(value);
+    Ok(())
+  }
+
   fn exec_load_local(&mut self, loc: LongAddr) -> OpResult {
     let local = self
-      .stack_index(self.stack_frame.sp + loc.0)
+      .stack_load(self.stack_frame.sp + loc.0)
       .ok_or(UsageError::InvalidStackIndex(loc.0))?;
     self.stack_push(local);
     Ok(())
   }
 
-  fn exec_store_local(&mut self, loc: LongAddr) -> OpResult {
-    let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-    self.stack_assign(self.stack_frame.sp + loc.0, value);
-    Ok(())
-  }
-
   fn exec_load_global(&mut self, loc: LongAddr) -> OpResult {
-    self.global_op(loc.into(), |this, name| {
+    self.global_op_mut(loc.into(), |this, name| {
       let global = this.current_env().lookup(&name).ok_or(UsageError::UndefinedVar(name))?;
       this.stack_push(global);
       Ok(())
     })
   }
+  fn exec_store_stack(&mut self, loc: LongAddr) -> OpResult {
+    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    self.stack_store_rev(loc.0, value);
+    Ok(())
+  }
 
-  fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
-    self.global_op(loc.into(), |this, name| {
-      let value = this.stack_peek().ok_or(UsageError::EmptyStack)?;
-      if this.current_env_mut().assign(&name, value) {
-        Ok(())
-      } else {
-        Err(UsageError::UndefinedVar(name))
-      }
-    })
+  fn exec_store_local(&mut self, loc: LongAddr) -> OpResult {
+    let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
+    self.stack_store(self.stack_frame.sp + loc.0, value);
+    Ok(())
   }
 
   fn exec_define_global(&mut self, loc: LongAddr) -> OpResult {
-    self.global_op(loc.into(), |this, name| {
+    self.global_op_mut(loc.into(), |this, name| {
       let v = this.stack_peek().ok_or(UsageError::EmptyStack)?;
       if this.current_env_mut().define(name.clone(), v) {
         Ok(())
       } else {
         let level = this.current_env().search_for(0, &name);
         Err(UsageError::Redefine { level, name })
+      }
+    })
+  }
+
+  fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
+    self.global_op_mut(loc.into(), |this, name| {
+      let value = this.stack_peek().ok_or(UsageError::EmptyStack)?;
+      if this.current_env_mut().assign(&name, value) {
+        Ok(())
+      } else {
+        Err(UsageError::UndefinedVar(name))
       }
     })
   }
@@ -554,59 +614,172 @@ impl Vm {
     }
   }
 
+  fn exec_swap(&mut self, (addr_a, addr_b): (ShortAddr, ShortAddr)) -> OpResult {
+    let st_sz = self.stack_size() - 1;
+    self.stack.swap(st_sz - addr_a.0, st_sz - addr_b.0);
+    Ok(())
+  }
+
   fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: Opcode, f: F) -> OpResult {
     self.binary_op(opcode, |a, b| Ok(Value::from(f(a, b))))
+  }
+
+  fn do_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: Opcode, av: Value, bv: Value, f: F) -> OpResult {
+    self.do_binary_op(opcode, av, bv, |a, b| Ok(Value::from(f(a, b))))
   }
 
   fn exec_equal(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a == b)
   }
 
+  fn exec_equal_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_bool(opcode, av, bv, |a, b| a == b)
+  }
+
   fn exec_not_equal(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a != b)
+  }
+
+  fn exec_not_equal_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_bool(opcode, av, bv, |a, b| a != b)
   }
 
   fn exec_greater(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a > b)
   }
 
+  fn exec_greater_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_bool(opcode, av, bv, |a, b| a > b)
+  }
+
   fn exec_greater_equal(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a >= b)
+  }
+
+  fn exec_greater_equal_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_bool(opcode, av, bv, |a, b| a >= b)
   }
 
   fn exec_less(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a < b)
   }
 
+  fn exec_less_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_bool(opcode, av, bv, |a, b| a < b)
+  }
+
   fn exec_less_equal(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a <= b)
   }
 
-  fn exec_check(&mut self) -> OpResult {
-    let b = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let a = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-    self.stack_push(Value::from(a == b));
-    Ok(())
+  fn exec_less_equal_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_bool(opcode, av, bv, |a, b| a <= b)
   }
 
   fn exec_add(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a + b)
   }
 
+  fn exec_add_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_binary_op(opcode, av, bv, |a, b| a + b)
+  }
+
   fn exec_sub(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a - b)
+  }
+
+  fn exec_sub_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_binary_op(opcode, av, bv, |a, b| a - b)
   }
 
   fn exec_mul(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a * b)
   }
 
+  fn exec_mul_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_binary_op(opcode, av, bv, |a, b| a * b)
+  }
+
   fn exec_div(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a / b)
   }
 
+  fn exec_div_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_binary_op(opcode, av, bv, |a, b| a / b)
+  }
+
   fn exec_rem(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a % b)
+  }
+
+  fn exec_rem_fast(
+    &mut self,
+    opcode: Opcode,
+    (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr),
+  ) -> OpResult {
+    let av = self.load_from_storage(st_a, addr_a)?;
+    let bv = self.load_from_storage(st_b, addr_b)?;
+    self.do_binary_op(opcode, av, bv, |a, b| a % b)
   }
 
   /// when f evaluates to true, short circuit
@@ -637,6 +810,13 @@ impl Vm {
     self.unary_op(opcode, |v| -v)
   }
 
+  fn exec_check(&mut self) -> OpResult {
+    let b = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let a = self.stack_peek().ok_or(UsageError::EmptyStack)?;
+    self.stack_push(Value::from(a == b));
+    Ok(())
+  }
+
   fn exec_println(&mut self) -> OpResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     println!("{value}");
@@ -655,7 +835,7 @@ impl Vm {
   }
 
   fn exec_call(&mut self, airity: usize) -> OpResult {
-    let callable = self.stack_index_rev(airity).ok_or(UsageError::EmptyStack)?;
+    let callable = self.stack_load_rev(airity).ok_or(UsageError::EmptyStack)?;
     self.call_value(callable, airity)
   }
 
@@ -849,7 +1029,7 @@ impl Vm {
           let lib: Container<NativeApi> =
             unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
-          let value = lib.simple_script_load_module(self)?;
+          let value: Value = lib.duck_type_load_module(self).into();
           self.opened_native_libs.insert(found_file, lib);
           self.lib_cache.insert(file_id, value.clone());
           value
@@ -867,7 +1047,9 @@ impl Vm {
         } else {
           self.filemap.add(file_id, &found_file);
 
-          let new_ctx = code::compile_file(&mut self.program, file_id, source).map_err(|e| e.with_filename(&self.filemap))?;
+          let opts = CompileOpts { optimize: self.opt };
+          let new_ctx =
+            code::compile_file(&mut self.program, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
           let gmod = ModuleBuilder::initialize(
             &mut self.gc,
             ModuleType::new_global(format!("<file export {}>", found_file.display())),
@@ -930,7 +1112,13 @@ impl Vm {
   {
     let bv = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let av = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    self.do_binary_op(opcode, av, bv, f)
+  }
 
+  fn do_binary_op<F>(&mut self, opcode: Opcode, av: Value, bv: Value, f: F) -> Result<(), UsageError>
+  where
+    F: FnOnce(Value, Value) -> Result<Value, UsageError>,
+  {
     if av.is_ptr() {
       let key = match opcode {
         Opcode::Add => ops::ADD,
@@ -960,14 +1148,38 @@ impl Vm {
     }
   }
 
-  fn global_op<F>(&mut self, index: usize, f: F) -> OpResult
+  fn global_op<F, T>(&self, index: usize, f: F) -> OpResult<T>
   where
-    F: FnOnce(&mut Self, String) -> OpResult,
+    F: FnOnce(&Self, String) -> OpResult<T>,
   {
     match self.program.const_at(index) {
       Some(ConstantValue::String(name)) => f(self, name.clone()),
       Some(name) => Err(UsageError::InvalidIdentifier(name.to_string()))?,
       None => Err(UsageError::InvalidConst(index))?,
+    }
+  }
+
+  fn global_op_mut<F, T>(&mut self, index: usize, f: F) -> OpResult<T>
+  where
+    F: FnOnce(&mut Self, String) -> OpResult<T>,
+  {
+    match self.program.const_at(index) {
+      Some(ConstantValue::String(name)) => f(self, name.clone()),
+      Some(name) => Err(UsageError::InvalidIdentifier(name.to_string()))?,
+      None => Err(UsageError::InvalidConst(index))?,
+    }
+  }
+
+  fn load_from_storage(&mut self, st: Storage, addr: impl Into<usize>) -> OpResult<Value> {
+    let addr = addr.into();
+    match st {
+      Storage::Stack => self.stack_pop().ok_or(UsageError::EmptyStack),
+      Storage::Local => self
+        .stack_load(self.stack_frame.sp + addr)
+        .ok_or(UsageError::InvalidStackIndex(addr)),
+      Storage::Global => self.global_op(addr, |this, name| {
+        this.current_env().lookup(&name).ok_or(UsageError::UndefinedVar(name))
+      }),
     }
   }
 
@@ -1022,24 +1234,25 @@ impl Vm {
     self.stack.drain(size - index..).collect()
   }
 
-  pub fn stack_index(&self, index: usize) -> Option<Value> {
+  pub fn stack_load(&self, index: usize) -> Option<Value> {
     self.stack.get(index).cloned()
   }
 
-  pub fn stack_index_0(&self) -> Option<Value> {
-    self.stack.first().cloned()
+  pub fn stack_load_rev(&self, index: usize) -> Option<Value> {
+    self.stack.get(self.stack_size() - 1 - index).cloned()
   }
 
-  pub fn stack_index_rev(&self, index: usize) -> Option<Value> {
-    self.stack.get(self.stack.len() - 1 - index).cloned()
+  pub fn stack_store(&mut self, index: usize, value: Value) {
+    self.stack[index] = value;
+  }
+
+  pub fn stack_store_rev(&mut self, index: usize, value: Value) {
+    let st_len = self.stack_size();
+    self.stack[st_len - 1 - index] = value;
   }
 
   pub fn stack_peek(&self) -> Option<Value> {
     self.stack.last().cloned()
-  }
-
-  pub fn stack_assign(&mut self, index: usize, value: Value) {
-    self.stack[index] = value;
   }
 
   pub fn stack_append(&mut self, other: Vec<Value>) {
@@ -1065,7 +1278,7 @@ impl Vm {
     Ok(())
   }
 
-  pub fn ctx(&mut self) -> &Context {
+  pub fn ctx(&self) -> &Context {
     &self.stack_frame.ctx
   }
 
@@ -1082,15 +1295,9 @@ impl Vm {
   }
 
   pub fn check_gc(&mut self, export: Option<&Value>) -> ExecResult {
-    self.gc.clean_if_time(
-      &self.stack,
-      &self.stack_frame,
-      &self.stack_frames,
-      &self.envs,
-      self.lib_cache.values(),
-      export,
-    )?;
-
+    self
+      .gc
+      .clean_if_time(&self.stack, &self.envs, self.lib_cache.values(), export)?;
     Ok(())
   }
 
@@ -1143,7 +1350,7 @@ impl FileInfo {
 
 #[derive(WrapperApi)]
 pub(crate) struct NativeApi {
-  simple_script_load_module: fn(vm: &mut Vm) -> Result<Value, Error>,
+  duck_type_load_module: fn(vm: &mut Vm) -> UsertypeHandle<ModuleValue>,
 }
 
 #[cfg(test)]

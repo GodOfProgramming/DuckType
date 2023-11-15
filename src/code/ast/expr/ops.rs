@@ -1,3 +1,5 @@
+use enum_map::Enum;
+
 use super::Expression;
 use crate::code::{
   ast::{AstExpression, AstGenerator, Ident, Precedence, SELF_IDENT},
@@ -122,7 +124,7 @@ impl AstExpression for AssignExpression {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Enum)]
 pub enum BinaryOperator {
   Equal,
   NotEq,
@@ -192,6 +194,27 @@ impl AstExpression for BinaryExpression {
       ast.error::<2>(String::from("unexpected end of token stream"));
       None
     }
+  }
+}
+
+#[derive(Debug)]
+pub enum StorageLocation {
+  Stack(Box<Expression>),
+  Ident(Ident),
+}
+
+#[derive(Debug)]
+pub struct BinaryRegisterExpression {
+  pub left: StorageLocation,
+  pub op: BinaryOperator,
+  pub right: StorageLocation,
+
+  pub loc: SourceLocation,
+}
+
+impl BinaryRegisterExpression {
+  pub(crate) fn new(left: StorageLocation, op: BinaryOperator, right: StorageLocation, loc: SourceLocation) -> Self {
+    Self { left, op, right, loc }
   }
 }
 

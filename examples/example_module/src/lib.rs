@@ -1,5 +1,5 @@
-use simple_script::macro_requirements::*;
-use simple_script::prelude::*;
+use ducktype::macro_requirements::*;
+use ducktype::prelude::*;
 
 #[native]
 mod example_module {

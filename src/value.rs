@@ -618,6 +618,7 @@ impl Debug for Value {
 
 impl PartialEq for Value {
   fn eq(&self, other: &Self) -> bool {
+    // TODO need operators as part of vtable
     if self.tag() == other.tag() {
       self.bits == other.bits
     } else {

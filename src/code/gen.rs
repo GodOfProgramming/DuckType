@@ -1,7 +1,6 @@
 use super::{ConstantValue, FunctionConstant};
 use crate::code::{ast::*, Reflection, SourceLocation};
 use crate::error::CompiletimeErrors;
-use crate::exec::Register;
 use crate::prelude::*;
 use crate::util::FileIdType;
 use ptr::SmartPtr;
@@ -28,14 +27,9 @@ struct Local {
 }
 
 #[derive(PartialEq)]
-enum LookupKind {
-  Local,
+enum Lookup {
+  Local(usize),
   Global,
-}
-
-struct Lookup {
-  kind: LookupKind,
-  index: usize,
 }
 
 pub struct BytecodeGenerator<'p> {
@@ -301,9 +295,9 @@ impl<'p> BytecodeGenerator<'p> {
 
     if let Some(var_idx) = self.declare_global(var) {
       if let Some(lookup) = self.resolve_ident(&initial, stmt.loc) {
-        let get = match lookup.kind {
-          LookupKind::Local => (Opcode::Load, (Storage::Local, LongAddr(lookup.index))),
-          LookupKind::Global => {
+        let get = match lookup {
+          Lookup::Local(index) => (Opcode::Load, (Storage::Local, LongAddr(index))),
+          Lookup::Global => {
             if let Some(var) = self.declare_global(initial) {
               (Opcode::Load, (Storage::Global, LongAddr(var)))
             } else {
@@ -405,6 +399,70 @@ impl<'p> BytecodeGenerator<'p> {
     }
   }
 
+  fn binary_register_expr(&mut self, expr: BinaryRegisterExpression) {
+    let left = match expr.left {
+      StorageLocation::Stack(expr) => {
+        self.emit_expr(*expr);
+        (Storage::Stack, ShortAddr(0))
+      }
+      StorageLocation::Ident(ident) => {
+        if let Some(var) = self.resolve_ident(&ident, expr.loc) {
+          match var {
+            Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
+            Lookup::Global => {
+              if let Some(var) = self.declare_global(ident) {
+                (Storage::Global, ShortAddr(var))
+              } else {
+                self.error(expr.loc, "could not declare global ident");
+                return;
+              }
+            }
+          }
+        } else {
+          return;
+        }
+      }
+    };
+
+    let right = match expr.right {
+      StorageLocation::Stack(expr) => {
+        self.emit_expr(*expr);
+        (Storage::Stack, ShortAddr(0))
+      }
+      StorageLocation::Ident(ident) => {
+        if let Some(var) = self.resolve_ident(&ident, expr.loc) {
+          match var {
+            Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
+            Lookup::Global => {
+              if let Some(var) = self.declare_global(ident) {
+                (Storage::Global, ShortAddr(var))
+              } else {
+                self.error(expr.loc, "could not declare global ident");
+                return;
+              }
+            }
+          }
+        } else {
+          return;
+        }
+      }
+    };
+
+    match expr.op {
+      BinaryOperator::Equal => self.emit((Opcode::Equal, (left, right)), expr.loc),
+      BinaryOperator::NotEq => self.emit((Opcode::NotEqual, (left, right)), expr.loc),
+      BinaryOperator::Less => self.emit((Opcode::Less, (left, right)), expr.loc),
+      BinaryOperator::LessEq => self.emit((Opcode::LessEqual, (left, right)), expr.loc),
+      BinaryOperator::Greater => self.emit((Opcode::Greater, (left, right)), expr.loc),
+      BinaryOperator::GreaterEq => self.emit((Opcode::GreaterEqual, (left, right)), expr.loc),
+      BinaryOperator::Add => self.emit((Opcode::Add, (left, right)), expr.loc),
+      BinaryOperator::Sub => self.emit((Opcode::Sub, (left, right)), expr.loc),
+      BinaryOperator::Mul => self.emit((Opcode::Mul, (left, right)), expr.loc),
+      BinaryOperator::Div => self.emit((Opcode::Div, (left, right)), expr.loc),
+      BinaryOperator::Mod => self.emit((Opcode::Rem, (left, right)), expr.loc),
+    }
+  }
+
   fn and_expr(&mut self, expr: AndExpression) {
     self.emit_expr(*expr.left);
     let short_circuit = self.emit_placeholder(expr.loc);
@@ -419,15 +477,11 @@ impl<'p> BytecodeGenerator<'p> {
     self.patch_jump_to_here(short_circuit, Opcode::Or);
   }
 
-  fn group_expr(&mut self, expr: GroupExpression) {
-    self.emit_expr(*expr.expr);
-  }
-
   fn ident_expr(&mut self, expr: IdentExpression) {
     if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
-      let get = match lookup.kind {
-        LookupKind::Local => (Opcode::Load, (Storage::Local, LongAddr(lookup.index))),
-        LookupKind::Global => {
+      let get = match lookup {
+        Lookup::Local(index) => (Opcode::Load, (Storage::Local, LongAddr(index))),
+        Lookup::Global => {
           if let Some(var) = self.declare_global(expr.ident) {
             (Opcode::Load, (Storage::Global, LongAddr(var)))
           } else {
@@ -453,9 +507,9 @@ impl<'p> BytecodeGenerator<'p> {
     match op {
       AssignOperator::Assign => {
         if let Some(lookup) = self.resolve_ident(&ident, loc) {
-          let set = match lookup.kind {
-            LookupKind::Local => (Opcode::Store, (Storage::Local, LongAddr(lookup.index))),
-            LookupKind::Global => {
+          let set = match lookup {
+            Lookup::Local(index) => (Opcode::Store, (Storage::Local, LongAddr(index))),
+            Lookup::Global => {
               if let Some(var) = self.declare_global(ident) {
                 (Opcode::Store, (Storage::Global, LongAddr(var)))
               } else {
@@ -480,12 +534,12 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn ident_op_assign(&mut self, ident: Ident, op: Opcode, value: Expression, loc: SourceLocation) {
     if let Some(lookup) = self.resolve_ident(&ident, loc) {
-      let (set, get) = match lookup.kind {
-        LookupKind::Local => (
-          (Opcode::Store, (Storage::Local, LongAddr(lookup.index))),
-          (Opcode::Load, (Storage::Local, LongAddr(lookup.index))),
+      let (set, get) = match lookup {
+        Lookup::Local(index) => (
+          (Opcode::Store, (Storage::Local, LongAddr(index))),
+          (Opcode::Load, (Storage::Local, LongAddr(index))),
         ),
-        LookupKind::Global => {
+        Lookup::Global => {
           if let Some(global_index) = self.declare_global(ident) {
             (
               (Opcode::Store, (Storage::Global, LongAddr(global_index))),
@@ -532,34 +586,65 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn index_op_assign(&mut self, expr: IndexExpression, op: Opcode, value: Expression, loc: SourceLocation) {
     if let Some(index_ident) = self.add_const_ident(Ident::new(ops::INDEX)) {
-      self.emit(Opcode::PushRegCtx, expr.loc);
-
-      // index
       self.emit_expr(*expr.indexable);
-      self.emit((Opcode::Store, (Storage::Reg, Register::A)), expr.loc);
+      // [indexable]
+      self.emit((Opcode::Load, (Storage::Stack, LongAddr(0))), expr.loc);
+      // [indexable]
+      // [indexable]
       self.emit((Opcode::LookupMember, index_ident), expr.loc);
+      // [__index__]
+      // [indexable]
       self.emit_expr(*expr.index);
-      self.emit((Opcode::Store, (Storage::Reg, Register::B)), expr.loc);
+      // [index]
+      // [__index__]
+      // [indexable]
+      self.emit((Opcode::Load, (Storage::Stack, LongAddr(0))), expr.loc);
+      // [index]
+      // [index]
+      // [__index__]
+      // [indexable]
+      self.emit((Opcode::Swap, (ShortAddr(1), ShortAddr(2))), expr.loc);
+      // [index]
+      // [__index__]
+      // [index]
+      // [indexable]
       self.emit((Opcode::Invoke, 1), expr.loc);
+      // [idxval]
+      // [__index__]
+      // [index]
+      // [indexable]
       self.emit(Opcode::SwapPop, expr.loc);
-
-      // value
+      // [idxval]
+      // [index]
+      // [indexable]
       self.emit_expr(value);
-
-      // do op
+      // [value]
+      // [idxval]
+      // [index]
+      // [indexable]
       self.emit(op, loc);
-      self.emit((Opcode::Store, (Storage::Reg, Register::C)), expr.loc);
-      self.emit(Opcode::Pop, expr.loc);
+      // [output]
+      // [index]
+      // [indexable]
+      self.emit((Opcode::Swap, (ShortAddr(0), ShortAddr(2))), expr.loc);
+      // [indexable]
+      // [index]
+      // [output]
 
       if let Some(idxeq_ident) = self.add_const_ident(Ident::new(ops::INDEX_ASSIGN)) {
-        self.emit((Opcode::Load, (Storage::Reg, Register::A)), expr.loc);
         self.emit((Opcode::LookupMember, idxeq_ident), expr.loc);
-        self.emit((Opcode::Load, (Storage::Reg, Register::B)), expr.loc);
-        self.emit((Opcode::Load, (Storage::Reg, Register::C)), expr.loc);
+        // [__idxeq__]
+        // [index]
+        // [output]
+        self.emit((Opcode::Swap, (ShortAddr(0), ShortAddr(2))), expr.loc);
+        // [output]
+        // [index]
+        // [__idxeq__]
         self.emit((Opcode::Invoke, 2), expr.loc);
+        // [result]
+        // [__idxeq__]
         self.emit(Opcode::SwapPop, expr.loc);
-
-        self.emit(Opcode::PopRegCtx, expr.loc);
+        // [result]
       }
     }
   }
@@ -810,13 +895,14 @@ impl<'p> BytecodeGenerator<'p> {
       println!("expr {}", expr);
     }
     match expr {
+      Expression::Empty => panic!("Empty expressions are just placeholders and should not make it out of optimization"),
       Expression::And(expr) => self.and_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::Binary(expr) => self.binary_expr(expr),
+      Expression::BinaryRegister(expr) => self.binary_register_expr(expr),
       Expression::Call(expr) => self.call_expr(expr),
       Expression::Class(expr) => self.class_expr(expr),
       Expression::Closure(expr) => self.closure_expr(expr),
-      Expression::Group(expr) => self.group_expr(expr),
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
       Expression::Lambda(expr) => self.lambda_expr(expr),
@@ -1051,10 +1137,7 @@ impl<'p> BytecodeGenerator<'p> {
             self.error(loc, "tried to use an undeclared identifier");
             return None;
           } else {
-            return Some(Lookup {
-              index,
-              kind: LookupKind::Local,
-            });
+            return Some(Lookup::Local(index));
           }
         }
 
@@ -1062,10 +1145,7 @@ impl<'p> BytecodeGenerator<'p> {
       }
     }
 
-    Some(Lookup {
-      index: 0,
-      kind: LookupKind::Global,
-    })
+    Some(Lookup::Global)
   }
 
   fn reduce_locals_to_depth(&mut self, depth: usize, loc: SourceLocation) {

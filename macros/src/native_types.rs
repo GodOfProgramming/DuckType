@@ -6,9 +6,9 @@ use syn::{FnArg, Item, ItemFn, ItemMod, ItemStruct};
 pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
   let ident = &item.sig.ident;
   let name_str = ident.to_string();
-  let nargs = common::count_args!(item);
+  let nargs = common::count_args!(item) - if with_vm { 1 } else { 0 };
 
-  let args = common::make_arg_list(nargs - if with_vm { 1 } else { 0 }, name_str);
+  let args = common::make_arg_list(nargs, name_str);
 
   let call_expr = if with_vm {
     quote! {
@@ -30,7 +30,7 @@ pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
         let value = vm.gc.allocate(output);
         Ok(value)
       } else {
-        Err(UsageError::ArgumentError(args.list.len(), #nargs + 1))
+        Err(UsageError::ArgumentError(args.list.len(), #nargs))
       }
     }
   }
@@ -128,12 +128,10 @@ pub(crate) fn native_mod(item: ItemMod, no_entry: bool) -> TokenStream {
   } else {
     quote! {
       #[no_mangle]
-      pub fn simple_script_load_module(vm: &mut Vm) -> UsageResult {
-        let #module_ident = vm.current_env_leaf()?;
-        let #gc_ident = vm.gc();
-        let module = #mod_name::simple_script_autogen_create_module(#gc_ident, #module_ident);
-        let value = #gc_ident.allocate(module);
-        Ok(value)
+      pub fn duck_type_load_module(vm: &mut Vm) -> UsertypeHandle<ModuleValue> {
+        let mut #gc_ident = vm.gc.clone();
+        let #module_ident = vm.current_env();
+        #mod_name::duck_type_autogen_create_module(&mut #gc_ident, #module_ident.into())
       }
     }
   };
@@ -146,7 +144,7 @@ pub(crate) fn native_mod(item: ItemMod, no_entry: bool) -> TokenStream {
     mod #mod_name {
       use super::*;
 
-      pub fn simple_script_autogen_create_module(gc: &mut SmartPtr<Gc>, env: Value) -> UsertypeHandle<ModuleValue> {
+      pub fn duck_type_autogen_create_module(gc: &mut SmartPtr<Gc>, env: Value) -> UsertypeHandle<ModuleValue> {
         ModuleBuilder::initialize(gc, ModuleType::new_child(#name_lit, env), |gc, mut #module_ident| {
           #fn_defs
           #struct_defs

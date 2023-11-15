@@ -1,6 +1,5 @@
-use super::{EnvStack, Stack, StackFrame};
+use super::{EnvStack, Stack};
 use crate::{
-  exec::Register,
   prelude::*,
   value::{tags::*, Mark, MutVoid, ValueMeta},
 };
@@ -18,7 +17,6 @@ use std::{
   thread::{self, JoinHandle},
   time::{Duration, Instant},
 };
-use strum::IntoEnumIterator;
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
@@ -273,8 +271,6 @@ impl Gc {
   pub(crate) fn clean_if_time<'v>(
     &mut self,
     stack: &Stack,
-    current_frame: &StackFrame,
-    stack_frames: &Vec<StackFrame>,
     envs: &EnvStack,
     cached_values: impl IntoIterator<Item = &'v Value>,
     export: Option<&Value>,
@@ -287,21 +283,19 @@ impl Gc {
 
     self.next_run = now + self.frequency;
 
-    self.clean(stack, current_frame, stack_frames, envs, cached_values, export)
+    self.clean(stack, envs, cached_values, export)
   }
 
   pub(crate) fn clean<'v>(
     &mut self,
     stack: &Stack,
-    current_frame: &StackFrame,
-    stack_frames: &Vec<StackFrame>,
     envs: &EnvStack,
     cached_values: impl IntoIterator<Item = &'v Value>,
     export: Option<&Value>,
   ) -> Result<usize, SystemError> {
     self.ref_check_native_handles();
 
-    let marked_allocations = self.trace(stack, current_frame, stack_frames, envs, cached_values, export);
+    let marked_allocations = self.trace(stack, envs, cached_values, export);
 
     let unmarked_allocations = self.find_unmarked(marked_allocations);
 
@@ -324,8 +318,6 @@ impl Gc {
   fn trace<'v>(
     &self,
     stack: &Stack,
-    current_frame: &StackFrame,
-    stack_frames: &Vec<StackFrame>,
     envs: &EnvStack,
     cached_values: impl IntoIterator<Item = &'v Value>,
     export: Option<&Value>,
@@ -342,20 +334,6 @@ impl Gc {
 
     for value in cached_values {
       marked_allocations.trace(value);
-    }
-
-    for ctx in &current_frame.registers {
-      for reg in Register::iter() {
-        marked_allocations.trace(&ctx[reg]);
-      }
-    }
-
-    for frame in stack_frames {
-      for ctx in &frame.registers {
-        for reg in Register::iter() {
-          marked_allocations.trace(&ctx[reg]);
-        }
-      }
     }
 
     for env in envs.iter() {
@@ -593,11 +571,7 @@ where
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::{code::Reflection, util::FileIdType};
   use ptr::SmartPtr;
-  use std::rc::Rc;
-
-  const FILE_ID: FileIdType = 0;
 
   #[derive(Usertype, Fields)]
   #[uuid("random")]
@@ -606,37 +580,19 @@ mod tests {
   #[methods]
   impl SomeType {}
 
-  fn new_ctx() -> SmartPtr<Context> {
-    SmartPtr::new(Context::new(
-      0,
-      Reflection::new(Some("main"), Some(FILE_ID), Rc::new(Default::default())),
-    ))
-  }
-
   #[test]
   fn gc_can_allocate_and_clean() {
     let mut gc = Gc::always_run();
-    let ctx = new_ctx();
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc
-      .clean(
-        &Default::default(),
-        &StackFrame::new(ctx, 0),
-        &Default::default(),
-        &Default::default(),
-        [],
-        None,
-      )
-      .unwrap();
+    let cleaned = gc.clean(&Default::default(), &Default::default(), [], None).unwrap();
     assert_eq!(cleaned, 1);
   }
 
   #[test]
   fn gc_does_not_clean_more_than_it_needs_to() {
     let mut gc = Gc::always_run();
-    let ctx = new_ctx();
 
     let _x = gc.allocate(1);
     let _y = gc.allocate(1.0);
@@ -645,16 +601,7 @@ mod tests {
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc
-      .clean(
-        &Default::default(),
-        &StackFrame::new(ctx, 0),
-        &Default::default(),
-        &Default::default(),
-        [],
-        None,
-      )
-      .unwrap();
+    let cleaned = gc.clean(&Default::default(), &Default::default(), [], None).unwrap();
 
     assert_eq!(cleaned, 1);
   }
@@ -662,7 +609,6 @@ mod tests {
   #[test]
   fn gc_does_not_clean_open_handles() {
     let mut gc = SmartPtr::new(Gc::always_run());
-    let ctx = new_ctx();
 
     let mut struct_value = StructValue::new([(("child", 0), Value::nil)]);
     let child = gc.allocate(SomeType {});
@@ -670,29 +616,11 @@ mod tests {
 
     {
       let _handle = gc.allocate_typed_handle(struct_value);
-      let cleaned = gc
-        .clean(
-          &Default::default(),
-          &StackFrame::new(ctx.clone(), 0),
-          &Default::default(),
-          &Default::default(),
-          [],
-          None,
-        )
-        .unwrap();
+      let cleaned = gc.clean(&Default::default(), &Default::default(), [], None).unwrap();
       assert_eq!(cleaned, 0);
     }
 
-    let cleaned = gc
-      .clean(
-        &Default::default(),
-        &StackFrame::new(ctx, 0),
-        &Default::default(),
-        &Default::default(),
-        [],
-        None,
-      )
-      .unwrap();
+    let cleaned = gc.clean(&Default::default(), &Default::default(), [], None).unwrap();
     assert_eq!(cleaned, 2);
   }
 }

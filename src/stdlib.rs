@@ -69,6 +69,7 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
 
     defmod(gc, lib, names::REFLECT, |_, mut lib| {
       lib.define("defined", Value::native(defined));
+      lib.define("disasm", Value::native(disasm));
     });
 
     defmod(gc, lib, names::ENV, |gc, mut lib| {
@@ -101,7 +102,7 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
     });
 
     let libval = lib.value();
-    lib.define(names::IO, libio::simple_script_autogen_create_module(gc, libval));
+    lib.define(names::IO, libio::duck_type_autogen_create_module(gc, libval));
   })
 }
 
@@ -130,6 +131,19 @@ fn debug(value: Value) -> UsageResult<String> {
 #[native(with_vm)]
 fn defined(vm: &mut Vm, name: &StringValue) -> UsageResult<bool> {
   Ok(vm.current_env().lookup(name.as_str()).is_some())
+}
+
+#[native(with_vm)]
+fn disasm(vm: &mut Vm, value: Value) -> UsageResult<String> {
+  if let Some(f) = value.cast_to::<FunctionValue>() {
+    Ok(f.context().disassemble(&vm.stack, &vm.program))
+  } else if let Some(f) = value.cast_to::<ClosureValue>() {
+    Ok(f.context().disassemble(&vm.stack, &vm.program))
+  } else if let Some(f) = value.cast_to::<MethodValue>() {
+    Ok(f.context().disassemble(&vm.stack, &vm.program))
+  } else {
+    Ok(String::new())
+  }
 }
 
 #[native]
