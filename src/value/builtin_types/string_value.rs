@@ -20,6 +20,10 @@ impl StringValue {
     data.hash(&mut hash);
     Self { data, hash }
   }
+
+  pub fn do_with_other<R: Default>(&self, other: Value, f: impl FnOnce(&Self) -> R) -> R {
+    other.cast_to::<Self>().map(f).unwrap_or_default()
+  }
 }
 
 #[methods]
@@ -49,11 +53,27 @@ impl StringValue {
   }
 
   fn __eq__(&self, other: Value) -> UsageResult<bool> {
-    Ok(other.cast_to::<Self>().map(|other| self.data == other.data).unwrap_or(false))
+    Ok(self.do_with_other(other, |other| self.data == other.data))
   }
 
   fn __neq__(&self, other: Value) -> UsageResult<bool> {
     self.__eq__(other).map(|v| !v)
+  }
+
+  fn __less__(&self, other: Value) -> UsageResult<bool> {
+    Ok(self.do_with_other(other, |other| self.data < other.data))
+  }
+
+  fn __leq__(&self, other: Value) -> UsageResult<bool> {
+    Ok(self.do_with_other(other, |other| self.data <= other.data))
+  }
+
+  fn __greater__(&self, other: Value) -> UsageResult<bool> {
+    Ok(self.do_with_other(other, |other| self.data > other.data))
+  }
+
+  fn __geq__(&self, other: Value) -> UsageResult<bool> {
+    Ok(self.do_with_other(other, |other| self.data >= other.data))
   }
 
   fn __index__(&self, index: i32) -> UsageResult {

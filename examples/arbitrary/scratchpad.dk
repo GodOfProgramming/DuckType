@@ -1,2 +1,1 @@
-let va = ["value"];
-va[0] += "operand";
+println "hello world" > "hello world";
