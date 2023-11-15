@@ -102,7 +102,7 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
     });
 
     let libval = lib.value();
-    lib.define(names::IO, libio::simple_script_autogen_create_module(gc, libval));
+    lib.define(names::IO, libio::duck_type_autogen_create_module(gc, libval));
   })
 }
 

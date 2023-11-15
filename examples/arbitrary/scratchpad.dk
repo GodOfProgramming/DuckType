@@ -1,1 +1,3 @@
-println "hello world" > "hello world";
+req "examples/example_module/target/release/libexample_module" as ex;
+
+ex::test_function("hello world");

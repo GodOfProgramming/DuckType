@@ -1029,7 +1029,7 @@ impl Vm {
           let lib: Container<NativeApi> =
             unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
-          let value = lib.simple_script_load_module(self)?;
+          let value: Value = lib.duck_type_load_module(self).into();
           self.opened_native_libs.insert(found_file, lib);
           self.lib_cache.insert(file_id, value.clone());
           value
@@ -1350,7 +1350,7 @@ impl FileInfo {
 
 #[derive(WrapperApi)]
 pub(crate) struct NativeApi {
-  simple_script_load_module: fn(vm: &mut Vm) -> Result<Value, Error>,
+  duck_type_load_module: fn(vm: &mut Vm) -> UsertypeHandle<ModuleValue>,
 }
 
 #[cfg(test)]
