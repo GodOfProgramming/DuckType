@@ -24,14 +24,14 @@ use strum_macros::{EnumCount, EnumIter, FromRepr};
 pub struct Instruction(u64);
 
 impl Instruction {
-  const DATA_BIT: u64 = 1 << Opcode::BITS + 1;
-  const DATA_OFFSET: u64 = Self::DATA_BIT.ilog2() as u64;
+  const DATA_BIT: u64 = 1 << Opcode::BITS;
+  const DATA_OFFSET: u64 = (Self::DATA_BIT << 1).ilog2() as u64;
 
   pub fn new<D>(opcode: Opcode, data: D) -> Option<Self>
   where
     D: InstructionData,
   {
-    let inst = data.encode()? << Self::DATA_OFFSET | if D::BITS > 0 { 1 } else { 0 } << Opcode::BITS | opcode.encode()?;
+    let inst = data.encode()? << Self::DATA_OFFSET | if D::BITS > 0 { Self::DATA_BIT } else { 0 } | opcode.encode()?;
     Some(Self(inst))
   }
 
@@ -56,7 +56,7 @@ impl Instruction {
   }
 
   pub fn has_data(&self) -> bool {
-    self.0 & Self::DATA_BIT == 1
+    self.0 & Self::DATA_BIT == Self::DATA_BIT
   }
 
   /// Returns unchecked data meant for display and debugging purposes
@@ -748,51 +748,53 @@ impl Debug for EnvEntry {
 mod tests {
   use super::*;
 
+  const ADDR: usize = 123;
+  const CONST: usize = 1;
+
   #[test]
-  fn opcode_serde() {
-    const ADDR: usize = 123;
-    const CONST: usize = 1;
+  fn opcode_serde_simple_inst() {
+    Instruction::new(Opcode::Const, CONST).unwrap();
+  }
+
+  #[test]
+  fn opcode_serde_addr() {
     let addr = LongAddr(ADDR);
+    let bits = addr.encode().unwrap();
+    assert_eq!(bits, ADDR as u64);
+    let addr = LongAddr::checked_data(bits).unwrap();
+    assert_eq!(addr, LongAddr(ADDR));
+  }
 
-    {
-      Instruction::new(Opcode::Const, CONST).unwrap();
-    }
+  #[test]
+  fn opcode_serde_cplx_inst() {
+    let inst = Instruction::new(Opcode::Load, (Storage::Local, LongAddr(ADDR))).unwrap();
 
-    {
-      let bits = addr.encode().unwrap();
-      assert_eq!(bits, ADDR as u64);
-      let addr = LongAddr::checked_data(bits).unwrap();
-      assert_eq!(addr, LongAddr(ADDR));
-    }
+    let op = inst.opcode().unwrap();
+    let (storage, addr) = inst.data::<(Storage, LongAddr)>().unwrap();
 
-    {
-      let inst = Instruction::new(Opcode::Load, (Storage::Local, LongAddr(ADDR))).unwrap();
+    assert_eq!(op, Opcode::Load);
+    assert_eq!(storage, Storage::Local);
+    assert_eq!(addr, LongAddr(ADDR));
+  }
 
-      let op = inst.opcode().unwrap();
-      let (storage, addr) = inst.data::<(Storage, LongAddr)>().unwrap();
+  #[test]
+  fn opcode_serde_v_cplx_inst() {
+    const A_ADDR: usize = 12;
+    const B_ADDR: usize = 34;
+    let inst = Instruction::new(
+      Opcode::Add,
+      (Storage::Local, ShortAddr(A_ADDR), Storage::Global, ShortAddr(B_ADDR)),
+    )
+    .unwrap();
 
-      assert_eq!(op, Opcode::Load);
-      assert_eq!(storage, Storage::Local);
-      assert_eq!(addr, LongAddr(ADDR));
-    }
+    let op = inst.opcode().unwrap();
+    let ((a_store, a_addr), (b_store, b_addr)) = inst.data::<((Storage, ShortAddr), (Storage, ShortAddr))>().unwrap();
 
-    {
-      const A_ADDR: usize = 12;
-      const B_ADDR: usize = 34;
-      let inst = Instruction::new(
-        Opcode::Add,
-        (Storage::Local, ShortAddr(A_ADDR), Storage::Global, ShortAddr(B_ADDR)),
-      )
-      .unwrap();
-
-      let op = inst.opcode().unwrap();
-      let ((a_store, a_addr), (b_store, b_addr)) = inst.data::<((Storage, ShortAddr), (Storage, ShortAddr))>().unwrap();
-
-      assert_eq!(op, Opcode::Add);
-      assert_eq!(a_store, Storage::Local);
-      assert_eq!(a_addr, ShortAddr(A_ADDR));
-      assert_eq!(b_store, Storage::Global);
-      assert_eq!(b_addr, ShortAddr(B_ADDR));
-    }
+    assert!(inst.has_data());
+    assert_eq!(op, Opcode::Add);
+    assert_eq!(a_store, Storage::Local);
+    assert_eq!(a_addr, ShortAddr(A_ADDR));
+    assert_eq!(b_store, Storage::Global);
+    assert_eq!(b_addr, ShortAddr(B_ADDR));
   }
 }

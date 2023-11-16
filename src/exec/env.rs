@@ -153,8 +153,8 @@ impl<'p> InstructionDisassembler<'p> {
     format!("{:<20}", opcode.to_string())
   }
 
-  fn value_column(value: impl Into<usize>) -> String {
-    format!("{: >4}", value.into())
+  fn value_column(value: impl Display) -> String {
+    format!("{: >4}", value)
   }
 
   fn const_at_column(program: &Program, index: impl Into<usize>) -> String {
@@ -166,9 +166,14 @@ impl<'p> InstructionDisassembler<'p> {
   fn storage_column(program: &Program, storage: Storage, index: impl Into<usize>) -> String {
     let index = index.into();
     match storage {
-      Storage::Stack => format!("{: >4}", "st"),
-      Storage::Local => Self::value_column(index),
-      Storage::Global => format!("{} {}", Self::value_column(index), Self::const_at_column(program, index),),
+      Storage::Stack => format!("{} {}", Self::value_column("st"), Self::value_column(index)),
+      Storage::Local => format!("{} {}", Self::value_column("lc"), Self::value_column(index)),
+      Storage::Global => format!(
+        "{} {} {}",
+        Self::value_column("gb"),
+        Self::value_column(index),
+        Self::const_at_column(program, index),
+      ),
     }
   }
 
