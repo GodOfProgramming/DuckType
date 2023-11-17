@@ -191,7 +191,7 @@ pub struct RuntimeError {
 impl RuntimeError {
   pub fn new(err: UsageError, filemap: &FileMap, opcode_ref: InstructionReflection) -> Self {
     match err {
-      UsageError::Preformated(err) => err.into_runtime(filemap),
+      UsageError::Preformatted(err) => err.into_runtime(filemap),
       err => Self {
         msg: Self::format_src(&opcode_ref, err),
         file: filemap.get(opcode_ref.file_id),
@@ -213,7 +213,7 @@ impl RuntimeError {
           msg = msg.to_string(),
           src_line = line,
           space = " ".repeat(opcode_ref.column - 1),
-          opcode = opcode_ref.inst.opcode().unwrap_or_default()
+          opcode = opcode_ref.inst.display_opcode(),
         )
       })
       .unwrap_or_else(|| format!("invalid line at {}", opcode_ref.line))
@@ -367,11 +367,14 @@ pub enum UsageError {
   #[error("Invalid instruction: {0}")]
   InvalidInstruction(Instruction),
 
+  #[error("No instruction found")]
+  NoInstructionFound,
+
   #[error("Used storage type {0:?} in an invalid context")]
   InvalidStorageOperation(Storage),
 
   #[error("{0}")]
-  Preformated(Error),
+  Preformatted(Error),
 
   #[error("Infallible")]
   Infallible,

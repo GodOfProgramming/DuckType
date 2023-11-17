@@ -30,7 +30,7 @@ impl FunctionValue {
   pub fn invoke(&mut self, vm: &mut Vm, offset: usize) -> UsageResult {
     let env = UsertypeHandle::new(vm.gc.handle_from(self.env.clone()));
     vm.run_fn(self.ctx.clone(), env, self.airity + offset)
-      .map_err(UsageError::Preformated)
+      .map_err(UsageError::Preformatted)
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {

@@ -63,6 +63,12 @@ impl Context {
     }
   }
 
+  #[cfg(not(debug_assertions))]
+  pub fn fetch(&self, index: usize) -> Instruction {
+    self.instructions[index]
+  }
+
+  #[cfg(debug_assertions)]
   pub fn fetch(&self, index: usize) -> Option<Instruction> {
     self.instructions.get(index).cloned()
   }
@@ -206,7 +212,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
       write!(f, "?????")?;
     }
 
-    match inst.opcode().unwrap_or_default() {
+    match inst.display_opcode() {
       Opcode::Const => {
         let index: usize = inst.display_data();
         write!(

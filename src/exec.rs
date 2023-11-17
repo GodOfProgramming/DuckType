@@ -35,6 +35,12 @@ impl Instruction {
     Some(Self(inst))
   }
 
+  #[cfg(not(debug_assertions))]
+  pub fn opcode(&self) -> Opcode {
+    unsafe { mem::transmute((self.0 & Opcode::MASK) as u8) }
+  }
+
+  #[cfg(debug_assertions)]
   pub fn opcode(&self) -> Option<Opcode> {
     Opcode::checked_data(self.0 & Opcode::MASK)
   }
@@ -57,6 +63,10 @@ impl Instruction {
 
   pub fn has_data(&self) -> bool {
     self.0 & Self::DATA_BIT == Self::DATA_BIT
+  }
+
+  pub fn display_opcode(&self) -> Opcode {
+    unsafe { mem::transmute((self.0 & Opcode::MASK) as u8) }
   }
 
   /// Returns unchecked data meant for display and debugging purposes
