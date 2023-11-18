@@ -1,1 +1,39 @@
-export std::str::concat("hello", " ", "world");
+# class Array {
+#   self as []
+
+#   new(self, list) {
+#     for let i = 0; i < list.len(); i += 1 {
+#       self.push(list[i]);
+#     }
+#   }
+
+#   fn [](self, idx) {
+#     ret self[idx];
+#   }
+
+#   fn []=(self, idx, other) {
+#     ret self[idx] = other;
+#   }
+# }
+
+# let a = Array([1, 2, 3]);
+
+# println a[0];
+
+class Foo {
+  self as struct { value: nil }
+
+  new(self, value) {
+    self.value = value;
+  }
+
+  fn bar(self) {
+    ret self.value;
+  }
+}
+
+println "init";
+let foo = Foo(1);
+println "post init";
+foo.bar();
+println "post call";

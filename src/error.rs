@@ -267,6 +267,9 @@ pub enum UsageError {
   #[error("Tried to perform '{0}' with {1} and {2}")]
   InvalidOperation(char, Value, Value),
 
+  #[error("{0} is not implemented")]
+  Unimplemented(&'static str),
+
   /// method, value
   #[error("{0} not implemented for {1}")]
   UnimplementedError(&'static str, Value),

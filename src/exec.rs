@@ -249,6 +249,18 @@ pub enum Opcode {
   ///
   /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   Rem,
+  /// Pop two items off the stack, using the first as the index and the second as the indexable, pushing the result back on
+  ///
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Index,
+  /// Pop three items off the stack, the first is the value, the second is the index, and the third is the indexable. Push the third back on after assignment
+  ///
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
+  ///
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  AssignIndex,
   /// Peeks at the stack. If the top value is true, the ip in incremented
   ///
   /// Encoding: | usize |

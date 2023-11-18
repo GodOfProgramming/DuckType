@@ -18,8 +18,8 @@ pub mod prelude {
 
 pub mod macro_requirements {
   pub use crate::prelude::{
-    methods, native, Args, DebugValue, DisplayValue, Fields, MaybeFrom, ModuleBuilder, TryUnwrapArg, UsageError, UsageResult,
-    Usertype, UsertypeFields, UsertypeMethods, Value, Vm,
+    methods, native, Args, Fields, MaybeFrom, ModuleBuilder, Operators, TryUnwrapArg, UsageError, UsageResult, Usertype,
+    UsertypeFields, UsertypeMethods, Value, Vm,
   };
   pub use uuid;
 }
@@ -37,7 +37,7 @@ use dlopen2::wrapper::Container;
 use dlopen2::wrapper::WrapperApi;
 use exec::memory::{Allocation, Gc};
 use prelude::module_value::ModuleType;
-use ptr::SmartPtr;
+use ptr::{MutPtr, SmartPtr};
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
   collections::BTreeMap,
@@ -385,6 +385,12 @@ impl Vm {
         }
         Opcode::Not => {
           self.exec(|this| this.exec_not(opcode))?;
+        }
+        Opcode::Index => {
+          self.exec(|this| this.exec_index(opcode))?;
+        }
+        Opcode::AssignIndex => {
+          self.exec(|this| this.exec_index_assign())?;
         }
         Opcode::Or => {
           let val = self.exec(|this| this.exec_or(data!(inst)))?;
@@ -810,6 +816,19 @@ impl Vm {
     self.unary_op(opcode, |v| -v)
   }
 
+  fn exec_index(&mut self, opcode: Opcode) -> OpResult {
+    self.binary_op(opcode, |_, _| Err(UsageError::InvalidBinary))
+  }
+
+  fn exec_index_assign(&mut self) -> OpResult {
+    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let index = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let indexable = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    (indexable.vtable().assign_index)(MutPtr::new(self), indexable, index, value.clone())?;
+    self.stack_push(value);
+    Ok(())
+  }
+
   fn exec_check(&mut self) -> OpResult {
     let b = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let a = self.stack_peek().ok_or(UsageError::EmptyStack)?;
@@ -1120,28 +1139,26 @@ impl Vm {
     F: FnOnce(Value, Value) -> Result<Value, UsageError>,
   {
     if av.is_ptr() {
-      let key = match opcode {
-        Opcode::Add => ops::ADD,
-        Opcode::Sub => ops::SUB,
-        Opcode::Mul => ops::MUL,
-        Opcode::Div => ops::DIV,
-        Opcode::Rem => ops::REM,
-        Opcode::Equal => ops::EQUALITY,
-        Opcode::NotEqual => ops::NOT_EQUAL,
-        Opcode::Less => ops::LESS,
-        Opcode::LessEqual => ops::LESS_EQUAL,
-        Opcode::Greater => ops::GREATER,
-        Opcode::GreaterEqual => ops::GREATER_EQUAL,
+      let vtable = av.vtable();
+      let bin_op = match opcode {
+        Opcode::Add => vtable.add,
+        Opcode::Sub => vtable.sub,
+        Opcode::Mul => vtable.mul,
+        Opcode::Div => vtable.div,
+        Opcode::Rem => vtable.rem,
+        Opcode::Equal => vtable.eq,
+        Opcode::NotEqual => vtable.neq,
+        Opcode::Less => vtable.less,
+        Opcode::LessEqual => vtable.leq,
+        Opcode::Greater => vtable.greater,
+        Opcode::GreaterEqual => vtable.geq,
+        Opcode::Index => vtable.index,
         _ => Err(UsageError::InvalidBinary)?,
       };
 
-      let callable = av
-        .get_member(&mut self.gc, Field::named(key))?
-        .map(Ok)
-        .unwrap_or(Err(UsageError::UnexpectedNil))?;
-
-      self.stack_push(bv);
-      self.call_value(callable, 1)
+      let output = bin_op(MutPtr::new(self), av, bv)?;
+      self.stack_push(output);
+      Ok(())
     } else {
       self.stack_push(f(av, bv)?);
       Ok(())

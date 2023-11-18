@@ -18,7 +18,7 @@ fn elapsed(before: &TimeValue) -> UsageResult<f64> {
   Ok(since.as_secs_f64())
 }
 
-#[derive(Usertype, Fields)]
+#[derive(Usertype, Fields, NoMethods)]
 #[uuid("fa23bba8-599b-4626-98c2-5036ecf49265")]
 pub struct TimeValue {
   timestamp: Instant,
@@ -32,19 +32,33 @@ impl TimeValue {
   }
 }
 
-#[methods]
-impl TimeValue {
-  fn __eq__(&self, other: Value) -> UsageResult<bool> {
+impl Operators for TimeValue {
+  #[binary]
+  fn __eq__(left: &TimeValue, right: Value) -> UsageResult<bool> {
     Ok(
-      other
-        .cast_to::<Self>()
-        .map(|other| self.timestamp == other.timestamp)
+      right
+        .cast_to::<TimeValue>()
+        .map(|right| left.timestamp == right.timestamp)
         .unwrap_or(false),
     )
   }
 
-  fn __neq__(&self, other: Value) -> UsageResult<bool> {
-    self.__eq__(other).map(|v| !v)
+  #[binary]
+  fn __neq__(left: &TimeValue, right: Value) -> UsageResult<bool> {
+    Ok(
+      right
+        .cast_to::<TimeValue>()
+        .map(|right| left.timestamp != right.timestamp)
+        .unwrap_or(false),
+    )
+  }
+
+  fn __str__(&self) -> String {
+    format!("{:?}", self.timestamp)
+  }
+
+  fn __dbg__(&self) -> String {
+    format!("{:?}", self.timestamp)
   }
 }
 

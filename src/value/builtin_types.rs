@@ -9,25 +9,32 @@ pub(crate) mod string_value;
 pub(crate) mod struct_value;
 pub(crate) mod vec_value;
 
+macro_rules! opstr {
+  ($op:ident) => {
+    concat!("__", stringify!($op), "__")
+  };
+}
 pub mod ops {
-  pub const NOT: &str = "__not__";
-  pub const NEG: &str = "__neg__";
+  pub const NOT: &str = opstr!(not);
+  pub const NEG: &str = opstr!(neg);
 
-  pub const ADD: &str = "__add__";
-  pub const SUB: &str = "__sub__";
-  pub const MUL: &str = "__mul__";
-  pub const DIV: &str = "__div__";
-  pub const REM: &str = "__rem__";
+  pub const ADD: &str = opstr!(add);
+  pub const SUB: &str = opstr!(sub);
+  pub const MUL: &str = opstr!(mul);
+  pub const DIV: &str = opstr!(div);
+  pub const REM: &str = opstr!(rem);
 
-  pub const EQUALITY: &str = "__eq__";
-  pub const NOT_EQUAL: &str = "__neq__";
-  pub const LESS: &str = "__less__";
-  pub const LESS_EQUAL: &str = "__leq__";
-  pub const GREATER: &str = "__greater__";
-  pub const GREATER_EQUAL: &str = "__geq__";
+  pub const EQUALITY: &str = opstr!(eq);
+  pub const NOT_EQUAL: &str = opstr!(neq);
+  pub const LESS: &str = opstr!(less);
+  pub const LESS_EQUAL: &str = opstr!(leq);
+  pub const GREATER: &str = opstr!(greater);
+  pub const GREATER_EQUAL: &str = opstr!(geq);
 
-  pub const INDEX: &str = "__index__";
-  pub const INDEX_ASSIGN: &str = "__idxeq__";
+  pub const INDEX: &str = opstr!(index);
+  pub const INDEX_ASSIGN: &str = opstr!(idxeq);
+
+  pub const CALL: &str = opstr!(call);
 }
 
 use super::{VTable, Value};
@@ -74,15 +81,7 @@ impl<'n> Field<'n> {
 
 pub trait Usertype
 where
-  Self: UsertypeFields
-    + UsertypeMethods
-    + InvocableValue
-    + ResolvableValue
-    + DisplayValue
-    + DebugValue
-    + TraceableValue
-    + Sized
-    + 'static,
+  Self: UsertypeFields + UsertypeMethods + Operators + TraceableValue + Sized + 'static,
 {
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
@@ -108,10 +107,51 @@ pub trait UsertypeMethods {
   fn __new__(_vm: &mut Vm, _args: Args) -> UsageResult {
     Err(UsageError::UndefinedInitializer)
   }
-  fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>>;
+
+  #[allow(unused_variables)]
+  fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>> {
+    Err(UsageError::Unimplemented("__get_method__"))
+  }
 }
 
-pub trait ResolvableValue: DisplayValue {
+macro_rules! binary_op {
+  ($name:ident) => {
+    #[allow(unused_variables)]
+    fn $name(vm: &mut Vm, left: Value, right: Value) -> UsageResult {
+      Err(UsageError::Unimplemented(stringify!($name)))
+    }
+  };
+}
+
+macro_rules! ternary_op {
+  ($name:ident) => {
+    #[allow(unused_variables)]
+    fn $name(vm: &mut Vm, left: Value, mid: Value, right: Value) -> UsageResult {
+      Err(UsageError::Unimplemented(stringify!($name)))
+    }
+  };
+}
+
+pub trait Operators {
+  binary_op!(__add__);
+  binary_op!(__sub__);
+  binary_op!(__mul__);
+  binary_op!(__div__);
+  binary_op!(__rem__);
+  binary_op!(__eq__);
+  binary_op!(__neq__);
+  binary_op!(__less__);
+  binary_op!(__leq__);
+  binary_op!(__greater__);
+  binary_op!(__geq__);
+  binary_op!(__index__);
+  ternary_op!(__idxeq__);
+
+  #[allow(unused_variables)]
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult {
+    Err(UsageError::UndefinedMethod("__ivk__", self.__str__()))
+  }
+
   #[allow(unused_variables)]
   fn __def__(&mut self, field: &str, value: Value) -> UsageResult<bool> {
     Err(UsageError::TypeError(self.__str__(), String::from("module")))
@@ -121,20 +161,9 @@ pub trait ResolvableValue: DisplayValue {
   fn __res__(&self, field: &str) -> UsageResult {
     Err(UsageError::TypeError(self.__str__(), String::from("module")))
   }
-}
 
-pub trait InvocableValue: DisplayValue {
-  #[allow(unused_variables)]
-  fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult {
-    Err(UsageError::UndefinedMethod("__ivk__", self.__str__()))
-  }
-}
-
-pub trait DisplayValue {
   fn __str__(&self) -> String;
-}
 
-pub trait DebugValue {
   fn __dbg__(&self) -> String;
 }
 
@@ -257,6 +286,17 @@ where
 #[derive(Default, Usertype, Fields)]
 #[uuid("6d9d039a-9803-41ff-8e84-a0ea830e2380")]
 pub struct Primitive {}
+
+// all primitives can be operated on directly, no need for vtable indirection
+impl Operators for Primitive {
+  fn __str__(&self) -> String {
+    unreachable!();
+  }
+
+  fn __dbg__(&self) -> String {
+    unreachable!();
+  }
+}
 
 #[methods]
 impl Primitive {}

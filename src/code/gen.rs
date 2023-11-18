@@ -565,16 +565,10 @@ impl<'p> BytecodeGenerator<'p> {
   fn assign_index(&mut self, expr: IndexExpression, op: AssignOperator, value: Expression, loc: SourceLocation) {
     match op {
       AssignOperator::Assign => {
-        if let Some(ident) = self.add_const_ident(Ident::new(ops::INDEX_ASSIGN)) {
-          self.emit_expr(*expr.indexable);
-          self.emit((Opcode::LookupMember, ident), expr.loc);
-          self.emit_expr(*expr.index);
-          self.emit_expr(value);
-          self.emit((Opcode::Invoke, 2), expr.loc);
-          self.emit(Opcode::SwapPop, expr.loc);
-        } else {
-          self.error(loc, "failed to declare ident");
-        }
+        self.emit_expr(*expr.indexable);
+        self.emit_expr(*expr.index);
+        self.emit_expr(value);
+        self.emit(Opcode::AssignIndex, expr.loc);
       }
       AssignOperator::Add => self.index_op_assign(expr, Opcode::Add, value, loc),
       AssignOperator::Sub => self.index_op_assign(expr, Opcode::Sub, value, loc),
@@ -585,68 +579,40 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn index_op_assign(&mut self, expr: IndexExpression, op: Opcode, value: Expression, loc: SourceLocation) {
-    if let Some(index_ident) = self.add_const_ident(Ident::new(ops::INDEX)) {
-      self.emit_expr(*expr.indexable);
-      // [indexable]
-      self.emit((Opcode::Load, (Storage::Stack, LongAddr(0))), expr.loc);
-      // [indexable]
-      // [indexable]
-      self.emit((Opcode::LookupMember, index_ident), expr.loc);
-      // [__index__]
-      // [indexable]
-      self.emit_expr(*expr.index);
-      // [index]
-      // [__index__]
-      // [indexable]
-      self.emit((Opcode::Load, (Storage::Stack, LongAddr(0))), expr.loc);
-      // [index]
-      // [index]
-      // [__index__]
-      // [indexable]
-      self.emit((Opcode::Swap, (ShortAddr(1), ShortAddr(2))), expr.loc);
-      // [index]
-      // [__index__]
-      // [index]
-      // [indexable]
-      self.emit((Opcode::Invoke, 1), expr.loc);
-      // [idxval]
-      // [__index__]
-      // [index]
-      // [indexable]
-      self.emit(Opcode::SwapPop, expr.loc);
-      // [idxval]
-      // [index]
-      // [indexable]
-      self.emit_expr(value);
-      // [value]
-      // [idxval]
-      // [index]
-      // [indexable]
-      self.emit(op, loc);
-      // [output]
-      // [index]
-      // [indexable]
-      self.emit((Opcode::Swap, (ShortAddr(0), ShortAddr(2))), expr.loc);
-      // [indexable]
-      // [index]
-      // [output]
-
-      if let Some(idxeq_ident) = self.add_const_ident(Ident::new(ops::INDEX_ASSIGN)) {
-        self.emit((Opcode::LookupMember, idxeq_ident), expr.loc);
-        // [__idxeq__]
-        // [index]
-        // [output]
-        self.emit((Opcode::Swap, (ShortAddr(0), ShortAddr(2))), expr.loc);
-        // [output]
-        // [index]
-        // [__idxeq__]
-        self.emit((Opcode::Invoke, 2), expr.loc);
-        // [result]
-        // [__idxeq__]
-        self.emit(Opcode::SwapPop, expr.loc);
-        // [result]
-      }
-    }
+    self.emit_expr(*expr.indexable);
+    // [indexable]
+    self.emit((Opcode::Load, (Storage::Stack, LongAddr(0))), expr.loc);
+    // [indexable]
+    // [indexable]
+    self.emit_expr(*expr.index);
+    // [index]
+    // [indexable]
+    // [indexable]
+    self.emit((Opcode::Load, (Storage::Stack, LongAddr(0))), expr.loc);
+    // [index]
+    // [index]
+    // [indexable]
+    // [indexable]
+    self.emit((Opcode::Swap, (ShortAddr(1), ShortAddr(2))), expr.loc);
+    // [index]
+    // [indexable]
+    // [index]
+    // [indexable]
+    self.emit(Opcode::Index, expr.loc);
+    // [idxval]
+    // [index]
+    // [indexable]
+    self.emit_expr(value);
+    // [value]
+    // [idxval]
+    // [index]
+    // [indexable]
+    self.emit(op, loc);
+    // [output]
+    // [index]
+    // [indexable]
+    self.emit(Opcode::AssignIndex, expr.loc);
+    // [output]
   }
 
   fn assign_member(&mut self, expr: MemberAccessExpression, op: AssignOperator, value: Expression, loc: SourceLocation) {
@@ -707,15 +673,9 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn index_expr(&mut self, expr: IndexExpression) {
-    if let Some(ident) = self.add_const_ident(Ident::new(ops::INDEX)) {
-      self.emit_expr(*expr.indexable);
-      self.emit((Opcode::LookupMember, ident), expr.loc);
-      self.emit_expr(*expr.index);
-      self.emit((Opcode::Invoke, 1), expr.loc);
-      self.emit(Opcode::SwapPop, expr.loc);
-    } else {
-      self.error(expr.loc, "failed to add index const");
-    }
+    self.emit_expr(*expr.indexable);
+    self.emit_expr(*expr.index);
+    self.emit(Opcode::Index, expr.loc);
   }
 
   fn struct_expr(&mut self, expr: StructExpression) {

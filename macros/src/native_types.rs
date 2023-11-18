@@ -36,6 +36,70 @@ pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
   }
 }
 
+pub(crate) fn native_binary(item: &ItemFn, with_vm: bool) -> TokenStream {
+  let ident = &item.sig.ident;
+  let name_str = ident.to_string();
+  let nargs = common::count_args!(item) - if with_vm { 1 } else { 0 };
+
+  if nargs != 2 {
+    return common::error(item, format!("expected 2 args, found {}", nargs));
+  }
+
+  let args = common::make_named_arg_list(name_str, ["left", "right"]);
+
+  let call_expr = if with_vm {
+    quote! {
+      #ident(vm, #args)
+    }
+  } else {
+    quote! {
+      #ident(#args)
+    }
+  };
+
+  quote! {
+    fn #ident(vm: &mut Vm, mut left: Value, mut right: Value) -> UsageResult {
+      #item
+
+      let output = #call_expr?;
+      let value = vm.gc.allocate(output);
+      Ok(value)
+    }
+  }
+}
+
+pub(crate) fn native_ternary(item: &ItemFn, with_vm: bool) -> TokenStream {
+  let ident = &item.sig.ident;
+  let name_str = ident.to_string();
+  let nargs = common::count_args!(item) - if with_vm { 1 } else { 0 };
+
+  if nargs != 3 {
+    return common::error(item, format!("expected 2 args, found {}", nargs));
+  }
+
+  let args = common::make_named_arg_list(name_str, ["left", "mid", "right"]);
+
+  let call_expr = if with_vm {
+    quote! {
+      #ident(vm, #args)
+    }
+  } else {
+    quote! {
+      #ident(#args)
+    }
+  };
+
+  quote! {
+    fn #ident(vm: &mut Vm, mut left: Value, mut mid: Value, mut right: Value) -> UsageResult {
+      #item
+
+      let output = #call_expr?;
+      let value = vm.gc.allocate(output);
+      Ok(value)
+    }
+  }
+}
+
 struct FnDef {
   name: Ident,
   item: ItemFn,

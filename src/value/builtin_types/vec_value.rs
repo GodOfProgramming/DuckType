@@ -57,13 +57,17 @@ impl VecValue {
       Ok(itertools::join(self.buffer.iter(), &sep.to_string()))
     }
   }
+}
 
-  fn __index__(&self, index: i32) -> UsageResult {
-    Ok(self.buffer.get(index as usize).cloned().unwrap_or_default())
+impl Operators for VecValue {
+  #[binary]
+  fn __index__(left: &VecValue, index: i32) -> UsageResult {
+    Ok(left.buffer.get(index as usize).cloned().unwrap_or_default())
   }
 
-  fn __idxeq__(&mut self, index: i32, value: Value) -> UsageResult {
-    let internal_value = self
+  #[ternary]
+  fn __idxeq__(left: &mut VecValue, index: i32, value: Value) -> UsageResult {
+    let internal_value = left
       .buffer
       .get_mut(index as usize)
       .ok_or_else(|| UsageError::InvalidIndex(index, value.clone()))?;

@@ -2,7 +2,7 @@ use crate::prelude::*;
 use ahash::RandomState;
 use std::collections::HashMap;
 
-#[derive(Default, Usertype)]
+#[derive(Default, Usertype, NoMethods)]
 #[uuid("2034facf-835a-495c-b504-26efc0ca3f95")]
 pub struct ClassValue {
   pub name: String,
@@ -69,8 +69,7 @@ impl UsertypeFields for ClassValue {
   }
 }
 
-#[methods]
-impl ClassValue {
+impl Operators for ClassValue {
   fn __ivk__(&mut self, vm: &mut Vm, class: Value, airity: usize) -> UsageResult {
     let self_type = self.creator.call(vm, 0)?;
 

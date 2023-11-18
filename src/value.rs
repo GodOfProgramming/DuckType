@@ -122,6 +122,13 @@ impl Value {
     self.reinterpret_cast_mut()
   }
 
+  pub fn maybe_into<T>(&mut self) -> Option<T>
+  where
+    T: MaybeFrom<Self>,
+  {
+    T::maybe_from(self.clone())
+  }
+
   // -- native closure
 
   pub fn native_closure<N, F>(gc: &mut Gc, name: N, f: F) -> Self
@@ -210,7 +217,7 @@ impl Value {
     unsafe { &mut *((self.pointer_mut() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
   }
 
-  fn vtable(&self) -> &VTable {
+  pub(crate) fn vtable(&self) -> &VTable {
     if self.is_ptr() {
       self.meta().vtable
     } else {
@@ -662,6 +669,10 @@ impl Not for Value {
   }
 }
 
+type NativeBinaryOp = for<'a> fn(MutPtr<Vm>, Value, Value) -> UsageResult;
+
+type NativeTernaryOp = for<'a> fn(MutPtr<Vm>, Value, Value, Value) -> UsageResult;
+
 pub struct VTable {
   get_member: fn(&Value, MutPtr<Gc>, Field) -> UsageResult<Option<Value>>,
   set_member: fn(MutVoid, MutPtr<Gc>, Field, Value) -> UsageResult<()>,
@@ -669,6 +680,21 @@ pub struct VTable {
   define: fn(MutVoid, &str, Value) -> UsageResult<bool>,
   assign: fn(MutVoid, &str, Value) -> UsageResult<bool>,
   resolve: fn(ConstVoid, &str) -> UsageResult,
+
+  // ops
+  pub(crate) add: NativeBinaryOp,
+  pub(crate) sub: NativeBinaryOp,
+  pub(crate) mul: NativeBinaryOp,
+  pub(crate) div: NativeBinaryOp,
+  pub(crate) rem: NativeBinaryOp,
+  pub(crate) eq: NativeBinaryOp,
+  pub(crate) neq: NativeBinaryOp,
+  pub(crate) less: NativeBinaryOp,
+  pub(crate) leq: NativeBinaryOp,
+  pub(crate) greater: NativeBinaryOp,
+  pub(crate) geq: NativeBinaryOp,
+  pub(crate) index: NativeBinaryOp,
+  pub(crate) assign_index: NativeTernaryOp,
 
   invoke: fn(MutVoid, MutPtr<Vm>, Value, usize) -> UsageResult,
 
@@ -690,16 +716,34 @@ impl VTable {
         <T as Usertype>::set(Self::cast_mut(this), Self::typed_cast_mut(gc.raw()), name, value)
       },
 
-      define: |this, name, value| <T as ResolvableValue>::__def__(Self::cast_mut(this), name, value),
-      assign: |this, name, value| <T as ResolvableValue>::__def__(Self::cast_mut(this), name, value).map(|new| !new),
-      resolve: |this, field| <T as ResolvableValue>::__res__(Self::cast(this), field),
+      add: |vm, left, right| <T as Operators>::__add__(Self::typed_cast_mut(vm.raw()), left, right),
+      sub: |vm, left, right| <T as Operators>::__sub__(Self::typed_cast_mut(vm.raw()), left, right),
+      mul: |vm, left, right| <T as Operators>::__mul__(Self::typed_cast_mut(vm.raw()), left, right),
+      div: |vm, left, right| <T as Operators>::__div__(Self::typed_cast_mut(vm.raw()), left, right),
+      rem: |vm, left, right| <T as Operators>::__rem__(Self::typed_cast_mut(vm.raw()), left, right),
+      eq: |vm, left, right| <T as Operators>::__eq__(Self::typed_cast_mut(vm.raw()), left, right),
+      neq: |vm, left, right| <T as Operators>::__neq__(Self::typed_cast_mut(vm.raw()), left, right),
+      less: |vm, left, right| <T as Operators>::__less__(Self::typed_cast_mut(vm.raw()), left, right),
+      leq: |vm, left, right| <T as Operators>::__leq__(Self::typed_cast_mut(vm.raw()), left, right),
+      greater: |vm, left, right| <T as Operators>::__greater__(Self::typed_cast_mut(vm.raw()), left, right),
+      geq: |vm, left, right| <T as Operators>::__geq__(Self::typed_cast_mut(vm.raw()), left, right),
+
+      index: |vm, left, right| <T as Operators>::__index__(Self::typed_cast_mut(vm.raw()), left, right),
+      assign_index: |vm, left, mid, right| <T as Operators>::__idxeq__(Self::typed_cast_mut(vm.raw()), left, mid, right),
 
       invoke: |this, vm, this_value, airity| {
-        <T as InvocableValue>::__ivk__(Self::cast_mut(this), Self::typed_cast_mut(vm.raw()), this_value, airity)
+        <T as Operators>::__ivk__(Self::cast_mut(this), Self::typed_cast_mut(vm.raw()), this_value, airity)
       },
 
-      display_string: |this| <T as DisplayValue>::__str__(Self::cast(this)),
-      debug_string: |this| <T as DebugValue>::__dbg__(Self::cast(this)),
+      define: |this, name, value| <T as Operators>::__def__(Self::cast_mut(this), name, value),
+
+      assign: |this, name, value| <T as Operators>::__def__(Self::cast_mut(this), name, value).map(|new| !new),
+
+      resolve: |this, field| <T as Operators>::__res__(Self::cast(this), field),
+
+      display_string: |this| <T as Operators>::__str__(Self::cast(this)),
+
+      debug_string: |this| <T as Operators>::__dbg__(Self::cast(this)),
 
       trace: |this, marks| <T as TraceableValue>::trace(Self::cast(this), Self::cast_mut(marks)),
       dealloc: |this| Gc::consume(this as *mut T),

@@ -23,7 +23,7 @@ mod io {
     Ok(FileValue::new(file))
   }
 
-  #[derive(Usertype, Fields, Renameable, Default)]
+  #[derive(Usertype, Fields, Renameable, Default, NoOperators)]
   #[uuid("d5548736-3896-4b0c-bcd4-84c1280d5008")]
   #[rename("File")]
   pub struct FileValue {
@@ -88,17 +88,24 @@ mod io {
       };
       Ok(PathValue::new(path))
     }
+  }
 
-    fn __div__(&self, other: (Option<&String>, Option<&Self>)) -> UsageResult<Self> {
-      match other {
-        (Some(str), None) => Ok(self.join(str.clone())),
-        (None, Some(path)) => Ok(self.join(path.internal.clone())),
+  impl Operators for PathValue {
+    #[binary]
+    fn __div__(left: &PathValue, right: (Option<&String>, Option<&PathValue>)) -> UsageResult<PathValue> {
+      match right {
+        (Some(str), None) => Ok(left.join(str.clone())),
+        (None, Some(path)) => Ok(left.join(path.internal.clone())),
         (None, None) => Err(UsageError::InvalidArgument("__div__", 1)),
         (Some(_), Some(_)) => Err(UsageError::Infallible),
       }
     }
 
     fn __str__(&self) -> String {
+      format!("{}", self.internal.display())
+    }
+
+    fn __dbg__(&self) -> String {
       format!("{}", self.internal.display())
     }
   }

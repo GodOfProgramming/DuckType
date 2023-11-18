@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use ducktype::prelude::*;
-use macros::{methods, Fields};
+use macros::Fields;
 use tfix::prelude::*;
 
 struct ApiTest {
@@ -28,7 +28,7 @@ impl TestFixture for ApiTest {
 mod tests {
   use super::*;
 
-  #[derive(Usertype, Fields)]
+  #[derive(Usertype, Fields, NoMethods, NoOperators)]
   #[uuid("8d77f7e3-ccad-4214-a7d1-98f283b7a624")]
   struct Leaker {
     b: &'static mut bool,
@@ -37,9 +37,6 @@ mod tests {
     #[trace]
     this: Value,
   }
-
-  #[methods]
-  impl Leaker {}
 
   impl Drop for Leaker {
     fn drop(&mut self) {

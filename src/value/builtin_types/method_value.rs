@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use ptr::SmartPtr;
 
-#[derive(Clone, Usertype, Fields)]
+#[derive(Clone, Usertype, Fields, NoMethods)]
 #[uuid("7d8c2afc-2706-4b79-a7cf-9bdfdc10ab0c")]
 pub struct MethodValue {
   #[trace]
@@ -28,8 +28,7 @@ impl MethodValue {
   }
 }
 
-#[methods]
-impl MethodValue {
+impl Operators for MethodValue {
   fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult {
     vm.stack_push(self.this.clone());
     self.function.__ivk__(vm, Value::nil, airity + 1)
