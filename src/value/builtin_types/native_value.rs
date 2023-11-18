@@ -16,7 +16,7 @@ impl Addr for NativeFn {
 
 type NativeClosureType = dyn FnMut(&mut Vm, Args) -> UsageResult;
 
-#[derive(Usertype, Fields)]
+#[derive(Usertype, Fields, NoMethods)]
 #[uuid("3c90ac96-ba86-4ceb-9b9a-591af85ca17b")]
 pub struct NativeClosureValue {
   pub name: String,
@@ -36,15 +36,18 @@ impl NativeClosureValue {
   }
 }
 
-#[methods]
-impl NativeClosureValue {
+impl Operators for NativeClosureValue {
+  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, airity: usize) -> UsageResult {
+    let args = vm.stack_drain_from(airity);
+    (*self.callee)(vm, Args::new(args))
+  }
+
   fn __str__(&self) -> String {
     format!("{}", self)
   }
 
-  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, airity: usize) -> UsageResult {
-    let args = vm.stack_drain_from(airity);
-    (*self.callee)(vm, Args::new(args))
+  fn __dbg__(&self) -> String {
+    format!("{}", self)
   }
 }
 
@@ -54,7 +57,7 @@ impl Display for NativeClosureValue {
   }
 }
 
-#[derive(Usertype, Fields)]
+#[derive(Usertype, Fields, NoMethods)]
 #[uuid("846eb503-820d-446a-9b54-7a274d85cd32")]
 pub struct NativeMethodValue {
   #[trace]
@@ -68,8 +71,7 @@ impl NativeMethodValue {
   }
 }
 
-#[methods]
-impl NativeMethodValue {
+impl Operators for NativeMethodValue {
   fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, airity: usize) -> UsageResult {
     let args = vm.stack_drain_from(airity);
     let args = Args::new_with_this(self.this.clone(), args);
@@ -77,6 +79,10 @@ impl NativeMethodValue {
   }
 
   fn __str__(&self) -> String {
+    format!("{}", self)
+  }
+
+  fn __dbg__(&self) -> String {
     format!("{}", self)
   }
 }

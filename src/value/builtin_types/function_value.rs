@@ -1,7 +1,7 @@
 use crate::{code::FunctionConstant, prelude::*};
 use ptr::SmartPtr;
 
-#[derive(Clone, Usertype, Fields)]
+#[derive(Clone, Usertype, Fields, NoMethods)]
 #[uuid("4263e9fa-21fe-420c-b5a9-beca8fe3ca05")]
 pub struct FunctionValue {
   pub airity: usize,
@@ -46,8 +46,7 @@ impl FunctionValue {
   }
 }
 
-#[methods]
-impl FunctionValue {
+impl Operators for FunctionValue {
   fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult {
     self.check_args(airity)?;
     self.invoke(vm, 0)

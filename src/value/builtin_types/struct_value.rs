@@ -39,7 +39,7 @@ impl Ord for StructMember {
 ///
 /// Instead they must be added through native functions
 /// that have direct access to the internal table
-#[derive(Usertype)]
+#[derive(Usertype, NoMethods)]
 #[uuid("1215f7a4-1b67-4387-bf00-f950bbc63743")]
 pub struct StructValue {
   #[trace]
@@ -114,10 +114,13 @@ impl UsertypeFields for StructValue {
   }
 }
 
-#[methods]
-impl StructValue {
+impl Operators for StructValue {
   fn __str__(&self) -> String {
-    format!("{}", self)
+    format!("{self}")
+  }
+
+  fn __dbg__(&self) -> String {
+    format!("{self}")
   }
 }
 

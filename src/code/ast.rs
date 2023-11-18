@@ -20,6 +20,8 @@ use {
 
 const SELF_IDENT: &str = "self";
 
+type Validator = dyn FnOnce(&mut AstGenerator, &Params) -> Option<Ident>;
+
 trait AstStatement {
   fn stmt(ast: &mut AstGenerator);
 }
@@ -309,8 +311,7 @@ impl AstGenerator {
 
   fn parse_fn(&mut self, can_return: bool) -> Option<Statement> {
     if let Some(loc) = self.meta_at::<0>() {
-      if let Some(current) = self.current() {
-        self.advance();
+      if let Some(validator) = self.fn_ident_validator() {
         if !self.consume(Token::LeftParen, "expect '(' after function name") {
           return None;
         }
@@ -330,7 +331,7 @@ impl AstGenerator {
           }
 
           if let Some(block_loc) = self.meta_at::<1>() {
-            let ident = self.fn_ident(current, &params)?;
+            let ident = validator(self, &params)?;
             self
               .block(can_return, block_loc)
               .map(|body| Statement::from(FnStatement::new(ident, params.list, Statement::from(body), loc)))
@@ -721,108 +722,150 @@ impl AstGenerator {
     }
   }
 
-  fn fn_ident(&mut self, current: Token, params: &Params) -> Option<Ident> {
+  /// Produces a validator function to test if an operator overload is valid with the paramters
+  fn fn_ident_validator(&mut self) -> Option<Box<Validator>> {
     macro_rules! check_missing_self {
-      ($p:ident, $op:literal) => {
+      ($this:ident, $p:ident, $op:literal) => {
         if !$p.found_self {
-          self.error::<0>(format!("must have self in '{}' overload", $op));
+          $this.error::<0>(format!("must have self in '{}' overload", $op));
+          None?
+        }
+      };
+    }
+
+    macro_rules! check_not_ternary {
+      ($this:ident, $p:ident, $op:literal) => {
+        if $p.list.len() != 3 {
+          $this.error::<0>(format!("invalid number of arguments in '{}' overload", $op));
           None?
         }
       };
     }
 
     macro_rules! check_not_binary {
-      ($p:ident, $op:literal) => {
+      ($this:ident, $p:ident, $op:literal) => {
         if $p.list.len() != 2 {
-          self.error::<0>(format!("invalid number of arguments in '{}' overload", $op));
+          $this.error::<0>(format!("invalid number of arguments in '{}' overload", $op));
           None?
         }
       };
     }
 
     macro_rules! check_not_unary {
-      ($p:ident, $op:literal) => {
+      ($this:ident, $p:ident, $op:literal) => {
         if $p.list.len() != 1 {
-          self.error::<0>(format!("cannot have arguments in '{}' overload", $op));
+          $this.error::<0>(format!("cannot have arguments in '{}' overload", $op));
           None?
         }
       };
     }
 
-    let op_name = match current {
-      Token::Identifier(fn_name) => fn_name,
+    macro_rules! validator {
+      ($f:expr) => {
+        Box::new($f)
+      };
+    }
+
+    let mut auto_advance = true;
+
+    let validator: Box<Validator> = match self.current()? {
+      Token::Identifier(fn_name) => validator!(|_, _| Some(Ident::new(fn_name))),
       other => match other {
-        Token::Bang => {
-          check_missing_self!(params, "not");
-          check_not_unary!(params, "not");
-          ops::NOT
-        }
-        Token::Plus => {
-          check_missing_self!(params, "add");
-          check_not_binary!(params, "add");
-          ops::ADD
-        }
-        Token::Minus => {
+        Token::Bang => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "not");
+          check_not_unary!(this, params, "not");
+          Some(ops::NOT.into())
+        }),
+        Token::Plus => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "add");
+          check_not_binary!(this, params, "add");
+          Some(ops::ADD.into())
+        }),
+        Token::Minus => validator!(|this, params: &Params| {
           if params.list.is_empty() {
-            check_missing_self!(params, "negate");
-            ops::NEG
+            check_missing_self!(this, params, "negate");
+            Some(ops::NEG.into())
           } else {
-            check_missing_self!(params, "sub");
-            check_not_binary!(params, "sub");
-            ops::SUB
+            check_missing_self!(this, params, "sub");
+            check_not_binary!(this, params, "sub");
+            Some(ops::SUB.into())
+          }
+        }),
+        Token::Asterisk => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "mul");
+          check_not_binary!(this, params, "mul");
+          Some(ops::MUL.into())
+        }),
+        Token::Slash => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "div");
+          check_not_binary!(this, params, "div");
+          Some(ops::DIV.into())
+        }),
+        Token::Percent => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "rem");
+          check_not_binary!(this, params, "rem");
+          Some(ops::REM.into())
+        }),
+        Token::EqualEqual => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "eq");
+          check_not_binary!(this, params, "eq");
+          Some(ops::EQUALITY.into())
+        }),
+        Token::BangEqual => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "neq");
+          check_not_binary!(this, params, "neq");
+          Some(ops::NOT_EQUAL.into())
+        }),
+        Token::Less => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "less");
+          check_not_binary!(this, params, "less");
+          Some(ops::LESS.into())
+        }),
+        Token::LessEqual => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "leq");
+          check_not_binary!(this, params, "leq");
+          Some(ops::LESS_EQUAL.into())
+        }),
+        Token::Greater => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "greater");
+          check_not_binary!(this, params, "greater");
+          Some(ops::GREATER.into())
+        }),
+        Token::GreaterEqual => validator!(|this, params: &Params| {
+          check_missing_self!(this, params, "geq");
+          check_not_binary!(this, params, "geq");
+          Some(ops::GREATER_EQUAL.into())
+        }),
+        Token::LeftBracket => {
+          auto_advance = false;
+          self.advance();
+          if self.consume(Token::RightBracket, "expected ']' after '[' in op overload") {
+            if self.advance_if_matches(Token::Equal) {
+              validator!(|this, params: &Params| {
+                check_missing_self!(this, params, "index");
+                check_not_ternary!(this, params, "index");
+                Some(ops::INDEX_ASSIGN.into())
+              })
+            } else {
+              validator!(|this, params: &Params| {
+                check_missing_self!(this, params, "index");
+                check_not_binary!(this, params, "index");
+                Some(ops::INDEX.into())
+              })
+            }
+          } else {
+            None?
           }
         }
-        Token::Asterisk => {
-          check_missing_self!(params, "mul");
-          check_not_binary!(params, "mul");
-          ops::MUL
-        }
-        Token::Slash => {
-          check_missing_self!(params, "div");
-          check_not_binary!(params, "div");
-          ops::DIV
-        }
-        Token::Percent => {
-          check_missing_self!(params, "rem");
-          check_not_binary!(params, "rem");
-          ops::REM
-        }
-        Token::EqualEqual => {
-          check_missing_self!(params, "eq");
-          check_not_binary!(params, "eq");
-          ops::EQUALITY
-        }
-        Token::BangEqual => {
-          check_missing_self!(params, "neq");
-          check_not_binary!(params, "neq");
-          ops::NOT_EQUAL
-        }
-        Token::Less => {
-          check_missing_self!(params, "less");
-          check_not_binary!(params, "less");
-          ops::LESS
-        }
-        Token::LessEqual => {
-          check_missing_self!(params, "leq");
-          check_not_binary!(params, "leq");
-          ops::LESS_EQUAL
-        }
-        Token::Greater => {
-          check_missing_self!(params, "greater");
-          check_not_binary!(params, "greater");
-          ops::GREATER
-        }
-        Token::GreaterEqual => {
-          check_missing_self!(params, "geq");
-          check_not_binary!(params, "geq");
-          ops::GREATER_EQUAL
-        }
         _ => None?,
-      }
-      .to_string(),
+      },
     };
 
-    Some(Ident::new(op_name))
+    if auto_advance {
+      self.advance();
+    }
+
+    Some(validator)
   }
 }
 
@@ -858,6 +901,12 @@ impl Display for Ident {
 impl PartialEq for Ident {
   fn eq(&self, other: &Self) -> bool {
     self.name == other.name
+  }
+}
+
+impl From<&str> for Ident {
+  fn from(value: &str) -> Self {
+    Self::new(value)
   }
 }
 

@@ -4,10 +4,11 @@ mod user_types;
 
 use proc_macro::TokenStream;
 use proc_macro2::Literal;
+use quote::quote;
 use syn::{
   parenthesized,
   parse::{Parse, ParseStream},
-  parse_macro_input, Ident, Item, ItemImpl, ItemStruct,
+  parse_macro_input, Ident, Item, ItemFn, ItemImpl, ItemStruct,
 };
 
 struct StrAttr {
@@ -57,6 +58,36 @@ pub fn derive_fields(input: TokenStream) -> TokenStream {
   user_types::derive_fields(struct_def).into()
 }
 
+#[proc_macro_derive(NoMethods)]
+pub fn derive_no_methods(input: TokenStream) -> TokenStream {
+  let struct_def = parse_macro_input!(input as ItemStruct);
+  let me = struct_def.ident;
+  quote! {
+    impl UsertypeMethods for #me {}
+  }
+  .into()
+}
+
+#[proc_macro_derive(NoOperators)]
+pub fn derive_no_operators(input: TokenStream) -> TokenStream {
+  let struct_def = parse_macro_input!(input as ItemStruct);
+  let me = struct_def.ident;
+  let me_str = me.to_string();
+  let me_lit = Literal::string(&me_str);
+  quote! {
+    impl Operators for #me {
+      fn __str__(&self) -> String {
+        String::from(#me_lit)
+      }
+
+      fn __dbg__(&self) -> String {
+        String::from(#me_lit)
+      }
+    }
+  }
+  .into()
+}
+
 #[proc_macro_derive(Renameable, attributes(rename))]
 pub fn allow_rename(_input: TokenStream) -> TokenStream {
   TokenStream::default()
@@ -92,9 +123,37 @@ pub fn native(args: TokenStream, input: TokenStream) -> TokenStream {
       };
       native_types::native_mod(item, no_entry)
     }
-    thing => {
-      syn::Error::new_spanned(thing, "cannot impl method for fn signature not taking self reference").into_compile_error()
-    }
+    thing => syn::Error::new_spanned(thing, "cannot derive native type").into_compile_error(),
   }
   .into()
+}
+
+#[proc_macro_attribute]
+pub fn binary(args: TokenStream, input: TokenStream) -> TokenStream {
+  let item: ItemFn = parse_macro_input!(input as ItemFn);
+
+  let have_args = !args.is_empty();
+  let with_vm = if have_args {
+    let args: Ident = parse_macro_input!(args as Ident);
+    args == "with_vm"
+  } else {
+    false
+  };
+
+  native_types::native_binary(&item, with_vm).into()
+}
+
+#[proc_macro_attribute]
+pub fn ternary(args: TokenStream, input: TokenStream) -> TokenStream {
+  let item: ItemFn = parse_macro_input!(input as ItemFn);
+
+  let have_args = !args.is_empty();
+  let with_vm = if have_args {
+    let args: Ident = parse_macro_input!(args as Ident);
+    args == "with_vm"
+  } else {
+    false
+  };
+
+  native_types::native_ternary(&item, with_vm).into()
 }

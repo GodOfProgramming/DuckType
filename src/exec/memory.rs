@@ -567,12 +567,9 @@ mod tests {
   use super::*;
   use ptr::SmartPtr;
 
-  #[derive(Usertype, Fields)]
+  #[derive(Usertype, Fields, NoMethods, NoOperators)]
   #[uuid("random")]
   struct SomeType {}
-
-  #[methods]
-  impl SomeType {}
 
   #[test]
   fn gc_can_allocate_and_clean() {

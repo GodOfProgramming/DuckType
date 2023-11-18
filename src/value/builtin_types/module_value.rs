@@ -6,7 +6,7 @@ use std::{
   iter::{self, Once},
 };
 
-#[derive(Default, Usertype)]
+#[derive(Default, Usertype, NoMethods)]
 #[uuid("fc79ffad-9286-4188-9905-76ae73108f9e")]
 pub struct ModuleValue {
   name: Option<String>,
@@ -117,8 +117,7 @@ impl UsertypeFields for ModuleValue {
   }
 }
 
-#[methods]
-impl ModuleValue {
+impl Operators for ModuleValue {
   fn __def__(&mut self, field: &str, value: Value) -> UsageResult<bool> {
     Ok(self.define(field, value))
   }

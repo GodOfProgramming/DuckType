@@ -201,6 +201,23 @@ impl IsType<()> for Value {
 
 // utility conversions
 
+impl<T0, T1> Cast<(Option<T0>, Option<T1>)> for Value
+where
+  Self: Cast<T0> + Cast<T1>,
+{
+  type CastType = (Option<<Self as Cast<T0>>::CastType>, Option<<Self as Cast<T1>>::CastType>);
+
+  fn cast(&self) -> Option<Self::CastType> {
+    let t0 = self.cast_to::<T0>();
+    let t1 = self.cast_to::<T1>();
+    if t0.is_none() && t1.is_none() || t0.is_some() && t1.is_some() {
+      None
+    } else {
+      Some((t0, t1))
+    }
+  }
+}
+
 impl<T> From<UsertypeHandle<T>> for Value
 where
   T: Usertype,

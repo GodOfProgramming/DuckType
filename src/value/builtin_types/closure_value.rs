@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use ptr::SmartPtr;
 
-#[derive(Clone, Usertype, Fields)]
+#[derive(Clone, Usertype, Fields, NoMethods)]
 #[uuid("e924d375-93f0-4ce9-a2f3-5a4cf612492e")]
 pub struct ClosureValue {
   #[trace]
@@ -27,8 +27,7 @@ impl ClosureValue {
   }
 }
 
-#[methods]
-impl ClosureValue {
+impl Operators for ClosureValue {
   fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult {
     self.function.check_args(airity)?;
 

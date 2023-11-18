@@ -108,11 +108,6 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
   let mut statics = Vec::new();
 
   let mut constructor = None;
-  let mut define_fn = None;
-  let mut resolve_fn = None;
-  let mut ivk_fn = None;
-  let mut display_fn = None;
-  let mut debug_fn = None;
 
   for item in &struct_impl.items {
     struct Method {
@@ -131,11 +126,6 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       let name_str = name.to_string();
       match name_str.as_str() {
         "__new__" => constructor = Some(method),
-        "__def__" => define_fn = Some(method),
-        "__res__" => resolve_fn = Some(method),
-        "__ivk__" => ivk_fn = Some(method),
-        "__str__" => display_fn = Some(method),
-        "__dbg__" => debug_fn = Some(method),
         _ => {
           let nargs = common::count_args!(method);
 
@@ -258,78 +248,6 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     })
     .unwrap_or_default();
 
-  let define_impl = if let Some(define_fn) = define_fn {
-    quote! { #define_fn }
-  } else {
-    TokenStream::default()
-  };
-
-  let resolve_impl = if let Some(resolve_fn) = resolve_fn {
-    quote! { #resolve_fn }
-  } else {
-    TokenStream::default()
-  };
-
-  let resolvable_impl = quote! {
-      impl ResolvableValue for #me {
-        #define_impl
-
-        #resolve_impl
-      }
-  };
-
-  let invocable_impl = if let Some(invoke_fn) = ivk_fn {
-    quote! {
-      impl InvocableValue for #me {
-        #invoke_fn
-      }
-    }
-  } else {
-    quote! {
-      impl InvocableValue for #me { }
-    }
-  };
-
-  let debug_impl = if let Some(debug_fn) = debug_fn {
-    quote! {
-      impl DebugValue for #me {
-        #debug_fn
-      }
-    }
-  } else if display_fn.is_some() {
-    quote! {
-      impl DebugValue for #me {
-        fn __dbg__(&self) -> String {
-          self.__str__()
-        }
-      }
-    }
-  } else {
-    quote! {
-      impl DebugValue for #me {
-        fn __dbg__(&self) -> String {
-          #me_str.to_string()
-        }
-      }
-    }
-  };
-
-  let display_impl = if let Some(display_fn) = display_fn {
-    quote! {
-      impl DisplayValue for #me {
-        #display_fn
-      }
-    }
-  } else {
-    quote! {
-      impl DisplayValue for #me {
-        fn __str__(&self) -> String {
-          #me_str.to_string()
-        }
-      }
-    }
-  };
-
   quote! {
     #struct_impl
 
@@ -349,13 +267,5 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         }
       }
     }
-
-    #resolvable_impl
-
-    #invocable_impl
-
-    #display_impl
-
-    #debug_impl
   }
 }

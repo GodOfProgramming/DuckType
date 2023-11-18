@@ -147,11 +147,10 @@ impl AstExpression for ClassExpression {
         }
         Token::Fn => {
           ast.advance();
-          if let Some(fn_name) = ast.current() {
-            ast.advance();
+          if let Some(validator) = ast.fn_ident_validator() {
             if ast.consume(Token::LeftParen, "expected '(' after identifier") {
               if let Some(params) = ast.parse_parameters(Token::RightParen) {
-                if let Some(ident) = ast.fn_ident(fn_name, &params) {
+                if let Some(ident) = validator(ast, &params) {
                   if !declared_functions.contains(&ident.name) {
                     if let Some(function) = ast.parse_lambda(true, params, |_this, params, body| {
                       declared_functions.insert(ident.name.clone());
@@ -518,11 +517,10 @@ impl AstExpression for ModExpression {
         }
         Token::Fn => {
           ast.advance();
-          if let Some(fn_name) = ast.current() {
-            ast.advance();
+          if let Some(validator) = ast.fn_ident_validator() {
             if ast.consume(Token::LeftParen, "expected '(' after identifier") {
               if let Some(params) = ast.parse_parameters(Token::RightParen) {
-                if let Some(ident) = ast.fn_ident(fn_name, &params) {
+                if let Some(ident) = validator(ast, &params) {
                   if !declared_items.contains(&ident.name) {
                     if let Some(function) = ast.parse_lambda(true, params, |this, params, body| {
                       declared_items.insert(ident.name.clone());
