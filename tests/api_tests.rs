@@ -58,7 +58,9 @@ mod tests {
   #[test]
   fn can_register_lambda(t: &mut ApiTest) {
     let script = "export some_func();";
-    assert!(t.env.define("some_func", Value::native(|_, _args| Ok(Value::from(true)))));
+    assert!(t
+      .env
+      .define("some_func", Value::new::<NativeFn>(|_, _args| Ok(Value::from(true)))));
     let res = t.vm.run_string(script, t.env.clone()).unwrap();
     assert!(res == Value::from(true));
   }
@@ -82,7 +84,7 @@ mod tests {
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
     });
 
-    env.define("make_leaker", Value::native(make_leaker));
+    env.define("make_leaker", Value::new::<NativeFn>(make_leaker));
 
     t.vm.run_string(SCRIPT, env).unwrap();
 

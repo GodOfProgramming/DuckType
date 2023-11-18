@@ -2,8 +2,8 @@ use crate::prelude::*;
 use std::{ops::Deref, time::Instant};
 
 pub fn mono(_: &mut SmartPtr<Gc>, mut mono: UsertypeHandle<ModuleValue>) {
-  mono.define("now", Value::native(now));
-  mono.define("elapsed", Value::native(elapsed));
+  mono.define("now", Value::new::<NativeFn>(now));
+  mono.define("elapsed", Value::new::<NativeFn>(elapsed));
 }
 
 #[native]

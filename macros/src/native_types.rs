@@ -176,7 +176,7 @@ fn collect_fn_defs(idents: &CollectDefIdents, functions: Vec<FnDef>) -> (TokenSt
     let native_fn_name_str = native_fn_name.to_string();
     let native_fn_name_lit = Literal::string(&native_fn_name_str);
     quote! {
-      #module_ident.define(#native_fn_name_lit, Value::native(#native_fn_name));
+      #module_ident.define(#native_fn_name_lit, Value::new::<NativeFn>(#native_fn_name));
     }
   }));
 
@@ -195,7 +195,7 @@ fn collect_struct_defs(idents: &CollectDefIdents, structs: Vec<StructDef>) -> (T
     let struct_name_lit = &Literal::string(&struct_name_str);
     let struct_name_lit = native_struct.rename.as_ref().unwrap_or(struct_name_lit);
     quote! {
-      #module_ident.define(#struct_name_lit, Value::native(<#struct_name as UsertypeMethods>::__new__));
+      #module_ident.define(#struct_name_lit, Value::new::<NativeFn>(<#struct_name as UsertypeMethods>::__new__));
     }
   }));
 

@@ -51,7 +51,7 @@ impl VecValue {
   }
 
   fn join(&self, sep: Value) -> UsageResult<String> {
-    if sep.is_nil() {
+    if sep.is::<()>() {
       Ok(itertools::join(self.buffer.iter(), ""))
     } else {
       Ok(itertools::join(self.buffer.iter(), &sep.to_string()))

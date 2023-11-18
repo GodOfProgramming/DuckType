@@ -34,7 +34,7 @@ where
 {
   pub fn new(mut handle: ValueHandle) -> Self {
     Self {
-      usertype: handle.value.reinterpret_cast::<T>(),
+      usertype: MutPtr::new(handle.value.reinterpret_cast_to_mut::<T>()),
       handle,
     }
   }
@@ -509,12 +509,6 @@ impl Allocation<char> for Gc {
 
 impl Allocation<NativeFn> for Gc {
   fn allocate(&mut self, value: NativeFn) -> Value {
-    Value::from(value)
-  }
-}
-
-impl Allocation<Nil> for Gc {
-  fn allocate(&mut self, value: Nil) -> Value {
     Value::from(value)
   }
 }

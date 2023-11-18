@@ -1,3 +1,1 @@
-req "examples/example_module/target/release/libexample_module" as ex;
-
-ex::test_function("hello world");
+export std::str::concat("hello", " ", "world");

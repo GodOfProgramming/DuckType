@@ -8,6 +8,9 @@ struct Args {
   #[arg(short, long)]
   optimize: bool,
 
+  #[arg(long, default_value_t = 16)]
+  gc_frequency: u64,
+
   #[command(subcommand)]
   command: Command,
 }
@@ -34,7 +37,7 @@ fn main() -> Result<(), Error> {
   match args.command {
     Command::Uuid => println!("{}", Uuid::new_v4()),
     Command::Run { files, runargs } => {
-      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(16)));
+      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(args.gc_frequency)));
 
       let mut vm = Vm::new(gc.clone(), args.optimize, runargs.clone());
 
@@ -65,7 +68,7 @@ fn main() -> Result<(), Error> {
       }
     }
     Command::Pipe { runargs } => {
-      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(16)));
+      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(args.gc_frequency)));
 
       let gmod = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*main*"), |gc, mut lib| {
         let libval = lib.value();

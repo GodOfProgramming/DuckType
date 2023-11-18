@@ -3,9 +3,9 @@ use std::time::Duration;
 use crate::prelude::*;
 
 pub fn ps(gc: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
-  lib.define("exit", Value::native(exit));
+  lib.define("exit", Value::new::<NativeFn>(exit));
   super::defmod(gc, &mut lib, "thread", |_, mut lib| {
-    lib.define("sleep", Value::native(thread_sleep));
+    lib.define("sleep", Value::new::<NativeFn>(thread_sleep));
   });
 }
 

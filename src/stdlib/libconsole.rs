@@ -2,11 +2,11 @@ use crate::prelude::*;
 use std::io::{stdin, stdout, Write};
 
 pub fn console(_: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
-  lib.define("write", Value::native(write));
-  lib.define("flush", Value::native(flush));
-  lib.define("writeln", Value::native(writeln));
-  lib.define("flushln", Value::native(flushln));
-  lib.define("readln", Value::native(readln));
+  lib.define("write", Value::new::<NativeFn>(write));
+  lib.define("flush", Value::new::<NativeFn>(flush));
+  lib.define("writeln", Value::new::<NativeFn>(writeln));
+  lib.define("flushln", Value::new::<NativeFn>(flushln));
+  lib.define("readln", Value::new::<NativeFn>(readln));
 }
 
 fn write(_: &mut Vm, args: Args) -> UsageResult {

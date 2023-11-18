@@ -53,7 +53,7 @@ mod integration_tests {
     test.env.define(String::from("foo"), test.vm.gc.allocate("foo"));
     match test.vm.run_string(&test.script, test.env.clone()) {
       Ok(res) => {
-        assert_eq!("foo", **res.as_str().expect("value is not a string"));
+        assert_eq!("foo", **res.cast_to::<StringValue>().expect("value is not a string"));
       }
 
       Err(err) => panic!("{:#?}", err),
@@ -66,7 +66,7 @@ mod integration_tests {
 
     test.env.define(
       "test_func",
-      Value::native(|_, args| {
+      Value::new::<NativeFn>(|_, args| {
         let args = &args.list;
         assert_eq!(args.len(), 2);
         assert_eq!(args[0], Value::from(1));

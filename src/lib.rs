@@ -551,7 +551,7 @@ impl Vm {
 
     let class = obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment)?;
 
-    let f = value.as_fn().ok_or(UsageError::MethodType)?;
+    let f = value.cast_to::<FunctionValue>().ok_or(UsageError::MethodType)?;
 
     if let ConstantValue::String(name) = name {
       class.set_method(name, f.clone());
@@ -855,7 +855,7 @@ impl Vm {
 
   fn exec_dyn_vec(&mut self) -> OpResult {
     let repeats = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let repeats = repeats.as_i32().ok_or(UsageError::CoercionError(repeats, "i32"))?;
+    let repeats = repeats.cast_to::<i32>().ok_or(UsageError::CoercionError(repeats, "i32"))?;
     let item = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let vec = vec![item; repeats as usize];
     let vec = self.gc.allocate(vec);
@@ -866,7 +866,7 @@ impl Vm {
   fn exec_create_closure(&mut self) -> OpResult {
     let function = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let captures = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let f = function.as_fn().ok_or(UsageError::ClosureType)?;
+    let f = function.cast_to::<FunctionValue>().ok_or(UsageError::ClosureType)?;
     let c = captures.cast_to::<VecValue>().ok_or(UsageError::CaptureType)?;
 
     let closure = self.gc.allocate(ClosureValue::new(c, f.clone()));
@@ -880,7 +880,7 @@ impl Vm {
     for _ in 0..size {
       let key = self.stack_pop().ok_or(UsageError::EmptyStack)?;
       let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-      if let Some(key) = key.as_str() {
+      if let Some(key) = key.cast_to::<StringValue>() {
         let id = self
           .program
           .strings
