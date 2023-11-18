@@ -19,3 +19,19 @@ let a = Array([1, 2, 3]);
 println a[0];
 a[0] = 777;
 println a[0];
+
+class Adder {
+  self as struct { value: nil }
+
+  new(self, v) {
+    self.value = v;
+  }
+
+  fn +(self, other) {
+    ret Adder(self.value + other);
+  }
+}
+
+let adder = Adder(0);
+adder += 1;
+println adder;
