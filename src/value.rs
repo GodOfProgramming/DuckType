@@ -1,5 +1,6 @@
-use crate::{code::ConstantValue, prelude::*};
-use ptr::MutPtr;
+use crate::{code::ConstantValue, dbg::macros::here, prelude::*};
+use builtin_types::native_value::Addr;
+use ptr::{ConstPtr, MutPtr};
 use static_assertions::assert_eq_size;
 use std::{
   cmp::Ordering,
@@ -42,7 +43,7 @@ impl Value {
   pub const nil: Value = Value { bits: NIL_TAG };
 
   pub fn tag(&self) -> Tag {
-    if self.is_f64() {
+    if self.is::<f64>() {
       Tag::F64
     } else {
       unsafe { mem::transmute(self.bits & TAG_BITMASK) }
@@ -64,7 +65,7 @@ impl Value {
   }
 
   pub fn falsy(&self) -> bool {
-    self.is_nil() || self.is_bool() && self.bits & VALUE_BITMASK == 0
+    self.is::<()>() || self.is::<bool>() && self.bits & VALUE_BITMASK == 0
   }
 
   pub fn from_constant(gc: &mut Gc, env: Value, v: &ConstantValue) -> Self {
@@ -80,14 +81,47 @@ impl Value {
     }
   }
 
-  // float
-
-  pub fn is_f64(&self) -> bool {
-    self.bits < F64_MAX
+  pub fn is<T>(&self) -> bool
+  where
+    Self: IsType<T>,
+  {
+    self.is_type()
   }
 
+  pub fn cast_to<T>(&self) -> Option<&'static T>
+  where
+    Self: Cast<T>,
+  {
+    self.cast()
+  }
+
+  pub fn cast_to_mut<T>(&mut self) -> Option<&'static mut T>
+  where
+    Self: CastMut<T>,
+  {
+    self.cast_mut()
+  }
+
+  pub fn reinterpret_cast_to<T>(&self) -> ConstPtr<T>
+  where
+    T: 'static,
+    Self: ReinterpretCast<T>,
+  {
+    ConstPtr::new(self.reinterpret_cast())
+  }
+
+  pub fn reinterpret_cast_to_mut<T>(&mut self) -> MutPtr<T>
+  where
+    T: 'static,
+    Self: ReinterpretCastMut<T>,
+  {
+    MutPtr::new(self.reinterpret_cast_mut())
+  }
+
+  // float
+
   pub fn as_f64(&self) -> Option<f64> {
-    if self.is_f64() {
+    if self.is::<f64>() {
       Some(self.as_f64_unchecked())
     } else {
       None
@@ -95,18 +129,14 @@ impl Value {
   }
 
   pub fn as_f64_unchecked(&self) -> f64 {
-    debug_assert!(self.is_f64());
+    debug_assert!(self.is::<f64>());
     f64::from_bits(self.bits)
   }
 
   // int
 
-  pub fn is_i32(&self) -> bool {
-    self.is_type::<I32_TAG>()
-  }
-
   pub fn as_i32(&self) -> Option<i32> {
-    if self.is_i32() {
+    if self.is::<i32>() {
       Some(self.as_i32_unchecked())
     } else {
       None
@@ -114,18 +144,14 @@ impl Value {
   }
 
   pub fn as_i32_unchecked(&self) -> i32 {
-    debug_assert!(self.is_i32());
+    debug_assert!(self.is::<i32>());
     unsafe { mem::transmute((self.bits & VALUE_BITMASK) as u32) }
   }
 
   // bool
 
-  pub fn is_bool(&self) -> bool {
-    self.is_type::<BOOL_TAG>()
-  }
-
   pub fn as_bool(&self) -> Option<bool> {
-    if self.is_bool() {
+    if self.is::<bool>() {
       Some(self.as_bool_unchecked())
     } else {
       None
@@ -133,18 +159,14 @@ impl Value {
   }
 
   pub fn as_bool_unchecked(&self) -> bool {
-    debug_assert!(self.is_bool());
+    debug_assert!(self.is::<bool>());
     self.bits & VALUE_BITMASK > 0
   }
 
   // char
 
-  pub fn is_char(&self) -> bool {
-    self.is_type::<CHAR_TAG>()
-  }
-
   pub fn as_char(&self) -> Option<char> {
-    if self.is_char() {
+    if self.is::<char>() {
       Some(self.as_char_unchecked())
     } else {
       None
@@ -152,145 +174,20 @@ impl Value {
   }
 
   pub fn as_char_unchecked(&self) -> char {
-    debug_assert!(self.is_char());
+    debug_assert!(self.is::<char>());
     char::from_u32((self.bits & VALUE_BITMASK) as u32).unwrap_or_default()
   }
 
-  // string
-
-  pub fn is_str(&self) -> bool {
-    self.is::<StringValue>()
-  }
-
-  pub fn as_str(&self) -> Option<&'static StringValue> {
-    self.cast_to::<StringValue>()
-  }
-
-  pub fn as_str_mut(&mut self) -> Option<&mut StringValue> {
-    self.cast_to_mut::<StringValue>()
-  }
-
-  // module
-
-  pub fn is_module(&self) -> bool {
-    self.is::<ModuleValue>()
-  }
-
-  pub fn as_module(&self) -> Option<&ModuleValue> {
-    self.cast_to::<ModuleValue>()
-  }
-
-  pub fn as_module_mut(&mut self) -> Option<&mut ModuleValue> {
-    self.cast_to_mut::<ModuleValue>()
-  }
-
-  // instance
-
-  pub fn is_instance(&self) -> bool {
-    self.is::<InstanceValue>()
-  }
-
-  pub fn as_instance(&self) -> Option<&InstanceValue> {
-    self.cast_to::<InstanceValue>()
-  }
-
-  pub fn as_instance_mut(&mut self) -> Option<&mut InstanceValue> {
-    self.cast_to_mut::<InstanceValue>()
-  }
-
-  // function
-
-  pub fn is_fn(&self) -> bool {
-    self.is::<FunctionValue>()
-  }
-
-  pub fn as_fn(&self) -> Option<&FunctionValue> {
-    self.cast_to::<FunctionValue>()
-  }
-
-  pub fn as_fn_mut(&mut self) -> Option<&mut FunctionValue> {
-    self.cast_to_mut::<FunctionValue>()
-  }
-
-  pub fn as_fn_unchecked(&self) -> &FunctionValue {
-    self.convert()
-  }
-
-  pub fn as_fn_unchecked_mut(&mut self) -> &FunctionValue {
-    self.convert_mut()
-  }
-
-  // closure
-
-  pub fn is_closure(&self) -> bool {
-    self.is::<ClosureValue>()
-  }
-
-  pub fn as_closure(&self) -> Option<&ClosureValue> {
-    self.cast_to::<ClosureValue>()
-  }
-
-  pub fn as_closure_mut(&mut self) -> Option<&mut ClosureValue> {
-    self.cast_to_mut::<ClosureValue>()
-  }
-
-  pub fn as_closure_unchecked(&self) -> &ClosureValue {
-    self.convert()
-  }
-
-  pub fn as_closure_unchecked_mut(&mut self) -> &mut ClosureValue {
-    self.convert_mut()
-  }
-
-  // method
-
-  pub fn is_method(&self) -> bool {
-    self.is::<MethodValue>()
-  }
-
-  pub fn as_method(&self) -> Option<&MethodValue> {
-    self.cast_to::<MethodValue>()
-  }
-
-  pub fn as_method_mut(&mut self) -> Option<&mut MethodValue> {
-    self.cast_to_mut::<MethodValue>()
-  }
-
-  pub fn as_method_unchecked(&self) -> &MethodValue {
-    self.convert()
-  }
-
-  pub fn as_method_unchecked_mut(&mut self) -> &mut MethodValue {
-    self.convert_mut()
-  }
-
-  // native
-
-  // -- native fn
+  // fn
 
   pub fn native(f: NativeFn) -> Self {
+    here!("addr: {:p}", f.addr());
     Self::from(f)
-  }
-
-  pub fn is_native_fn(&self) -> bool {
-    self.is_type::<NATIVE_FN_TAG>()
-  }
-
-  pub fn as_native_fn(&self) -> Option<NativeFn> {
-    if self.is_native_fn() {
-      Some(self.as_native_fn_unchecked())
-    } else {
-      None
-    }
-  }
-
-  pub fn as_native_fn_unchecked(&self) -> NativeFn {
-    unsafe { mem::transmute(self.bits & VALUE_BITMASK) }
   }
 
   // -- native closure
 
-  pub fn new_native_closure<N, F>(gc: &mut Gc, name: N, f: F) -> Self
+  pub fn native_closure<N, F>(gc: &mut Gc, name: N, f: F) -> Self
   where
     N: ToString,
     F: FnMut(&mut Vm, Args) -> UsageResult + 'static,
@@ -298,100 +195,29 @@ impl Value {
     gc.allocate(NativeClosureValue::new(name, f))
   }
 
-  pub fn is_native_closure(&self) -> bool {
-    self.is::<NativeClosureValue>()
-  }
-
-  pub fn as_native_closure(&self) -> Option<&NativeClosureValue> {
-    self.cast_to::<NativeClosureValue>()
-  }
-
-  pub fn as_native_closure_mut(&mut self) -> Option<&mut NativeClosureValue> {
-    self.cast_to_mut::<NativeClosureValue>()
-  }
-
-  pub fn as_native_closure_unchecked(&self) -> &NativeClosureValue {
-    self.convert()
-  }
-
-  pub fn as_native_closure_unchecked_mut(&mut self) -> &mut NativeClosureValue {
-    self.convert_mut()
-  }
-
   // -- native closure method
 
-  pub fn new_native_fn_method(gc: &mut Gc, this: Value, f: NativeFn) -> Self {
+  pub fn native_method(gc: &mut Gc, this: Value, f: NativeFn) -> Self {
     gc.allocate(NativeMethodValue::new_native_fn(this, f))
-  }
-
-  pub fn is_native_method(&self) -> bool {
-    self.is::<NativeMethodValue>()
-  }
-
-  pub fn as_native_method(&self) -> Option<&NativeMethodValue> {
-    self.cast_to::<NativeMethodValue>()
-  }
-
-  pub fn as_native_method_mut(&mut self) -> Option<&mut NativeMethodValue> {
-    self.cast_to_mut::<NativeMethodValue>()
-  }
-
-  pub fn as_native_method_unchecked(&self) -> &NativeMethodValue {
-    self.convert()
-  }
-
-  pub fn as_native_method_unchecked_mut(&mut self) -> &mut NativeMethodValue {
-    self.convert_mut()
   }
 
   // value pointer
 
   pub fn is_ptr(&self) -> bool {
-    self.is_type::<POINTER_TAG>()
+    self.bits & TAG_BITMASK == POINTER_TAG
   }
 
-  pub fn is<T: Usertype>(&self) -> bool {
-    self.is_ptr() && *self.type_id() == T::ID
-  }
-
-  pub fn cast_to<T: Usertype>(&self) -> Option<&'static T> {
-    if self.is::<T>() {
-      Some(self.convert())
-    } else {
-      None
-    }
-  }
-
-  pub fn cast_to_mut<T: Usertype>(&mut self) -> Option<&'static mut T> {
-    if self.is::<T>() {
-      Some(self.convert_mut())
-    } else {
-      None
-    }
-  }
-
-  pub fn reinterpret_cast<T: Usertype>(&mut self) -> MutPtr<T> {
-    MutPtr::new(self.convert_mut())
-  }
-
-  // nil
-
-  pub fn is_nil(&self) -> bool {
-    self.is_type::<NIL_TAG>()
-  }
+  // value methods
 
   pub fn call(&mut self, vm: &mut Vm, airity: usize) -> UsageResult {
-    if self.tag() == Tag::NativeFn {
+    if let Some(f) = self.cast_to::<NativeFn>() {
       let args = vm.stack_drain_from(airity);
-      let f = self.as_native_fn_unchecked();
       let output = f(vm, Args::new(args))?;
       Ok(output)
     } else {
       (self.vtable().invoke)(self.pointer_mut(), MutPtr::new(vm), self.clone(), airity)
     }
   }
-
-  // value methods
 
   pub fn get_member(&self, gc: &mut Gc, name: Field) -> UsageResult<Option<Value>> {
     (self.vtable().get_member)(self, MutPtr::new(gc), name)
@@ -431,15 +257,6 @@ impl Value {
 
   // utility
 
-  /// Executes f only if self is nil, otherwise returns self
-  pub fn or_else<F: FnOnce() -> Self>(self, f: F) -> Self {
-    if self.is_nil() {
-      f()
-    } else {
-      self
-    }
-  }
-
   pub(crate) fn pointer(&self) -> ConstVoid {
     (self.bits & VALUE_BITMASK) as ConstVoid
   }
@@ -464,10 +281,6 @@ impl Value {
     }
   }
 
-  fn is_type<const T: u64>(&self) -> bool {
-    self.bits & TAG_BITMASK == T
-  }
-
   // TypeId of the underlying type
   fn type_id(&self) -> &'static Uuid {
     (self.vtable().type_id)()
@@ -478,18 +291,19 @@ impl Value {
     (self.vtable().type_name)()
   }
 
-  fn convert<T>(&self) -> &'static T {
-    unsafe { &*(self.pointer() as *const T) }
-  }
-
-  fn convert_mut<T>(&mut self) -> &'static mut T {
-    unsafe { &mut *(self.pointer_mut() as *mut T) }
+  /// Executes f only if self is nil, otherwise returns self
+  pub fn or_else<F: FnOnce() -> Self>(self, f: F) -> Self {
+    if self.is::<()>() {
+      f()
+    } else {
+      self
+    }
   }
 }
 
 impl Default for Value {
   fn default() -> Self {
-    Self { bits: NIL_TAG }
+    Self::nil
   }
 }
 
@@ -561,15 +375,16 @@ impl From<char> for Value {
 
 impl From<NativeFn> for Value {
   fn from(f: NativeFn) -> Self {
-    Self {
+    here!("addr: {:p}", f.addr());
+    let s = Self {
       bits: f as usize as u64 | NATIVE_FN_TAG,
-    }
-  }
-}
-
-impl From<Nil> for Value {
-  fn from(_: Nil) -> Self {
-    Self { bits: NIL_TAG }
+    };
+    here!("addr: {:p}", s.pointer());
+    let f = s.cast_to::<NativeFn>().expect("howwww");
+    let f1: NativeFn = unsafe { std::mem::transmute(s.bits & VALUE_BITMASK) };
+    here!("addr: {:p}", (*f).addr());
+    here!("addr: {:p}", f1.addr());
+    s
   }
 }
 
@@ -580,7 +395,7 @@ impl Display for Value {
       Tag::I32 => write!(f, "{}", self.as_i32_unchecked()),
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
-      Tag::NativeFn => write!(f, "<native fn {:p}>", &self.as_native_fn_unchecked()),
+      Tag::NativeFn => write!(f, "<native fn {:p}>", &self.reinterpret_cast_to::<NativeFn>()),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
     }
@@ -957,7 +772,9 @@ impl VTable {
 pub(crate) enum Mark {
   #[default]
   White,
+  #[allow(unused)]
   Gray,
+  #[allow(unused)]
   Black,
 }
 
@@ -967,5 +784,26 @@ pub(crate) struct ValueMeta {
   /// Reference count to values that exist in native code and can't be traced
   pub(crate) ref_count: AtomicUsize,
 
+  #[allow(unused)]
   pub(crate) mark: Mark,
+}
+
+pub trait IsType<T> {
+  fn is_type(&self) -> bool;
+}
+
+pub trait Cast<T> {
+  fn cast(&self) -> Option<&'static T>;
+}
+
+pub trait CastMut<T> {
+  fn cast_mut(&mut self) -> Option<&'static mut T>;
+}
+
+pub trait ReinterpretCast<T> {
+  fn reinterpret_cast(&self) -> &'static T;
+}
+
+pub trait ReinterpretCastMut<T> {
+  fn reinterpret_cast_mut(&mut self) -> &'static mut T;
 }

@@ -38,24 +38,25 @@ impl UnimplementedObject {}
 #[fixture(ValueTest)]
 mod unit_tests {
   use super::*;
+  use crate::value::prelude::native_value::Addr;
 
   #[test]
   fn nil_value_is_default(_: &mut ValueTest) {
     let v = Value::default();
-    assert!(v.is_nil());
+    assert!(v.is::<()>());
   }
 
   #[test]
   fn floats_supported(_: &mut ValueTest) {
     let v = Value::from(1.23);
-    assert!(v.is_f64());
+    assert!(v.is::<f64>());
     assert_eq!(v.as_f64().unwrap(), 1.23);
   }
 
   #[test]
   fn integers_supported(_: &mut ValueTest) {
     let v = Value::from(123);
-    assert!(v.is_i32());
+    assert!(v.is::<i32>());
     assert_eq!(v.as_i32().unwrap(), 123);
   }
 
@@ -86,15 +87,32 @@ mod unit_tests {
     assert!(v.is::<ImplementedObject>());
 
     v = Value::from(123);
-    assert!(v.is_i32());
+    assert!(v.is::<i32>());
 
     v = Value::from(1.23);
-    assert!(v.is_f64());
+    assert!(v.is::<f64>());
 
     v = t.vm.gc.allocate(ImplementedObject::default());
     assert!(v.is::<ImplementedObject>());
 
-    v = Value::from(Nil);
-    assert!(v.is_nil());
+    v = Value::from(());
+    assert!(v.is::<()>());
+  }
+
+  #[test]
+  fn can_cast_to_native_fn(t: &mut ValueTest) {
+    #[native]
+    fn some_fn() -> UsageResult<i32> {
+      Ok(1)
+    }
+
+    let v = Value::native(some_fn);
+    assert!(false);
+    // let f = v.cast_to::<NativeFn>().expect("should be a native fn");
+    // let s: NativeFn = some_fn;
+    // assert_eq!(f.addr(), s.addr());
+    // let o = f(&mut t.vm, Default::default()).expect("f should not fail");
+    // let i = o.as_i32().expect("output should be an integer");
+    // assert_eq!(i, 1);
   }
 }

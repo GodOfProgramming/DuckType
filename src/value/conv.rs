@@ -1,4 +1,9 @@
-use crate::prelude::*;
+use super::{
+  Cast, CastMut, IsType, ReinterpretCast, ReinterpretCastMut, BOOL_TAG, CHAR_TAG, F64_MAX, I32_TAG, NATIVE_FN_TAG, NIL_TAG,
+  TAG_BITMASK, VALUE_BITMASK,
+};
+use crate::{dbg::macros::here, prelude::*};
+use std::mem;
 
 impl<T> From<UsertypeHandle<T>> for Value
 where
@@ -45,7 +50,7 @@ impl MaybeFrom<Value> for f64 {
 
 impl MaybeFrom<Value> for &'static String {
   fn maybe_from(value: Value) -> Option<Self> {
-    value.as_str().map(|s| &**s)
+    value.cast_to::<StringValue>().map(|s| &**s)
   }
 }
 
@@ -92,5 +97,125 @@ where
     } else {
       Some((t0, t1))
     }
+  }
+}
+
+// f64
+
+impl IsType<f64> for Value {
+  fn is_type(&self) -> bool {
+    self.bits < F64_MAX
+  }
+}
+
+// i32
+
+impl IsType<i32> for Value {
+  fn is_type(&self) -> bool {
+    self.bits & TAG_BITMASK == I32_TAG
+  }
+}
+
+// bool
+
+impl IsType<bool> for Value {
+  fn is_type(&self) -> bool {
+    self.bits & TAG_BITMASK == BOOL_TAG
+  }
+}
+
+// char
+
+impl IsType<char> for Value {
+  fn is_type(&self) -> bool {
+    self.bits & TAG_BITMASK == CHAR_TAG
+  }
+}
+
+// fn
+
+impl IsType<NativeFn> for Value {
+  fn is_type(&self) -> bool {
+    self.bits & TAG_BITMASK == NATIVE_FN_TAG
+  }
+}
+
+impl Cast<NativeFn> for Value {
+  fn cast(&self) -> Option<&'static NativeFn> {
+    if self.is::<NativeFn>() {
+      Some(<Self as ReinterpretCast<NativeFn>>::reinterpret_cast(self))
+    } else {
+      None
+    }
+  }
+}
+
+impl ReinterpretCast<NativeFn> for Value {
+  fn reinterpret_cast(&self) -> &'static NativeFn {
+    here!("0x{:x}", self.bits);
+    unsafe { mem::transmute(self.bits & VALUE_BITMASK) }
+  }
+}
+
+// pointer
+
+impl<T> IsType<T> for Value
+where
+  T: Usertype,
+{
+  fn is_type(&self) -> bool {
+    self.is_ptr() && *self.type_id() == T::ID
+  }
+}
+
+impl<T> Cast<T> for Value
+where
+  T: Usertype,
+{
+  fn cast(&self) -> Option<&'static T> {
+    if self.is::<T>() {
+      Some(self.reinterpret_cast())
+    } else {
+      None
+    }
+  }
+}
+
+impl<T> CastMut<T> for Value
+where
+  T: Usertype,
+{
+  fn cast_mut(&mut self) -> Option<&'static mut T> {
+    if self.is::<T>() {
+      Some(self.reinterpret_cast_mut())
+    } else {
+      None
+    }
+  }
+}
+
+impl<T> ReinterpretCast<T> for Value
+where
+  T: Usertype,
+{
+  fn reinterpret_cast(&self) -> &'static T {
+    unsafe { &*(self.pointer() as *const T) }
+  }
+}
+
+impl<T> ReinterpretCastMut<T> for Value
+where
+  T: Usertype,
+{
+  fn reinterpret_cast_mut(&mut self) -> &'static mut T {
+    unsafe { &mut *(self.pointer_mut() as *mut T) }
+  }
+}
+
+// nil
+
+impl IsType<()> for Value {
+  fn is_type(&self) -> bool {
+    self.bits & TAG_BITMASK == NIL_TAG
   }
 }

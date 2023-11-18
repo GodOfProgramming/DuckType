@@ -53,7 +53,7 @@ mod integration_tests {
     test.env.define(String::from("foo"), test.vm.gc.allocate("foo"));
     match test.vm.run_string(&test.script, test.env.clone()) {
       Ok(res) => {
-        assert_eq!("foo", **res.as_str().expect("value is not a string"));
+        assert_eq!("foo", **res.cast_to::<StringValue>().expect("value is not a string"));
       }
 
       Err(err) => panic!("{:#?}", err),

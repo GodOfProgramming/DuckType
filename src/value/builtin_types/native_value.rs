@@ -4,6 +4,16 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 
 pub type NativeFn = for<'a> fn(&mut Vm, Args) -> UsageResult;
 
+pub(crate) trait Addr {
+  fn addr(&self) -> *const ();
+}
+
+impl Addr for NativeFn {
+  fn addr(&self) -> *const () {
+    *self as *const ()
+  }
+}
+
 type NativeClosureType = dyn FnMut(&mut Vm, Args) -> UsageResult;
 
 #[derive(Usertype, Fields)]

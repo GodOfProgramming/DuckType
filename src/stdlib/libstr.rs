@@ -15,8 +15,8 @@ fn parse_number(value: &StringValue) -> UsageResult {
 
 #[native]
 fn contains(string: Value, substr: Value) -> UsageResult {
-  if let Some(string) = string.as_str() {
-    if let Some(substr) = substr.as_str() {
+  if let Some(string) = string.cast_to::<StringValue>() {
+    if let Some(substr) = substr.cast_to::<StringValue>() {
       return Ok(Value::from(string.contains::<&str>(substr.as_ref())));
     }
   }
@@ -26,8 +26,8 @@ fn contains(string: Value, substr: Value) -> UsageResult {
 
 #[native]
 fn is_prefix(string: Value, substr: Value) -> UsageResult {
-  if let Some(string) = string.as_str() {
-    if let Some(substr) = substr.as_str() {
+  if let Some(string) = string.cast_to::<StringValue>() {
+    if let Some(substr) = substr.cast_to::<StringValue>() {
       return Ok(Value::from(string.strip_prefix::<&str>(substr.as_ref()).is_some()));
     }
   }

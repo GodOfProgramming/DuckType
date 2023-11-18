@@ -172,7 +172,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       let args = common::make_arg_list(nargs, &name_str);
       if method.receiver.mutability.is_some() {
         method_lambda_bodies.push(quote! {
-          Value::new_native_fn_method(gc, this.clone(), |vm, mut args| {
+          Value::native_method(gc, this.clone(), |vm, mut args| {
             if args.list.len() == #nargs + 1 {
               if let Some(mut this) = args.list.pop() {
                 if let Some(this) = this.cast_to_mut::<#me>() {
@@ -192,7 +192,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         });
       } else {
         method_lambda_bodies.push(quote! {
-          Value::new_native_fn_method(gc, this.clone(), |vm, mut args| {
+          Value::native_method(gc, this.clone(), |vm, mut args| {
             if args.list.len() == #nargs + 1 {
               if let Some(this) = args.list.pop() {
                 if let Some(this) = this.cast_to::<#me>() {

@@ -77,12 +77,8 @@ impl ClassValue {
     let instance = vm.gc.allocate(InstanceValue::new(self_type, class.clone()));
 
     if let Some(initializer) = &mut self.initializer {
-      if let Some(initializer) = initializer.as_fn_mut() {
-        vm.stack_push(instance);
-        initializer.__ivk__(vm, Value::nil, airity + 1)
-      } else {
-        Err(UsageError::MethodType)
-      }
+      vm.stack_push(instance);
+      initializer.call(vm, airity + 1)
     } else {
       Ok(instance)
     }

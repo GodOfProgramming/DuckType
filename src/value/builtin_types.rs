@@ -72,8 +72,6 @@ impl<'n> Field<'n> {
   }
 }
 
-pub struct Nil;
-
 pub trait Usertype
 where
   Self: UsertypeFields
