@@ -14,6 +14,8 @@ use std::{
 pub(crate) mod names {
   pub const STD: &str = "std";
 
+  pub const TYPES: &str = "types";
+
   pub const DEBUG: &str = "debug";
 
   pub const OBJ: &str = "obj";
@@ -60,6 +62,18 @@ where
 fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHandle<ModuleValue> {
   ModuleBuilder::initialize(gc, ModuleType::new_child(names::STD, gmod), |gc, mut lib| {
     let lib = &mut lib;
+
+    defmod(gc, lib, names::TYPES, |gc, mut lib| {
+      lib.define("i32", Value::new::<i32>(Default::default()));
+      lib.define("f64", Value::new::<f64>(Default::default()));
+      lib.define("char", Value::new::<char>(Default::default()));
+      lib.define("bool", Value::new::<bool>(Default::default()));
+      lib.define(
+        "native",
+        Value::new::<NativeFn>(unsafe { std::mem::transmute(std::ptr::null::<NativeFn>()) }),
+      );
+      lib.define("str", gc.allocate(IdValue::new(StringValue::ID)));
+    });
 
     lib.define(names::DEBUG, Value::new::<NativeFn>(debug));
 

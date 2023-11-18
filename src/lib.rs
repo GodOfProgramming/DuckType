@@ -409,6 +409,30 @@ impl Vm {
           let idx = self.stack_size() - 2;
           self.stack.swap_remove(idx);
         }
+        Opcode::Is => {
+          let right = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
+          let left = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
+
+          let is_type = if let Some(instance) = left.cast_to::<InstanceValue>() {
+            instance.class.bits == right.bits
+          } else if left.is_ptr() {
+            if let Some(right) = right.cast_to::<IdValue>() {
+              left.type_id() == &right.id
+            } else {
+              left.type_id() == right.type_id()
+            }
+          } else if left.is::<NativeFn>() {
+            if right.pointer() == std::ptr::null() {
+              left.tag() == right.tag()
+            } else {
+              left.bits == right.bits
+            }
+          } else {
+            left.tag() == right.tag()
+          };
+
+          self.stack_push(Value::new(is_type))
+        }
         Opcode::Quack => {
           let value = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
           Err(self.error(UsageError::Quack(value)))?;

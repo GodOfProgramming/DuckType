@@ -1,0 +1,47 @@
+req "lib/brood/brood" as brood;
+
+use brood::suite;
+use std::types;
+
+suite("x is y", |s| {
+  s.describe("i32", |t| {
+    t.assert(0 is types::i32);
+    t.assert(-0 is types::i32);
+    t.assert(1 is types::i32);
+  });
+
+  s.describe("f64", |t| {
+    t.assert(0.0 is types::f64);
+    t.assert(-0.0 is types::f64);
+    t.assert(1.0 is types::f64);
+  });
+
+  s.describe("bool", |t| {
+    t.assert(false is types::bool);
+    t.assert(true is types::bool);
+  });
+
+  s.describe("char", |t| {
+    let string = "abc";
+    let c = string[0];
+    t.assert(c is types::char);
+  });
+
+  s.describe("native", |t| {
+    t.assert(std::debug is types::native);
+  });
+
+  s.describe("usertypes", |t| {
+    t.assert("some string" is types::str);
+
+    class Foo { self as nil }
+    let foo = Foo();
+
+    t.assert(foo is Foo);
+  });
+
+  s.describe("nil", |t| {
+    let x = nil;
+    t.assert(x is nil);
+  });
+});

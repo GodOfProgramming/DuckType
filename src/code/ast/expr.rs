@@ -20,6 +20,7 @@ pub enum Expression {
   Closure(ClosureExpression),
   Ident(IdentExpression),
   Index(IndexExpression),
+  Is(IsExpression),
   Lambda(LambdaExpression),
   Literal(LiteralExpression),
   MemberAccess(MemberAccessExpression),
@@ -79,6 +80,7 @@ impl Expression {
       Expression::Closure(c) => c.body.dump(tmpl),
       Expression::Ident(_) => (),
       Expression::Index(_) => (),
+      Expression::Is(_) => (),
       Expression::Lambda(l) => l.body.dump(tmpl),
       Expression::Literal(l) => {
         html! {
@@ -114,6 +116,7 @@ impl Display for Expression {
       Self::Closure(_) => write!(f, "closure"),
       Self::Ident(i) => write!(f, "ident {}", i.ident.name),
       Self::Index(_) => write!(f, "index"),
+      Self::Is(_) => write!(f, "is"),
       Self::Lambda(_) => write!(f, "lambda"),
       Self::Literal(l) => write!(f, "literal {}", l.value),
       Self::MemberAccess(_) => write!(f, "member access"),
@@ -170,6 +173,12 @@ impl From<OrExpression> for Expression {
 impl From<IdentExpression> for Expression {
   fn from(expr: IdentExpression) -> Self {
     Self::Ident(expr)
+  }
+}
+
+impl From<IsExpression> for Expression {
+  fn from(expr: IsExpression) -> Self {
+    Self::Is(expr)
   }
 }
 

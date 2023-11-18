@@ -1,6 +1,7 @@
 pub(crate) mod class_value;
 pub(crate) mod closure_value;
 pub(crate) mod function_value;
+pub(crate) mod id_value;
 pub(crate) mod instance_value;
 pub(crate) mod method_value;
 pub(crate) mod module_value;
@@ -42,6 +43,7 @@ use crate::prelude::*;
 pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
 pub use function_value::FunctionValue;
+pub use id_value::IdValue;
 pub use instance_value::InstanceValue;
 use macros::{methods, Fields};
 pub use method_value::MethodValue;
@@ -49,7 +51,6 @@ pub use module_value::{ModuleBuilder, ModuleType, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
 use std::{
   collections::{BTreeMap, HashMap},
-  error::Error,
   vec::IntoIter,
 };
 pub use string_value::StringValue;
@@ -290,24 +291,16 @@ pub struct Primitive {}
 // all primitives can be operated on directly, no need for vtable indirection
 impl Operators for Primitive {
   fn __str__(&self) -> String {
-    unreachable!();
+    String::from("primitive")
   }
 
   fn __dbg__(&self) -> String {
-    unreachable!();
+    String::from("primitive")
   }
 }
 
 #[methods]
 impl Primitive {}
-
-impl TryFrom<Value> for Primitive {
-  type Error = Box<dyn Error>;
-
-  fn try_from(_value: Value) -> Result<Self, Self::Error> {
-    unimplemented!()
-  }
-}
 
 pub(crate) trait ConsumeResult<T> {
   fn consume<F, O>(self, f: F) -> UsageResult<O>
