@@ -63,7 +63,7 @@ pub struct NativeMethodValue {
 }
 
 impl NativeMethodValue {
-  pub fn new_native_fn(this: Value, callee: NativeFn) -> Self {
+  pub fn new(this: Value, callee: NativeFn) -> Self {
     Self { this, callee }
   }
 }

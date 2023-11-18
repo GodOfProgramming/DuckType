@@ -135,7 +135,7 @@ impl Value {
   // -- native closure method
 
   pub fn native_method(gc: &mut Gc, this: Value, f: NativeFn) -> Self {
-    gc.allocate(NativeMethodValue::new_native_fn(this, f))
+    gc.allocate(NativeMethodValue::new(this, f))
   }
 
   // value pointer
