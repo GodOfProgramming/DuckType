@@ -65,11 +65,47 @@ impl IsType<bool> for Value {
   }
 }
 
+impl Cast<bool> for Value {
+  type CastType = bool;
+  fn cast(&self) -> Option<Self::CastType> {
+    if self.is::<bool>() {
+      Some(self.reinterpret_cast_to::<bool>())
+    } else {
+      None
+    }
+  }
+}
+
+impl ReinterpretCast<bool> for Value {
+  fn reinterpret_cast(&self) -> Self::CastType {
+    debug_assert!(self.is::<bool>());
+    self.bits & VALUE_BITMASK > 0
+  }
+}
+
 // char
 
 impl IsType<char> for Value {
   fn is_type(&self) -> bool {
     self.bits & TAG_BITMASK == CHAR_TAG
+  }
+}
+
+impl Cast<char> for Value {
+  type CastType = char;
+  fn cast(&self) -> Option<Self::CastType> {
+    if self.is::<char>() {
+      Some(self.reinterpret_cast_to::<char>())
+    } else {
+      None
+    }
+  }
+}
+
+impl ReinterpretCast<char> for Value {
+  fn reinterpret_cast(&self) -> Self::CastType {
+    debug_assert!(self.is::<char>());
+    char::from_u32((self.bits & VALUE_BITMASK) as u32).unwrap_or_default()
   }
 }
 

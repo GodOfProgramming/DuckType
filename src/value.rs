@@ -115,36 +115,6 @@ impl Value {
     self.reinterpret_cast_mut()
   }
 
-  // bool
-
-  pub fn as_bool(&self) -> Option<bool> {
-    if self.is::<bool>() {
-      Some(self.as_bool_unchecked())
-    } else {
-      None
-    }
-  }
-
-  pub fn as_bool_unchecked(&self) -> bool {
-    debug_assert!(self.is::<bool>());
-    self.bits & VALUE_BITMASK > 0
-  }
-
-  // char
-
-  pub fn as_char(&self) -> Option<char> {
-    if self.is::<char>() {
-      Some(self.as_char_unchecked())
-    } else {
-      None
-    }
-  }
-
-  pub fn as_char_unchecked(&self) -> char {
-    debug_assert!(self.is::<char>());
-    char::from_u32((self.bits & VALUE_BITMASK) as u32).unwrap_or_default()
-  }
-
   // fn
 
   pub fn native(f: NativeFn) -> Self {
@@ -352,8 +322,8 @@ impl Display for Value {
     match self.tag() {
       Tag::F64 => write!(f, "{}", self.reinterpret_cast_to::<f64>()),
       Tag::I32 => write!(f, "{}", self.reinterpret_cast_to::<i32>()),
-      Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
-      Tag::Char => write!(f, "{}", self.as_char_unchecked()),
+      Tag::Bool => write!(f, "{}", self.reinterpret_cast_to::<bool>()),
+      Tag::Char => write!(f, "{}", self.reinterpret_cast_to::<char>()),
       Tag::NativeFn => write!(f, "<native fn {:p}>", &self.reinterpret_cast_to::<NativeFn>()),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
@@ -380,8 +350,20 @@ impl Debug for Value {
         self.reinterpret_cast_to::<i32>(),
         self.bits()
       ),
-      Tag::Bool => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_bool_unchecked(), self.bits()),
-      Tag::Char => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_char_unchecked(), self.bits()),
+      Tag::Bool => write!(
+        f,
+        "{:?} {} (0x{:x})",
+        self.tag(),
+        self.reinterpret_cast_to::<bool>(),
+        self.bits()
+      ),
+      Tag::Char => write!(
+        f,
+        "{:?} {} (0x{:x})",
+        self.tag(),
+        self.reinterpret_cast_to::<char>(),
+        self.bits()
+      ),
       Tag::NativeFn => write!(
         f,
         "<@{addr:<width$} {:?}>",
@@ -476,13 +458,13 @@ impl Add for Value {
       }
       Tag::Bool => todo!(),
       Tag::Char => {
-        let v = self.as_char_unchecked();
+        let v = self.reinterpret_cast_to::<char>();
         match rhs.tag() {
           Tag::I32 => match char::from_u32((v as u32 as i32 + rhs.reinterpret_cast_to::<i32>()) as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('+', self, rhs)),
           },
-          Tag::Char => match char::from_u32(v as u32 + rhs.as_char_unchecked() as u32) {
+          Tag::Char => match char::from_u32(v as u32 + rhs.reinterpret_cast_to::<char>() as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::CoercionError(rhs, "i32")),
           },
@@ -517,13 +499,13 @@ impl Sub for Value {
       }
       Tag::Bool => todo!(),
       Tag::Char => {
-        let v = self.as_char_unchecked();
+        let v = self.reinterpret_cast_to::<char>();
         match rhs.tag() {
           Tag::I32 => match char::from_u32((v as u32 as i32 - rhs.reinterpret_cast_to::<i32>()) as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('-', self, rhs)),
           },
-          Tag::Char => match char::from_u32(v as u32 - rhs.as_char_unchecked() as u32) {
+          Tag::Char => match char::from_u32(v as u32 - rhs.reinterpret_cast_to::<char>() as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('-', self, rhs)),
           },
@@ -558,13 +540,13 @@ impl Mul for Value {
       }
       Tag::Bool => todo!(),
       Tag::Char => {
-        let v = self.as_char_unchecked();
+        let v = self.reinterpret_cast_to::<char>();
         match rhs.tag() {
           Tag::I32 => match char::from_u32((v as u32 as i32 * rhs.reinterpret_cast_to::<i32>()) as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('*', self, rhs)),
           },
-          Tag::Char => match char::from_u32(v as u32 * rhs.as_char_unchecked() as u32) {
+          Tag::Char => match char::from_u32(v as u32 * rhs.reinterpret_cast_to::<char>() as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('*', self, rhs)),
           },
@@ -600,13 +582,13 @@ impl Div for Value {
       }
       Tag::Bool => todo!(),
       Tag::Char => {
-        let v = self.as_char_unchecked();
+        let v = self.reinterpret_cast_to::<char>();
         match rhs.tag() {
           Tag::I32 => match char::from_u32((v as u32 as i32 / rhs.reinterpret_cast_to::<i32>()) as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('/', self, rhs)),
           },
-          Tag::Char => match char::from_u32(v as u32 / rhs.as_char_unchecked() as u32) {
+          Tag::Char => match char::from_u32(v as u32 / rhs.reinterpret_cast_to::<char>() as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('/', self, rhs)),
           },
@@ -641,13 +623,13 @@ impl Rem for Value {
       }
       Tag::Bool => todo!(),
       Tag::Char => {
-        let v = self.as_char_unchecked();
+        let v = self.reinterpret_cast_to::<char>();
         match rhs.tag() {
           Tag::I32 => match char::from_u32((v as u32 as i32 % rhs.reinterpret_cast_to::<i32>()) as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('%', self, rhs)),
           },
-          Tag::Char => match char::from_u32(v as u32 % rhs.as_char_unchecked() as u32) {
+          Tag::Char => match char::from_u32(v as u32 % rhs.reinterpret_cast_to::<char>() as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('/', self, rhs)),
           },
