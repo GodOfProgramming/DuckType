@@ -39,6 +39,24 @@ impl IsType<i32> for Value {
   }
 }
 
+impl Cast<i32> for Value {
+  type CastType = i32;
+  fn cast(&self) -> Option<Self::CastType> {
+    if self.is::<i32>() {
+      Some(self.reinterpret_cast_to::<i32>())
+    } else {
+      None
+    }
+  }
+}
+
+impl ReinterpretCast<i32> for Value {
+  fn reinterpret_cast(&self) -> Self::CastType {
+    debug_assert!(self.is::<i32>());
+    unsafe { mem::transmute((self.bits & VALUE_BITMASK) as u32) }
+  }
+}
+
 // bool
 
 impl IsType<bool> for Value {
@@ -180,7 +198,7 @@ impl MaybeFrom<Value> for Value {
 
 impl MaybeFrom<Value> for i32 {
   fn maybe_from(value: Value) -> Option<Self> {
-    value.as_i32()
+    value.cast_to::<i32>()
   }
 }
 

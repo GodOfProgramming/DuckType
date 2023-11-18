@@ -57,7 +57,7 @@ mod unit_tests {
   fn integers_supported(_: &mut ValueTest) {
     let v = Value::from(123);
     assert!(v.is::<i32>());
-    assert_eq!(v.as_i32().unwrap(), 123);
+    assert_eq!(v.cast_to::<i32>().unwrap(), 123);
   }
 
   #[test]
@@ -111,7 +111,7 @@ mod unit_tests {
     let s: NativeFn = some_fn;
     assert_eq!(f.addr(), s.addr());
     let o = f(&mut t.vm, Default::default()).expect("f should not fail");
-    let i = o.as_i32().expect("output should be an integer");
+    let i = o.cast_to::<i32>().expect("output should be an integer");
     assert_eq!(i, 1);
   }
 }

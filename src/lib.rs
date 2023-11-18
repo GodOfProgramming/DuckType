@@ -855,7 +855,7 @@ impl Vm {
 
   fn exec_dyn_vec(&mut self) -> OpResult {
     let repeats = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let repeats = repeats.as_i32().ok_or(UsageError::CoercionError(repeats, "i32"))?;
+    let repeats = repeats.cast_to::<i32>().ok_or(UsageError::CoercionError(repeats, "i32"))?;
     let item = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let vec = vec![item; repeats as usize];
     let vec = self.gc.allocate(vec);
