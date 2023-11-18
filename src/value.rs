@@ -41,6 +41,13 @@ impl Value {
   #[allow(non_upper_case_globals)]
   pub const nil: Value = Value { bits: NIL_TAG };
 
+  pub fn new<T>(v: T) -> Self
+  where
+    Self: From<T>,
+  {
+    Self::from(v)
+  }
+
   pub fn tag(&self) -> Tag {
     if self.is::<f64>() {
       Tag::F64
@@ -113,12 +120,6 @@ impl Value {
     Self: ReinterpretCastMut<T>,
   {
     self.reinterpret_cast_mut()
-  }
-
-  // fn
-
-  pub fn native(f: NativeFn) -> Self {
-    Self::from(f)
   }
 
   // -- native closure
@@ -741,24 +742,30 @@ pub(crate) struct ValueMeta {
   pub(crate) mark: Mark,
 }
 
-pub trait IsType<T> {
+pub trait IsType<T>: private::Sealed {
   fn is_type(&self) -> bool;
 }
 
-pub trait Cast<T> {
+pub trait Cast<T>: private::Sealed {
   type CastType;
   fn cast(&self) -> Option<Self::CastType>;
 }
 
-pub trait CastMut<T> {
+pub trait CastMut<T>: private::Sealed {
   type CastTypeMut;
   fn cast_mut(&mut self) -> Option<Self::CastTypeMut>;
 }
 
-pub trait ReinterpretCast<T>: Cast<T> {
+pub trait ReinterpretCast<T>: Cast<T> + private::Sealed {
   fn reinterpret_cast(&self) -> Self::CastType;
 }
 
-pub trait ReinterpretCastMut<T>: CastMut<T> {
+pub trait ReinterpretCastMut<T>: CastMut<T> + private::Sealed {
   fn reinterpret_cast_mut(&mut self) -> Self::CastTypeMut;
 }
+
+mod private {
+  pub trait Sealed {}
+}
+
+impl private::Sealed for Value {}

@@ -61,15 +61,15 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
   ModuleBuilder::initialize(gc, ModuleType::new_child(names::STD, gmod), |gc, mut lib| {
     let lib = &mut lib;
 
-    lib.define(names::DEBUG, Value::native(debug));
+    lib.define(names::DEBUG, Value::new::<NativeFn>(debug));
 
     defmod(gc, lib, names::OBJ, |_, _lib| {
-      // lib.define("fields", Value::native(fields));
+      // lib.define("fields", Value::new::<NativeFn>(fields));
     });
 
     defmod(gc, lib, names::REFLECT, |_, mut lib| {
-      lib.define("defined", Value::native(defined));
-      lib.define("disasm", Value::native(disasm));
+      lib.define("defined", Value::new::<NativeFn>(defined));
+      lib.define("disasm", Value::new::<NativeFn>(disasm));
     });
 
     defmod(gc, lib, names::ENV, |gc, mut lib| {
@@ -97,8 +97,8 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
     defmod(gc, lib, names::PS, libps::ps);
 
     defmod(gc, lib, names::MATH, |_, mut lib| {
-      lib.define("rand_i32", Value::native(math_rand_i32));
-      lib.define("abs", Value::native(math_abs));
+      lib.define("rand_i32", Value::new::<NativeFn>(math_rand_i32));
+      lib.define("abs", Value::new::<NativeFn>(math_abs));
     });
 
     let libval = lib.value();

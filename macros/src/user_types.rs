@@ -224,7 +224,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     let args = common::make_arg_list(nargs, name_str);
 
     static_lambda_bodies.push(quote! {
-      Value::native(|vm, args| {
+      Value::new::<NativeFn>(|vm, args| {
         if args.list.len() == #nargs {
           let mut args = args.into_arg_iter();
           let output = #me::#name(#args)?;

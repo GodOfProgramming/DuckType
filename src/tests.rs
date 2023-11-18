@@ -66,7 +66,7 @@ mod integration_tests {
 
     test.env.define(
       "test_func",
-      Value::native(|_, args| {
+      Value::new::<NativeFn>(|_, args| {
         let args = &args.list;
         assert_eq!(args.len(), 2);
         assert_eq!(args[0], Value::from(1));

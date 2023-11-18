@@ -106,7 +106,7 @@ mod unit_tests {
       Ok(1)
     }
 
-    let v = Value::native(some_fn);
+    let v = Value::new::<NativeFn>(some_fn);
     let f = v.cast_to::<NativeFn>().expect("should be a native fn");
     let s: NativeFn = some_fn;
     assert_eq!(f.addr(), s.addr());

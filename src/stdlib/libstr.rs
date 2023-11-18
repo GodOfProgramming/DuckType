@@ -1,11 +1,11 @@
 use crate::prelude::*;
 
 pub fn string(_: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
-  lib.define("parse_number", Value::native(parse_number));
-  lib.define("contains", Value::native(contains));
-  lib.define("is_prefix", Value::native(is_prefix));
-  lib.define("concat", Value::native(concat));
-  lib.define("join", Value::native(join));
+  lib.define("parse_number", Value::new::<NativeFn>(parse_number));
+  lib.define("contains", Value::new::<NativeFn>(contains));
+  lib.define("is_prefix", Value::new::<NativeFn>(is_prefix));
+  lib.define("concat", Value::new::<NativeFn>(concat));
+  lib.define("join", Value::new::<NativeFn>(join));
 }
 
 #[native]
