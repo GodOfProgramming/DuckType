@@ -5,106 +5,29 @@ use super::{
 use crate::prelude::*;
 use std::mem;
 
-impl<T> From<UsertypeHandle<T>> for Value
-where
-  T: Usertype,
-{
-  fn from(utype: UsertypeHandle<T>) -> Self {
-    Value::from(&utype)
-  }
-}
-
-impl<T> From<&UsertypeHandle<T>> for Value
-where
-  T: Usertype,
-{
-  fn from(utype: &UsertypeHandle<T>) -> Self {
-    Value::from(utype.handle.clone())
-  }
-}
-
-pub trait MaybeFrom<T>
-where
-  Self: Sized,
-{
-  fn maybe_from(value: T) -> Option<Self>;
-}
-
-impl MaybeFrom<Value> for Value {
-  fn maybe_from(value: Value) -> Option<Self> {
-    Some(value)
-  }
-}
-
-impl MaybeFrom<Value> for i32 {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.as_i32()
-  }
-}
-
-impl MaybeFrom<Value> for f64 {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.as_f64()
-  }
-}
-
-impl MaybeFrom<Value> for &'static String {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.cast_to::<StringValue>().map(|s| &**s)
-  }
-}
-
-impl MaybeFrom<Value> for &'static Vec<Value> {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.cast_to::<VecValue>().map(|a| &**a)
-  }
-}
-
-impl MaybeFrom<Value> for &[Value] {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.cast_to::<VecValue>().map(|a| &***a)
-  }
-}
-
-impl<T> MaybeFrom<Value> for &'static T
-where
-  T: Usertype,
-{
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.cast_to::<T>()
-  }
-}
-
-impl<T> MaybeFrom<Value> for &'static mut T
-where
-  T: Usertype,
-{
-  fn maybe_from(mut value: Value) -> Option<Self> {
-    value.cast_to_mut::<T>()
-  }
-}
-
-impl<T0, T1> MaybeFrom<Value> for (Option<T0>, Option<T1>)
-where
-  T0: MaybeFrom<Value>,
-  T1: MaybeFrom<Value>,
-{
-  fn maybe_from(value: Value) -> Option<Self> {
-    let t0 = T0::maybe_from(value.clone());
-    let t1 = T1::maybe_from(value);
-    if t0.is_none() && t1.is_none() || t0.is_some() && t1.is_some() {
-      None
-    } else {
-      Some((t0, t1))
-    }
-  }
-}
-
 // f64
 
 impl IsType<f64> for Value {
   fn is_type(&self) -> bool {
     self.bits < F64_MAX
+  }
+}
+
+impl Cast<f64> for Value {
+  type CastType = f64;
+  fn cast(&self) -> Option<Self::CastType> {
+    if self.is::<f64>() {
+      Some(self.reinterpret_cast_to::<f64>())
+    } else {
+      None
+    }
+  }
+}
+
+impl ReinterpretCast<f64> for Value {
+  fn reinterpret_cast(&self) -> Self::CastType {
+    debug_assert!(self.is::<f64>());
+    f64::from_bits(self.bits)
   }
 }
 
@@ -219,5 +142,102 @@ where
 impl IsType<()> for Value {
   fn is_type(&self) -> bool {
     self.bits & TAG_BITMASK == NIL_TAG
+  }
+}
+
+// utility conversions
+
+impl<T> From<UsertypeHandle<T>> for Value
+where
+  T: Usertype,
+{
+  fn from(utype: UsertypeHandle<T>) -> Self {
+    Value::from(&utype)
+  }
+}
+
+impl<T> From<&UsertypeHandle<T>> for Value
+where
+  T: Usertype,
+{
+  fn from(utype: &UsertypeHandle<T>) -> Self {
+    Value::from(utype.handle.clone())
+  }
+}
+
+pub trait MaybeFrom<T>
+where
+  Self: Sized,
+{
+  fn maybe_from(value: T) -> Option<Self>;
+}
+
+impl MaybeFrom<Value> for Value {
+  fn maybe_from(value: Value) -> Option<Self> {
+    Some(value)
+  }
+}
+
+impl MaybeFrom<Value> for i32 {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.as_i32()
+  }
+}
+
+impl MaybeFrom<Value> for f64 {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.cast_to::<f64>()
+  }
+}
+
+impl MaybeFrom<Value> for &'static String {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.cast_to::<StringValue>().map(|s| &**s)
+  }
+}
+
+impl MaybeFrom<Value> for &'static Vec<Value> {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.cast_to::<VecValue>().map(|a| &**a)
+  }
+}
+
+impl MaybeFrom<Value> for &[Value] {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.cast_to::<VecValue>().map(|a| &***a)
+  }
+}
+
+impl<T> MaybeFrom<Value> for &'static T
+where
+  T: Usertype,
+{
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.cast_to::<T>()
+  }
+}
+
+impl<T> MaybeFrom<Value> for &'static mut T
+where
+  T: Usertype,
+{
+  fn maybe_from(mut value: Value) -> Option<Self> {
+    value.cast_to_mut::<T>()
+  }
+}
+
+impl<T0, T1> MaybeFrom<Value> for (Option<T0>, Option<T1>)
+where
+  T0: MaybeFrom<Value>,
+  T1: MaybeFrom<Value>,
+{
+  fn maybe_from(value: Value) -> Option<Self> {
+    let t0 = T0::maybe_from(value.clone());
+    let t1 = T1::maybe_from(value);
+    if t0.is_none() && t1.is_none() || t0.is_some() && t1.is_some() {
+      None
+    } else {
+      Some((t0, t1))
+    }
   }
 }

@@ -50,7 +50,7 @@ mod unit_tests {
   fn floats_supported(_: &mut ValueTest) {
     let v = Value::from(1.23);
     assert!(v.is::<f64>());
-    assert_eq!(v.as_f64().unwrap(), 1.23);
+    assert_eq!(v.cast_to::<f64>().unwrap(), 1.23);
   }
 
   #[test]

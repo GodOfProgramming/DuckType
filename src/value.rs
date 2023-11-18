@@ -115,21 +115,6 @@ impl Value {
     self.reinterpret_cast_mut()
   }
 
-  // float
-
-  pub fn as_f64(&self) -> Option<f64> {
-    if self.is::<f64>() {
-      Some(self.as_f64_unchecked())
-    } else {
-      None
-    }
-  }
-
-  pub fn as_f64_unchecked(&self) -> f64 {
-    debug_assert!(self.is::<f64>());
-    f64::from_bits(self.bits)
-  }
-
   // int
 
   pub fn as_i32(&self) -> Option<i32> {
@@ -315,7 +300,7 @@ impl TryFrom<Value> for i32 {
   fn try_from(value: Value) -> Result<Self, Self::Error> {
     match value.tag() {
       Tag::I32 => Ok(value.as_i32_unchecked()),
-      Tag::F64 => Ok(value.as_f64_unchecked() as i32),
+      Tag::F64 => Ok(value.reinterpret_cast_to::<f64>() as i32),
       _ => Err(UsageError::CoercionError(value, "i32")),
     }
   }
@@ -380,7 +365,7 @@ impl From<NativeFn> for Value {
 impl Display for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     match self.tag() {
-      Tag::F64 => write!(f, "{}", self.as_f64_unchecked()),
+      Tag::F64 => write!(f, "{}", self.reinterpret_cast_to::<f64>()),
       Tag::I32 => write!(f, "{}", self.as_i32_unchecked()),
       Tag::Bool => write!(f, "{}", self.as_bool_unchecked()),
       Tag::Char => write!(f, "{}", self.as_char_unchecked()),
@@ -396,7 +381,13 @@ impl Debug for Value {
     const PTR_WIDTH: usize = mem::size_of::<usize>() * 2;
     const PTR_DISPLAY_WIDTH: usize = PTR_WIDTH + 2;
     match self.tag() {
-      Tag::F64 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_f64_unchecked(), self.bits()),
+      Tag::F64 => write!(
+        f,
+        "{:?} {} (0x{:x})",
+        self.tag(),
+        self.reinterpret_cast_to::<f64>(),
+        self.bits()
+      ),
       Tag::I32 => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_i32_unchecked(), self.bits()),
       Tag::Bool => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_bool_unchecked(), self.bits()),
       Tag::Char => write!(f, "{:?} {} (0x{:x})", self.tag(), self.as_char_unchecked(), self.bits()),
@@ -430,12 +421,12 @@ impl PartialEq for Value {
         Tag::I32 => {
           let v = self.as_i32_unchecked();
           match other.tag() {
-            Tag::F64 => v as f64 == other.as_f64_unchecked(),
+            Tag::F64 => v as f64 == other.reinterpret_cast_to::<f64>(),
             _ => false,
           }
         }
         Tag::F64 => {
-          let v = self.as_f64_unchecked();
+          let v = self.reinterpret_cast_to::<f64>();
           match other.tag() {
             Tag::I32 => v == other.as_i32_unchecked() as f64,
             _ => false,
@@ -451,9 +442,9 @@ impl PartialOrd for Value {
   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
     match self.tag() {
       Tag::F64 => {
-        let v = self.as_f64_unchecked();
+        let v = self.reinterpret_cast_to::<f64>();
         match other.tag() {
-          Tag::F64 => v.partial_cmp(&other.as_f64_unchecked()),
+          Tag::F64 => v.partial_cmp(&other.reinterpret_cast_to::<f64>()),
           Tag::I32 => v.partial_cmp(&(other.as_i32_unchecked() as f64)),
           _ => None,
         }
@@ -461,7 +452,7 @@ impl PartialOrd for Value {
       Tag::I32 => {
         let v = self.as_i32_unchecked();
         match other.tag() {
-          Tag::F64 => (v as f64).partial_cmp(&(other.as_f64_unchecked())),
+          Tag::F64 => (v as f64).partial_cmp(&(other.reinterpret_cast_to::<f64>())),
           Tag::I32 => v.partial_cmp(&other.as_i32_unchecked()),
           _ => None,
         }
@@ -477,9 +468,9 @@ impl Add for Value {
   fn add(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
-        let v = self.as_f64_unchecked();
+        let v = self.reinterpret_cast_to::<f64>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v + rhs.as_f64_unchecked())),
+          Tag::F64 => Ok(Self::from(v + rhs.reinterpret_cast_to::<f64>())),
           Tag::I32 => Ok(Self::from(v + rhs.as_i32_unchecked() as f64)),
           _ => Err(UsageError::CoercionError(self, "f64")),
         }
@@ -487,7 +478,7 @@ impl Add for Value {
       Tag::I32 => {
         let v = self.as_i32_unchecked();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v as f64 + rhs.as_f64_unchecked())),
+          Tag::F64 => Ok(Self::from(v as f64 + rhs.reinterpret_cast_to::<f64>())),
           Tag::I32 => Ok(Self::from(v + rhs.as_i32_unchecked())),
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
@@ -518,9 +509,9 @@ impl Sub for Value {
   fn sub(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
-        let v = self.as_f64_unchecked();
+        let v = self.reinterpret_cast_to::<f64>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v - rhs.as_f64_unchecked())),
+          Tag::F64 => Ok(Self::from(v - rhs.reinterpret_cast_to::<f64>())),
           Tag::I32 => Ok(Self::from(v - rhs.as_i32_unchecked() as f64)),
           _ => Err(UsageError::CoercionError(self, "f64")),
         }
@@ -528,7 +519,7 @@ impl Sub for Value {
       Tag::I32 => {
         let v = self.as_i32_unchecked();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v as f64 - rhs.as_f64_unchecked())),
+          Tag::F64 => Ok(Self::from(v as f64 - rhs.reinterpret_cast_to::<f64>())),
           Tag::I32 => Ok(Self::from(v - rhs.as_i32_unchecked())),
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
@@ -559,9 +550,9 @@ impl Mul for Value {
   fn mul(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
-        let v = self.as_f64_unchecked();
+        let v = self.reinterpret_cast_to::<f64>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v * rhs.as_f64_unchecked())),
+          Tag::F64 => Ok(Self::from(v * rhs.reinterpret_cast_to::<f64>())),
           Tag::I32 => Ok(Self::from(v * rhs.as_i32_unchecked() as f64)),
           _ => Err(UsageError::CoercionError(rhs, "f64")),
         }
@@ -569,7 +560,7 @@ impl Mul for Value {
       Tag::I32 => {
         let v = self.as_i32_unchecked();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v as f64 * rhs.as_f64_unchecked())),
+          Tag::F64 => Ok(Self::from(v as f64 * rhs.reinterpret_cast_to::<f64>())),
           Tag::I32 => Ok(Self::from(v * rhs.as_i32_unchecked())),
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
@@ -601,9 +592,9 @@ impl Div for Value {
   fn div(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
-        let v = self.as_f64_unchecked();
+        let v = self.reinterpret_cast_to::<f64>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v / rhs.as_f64_unchecked())),
+          Tag::F64 => Ok(Self::from(v / rhs.reinterpret_cast_to::<f64>())),
           Tag::I32 => Ok(Self::from(v / rhs.as_i32_unchecked() as f64)),
           _ => Err(UsageError::CoercionError(rhs, "f64")),
         }
@@ -611,7 +602,7 @@ impl Div for Value {
       Tag::I32 => {
         let v = self.as_i32_unchecked();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v as f64 / rhs.as_f64_unchecked())),
+          Tag::F64 => Ok(Self::from(v as f64 / rhs.reinterpret_cast_to::<f64>())),
           Tag::I32 => Ok(Self::from(v / rhs.as_i32_unchecked())),
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
@@ -642,9 +633,9 @@ impl Rem for Value {
   fn rem(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
-        let v = self.as_f64_unchecked();
+        let v = self.reinterpret_cast_to::<f64>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v % rhs.as_f64_unchecked())),
+          Tag::F64 => Ok(Self::from(v % rhs.reinterpret_cast_to::<f64>())),
           Tag::I32 => Ok(Self::from(v % rhs.as_i32_unchecked() as f64)),
           _ => Err(UsageError::CoercionError(rhs, "f64")),
         }
@@ -652,7 +643,7 @@ impl Rem for Value {
       Tag::I32 => {
         let v = self.as_i32_unchecked();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v as f64 % rhs.as_f64_unchecked())),
+          Tag::F64 => Ok(Self::from(v as f64 % rhs.reinterpret_cast_to::<f64>())),
           Tag::I32 => Ok(Self::from(v % rhs.as_i32_unchecked())),
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
@@ -682,7 +673,7 @@ impl Neg for Value {
 
   fn neg(self) -> Self::Output {
     match self.tag() {
-      Tag::F64 => Ok(Value::from(-self.as_f64_unchecked())),
+      Tag::F64 => Ok(Value::from(-self.reinterpret_cast_to::<f64>())),
       Tag::I32 => Ok(Value::from(-self.as_i32_unchecked())),
       _ => Err(UsageError::UnimplementedError("negate", self)),
     }
