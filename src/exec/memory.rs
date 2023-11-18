@@ -34,7 +34,7 @@ where
 {
   pub fn new(mut handle: ValueHandle) -> Self {
     Self {
-      usertype: handle.value.reinterpret_cast_to_mut::<T>(),
+      usertype: MutPtr::new(handle.value.reinterpret_cast_to_mut::<T>()),
       handle,
     }
   }

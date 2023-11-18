@@ -107,12 +107,11 @@ mod unit_tests {
     }
 
     let v = Value::native(some_fn);
-    assert!(false);
-    // let f = v.cast_to::<NativeFn>().expect("should be a native fn");
-    // let s: NativeFn = some_fn;
-    // assert_eq!(f.addr(), s.addr());
-    // let o = f(&mut t.vm, Default::default()).expect("f should not fail");
-    // let i = o.as_i32().expect("output should be an integer");
-    // assert_eq!(i, 1);
+    let f = v.cast_to::<NativeFn>().expect("should be a native fn");
+    let s: NativeFn = some_fn;
+    assert_eq!(f.addr(), s.addr());
+    let o = f(&mut t.vm, Default::default()).expect("f should not fail");
+    let i = o.as_i32().expect("output should be an integer");
+    assert_eq!(i, 1);
   }
 }

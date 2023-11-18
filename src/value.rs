@@ -1,6 +1,5 @@
-use crate::{code::ConstantValue, dbg::macros::here, prelude::*};
-use builtin_types::native_value::Addr;
-use ptr::{ConstPtr, MutPtr};
+use crate::{code::ConstantValue, prelude::*};
+use ptr::MutPtr;
 use static_assertions::assert_eq_size;
 use std::{
   cmp::Ordering,
@@ -88,34 +87,32 @@ impl Value {
     self.is_type()
   }
 
-  pub fn cast_to<T>(&self) -> Option<&'static T>
+  pub fn cast_to<T>(&self) -> Option<<Self as Cast<T>>::CastType>
   where
     Self: Cast<T>,
   {
     self.cast()
   }
 
-  pub fn cast_to_mut<T>(&mut self) -> Option<&'static mut T>
+  pub fn cast_to_mut<T>(&mut self) -> Option<<Self as CastMut<T>>::CastTypeMut>
   where
     Self: CastMut<T>,
   {
     self.cast_mut()
   }
 
-  pub fn reinterpret_cast_to<T>(&self) -> ConstPtr<T>
+  pub fn reinterpret_cast_to<T>(&self) -> <Self as Cast<T>>::CastType
   where
-    T: 'static,
     Self: ReinterpretCast<T>,
   {
-    ConstPtr::new(self.reinterpret_cast())
+    self.reinterpret_cast()
   }
 
-  pub fn reinterpret_cast_to_mut<T>(&mut self) -> MutPtr<T>
+  pub fn reinterpret_cast_to_mut<T>(&mut self) -> <Self as CastMut<T>>::CastTypeMut
   where
-    T: 'static,
     Self: ReinterpretCastMut<T>,
   {
-    MutPtr::new(self.reinterpret_cast_mut())
+    self.reinterpret_cast_mut()
   }
 
   // float
@@ -181,7 +178,6 @@ impl Value {
   // fn
 
   pub fn native(f: NativeFn) -> Self {
-    here!("addr: {:p}", f.addr());
     Self::from(f)
   }
 
@@ -375,16 +371,9 @@ impl From<char> for Value {
 
 impl From<NativeFn> for Value {
   fn from(f: NativeFn) -> Self {
-    here!("addr: {:p}", f.addr());
-    let s = Self {
+    Self {
       bits: f as usize as u64 | NATIVE_FN_TAG,
-    };
-    here!("addr: {:p}", s.pointer());
-    let f = s.cast_to::<NativeFn>().expect("howwww");
-    let f1: NativeFn = unsafe { std::mem::transmute(s.bits & VALUE_BITMASK) };
-    here!("addr: {:p}", (*f).addr());
-    here!("addr: {:p}", f1.addr());
-    s
+    }
   }
 }
 
@@ -793,17 +782,19 @@ pub trait IsType<T> {
 }
 
 pub trait Cast<T> {
-  fn cast(&self) -> Option<&'static T>;
+  type CastType;
+  fn cast(&self) -> Option<Self::CastType>;
 }
 
 pub trait CastMut<T> {
-  fn cast_mut(&mut self) -> Option<&'static mut T>;
+  type CastTypeMut;
+  fn cast_mut(&mut self) -> Option<Self::CastTypeMut>;
 }
 
-pub trait ReinterpretCast<T> {
-  fn reinterpret_cast(&self) -> &'static T;
+pub trait ReinterpretCast<T>: Cast<T> {
+  fn reinterpret_cast(&self) -> Self::CastType;
 }
 
-pub trait ReinterpretCastMut<T> {
-  fn reinterpret_cast_mut(&mut self) -> &'static mut T;
+pub trait ReinterpretCastMut<T>: CastMut<T> {
+  fn reinterpret_cast_mut(&mut self) -> Self::CastTypeMut;
 }

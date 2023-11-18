@@ -2,7 +2,7 @@ use super::{
   Cast, CastMut, IsType, ReinterpretCast, ReinterpretCastMut, BOOL_TAG, CHAR_TAG, F64_MAX, I32_TAG, NATIVE_FN_TAG, NIL_TAG,
   TAG_BITMASK, VALUE_BITMASK,
 };
-use crate::{dbg::macros::here, prelude::*};
+use crate::prelude::*;
 use std::mem;
 
 impl<T> From<UsertypeHandle<T>> for Value
@@ -141,9 +141,10 @@ impl IsType<NativeFn> for Value {
 }
 
 impl Cast<NativeFn> for Value {
-  fn cast(&self) -> Option<&'static NativeFn> {
+  type CastType = NativeFn;
+  fn cast(&self) -> Option<Self::CastType> {
     if self.is::<NativeFn>() {
-      Some(<Self as ReinterpretCast<NativeFn>>::reinterpret_cast(self))
+      Some(unsafe { mem::transmute(self.bits & VALUE_BITMASK) })
     } else {
       None
     }
@@ -151,8 +152,7 @@ impl Cast<NativeFn> for Value {
 }
 
 impl ReinterpretCast<NativeFn> for Value {
-  fn reinterpret_cast(&self) -> &'static NativeFn {
-    here!("0x{:x}", self.bits);
+  fn reinterpret_cast(&self) -> Self::CastType {
     unsafe { mem::transmute(self.bits & VALUE_BITMASK) }
   }
 }
@@ -172,9 +172,10 @@ impl<T> Cast<T> for Value
 where
   T: Usertype,
 {
-  fn cast(&self) -> Option<&'static T> {
+  type CastType = &'static T;
+  fn cast(&self) -> Option<Self::CastType> {
     if self.is::<T>() {
-      Some(self.reinterpret_cast())
+      Some(<Value as ReinterpretCast<T>>::reinterpret_cast(self))
     } else {
       None
     }
@@ -185,9 +186,10 @@ impl<T> CastMut<T> for Value
 where
   T: Usertype,
 {
-  fn cast_mut(&mut self) -> Option<&'static mut T> {
+  type CastTypeMut = &'static mut T;
+  fn cast_mut(&mut self) -> Option<Self::CastTypeMut> {
     if self.is::<T>() {
-      Some(self.reinterpret_cast_mut())
+      Some(<Value as ReinterpretCastMut<T>>::reinterpret_cast_mut(self))
     } else {
       None
     }
@@ -198,7 +200,7 @@ impl<T> ReinterpretCast<T> for Value
 where
   T: Usertype,
 {
-  fn reinterpret_cast(&self) -> &'static T {
+  fn reinterpret_cast(&self) -> Self::CastType {
     unsafe { &*(self.pointer() as *const T) }
   }
 }
@@ -207,7 +209,7 @@ impl<T> ReinterpretCastMut<T> for Value
 where
   T: Usertype,
 {
-  fn reinterpret_cast_mut(&mut self) -> &'static mut T {
+  fn reinterpret_cast_mut(&mut self) -> Self::CastTypeMut {
     unsafe { &mut *(self.pointer_mut() as *mut T) }
   }
 }
