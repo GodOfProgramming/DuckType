@@ -380,7 +380,15 @@ pub enum Opcode {
   ///
   /// Encoding: None
   PopScope,
-  /// Panic duck style
+  /// Pop two values off the stack, check if the second is of the first's type
+  ///
+  /// For instances this will get it's underlying class's type id and compare that with the right's type id
+  ///
+  /// For everything else this will compare the type ids directly
+  ///
+  /// Encoding: None
+  Is,
+  /// Panic
   ///
   /// Encoding: None
   Quack,

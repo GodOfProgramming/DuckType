@@ -678,6 +678,12 @@ impl<'p> BytecodeGenerator<'p> {
     self.emit(Opcode::Index, expr.loc);
   }
 
+  fn is_expr(&mut self, expr: IsExpression) {
+    self.emit_expr(*expr.left);
+    self.emit_expr(*expr.right);
+    self.emit(Opcode::Is, expr.loc);
+  }
+
   fn struct_expr(&mut self, expr: StructExpression) {
     let nmem = expr.members.len();
     for (member, value) in expr.members {
@@ -865,6 +871,7 @@ impl<'p> BytecodeGenerator<'p> {
       Expression::Closure(expr) => self.closure_expr(expr),
       Expression::Ident(expr) => self.ident_expr(expr),
       Expression::Index(expr) => self.index_expr(expr),
+      Expression::Is(expr) => self.is_expr(expr),
       Expression::Lambda(expr) => self.lambda_expr(expr),
       Expression::Literal(expr) => self.literal_expr(expr),
       Expression::MemberAccess(expr) => self.member_access_expr(expr),

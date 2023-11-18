@@ -40,7 +40,7 @@ impl UsertypeMethods for InstanceValue {
     if let Some(class) = self.class.cast_to::<ClassValue>() {
       Ok(class.get_method(gc, this, field))
     } else {
-      Ok(None)
+      Err(UsageError::Infallible)
     }
   }
 }

@@ -296,6 +296,32 @@ impl AstExpression for IndexExpression {
 }
 
 #[derive(Debug)]
+pub struct IsExpression {
+  pub left: Box<Expression>,
+  pub right: Box<Expression>,
+
+  pub loc: SourceLocation,
+}
+
+impl IsExpression {
+  fn new(left: Expression, right: Expression, loc: SourceLocation) -> Self {
+    Self {
+      left: Box::new(left),
+      right: Box::new(right),
+      loc,
+    }
+  }
+}
+
+impl AstExpression for IsExpression {
+  fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
+    let loc = ast.meta_at::<0>()?;
+    let right = ast.expression()?;
+    Some(Expression::from(IsExpression::new(left, right, loc)))
+  }
+}
+
+#[derive(Debug)]
 pub struct MemberAccessExpression {
   pub obj: Box<Expression>,
   pub ident: Ident,

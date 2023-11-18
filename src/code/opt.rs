@@ -63,6 +63,7 @@ fn opt_expr(expr: &mut Expression) {
     }
     Expression::Ident(_) => (),
     Expression::Index(_) => (),
+    Expression::Is(_) => (),
     Expression::Lambda(expr) => {
       opt_stmt(&mut expr.body);
     }

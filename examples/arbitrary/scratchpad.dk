@@ -1,37 +1,5 @@
-class Array {
-  self as struct { value: nil }
-
-  new(self, list) {
-    self.value = list;
-  }
-
-  fn [](self, idx) {
-    ret self.value[idx];
-  }
-
-  fn []=(self, idx, other) {
-    ret self.value[idx] = other;
-  }
+fn p(e) {
+  println e;
 }
 
-let a = Array([1, 2, 3]);
-
-println a[0];
-a[0] = 777;
-println a[0];
-
-class Adder {
-  self as struct { value: nil }
-
-  new(self, v) {
-    self.value = v;
-  }
-
-  fn +(self, other) {
-    ret Adder(self.value + other);
-  }
-}
-
-let adder = Adder(0);
-adder += 1;
-println adder;
+p(0 is std::types::i32);

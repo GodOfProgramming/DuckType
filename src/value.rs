@@ -226,12 +226,12 @@ impl Value {
   }
 
   // TypeId of the underlying type
-  fn type_id(&self) -> &'static Uuid {
+  pub fn type_id(&self) -> &'static Uuid {
     (self.vtable().type_id)()
   }
 
   #[allow(unused)]
-  fn type_name(&self) -> String {
+  pub fn type_name(&self) -> String {
     (self.vtable().type_name)()
   }
 

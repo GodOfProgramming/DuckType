@@ -30,7 +30,7 @@ repository:
       - name: "constant.language.null"
         match: "\\b(nil)\\b"
       - name: "constant.language.boolean"
-        match: "\\b(true|false)\\b"
+        match: "\\b(true|false|is)\\b"
   support:
     patterns:
       - name: "support.class"
