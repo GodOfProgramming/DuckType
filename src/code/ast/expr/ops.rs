@@ -149,11 +149,16 @@ pub struct BinaryExpression {
 }
 
 impl BinaryExpression {
-  pub(super) fn new(left: Expression, op: BinaryOperator, right: Expression, loc: SourceLocation) -> Self {
+  pub(crate) fn new(
+    left: impl Into<Expression>,
+    op: BinaryOperator,
+    right: impl Into<Expression>,
+    loc: SourceLocation,
+  ) -> Self {
     Self {
-      left: Box::new(left),
+      left: Box::new(left.into()),
       op,
-      right: Box::new(right),
+      right: Box::new(right.into()),
       loc,
     }
   }
@@ -198,22 +203,32 @@ impl AstExpression for BinaryExpression {
 }
 
 #[derive(Debug)]
-pub enum StorageLocation {
+pub enum VarStorage {
   Stack(Box<Expression>),
   Ident(Ident),
 }
 
+impl VarStorage {
+  pub(crate) fn stack(expr: impl Into<Expression>) -> Self {
+    Self::Stack(Box::new(expr.into()))
+  }
+
+  pub(crate) fn ident(ident: impl Into<Ident>) -> Self {
+    Self::Ident(ident.into())
+  }
+}
+
 #[derive(Debug)]
 pub struct BinaryRegisterExpression {
-  pub left: StorageLocation,
+  pub left: VarStorage,
   pub op: BinaryOperator,
-  pub right: StorageLocation,
+  pub right: VarStorage,
 
   pub loc: SourceLocation,
 }
 
 impl BinaryRegisterExpression {
-  pub(crate) fn new(left: StorageLocation, op: BinaryOperator, right: StorageLocation, loc: SourceLocation) -> Self {
+  pub(crate) fn new(left: VarStorage, op: BinaryOperator, right: VarStorage, loc: SourceLocation) -> Self {
     Self { left, op, right, loc }
   }
 }

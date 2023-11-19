@@ -396,11 +396,11 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn binary_register_expr(&mut self, expr: BinaryRegisterExpression) {
     let left = match expr.left {
-      StorageLocation::Stack(expr) => {
+      VarStorage::Stack(expr) => {
         self.emit_expr(*expr);
         (Storage::Stack, ShortAddr(0))
       }
-      StorageLocation::Ident(ident) => {
+      VarStorage::Ident(ident) => {
         if let Some(var) = self.resolve_ident(&ident, expr.loc) {
           match var {
             Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
@@ -420,11 +420,11 @@ impl<'p> BytecodeGenerator<'p> {
     };
 
     let right = match expr.right {
-      StorageLocation::Stack(expr) => {
+      VarStorage::Stack(expr) => {
         self.emit_expr(*expr);
         (Storage::Stack, ShortAddr(0))
       }
-      StorageLocation::Ident(ident) => {
+      VarStorage::Ident(ident) => {
         if let Some(var) = self.resolve_ident(&ident, expr.loc) {
           match var {
             Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
@@ -856,7 +856,6 @@ impl<'p> BytecodeGenerator<'p> {
       println!("expr {}", expr);
     }
     match expr {
-      Expression::Empty => panic!("Empty expressions are just placeholders and should not make it out of optimization"),
       Expression::And(expr) => self.and_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::Binary(expr) => self.binary_expr(expr),

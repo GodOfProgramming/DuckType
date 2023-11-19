@@ -54,6 +54,12 @@ impl AstExpression for IdentExpression {
   }
 }
 
+impl Into<Ident> for IdentExpression {
+  fn into(self) -> Ident {
+    self.ident
+  }
+}
+
 #[derive(Debug)]
 pub struct ClassExpression {
   pub name: Ident,
