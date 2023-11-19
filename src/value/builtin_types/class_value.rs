@@ -1,6 +1,4 @@
-use crate::prelude::*;
-use ahash::RandomState;
-use std::collections::HashMap;
+use crate::{prelude::*, FastHashMap};
 
 #[derive(Default, Usertype, NoMethods)]
 #[uuid("2034facf-835a-495c-b504-26efc0ca3f95")]
@@ -11,9 +9,9 @@ pub struct ClassValue {
   #[trace]
   pub initializer: Option<Value>,
   #[trace]
-  pub methods: HashMap<String, FunctionValue, RandomState>,
+  pub methods: FastHashMap<String, FunctionValue>,
   #[trace]
-  pub static_members: HashMap<String, Value, RandomState>,
+  pub static_members: FastHashMap<String, Value>,
 }
 
 impl ClassValue {

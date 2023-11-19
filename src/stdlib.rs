@@ -4,12 +4,8 @@ mod libps;
 mod libstr;
 mod libtime;
 
-use crate::{prelude::*, value::prelude::module_value::ModuleType};
-use ahash::RandomState;
-use std::{
-  collections::{BTreeMap, HashMap},
-  env,
-};
+use crate::{prelude::*, value::prelude::module_value::ModuleType, FastHashMap};
+use std::{collections::BTreeMap, env};
 
 pub(crate) mod names {
   pub const STD: &str = "std";
@@ -17,8 +13,6 @@ pub(crate) mod names {
   pub const TYPES: &str = "types";
 
   pub const DEBUG: &str = "debug";
-
-  pub const OBJ: &str = "obj";
 
   pub const REFLECT: &str = "reflect";
 
@@ -43,7 +37,7 @@ pub(crate) mod names {
   pub const IO: &str = "io";
 }
 
-pub fn enable_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> HashMap<String, Value, RandomState> {
+pub fn enable_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> FastHashMap<String, Value> {
   let mut loaded_libs = BTreeMap::default();
 
   loaded_libs.insert(names::STD, load_std(gc, gmod, args));
@@ -77,12 +71,7 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
 
     lib.define(names::DEBUG, Value::new::<NativeFn>(debug));
 
-    defmod(gc, lib, names::OBJ, |_, _lib| {
-      // lib.define("fields", Value::new::<NativeFn>(fields));
-    });
-
     defmod(gc, lib, names::REFLECT, |_, mut lib| {
-      lib.define("defined", Value::new::<NativeFn>(defined));
       lib.define("disasm", Value::new::<NativeFn>(disasm));
     });
 
@@ -125,36 +114,14 @@ fn debug(value: Value) -> UsageResult<String> {
   Ok(format!("{:?}", value))
 }
 
-// #[native]
-// fn fields(value: Value) -> UsageResult<Vec<StringValue>> {
-//   fn get_fields(s: &StructValue) -> Vec<StringValue> {
-//     s.members.keys().cloned().map(StringValue::from).collect()
-//   }
-
-//   let mut fields = Vec::default();
-
-//   if let Some(i) = value.as_instance() {
-//     fields.extend(get_fields(&i.data))
-//   } else if let Some(s) = value.as_struct() {
-//     fields.extend(get_fields(s))
-//   }
-
-//   Ok(fields)
-// }
-
-#[native(with_vm)]
-fn defined(vm: &mut Vm, name: &StringValue) -> UsageResult<bool> {
-  Ok(vm.current_env().lookup(name.as_str()).is_some())
-}
-
 #[native(with_vm)]
 fn disasm(vm: &mut Vm, value: Value) -> UsageResult<String> {
   if let Some(f) = value.cast_to::<FunctionValue>() {
-    Ok(f.context().disassemble(&vm.stack, &vm.program))
+    Ok(f.context().disassemble(&vm.stack, &vm.cache))
   } else if let Some(f) = value.cast_to::<ClosureValue>() {
-    Ok(f.context().disassemble(&vm.stack, &vm.program))
+    Ok(f.context().disassemble(&vm.stack, &vm.cache))
   } else if let Some(f) = value.cast_to::<MethodValue>() {
-    Ok(f.context().disassemble(&vm.stack, &vm.program))
+    Ok(f.context().disassemble(&vm.stack, &vm.cache))
   } else {
     Ok(String::new())
   }

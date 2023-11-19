@@ -31,6 +31,7 @@ use crate::{
   prelude::*,
   util::{FileIdType, FileMetadata, PlatformMetadata, UnwrapAnd},
 };
+use ahash::RandomState;
 use clap::Parser;
 use code::CompileOpts;
 use dlopen2::wrapper::Container;
@@ -40,10 +41,13 @@ use prelude::module_value::ModuleType;
 use ptr::{MutPtr, SmartPtr};
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, HashMap, HashSet},
   fs, mem,
   path::{Path, PathBuf},
 };
+
+type FastHashSet<T> = HashSet<T, RandomState>;
+type FastHashMap<K, V> = HashMap<K, V, RandomState>;
 
 pub const EXTENSION: &str = "dk";
 
@@ -73,21 +77,33 @@ macro_rules! data {
   };
 }
 
+macro_rules! current_module {
+  ($this:ident) => {
+    $this.modules.last()
+  };
+}
+
+macro_rules! current_module_mut {
+  ($this:ident) => {
+    $this.modules.last_mut()
+  };
+}
+
 pub struct Vm {
   pub(crate) stack: Stack,
   pub(crate) stack_frame: StackFrame,
   pub(crate) stack_frames: Vec<StackFrame>,
+  globals: FastHashMap<String, Value>,
 
   pub gc: SmartPtr<Gc>,
 
-  program: Program,
-  pub(crate) envs: EnvStack,
+  cache: Cache,
+  pub(crate) modules: ModuleStack,
 
   opt: bool,
   args: Vec<String>,
 
   filemap: FileMap,
-  pub(crate) lib_cache: BTreeMap<FileIdType, Value>,
 
   // usize for what frame to pop on, string for file path
   opened_files: Vec<FileInfo>,
@@ -100,19 +116,19 @@ impl Vm {
       stack_frame: Default::default(),
       stack_frames: Default::default(),
       stack: Stack::with_capacity(INITIAL_STACK_SIZE),
+      globals: Default::default(),
       gc,
-      program: Default::default(),
-      envs: Default::default(),
+      cache: Default::default(),
+      modules: Default::default(),
       opt,
       args: args.into(),
       filemap: Default::default(),
-      lib_cache: Default::default(),
       opened_files: Default::default(),
       opened_native_libs: Default::default(),
     }
   }
 
-  pub fn run_file(&mut self, file: impl Into<PathBuf>, env: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
+  pub fn run_file(&mut self, file: impl Into<PathBuf>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     let file = file.into();
     let file_id = PlatformMetadata::id_of(&file).unwrap_or(0);
 
@@ -121,33 +137,33 @@ impl Vm {
 
     let source = fs::read_to_string(&file).map_err(Error::other_system_err)?;
     let opts = CompileOpts { optimize: self.opt };
-    let ctx = code::compile_file(&mut self.program, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
+    let ctx = code::compile_file(&mut self.cache, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
 
     self.stack_frame = StackFrame::new(ctx, self.stack_size());
     self.stack_frames = Default::default();
-    self.envs.push(EnvEntry::File(env));
+    self.modules.push(ModuleEntry::File(module));
 
     let res = self.execute(RunMode::File);
 
     res
   }
 
-  pub fn run_string(&mut self, source: impl AsRef<str>, env: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
+  pub fn run_string(&mut self, source: impl AsRef<str>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     self.opened_files = vec![];
 
     let opts = CompileOpts { optimize: self.opt };
-    let ctx = code::compile_string(&mut self.program, source, opts)?;
+    let ctx = code::compile_string(&mut self.cache, source, opts)?;
 
     self.stack_frame = StackFrame::new(ctx, self.stack_size());
     self.stack_frames = Default::default();
-    self.envs.push(EnvEntry::String(env));
+    self.modules.push(ModuleEntry::String(module));
 
     self.execute(RunMode::String)
   }
 
-  pub fn run_fn(&mut self, ctx: SmartPtr<Context>, env: UsertypeHandle<ModuleValue>, airity: usize) -> ExecResult<Value> {
+  pub fn run_fn(&mut self, ctx: SmartPtr<Context>, module: UsertypeHandle<ModuleValue>, airity: usize) -> ExecResult<Value> {
     self.new_frame(ctx, airity);
-    self.envs.push(EnvEntry::Fn(env));
+    self.modules.push(ModuleEntry::Fn(module));
 
     self.execute(RunMode::Fn)
   }
@@ -169,7 +185,7 @@ impl Vm {
             ctx: &ContextDisassembler {
               ctx: self.ctx(),
               stack: &self.stack,
-              program: &self.program,
+              cache: &self.cache,
             },
             inst,
             offset: self.stack_frame.ip,
@@ -296,7 +312,8 @@ impl Vm {
           let value = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
           export = Some(value);
         }
-        Opcode::Define => self.exec(|this| this.exec_define_global(data!(inst)))?,
+        Opcode::DefineGlobal => self.exec(|this| this.exec_define_global(data!(inst)))?,
+        Opcode::DefineScope => self.exec(|this| this.exec_define_scope(data!(inst)))?,
         Opcode::Resolve => self.exec(|this| this.exec_scope_resolution(data!(inst)))?,
         Opcode::EnterBlock => {
           self.push_scope();
@@ -447,17 +464,17 @@ impl Vm {
       RunMode::File => {
         let info = self.opened_files.pop().expect("file must be popped when leaving a file");
         if let Some(export) = &export {
-          self.lib_cache.insert(info.id, export.clone());
+          self.cache.add_lib(info.id, export.clone());
         }
 
-        // pop until a file env is found
-        while !matches!(self.envs.pop(), EnvEntry::File(_)) {}
+        // pop until a file module is found
+        while !matches!(self.modules.pop(), ModuleEntry::File(_)) {}
       }
       RunMode::Fn => {
-        // pop until a fn env is found
-        while !matches!(self.envs.pop(), EnvEntry::Fn(_)) {}
+        // pop until a fn module is found
+        while !matches!(self.modules.pop(), ModuleEntry::Fn(_)) {}
       }
-      RunMode::String => while !matches!(self.envs.pop(), EnvEntry::String(_)) {},
+      RunMode::String => while !matches!(self.modules.pop(), ModuleEntry::String(_)) {},
     }
 
     if let Some(stack_frame) = self.stack_frames.pop() {
@@ -476,10 +493,10 @@ impl Vm {
   }
 
   fn exec_const(&mut self, index: LongAddr) -> OpResult {
-    let c = self.program.const_at(index).ok_or(UsageError::InvalidConst(index.into()))?;
+    let c = self.cache.const_at(index).ok_or(UsageError::InvalidConst(index.into()))?;
 
-    let env = self.current_env().into();
-    let value = Value::from_constant(&mut self.gc, env, c);
+    let module = current_module!(self).into();
+    let value = Value::from_constant(&mut self.gc, module, c);
     self.stack_push(value);
     Ok(())
   }
@@ -519,12 +536,11 @@ impl Vm {
   }
 
   fn exec_load_global(&mut self, loc: LongAddr) -> OpResult {
-    self.global_op_mut(loc.into(), |this, name| {
-      let global = this.current_env().lookup(&name).ok_or(UsageError::UndefinedVar(name))?;
-      this.stack_push(global);
-      Ok(())
-    })
+    let var = self.ident_value(loc)?;
+    self.stack_push(var);
+    Ok(())
   }
+
   fn exec_store_stack(&mut self, loc: LongAddr) -> OpResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     self.stack_store_rev(loc.0, value);
@@ -538,21 +554,38 @@ impl Vm {
   }
 
   fn exec_define_global(&mut self, loc: LongAddr) -> OpResult {
-    self.global_op_mut(loc.into(), |this, name| {
+    self.validate_ident_and(loc, |this, name| {
       let v = this.stack_peek().ok_or(UsageError::EmptyStack)?;
-      if this.current_env_mut().define(name.clone(), v) {
+      if this.globals.insert(name.clone(), v.clone()).is_none() {
+        this.cache.add_global(loc, v);
         Ok(())
       } else {
-        let level = this.current_env().search_for(0, &name);
+        let level = current_module!(this).search_for(0, &name);
+        Err(UsageError::Redefine { level, name })
+      }
+    })
+  }
+
+  fn exec_define_scope(&mut self, loc: LongAddr) -> OpResult {
+    self.validate_ident_and(loc, |this, name| {
+      let v = this.stack_peek().ok_or(UsageError::EmptyStack)?;
+      let module = current_module_mut!(this);
+      if module.define(name.clone(), v.clone()) {
+        this.cache.add_to_mod(module, loc, v);
+        Ok(())
+      } else {
+        let level = current_module!(this).search_for(0, &name);
         Err(UsageError::Redefine { level, name })
       }
     })
   }
 
   fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
-    self.global_op_mut(loc.into(), |this, name| {
+    self.validate_ident_and(loc, |this, name| {
       let value = this.stack_peek().ok_or(UsageError::EmptyStack)?;
-      if this.current_env_mut().assign(&name, value) {
+
+      if this.globals.insert(name.clone(), value.clone()).is_some() {
+        this.cache.add_global(loc, value);
         Ok(())
       } else {
         Err(UsageError::UndefinedVar(name))
@@ -563,7 +596,7 @@ impl Vm {
   fn exec_initialize_member(&mut self, loc: usize) -> OpResult {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
-    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
+    let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       obj.set_member(&mut self.gc, Field::new(loc, name), value)?;
@@ -577,7 +610,7 @@ impl Vm {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
-    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
+    let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     let class = obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment)?;
 
@@ -603,7 +636,7 @@ impl Vm {
     let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
     let mut obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
-    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
+    let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       obj.set_member(&mut self.gc, Field::new(loc, name), value.clone())?;
@@ -619,7 +652,7 @@ impl Vm {
   fn exec_lookup_member(&mut self, loc: usize) -> OpResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
-    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
+    let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       let value = obj.get_member(&mut self.gc, Field::new(loc, name))?.unwrap_or_default();
@@ -633,7 +666,7 @@ impl Vm {
   fn exec_peek_member(&mut self, loc: usize) -> OpResult {
     let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
 
-    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
+    let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       let member = value.get_member(&mut self.gc, Field::new(loc, name))?.unwrap_or_default();
@@ -925,7 +958,7 @@ impl Vm {
       let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
       if let Some(key) = key.cast_to::<StringValue>() {
         let id = self
-          .program
+          .cache
           .strings
           .get_by_right(&**key)
           .cloned()
@@ -945,7 +978,7 @@ impl Vm {
 
   fn exec_create_class(&mut self, loc: usize) -> OpResult {
     let creator = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
+    let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
       let v = self.gc.allocate(ClassValue::new(name, creator));
@@ -956,15 +989,15 @@ impl Vm {
     }
   }
 
-  /// Create a module and make it the current env
+  /// Create a module and make it the current
   fn exec_create_module(&mut self, loc: usize) -> OpResult {
-    let name = self.program.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
+    let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
-      let leaf = self.current_env();
+      let leaf = current_module!(self);
       let module = ModuleValue::new_child(name, leaf.handle.value.clone());
       let handle = self.gc.allocate_typed_handle(module);
-      self.envs.push(EnvEntry::Mod(handle.clone()));
+      self.modules.push(ModuleEntry::Mod(handle.clone()));
       self.stack_push(handle.value());
       Ok(())
     } else {
@@ -975,7 +1008,7 @@ impl Vm {
   fn exec_scope_resolution(&mut self, ident: usize) -> OpResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
-    let name = self.program.const_at(ident).ok_or(UsageError::InvalidConst(ident))?;
+    let name = self.cache.const_at(ident).ok_or(UsageError::InvalidConst(ident))?;
 
     if let ConstantValue::String(name) = name {
       let value = obj.resolve(name)?;
@@ -987,13 +1020,13 @@ impl Vm {
   }
 
   fn push_scope(&mut self) {
-    let leaf = self.current_env().value();
+    let leaf = current_module!(self).value();
     let handle = self.gc.allocate_typed_handle(ModuleValue::new_scope(leaf));
-    self.envs.push(EnvEntry::Block(handle));
+    self.modules.push(ModuleEntry::Block(handle));
   }
 
   fn pop_scope(&mut self) {
-    self.envs.pop();
+    self.modules.pop();
   }
 
   fn exec_req(&mut self) -> ExecResult {
@@ -1044,8 +1077,7 @@ impl Vm {
     // if still not found, try searching library paths
     if found_file.is_none() {
       use stdlib::names::{env::*, *};
-      if let Some(paths) = self
-        .current_env()
+      if let Some(paths) = current_module!(self)
         .lookup_path(&[STD, ENV, PATHS])
         .map(|l| l.and_then(|l| l.cast_to::<VecValue>()))
         .map_err(|e| self.error(e))?
@@ -1066,7 +1098,7 @@ impl Vm {
 
     match found_file.extension().and_then(|s| s.to_str()) {
       Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-        let value = if let Some(value) = self.lib_cache.get(&file_id) {
+        let value = if let Some(value) = self.cache.get_lib(file_id) {
           value.clone()
         } else {
           let lib: Container<NativeApi> =
@@ -1074,7 +1106,7 @@ impl Vm {
 
           let value: Value = lib.duck_type_load_module(self).into();
           self.opened_native_libs.insert(found_file, lib);
-          self.lib_cache.insert(file_id, value.clone());
+          self.cache.add_lib(file_id, value.clone());
           value
         };
 
@@ -1085,14 +1117,14 @@ impl Vm {
       _ => {
         let source = fs::read_to_string(&found_file).map_err(Error::other_system_err)?;
 
-        if let Some(value) = self.lib_cache.get(&file_id) {
+        if let Some(value) = self.cache.get_lib(file_id) {
           self.stack_push(value.clone());
         } else {
           self.filemap.add(file_id, &found_file);
 
           let opts = CompileOpts { optimize: self.opt };
           let new_ctx =
-            code::compile_file(&mut self.program, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
+            code::compile_file(&mut self.cache, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
           let gmod = ModuleBuilder::initialize(
             &mut self.gc,
             ModuleType::new_global(format!("<file export {}>", found_file.display())),
@@ -1103,7 +1135,7 @@ impl Vm {
           );
 
           self.new_frame(new_ctx, 0);
-          self.envs.push(EnvEntry::File(gmod));
+          self.modules.push(ModuleEntry::File(gmod));
           self.opened_files.push(FileInfo::new(found_file, file_id));
           let output = self.execute(RunMode::File)?;
           self.stack_push(output);
@@ -1189,28 +1221,6 @@ impl Vm {
     }
   }
 
-  fn global_op<F, T>(&self, index: usize, f: F) -> OpResult<T>
-  where
-    F: FnOnce(&Self, String) -> OpResult<T>,
-  {
-    match self.program.const_at(index) {
-      Some(ConstantValue::String(name)) => f(self, name.clone()),
-      Some(name) => Err(UsageError::InvalidIdentifier(name.to_string()))?,
-      None => Err(UsageError::InvalidConst(index))?,
-    }
-  }
-
-  fn global_op_mut<F, T>(&mut self, index: usize, f: F) -> OpResult<T>
-  where
-    F: FnOnce(&mut Self, String) -> OpResult<T>,
-  {
-    match self.program.const_at(index) {
-      Some(ConstantValue::String(name)) => f(self, name.clone()),
-      Some(name) => Err(UsageError::InvalidIdentifier(name.to_string()))?,
-      None => Err(UsageError::InvalidConst(index))?,
-    }
-  }
-
   fn load_from_storage(&mut self, st: Storage, addr: impl Into<usize>) -> OpResult<Value> {
     let addr = addr.into();
     match st {
@@ -1218,9 +1228,7 @@ impl Vm {
       Storage::Local => self
         .stack_load(self.stack_frame.sp + addr)
         .ok_or(UsageError::InvalidStackIndex(addr)),
-      Storage::Global => self.global_op(addr, |this, name| {
-        this.current_env().lookup(&name).ok_or(UsageError::UndefinedVar(name))
-      }),
+      Storage::Global => self.ident_value(addr),
     }
   }
 
@@ -1319,6 +1327,34 @@ impl Vm {
     Ok(())
   }
 
+  fn ident_value(&self, ident_loc: impl Into<usize>) -> OpResult<Value> {
+    let ident = ident_loc.into();
+    let module = current_module!(self);
+    let hit = self.cache.find_var(module, ident);
+    match hit {
+      Some(hit) => Ok(hit),
+      None => match self.cache.const_at(ident) {
+        Some(ConstantValue::String(name)) => current_module!(self)
+          .lookup(&name)
+          .ok_or_else(|| UsageError::UndefinedVar(name.clone())),
+        Some(name) => Err(UsageError::InvalidIdentifier(name.to_string()))?,
+        None => Err(UsageError::InvalidConst(ident))?,
+      },
+    }
+  }
+
+  fn validate_ident_and<F, T>(&mut self, index: impl Into<usize>, f: F) -> OpResult<T>
+  where
+    F: FnOnce(&mut Self, String) -> OpResult<T>,
+  {
+    let index = index.into();
+    match self.cache.const_at(index) {
+      Some(ConstantValue::String(name)) => f(self, name.clone()),
+      Some(name) => Err(UsageError::InvalidIdentifier(name.to_string()))?,
+      None => Err(UsageError::InvalidConst(index))?,
+    }
+  }
+
   pub fn ctx(&self) -> &Context {
     &self.stack_frame.ctx
   }
@@ -1327,19 +1363,23 @@ impl Vm {
     &mut self.stack_frame.ctx
   }
 
-  pub fn current_env(&self) -> &UsertypeHandle<ModuleValue> {
-    self.envs.last()
-  }
-
-  pub fn current_env_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
-    self.envs.last_mut()
+  pub fn current_module_value(&self) -> Value {
+    self.modules.last().value()
   }
 
   pub fn check_gc(&mut self, export: Option<&Value>) -> ExecResult {
-    self
-      .gc
-      .clean_if_time(&self.stack, &self.envs, self.lib_cache.values(), export)?;
+    self.gc.clean_if_time(&self.stack, &self.modules, &mut self.cache, export)?;
     Ok(())
+  }
+
+  pub fn get_global(&self, name: &str) -> Option<Value> {
+    self.globals.get(name).cloned()
+  }
+
+  pub fn set_global(&mut self, name: impl ToString, value: impl Into<Value>) {
+    let name = name.to_string();
+    self.cache.invalidate_global(&name);
+    self.globals.insert(name, value.into());
   }
 
   #[cold]

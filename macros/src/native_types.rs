@@ -194,7 +194,7 @@ pub(crate) fn native_mod(item: ItemMod, no_entry: bool) -> TokenStream {
       #[no_mangle]
       pub fn duck_type_load_module(vm: &mut Vm) -> UsertypeHandle<ModuleValue> {
         let mut #gc_ident = vm.gc.clone();
-        let #module_ident = vm.current_env();
+        let #module_ident = vm.current_module_value();
         #mod_name::duck_type_autogen_create_module(&mut #gc_ident, #module_ident.into())
       }
     }

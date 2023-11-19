@@ -33,7 +33,7 @@ enum Lookup {
 }
 
 pub struct BytecodeGenerator<'p> {
-  program: &'p mut Program,
+  cache: &'p mut Cache,
   file_id: Option<FileIdType>,
   ctx: SmartPtr<Context>,
 
@@ -53,9 +53,9 @@ pub struct BytecodeGenerator<'p> {
 }
 
 impl<'p> BytecodeGenerator<'p> {
-  pub fn new(program: &'p mut Program, file_id: Option<FileIdType>, ctx: SmartPtr<Context>) -> Self {
+  pub fn new(cache: &'p mut Cache, file_id: Option<FileIdType>, ctx: SmartPtr<Context>) -> Self {
     Self {
-      program,
+      cache,
       file_id,
       ctx,
 
@@ -119,7 +119,7 @@ impl<'p> BytecodeGenerator<'p> {
     if let Some(var) = self.declare_global(stmt.ident.clone()) {
       self.emit_expr(stmt.body);
 
-      self.define_global(var, stmt.loc);
+      self.define_scope(var, stmt.loc);
       self.emit(Opcode::Pop, stmt.loc);
     } else {
       self.error(stmt.loc, "could not create class name");
@@ -140,7 +140,7 @@ impl<'p> BytecodeGenerator<'p> {
       let nargs = stmt.params.len();
       self.emit_fn(Some(stmt.ident), stmt.params, nargs, *stmt.body, stmt.loc);
 
-      self.define_global(var, stmt.loc);
+      self.define_scope(var, stmt.loc);
       self.emit(Opcode::Pop, stmt.loc);
     } else {
       self.error(stmt.loc, "could not create fn name");
@@ -241,7 +241,7 @@ impl<'p> BytecodeGenerator<'p> {
     if let Some(var) = self.declare_global(stmt.ident.clone()) {
       self.emit_expr(stmt.body);
 
-      self.define_global(var, stmt.loc);
+      self.define_scope(var, stmt.loc);
       self.emit(Opcode::Pop, stmt.loc);
     } else {
       self.error(stmt.loc, "could not create mod name");
@@ -261,7 +261,7 @@ impl<'p> BytecodeGenerator<'p> {
   fn req_stmt(&mut self, stmt: ReqStatement) {
     if let Some(var) = self.declare_global(stmt.ident) {
       self.emit_expr(stmt.expr);
-      self.define_global(var, stmt.loc);
+      self.define_scope(var, stmt.loc);
       self.emit(Opcode::Pop, stmt.loc);
     } else {
       self.error(stmt.loc, "could not crate req storage name");
@@ -285,11 +285,6 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn use_stmt(&mut self, stmt: UseStatement) {
-    if self.scope_depth != 0 {
-      self.error(stmt.loc, "use cannot be declared inside of scopes");
-      return;
-    }
-
     let initial = stmt.path.first().cloned().unwrap(); // validated in ast
     let var = stmt.path.last().cloned().unwrap(); // validated in ast
 
@@ -318,7 +313,7 @@ impl<'p> BytecodeGenerator<'p> {
           }
         }
 
-        self.define_global(var_idx, stmt.loc);
+        self.define_scope(var_idx, stmt.loc);
         self.emit(Opcode::Pop, stmt.loc);
       } else {
         self.error(stmt.loc, "could not declare final name in use path");
@@ -744,7 +739,7 @@ impl<'p> BytecodeGenerator<'p> {
       for (member, assign) in expr.items {
         if let Some(ident) = self.add_const_ident(member) {
           self.emit_expr(assign);
-          self.define_global(ident, expr.loc);
+          self.define_scope(ident, expr.loc);
           self.emit(Opcode::Pop, expr.loc);
         } else {
           self.error(expr.loc, "failed to add mod member name");
@@ -929,12 +924,32 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn emit_const(&mut self, c: ConstantValue, loc: SourceLocation) -> bool {
-    if let Some(c) = self.program.add_const(c) {
+    if let Some(c) = self.add_const(c) {
       self.emit((Opcode::Const, c), loc);
       true
     } else {
       false
     }
+  }
+
+  pub(crate) fn add_const(&mut self, c: ConstantValue) -> Option<usize> {
+    let string = if let ConstantValue::String(string) = &c {
+      if let Some(index) = self.cache.strings.get_by_right(string.as_str()) {
+        return Some(*index);
+      }
+      Some(string.clone())
+    } else {
+      None
+    };
+
+    let index = self.cache.consts.len();
+    self.cache.consts.push(c);
+
+    if let Some(string) = string {
+      self.cache.strings.insert(index, string);
+    }
+
+    Some(index)
   }
 
   /**
@@ -978,7 +993,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn add_const_ident(&mut self, ident: Ident) -> Option<usize> {
-    self.program.add_const(ConstantValue::String(ident.name))
+    self.add_const(ConstantValue::String(ident.name))
   }
 
   fn current_ctx(&mut self) -> &mut Context {
@@ -1061,7 +1076,11 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn define_global(&mut self, var: usize, loc: SourceLocation) {
-    self.emit((Opcode::Define, var), loc);
+    self.emit((Opcode::DefineGlobal, var), loc);
+  }
+
+  fn define_scope(&mut self, var: usize, loc: SourceLocation) {
+    self.emit((Opcode::DefineScope, var), loc);
   }
 
   fn define_local(&mut self) -> bool {

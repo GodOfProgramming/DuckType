@@ -464,7 +464,7 @@ impl Add for Value {
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
-      Tag::Bool => todo!(),
+      Tag::Bool => Err(UsageError::InvalidBinary),
       Tag::Char => {
         let v = self.reinterpret_cast_to::<char>();
         match rhs.tag() {
@@ -505,7 +505,7 @@ impl Sub for Value {
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
-      Tag::Bool => todo!(),
+      Tag::Bool => Err(UsageError::InvalidBinary),
       Tag::Char => {
         let v = self.reinterpret_cast_to::<char>();
         match rhs.tag() {
@@ -546,7 +546,7 @@ impl Mul for Value {
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
-      Tag::Bool => todo!(),
+      Tag::Bool => Err(UsageError::InvalidBinary),
       Tag::Char => {
         let v = self.reinterpret_cast_to::<char>();
         match rhs.tag() {
@@ -588,7 +588,7 @@ impl Div for Value {
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
-      Tag::Bool => todo!(),
+      Tag::Bool => Err(UsageError::InvalidBinary),
       Tag::Char => {
         let v = self.reinterpret_cast_to::<char>();
         match rhs.tag() {
@@ -629,7 +629,7 @@ impl Rem for Value {
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
-      Tag::Bool => todo!(),
+      Tag::Bool => Err(UsageError::InvalidBinary),
       Tag::Char => {
         let v = self.reinterpret_cast_to::<char>();
         match rhs.tag() {
