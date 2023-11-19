@@ -1,5 +1,4 @@
-fn p(e) {
-  println e;
+{
+  use std::debug;
+  println debug;
 }
-
-p(0 is std::types::i32);

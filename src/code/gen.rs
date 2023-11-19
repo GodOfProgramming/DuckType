@@ -285,11 +285,6 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn use_stmt(&mut self, stmt: UseStatement) {
-    if self.scope_depth != 0 {
-      self.error(stmt.loc, "use cannot be declared inside of scopes");
-      return;
-    }
-
     let initial = stmt.path.first().cloned().unwrap(); // validated in ast
     let var = stmt.path.last().cloned().unwrap(); // validated in ast
 
