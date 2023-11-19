@@ -1,9 +1,12 @@
 use super::{
   ast::{
-    BinaryExpression, BinaryOperator, BinaryRegisterExpression, BlockStatement, ClassExpression, ClassStatement,
-    ExportStatement, Expression, ExpressionStatement, FnStatement, ForStatement, IfStatement, LetStatement, LiteralExpression,
-    LiteralValue, LoopStatement, MatchStatement, ModStatement, PrintlnStatement, QuackStatement, ReqStatement, RetStatement,
-    Statement, VarStorage, WhileStatement,
+    AndExpression, AssignExpression, BinaryExpression, BinaryOperator, BinaryRegisterExpression, BlockStatement,
+    CallExpression, ClassExpression, ClassStatement, ClosureExpression, DynVecExpression, ExportStatement, Expression,
+    ExpressionStatement, FnStatement, ForStatement, Ident, IfStatement, IndexExpression, IsExpression, LambdaExpression,
+    LetStatement, LiteralExpression, LiteralValue, LoopStatement, MatchStatement, MemberAccessExpression, MethodExpression,
+    ModExpression, ModStatement, OrExpression, PrintlnStatement, QuackStatement, ReqExpression, ReqStatement, RetStatement,
+    ScopeResolutionExpression, SizedVecExpression, Statement, StructExpression, UnaryExpression, VarStorage, VecExpression,
+    WhileStatement,
   },
   Ast,
 };
@@ -216,19 +219,25 @@ impl Optimize for Expression {
   type Output = Self;
   fn optimize(self) -> Self::Output {
     match self {
-      Expression::Assign(mut expr) => {
-        expr.value = expr.value.optimize();
-        Expression::Assign(expr)
-      }
+      Expression::And(expr) => expr.optimize(),
+      Expression::Assign(expr) => expr.optimize(),
       Expression::Binary(expr) => expr.optimize(),
-      Expression::Closure(mut expr) => {
-        expr.body = expr.body.optimize();
-        Expression::Closure(expr)
-      }
-      Expression::Lambda(mut expr) => {
-        expr.body = expr.body.optimize();
-        Expression::Lambda(expr)
-      }
+      Expression::Call(expr) => expr.optimize(),
+      Expression::Class(expr) => expr.optimize(),
+      Expression::Closure(expr) => expr.optimize(),
+      Expression::Index(expr) => expr.optimize(),
+      Expression::Is(expr) => expr.optimize(),
+      Expression::Lambda(expr) => expr.optimize(),
+      Expression::MemberAccess(expr) => expr.optimize(),
+      Expression::Method(expr) => expr.optimize(),
+      Expression::Mod(expr) => expr.optimize(),
+      Expression::Or(expr) => expr.optimize(),
+      Expression::Req(expr) => expr.optimize(),
+      Expression::ScopeResolution(expr) => expr.optimize(),
+      Expression::Struct(expr) => expr.optimize(),
+      Expression::Unary(expr) => expr.optimize(),
+      Expression::Vec(expr) => expr.optimize(),
+      Expression::DynVec(expr) => expr.optimize(),
       expr => expr,
     }
   }
@@ -245,6 +254,37 @@ impl Optimize for Option<Expression> {
   type Output = Self;
   fn optimize(self) -> Self::Output {
     self.map(Optimize::optimize)
+  }
+}
+
+impl Optimize for Option<Box<Expression>> {
+  type Output = Self;
+  fn optimize(self) -> Self::Output {
+    self.map(Optimize::optimize)
+  }
+}
+
+impl Optimize for Vec<Expression> {
+  type Output = Self;
+  fn optimize(self) -> Self::Output {
+    self.into_iter().map(Optimize::optimize).collect()
+  }
+}
+
+impl Optimize for AndExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.left = self.left.optimize();
+    self.right = self.right.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for AssignExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.value = self.value.optimize();
+    self.into()
   }
 }
 
@@ -385,7 +425,160 @@ impl Optimize for BinaryExpression {
   }
 }
 
+impl Optimize for CallExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.callable = self.callable.optimize();
+    self.args = self.args.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for ClassExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.self_type = self.self_type.optimize();
+    self.initializer = self.initializer.optimize();
+    self.methods = self.methods.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for ClosureExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.body = self.body.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for IndexExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.indexable = self.indexable.optimize();
+    self.index = self.index.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for IsExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.left = self.left.optimize();
+    self.right = self.right.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for LambdaExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.body = self.body.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for MemberAccessExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.obj = self.obj.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for MethodExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.body = self.body.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for ModExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.items = self.items.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for OrExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.left = self.left.optimize();
+    self.right = self.right.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for ReqExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.file = self.file.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for ScopeResolutionExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.obj = self.obj.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for StructExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.members = self.members.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for UnaryExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.expr = self.expr.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for VecExpression {
+  type Output = Expression;
+  fn optimize(mut self) -> Self::Output {
+    self.items = self.items.optimize();
+    self.into()
+  }
+}
+
+impl Optimize for DynVecExpression {
+  type Output = Expression;
+  fn optimize(self) -> Self::Output {
+    match *self.size {
+      Expression::Literal(LiteralExpression {
+        value: LiteralValue::I32(size),
+        loc,
+      }) => SizedVecExpression::new(*self.item, size, loc).into(),
+      _ => self.into(),
+    }
+  }
+}
+
 /* Weird */
+
+impl Optimize for Vec<(Ident, Expression)> {
+  type Output = Self;
+  fn optimize(self) -> Self::Output {
+    self.into_iter().map(Optimize::optimize).collect()
+  }
+}
+
+impl Optimize for (Ident, Expression) {
+  type Output = Self;
+  fn optimize(self) -> Self::Output {
+    (self.0, self.1.optimize())
+  }
+}
 
 impl Optimize for Vec<(Expression, Statement)> {
   type Output = Self;

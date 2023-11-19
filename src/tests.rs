@@ -212,24 +212,38 @@ mod integration_tests {
 
 struct ScriptTest {
   vm: Vm,
+  opt: Vm,
 }
 
 impl ScriptTest {
   pub fn run(&mut self, script: &Path) {
-    println!("running {:?}", script);
-    let env = ModuleBuilder::initialize(&mut self.vm.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-      let libval = lib.handle.value.clone();
-      lib.env.extend(stdlib::enable_std(gc, libval, &[]));
-    });
-    self.vm.run_file(script, env).unwrap();
+    // non-opt
+    {
+      println!("Running non-optimized {:?}", script);
+      let env = ModuleBuilder::initialize(&mut self.vm.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
+        let libval = lib.handle.value.clone();
+        lib.env.extend(stdlib::enable_std(gc, libval, &[]));
+      });
+      self.vm.run_file(script, env).unwrap();
+    }
+
+    // opt
+    {
+      println!("Running optimized {:?}", script);
+      let env = ModuleBuilder::initialize(&mut self.opt.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
+        let libval = lib.handle.value.clone();
+        lib.env.extend(stdlib::enable_std(gc, libval, &[]));
+      });
+      self.opt.run_file(script, env).unwrap();
+    }
   }
 }
 
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
-    let gc = SmartPtr::new(Gc::always_run());
     Self {
-      vm: Vm::new(gc, false, vec![]),
+      vm: Vm::new(SmartPtr::new(Gc::always_run()), false, []),
+      opt: Vm::new(SmartPtr::new(Gc::always_run()), true, []),
     }
   }
 }

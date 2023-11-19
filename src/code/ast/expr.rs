@@ -31,8 +31,8 @@ pub enum Expression {
   Struct(StructExpression),
   Unary(UnaryExpression),
   Vec(VecExpression),
-  VecWithSize(VecWithSizeExpression),
-  VecWithDynamicSize(VecWithDynamicSizeExpression),
+  SizedVec(SizedVecExpression),
+  DynVec(DynVecExpression),
 }
 
 impl Expression {
@@ -95,8 +95,8 @@ impl Expression {
       Expression::Struct(_) => (),
       Expression::Unary(_) => (),
       Expression::Vec(_) => (),
-      Expression::VecWithSize(_) => (),
-      Expression::VecWithDynamicSize(_) => (),
+      Expression::SizedVec(_) => (),
+      Expression::DynVec(_) => (),
     }
   }
 }
@@ -125,8 +125,8 @@ impl Display for Expression {
       Self::Struct(_) => write!(f, "struct"),
       Self::Unary(u) => write!(f, "unary {:?}", u.op),
       Self::Vec(_) => write!(f, "vec"),
-      Self::VecWithSize(_) => write!(f, "sized vec"),
-      Self::VecWithDynamicSize(_) => write!(f, "dynamic vec"),
+      Self::SizedVec(_) => write!(f, "sized vec"),
+      Self::DynVec(_) => write!(f, "dynamic vec"),
     }
   }
 }
@@ -257,14 +257,14 @@ impl From<ScopeResolutionExpression> for Expression {
   }
 }
 
-impl From<VecWithSizeExpression> for Expression {
-  fn from(expr: VecWithSizeExpression) -> Self {
-    Self::VecWithSize(expr)
+impl From<SizedVecExpression> for Expression {
+  fn from(expr: SizedVecExpression) -> Self {
+    Self::SizedVec(expr)
   }
 }
 
-impl From<VecWithDynamicSizeExpression> for Expression {
-  fn from(expr: VecWithDynamicSizeExpression) -> Self {
-    Self::VecWithDynamicSize(expr)
+impl From<DynVecExpression> for Expression {
+  fn from(expr: DynVecExpression) -> Self {
+    Self::DynVec(expr)
   }
 }
