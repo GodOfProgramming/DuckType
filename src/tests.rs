@@ -89,7 +89,7 @@ mod integration_tests {
     test.script = "let $foo;".into();
 
     test.run(|this, _| {
-      let val = this.env.lookup("$foo").unwrap();
+      let val = this.vm.get_global("$foo").unwrap();
       assert_eq!(val, Value::nil);
     });
   }
@@ -102,7 +102,7 @@ mod integration_tests {
     test.script = "let $foo = true;".into();
 
     test.run(|this, _| {
-      let val = this.env.lookup("$foo").unwrap();
+      let val = this.vm.get_global("$foo").unwrap();
       assert_eq!(val, Value::from(true));
     });
   }
@@ -114,7 +114,7 @@ mod integration_tests {
     test.script = format!("let $foo = {math};");
 
     test.run(|this, _| {
-      let val = this.env.lookup("$foo").unwrap();
+      let val = this.vm.get_global("$foo").unwrap();
       assert_eq!(val, Value::from(value));
     });
   }
@@ -126,7 +126,7 @@ mod integration_tests {
     test.script = format!("let $foo; $foo = {math};");
 
     test.run(|this, _| {
-      let val = this.env.lookup("$foo").unwrap();
+      let val = this.vm.get_global("$foo").unwrap();
       assert_eq!(val, Value::from(value));
     });
   }
@@ -136,7 +136,7 @@ mod integration_tests {
     test.script = "let $foo; { $foo = 1; }".into();
 
     test.run(|this, _| {
-      let val = this.env.lookup("$foo").unwrap();
+      let val = this.vm.get_global("$foo").unwrap();
       assert_eq!(val, Value::from(1));
     });
   }
@@ -146,9 +146,9 @@ mod integration_tests {
     test.script = "let $foo; { $foo = 1; let bar; bar = 0; }".into();
 
     test.run(|this, _| {
-      let val = this.env.lookup("$foo").unwrap();
+      let val = this.vm.get_global("$foo").unwrap();
       assert_eq!(val, Value::from(1));
-      assert!(this.env.lookup("bar").is_none());
+      assert!(this.vm.get_global("bar").is_none());
     });
   }
 
@@ -157,7 +157,7 @@ mod integration_tests {
     test.script = "let $foo = true; if $foo { $foo = 1; }".into();
 
     test.run(|this, _| {
-      let val = this.env.lookup("$foo").unwrap();
+      let val = this.vm.get_global("$foo").unwrap();
       assert_eq!(val, Value::from(1));
     });
   }
@@ -170,7 +170,7 @@ mod integration_tests {
     test.script = "let $foo = true; if $foo { $foo = 1; } else { $foo = 2; }".into();
 
     test.run(|this, _| {
-      let val = this.env.lookup("$foo").unwrap();
+      let val = this.vm.get_global("$foo").unwrap();
       assert_eq!(val, Value::from(1));
     });
   }
@@ -180,7 +180,7 @@ mod integration_tests {
     test.script = "let $foo = false; if $foo { $foo = 1; } else { $foo = 2; }".into();
 
     test.run(|this, _| {
-      let val = this.env.lookup("$foo").unwrap();
+      let val = this.vm.get_global("$foo").unwrap();
       assert_eq!(val, Value::from(2));
     });
   }

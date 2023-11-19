@@ -22,24 +22,24 @@ pub(crate) struct CompileOpts {
 }
 
 pub(crate) fn compile_file(
-  program: &mut Program,
+  cache: &mut Cache,
   file_id: FileIdType,
   source: impl AsRef<str>,
   opts: CompileOpts,
 ) -> Result<SmartPtr<Context>, CompiletimeErrors> {
-  compile(program, Some(file_id), source, opts)
+  compile(cache, Some(file_id), source, opts)
 }
 
 pub(crate) fn compile_string(
-  program: &mut Program,
+  cache: &mut Cache,
   source: impl AsRef<str>,
   opts: CompileOpts,
 ) -> Result<SmartPtr<Context>, CompiletimeErrors> {
-  compile(program, None, source, opts)
+  compile(cache, None, source, opts)
 }
 
 pub(crate) fn compile(
-  program: &mut Program,
+  cache: &mut Cache,
   file_id: Option<FileIdType>,
   source: impl AsRef<str>,
   opts: CompileOpts,
@@ -56,7 +56,7 @@ pub(crate) fn compile(
   let reflection = Reflection::new(Some("<main>"), file_id, Rc::clone(&source));
   let ctx = SmartPtr::new(Context::new(0, reflection));
 
-  BytecodeGenerator::new(program, file_id, ctx).generate(ast)
+  BytecodeGenerator::new(cache, file_id, ctx).generate(ast)
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]

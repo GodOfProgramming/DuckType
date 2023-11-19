@@ -49,7 +49,7 @@ impl Operators for TimeValue {
       right
         .cast_to::<TimeValue>()
         .map(|right| left.timestamp != right.timestamp)
-        .unwrap_or(false),
+        .unwrap_or(true),
     )
   }
 

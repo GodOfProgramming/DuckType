@@ -1,24 +1,39 @@
-use std::fmt::{self, Display, Formatter};
+use std::{
+  collections::{btree_map, hash_map, BTreeMap},
+  fmt::{self, Display, Formatter},
+  iter::Chain,
+};
 
 #[cfg(test)]
 use crate::code::gen::{CAPTURE_OPS, GENERATED_OPS};
 use crate::{
   code::{ConstantValue, Reflection},
   prelude::*,
+  util::FileIdType,
+  FastHashMap,
 };
 
 use super::Stack;
 pub mod prelude {
-  pub use super::{Context, Program};
+  pub use super::{Cache, Context};
 }
+
+type ConstIndex = usize;
+type ValueBits = u64;
 
 #[derive(Default)]
-pub struct Program {
-  consts: Vec<ConstantValue>,
-  pub(crate) strings: bimap::BiBTreeMap<usize, String>,
+pub struct Cache {
+  // Static
+  pub(crate) consts: Vec<ConstantValue>,
+  pub(crate) strings: bimap::BiBTreeMap<ConstIndex, String>,
+  globals: FastHashMap<ConstIndex, Value>,
+  libs: BTreeMap<FileIdType, Value>,
+
+  // Can be cleared from gc cleaning
+  mods: FastHashMap<ValueBits, FastHashMap<ConstIndex, Value>>,
 }
 
-impl Program {
+impl Cache {
   pub fn const_at(&self, index: impl Into<usize>) -> Option<&ConstantValue> {
     self.consts.get(index.into())
   }
@@ -27,24 +42,44 @@ impl Program {
     &self.consts
   }
 
-  pub(crate) fn add_const(&mut self, c: ConstantValue) -> Option<usize> {
-    let string = if let ConstantValue::String(string) = &c {
-      if let Some(index) = self.strings.get_by_right(string.as_str()) {
-        return Some(*index);
-      }
-      Some(string.clone())
-    } else {
-      None
-    };
+  pub(crate) fn find_var(&self, env: &UsertypeHandle<ModuleValue>, key: impl Into<ConstIndex>) -> Option<Value> {
+    let key = key.into();
+    self
+      .mods
+      .get(&env.value().bits)
+      .and_then(|m| m.get(&key))
+      .or_else(|| self.globals.get(&key))
+      .cloned()
+  }
 
-    let index = self.consts.len();
-    self.consts.push(c);
+  pub(crate) fn add_lib(&mut self, id: FileIdType, value: Value) {
+    self.libs.insert(id, value);
+  }
 
-    if let Some(string) = string {
-      self.strings.insert(index, string);
+  pub(crate) fn get_lib(&self, id: FileIdType) -> Option<Value> {
+    self.libs.get(&id).cloned()
+  }
+
+  pub(crate) fn add_to_mod(&mut self, module: &UsertypeHandle<ModuleValue>, key: impl Into<ConstIndex>, value: Value) {
+    self.mods.entry(module.value().bits).or_default().insert(key.into(), value);
+  }
+
+  pub(crate) fn add_global(&mut self, id: impl Into<ConstIndex>, value: Value) {
+    self.globals.insert(id.into(), value);
+  }
+
+  pub(crate) fn invalidate_global(&mut self, name: &str) {
+    if let Some(index) = self.strings.get_by_right(name) {
+      self.globals.remove(index);
     }
+  }
 
-    Some(index)
+  pub(crate) fn values(&self) -> Chain<hash_map::Values<'_, usize, Value>, btree_map::Values<'_, FileIdType, Value>> {
+    self.globals.values().chain(self.libs.values())
+  }
+
+  pub(crate) fn forget(&mut self, addr: &u64) {
+    self.mods.remove(&addr);
   }
 }
 
@@ -109,20 +144,15 @@ impl Context {
     }
   }
 
-  pub fn disassemble(&self, stack: &Stack, program: &Program) -> String {
-    ContextDisassembler {
-      ctx: self,
-      stack,
-      program,
-    }
-    .to_string()
+  pub fn disassemble(&self, stack: &Stack, cache: &Cache) -> String {
+    ContextDisassembler { ctx: self, stack, cache }.to_string()
   }
 }
 
 pub(crate) struct ContextDisassembler<'a> {
   pub(crate) ctx: &'a Context,
   pub(crate) stack: &'a Stack,
-  pub(crate) program: &'a Program,
+  pub(crate) cache: &'a Cache,
 }
 
 impl<'a> Display for ContextDisassembler<'a> {
@@ -157,13 +187,13 @@ impl<'p> InstructionDisassembler<'p> {
     format!("{: >4}", value)
   }
 
-  fn const_at_column(program: &Program, index: impl Into<usize>) -> String {
+  fn const_at_column(cache: &Cache, index: impl Into<usize>) -> String {
     let cval = &ConstantValue::StaticString("????");
-    let value = program.const_at(index).unwrap_or(cval);
+    let value = cache.const_at(index).unwrap_or(cval);
     format!("{value: >4?}")
   }
 
-  fn storage_column(program: &Program, storage: Storage, index: impl Into<usize>) -> String {
+  fn storage_column(cache: &Cache, storage: Storage, index: impl Into<usize>) -> String {
     let index = index.into();
     match storage {
       Storage::Stack => format!("{} {}", Self::value_column("st"), Self::value_column(index)),
@@ -172,7 +202,7 @@ impl<'p> InstructionDisassembler<'p> {
         "{} {} {}",
         Self::value_column("gb"),
         Self::value_column(index),
-        Self::const_at_column(program, index),
+        Self::const_at_column(cache, index),
       ),
     }
   }
@@ -185,7 +215,7 @@ impl<'p> InstructionDisassembler<'p> {
 impl<'p> Display for InstructionDisassembler<'p> {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     let InstructionDisassembler { ctx, inst, offset } = self;
-    let ContextDisassembler { ctx, stack, program } = ctx;
+    let ContextDisassembler { ctx, stack, cache } = ctx;
 
     write!(f, "{} ", Self::address_of(*offset))?;
     if let Some(curr) = ctx.meta.info(*offset) {
@@ -214,7 +244,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
           "{} {} {}",
           Self::opcode_column("Const"),
           Self::value_column(index),
-          Self::const_at_column(program, index)
+          Self::const_at_column(cache, index)
         )
       }
       Opcode::PopN => {
@@ -229,13 +259,13 @@ impl<'p> Display for InstructionDisassembler<'p> {
             f,
             "{} {}",
             Self::opcode_column("Load Local"),
-            Self::storage_column(program, storage, index)
+            Self::storage_column(cache, storage, index)
           ),
           Storage::Global => write!(
             f,
             "{} {}",
             Self::opcode_column("Load Global"),
-            Self::storage_column(program, storage, index)
+            Self::storage_column(cache, storage, index)
           ),
         }
       }
@@ -247,24 +277,34 @@ impl<'p> Display for InstructionDisassembler<'p> {
             f,
             "{} {}",
             Self::opcode_column("Store Local"),
-            Self::storage_column(program, storage, index)
+            Self::storage_column(cache, storage, index)
           ),
           Storage::Global => write!(
             f,
             "{} {}",
             Self::opcode_column("Store Global"),
-            Self::storage_column(program, storage, index)
+            Self::storage_column(cache, storage, index)
           ),
         }
       }
-      Opcode::Define => {
+      Opcode::DefineGlobal => {
         let ident: usize = inst.display_data();
         write!(
           f,
           "{} {} {}",
-          Self::opcode_column("Define"),
+          Self::opcode_column("Define Global"),
           Self::value_column(ident),
-          Self::const_at_column(program, ident)
+          Self::const_at_column(cache, ident)
+        )
+      }
+      Opcode::DefineScope => {
+        let ident: usize = inst.display_data();
+        write!(
+          f,
+          "{} {} {}",
+          Self::opcode_column("Define Scope"),
+          Self::value_column(ident),
+          Self::const_at_column(cache, ident)
         )
       }
       Opcode::AssignMember => {
@@ -274,7 +314,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
           "{} {} {}",
           Self::opcode_column("AssignMember"),
           Self::value_column(index),
-          Self::const_at_column(program, index)
+          Self::const_at_column(cache, index)
         )
       }
       Opcode::LookupMember => {
@@ -284,7 +324,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
           "{} {} {}",
           Self::opcode_column("LookupMember"),
           Self::value_column(index),
-          Self::const_at_column(program, index)
+          Self::const_at_column(cache, index)
         )
       }
       Opcode::Jump => {
@@ -346,7 +386,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
           "{} {} {}",
           Self::opcode_column("Resolve"),
           Self::value_column(ident),
-          Self::const_at_column(program, ident)
+          Self::const_at_column(cache, ident)
         )
       }
       Opcode::Add if inst.has_data() => {
@@ -355,8 +395,8 @@ impl<'p> Display for InstructionDisassembler<'p> {
           f,
           "{} {} {}",
           Self::opcode_column("Add"),
-          Self::storage_column(program, st_a, addr_a),
-          Self::storage_column(program, st_b, addr_b)
+          Self::storage_column(cache, st_a, addr_a),
+          Self::storage_column(cache, st_b, addr_b)
         )
       }
       Opcode::Sub if inst.has_data() => {
@@ -365,8 +405,8 @@ impl<'p> Display for InstructionDisassembler<'p> {
           f,
           "{} {} {}",
           Self::opcode_column("Sub"),
-          Self::storage_column(program, st_a, addr_a),
-          Self::storage_column(program, st_b, addr_b)
+          Self::storage_column(cache, st_a, addr_a),
+          Self::storage_column(cache, st_b, addr_b)
         )
       }
       Opcode::Mul if inst.has_data() => {
@@ -375,8 +415,8 @@ impl<'p> Display for InstructionDisassembler<'p> {
           f,
           "{} {} {}",
           Self::opcode_column("Mul"),
-          Self::storage_column(program, st_a, addr_a),
-          Self::storage_column(program, st_b, addr_b)
+          Self::storage_column(cache, st_a, addr_a),
+          Self::storage_column(cache, st_b, addr_b)
         )
       }
       Opcode::Div if inst.has_data() => {
@@ -385,8 +425,8 @@ impl<'p> Display for InstructionDisassembler<'p> {
           f,
           "{} {} {}",
           Self::opcode_column("Div"),
-          Self::storage_column(program, st_a, addr_a),
-          Self::storage_column(program, st_b, addr_b)
+          Self::storage_column(cache, st_a, addr_a),
+          Self::storage_column(cache, st_b, addr_b)
         )
       }
       Opcode::Rem if inst.has_data() => {
@@ -395,8 +435,8 @@ impl<'p> Display for InstructionDisassembler<'p> {
           f,
           "{} {} {}",
           Self::opcode_column("Rem"),
-          Self::storage_column(program, st_a, addr_a),
-          Self::storage_column(program, st_b, addr_b)
+          Self::storage_column(cache, st_a, addr_a),
+          Self::storage_column(cache, st_b, addr_b)
         )
       }
       Opcode::Swap => {

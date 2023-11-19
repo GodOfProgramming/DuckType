@@ -1,8 +1,6 @@
-use ahash::RandomState;
-
-use crate::prelude::*;
+use crate::{prelude::*, FastHashMap};
 use std::{
-  collections::{hash_map::Entry, HashMap},
+  collections::hash_map::Entry,
   iter::{self, Once},
 };
 
@@ -12,7 +10,7 @@ pub struct ModuleValue {
   name: Option<String>,
 
   #[trace]
-  pub env: HashMap<String, Value, RandomState>,
+  pub env: FastHashMap<String, Value>,
   #[trace]
   pub parent: Value,
 }
@@ -46,6 +44,8 @@ impl ModuleValue {
   }
 
   /// Defines a new variable. Returns true if the variable is new, false otherwise
+  ///
+  /// Calling this after the module becomes in use will cause caching issues
   pub fn define(&mut self, name: impl Into<String>, value: impl Into<Value>) -> bool {
     self.env.insert(name.into(), value.into()).is_none()
   }

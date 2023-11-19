@@ -362,11 +362,18 @@ pub enum Opcode {
   ///
   /// Encoding: None
   Export,
-  /// Defines the identifier on the variable
-  /// The const in the encoding is the name
+  /// Defines a variable in the global environment
+  ///
+  /// The encoding points to a const which is the name
   ///
   /// Encoding: | usize |
-  Define,
+  DefineGlobal,
+  /// Defines a variable in the current environment
+  ///
+  /// The encoding points to a const which is the name
+  ///
+  /// Encoding: | usize |
+  DefineScope,
   /// Resolve the specified identifier
   /// The const in the encoding is the name
   ///
@@ -690,12 +697,12 @@ impl StackFrame {
 }
 
 #[derive(Default)]
-pub(crate) struct EnvStack {
-  envs: Vec<EnvEntry>,
+pub(crate) struct ModuleStack {
+  envs: Vec<ModuleEntry>,
 }
 
-impl EnvStack {
-  pub(crate) fn iter<'v>(&'v self) -> std::slice::Iter<'v, EnvEntry> {
+impl ModuleStack {
+  pub(crate) fn iter<'v>(&'v self) -> std::slice::Iter<'v, ModuleEntry> {
     self.envs.iter()
   }
 
@@ -703,36 +710,36 @@ impl EnvStack {
     self.envs.len()
   }
 
-  pub(crate) fn push(&mut self, entry: EnvEntry) {
+  pub(crate) fn push(&mut self, entry: ModuleEntry) {
     self.envs.push(entry);
   }
 
-  pub(crate) fn pop(&mut self) -> EnvEntry {
+  pub(crate) fn pop(&mut self) -> ModuleEntry {
     self.envs.pop().expect("pop: the env stack should never be empty")
   }
 
   pub(crate) fn last(&self) -> &UsertypeHandle<ModuleValue> {
     match self.envs.last().expect("last: the env stack should never be empty") {
-      EnvEntry::Fn(e) => e,
-      EnvEntry::Mod(e) => e,
-      EnvEntry::File(e) => e,
-      EnvEntry::Block(e) => e,
-      EnvEntry::String(e) => e,
+      ModuleEntry::Fn(e) => e,
+      ModuleEntry::Mod(e) => e,
+      ModuleEntry::File(e) => e,
+      ModuleEntry::Block(e) => e,
+      ModuleEntry::String(e) => e,
     }
   }
 
   pub(crate) fn last_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
     match self.envs.last_mut().expect("last_mut: the env stack should never be empty") {
-      EnvEntry::Fn(e) => e,
-      EnvEntry::Mod(e) => e,
-      EnvEntry::File(e) => e,
-      EnvEntry::Block(e) => e,
-      EnvEntry::String(e) => e,
+      ModuleEntry::Fn(e) => e,
+      ModuleEntry::Mod(e) => e,
+      ModuleEntry::File(e) => e,
+      ModuleEntry::Block(e) => e,
+      ModuleEntry::String(e) => e,
     }
   }
 }
 
-pub(crate) enum EnvEntry {
+pub(crate) enum ModuleEntry {
   Fn(UsertypeHandle<ModuleValue>),
   Mod(UsertypeHandle<ModuleValue>),
   File(UsertypeHandle<ModuleValue>),
@@ -740,7 +747,7 @@ pub(crate) enum EnvEntry {
   String(UsertypeHandle<ModuleValue>),
 }
 
-impl EnvEntry {
+impl ModuleEntry {
   pub(crate) fn module(&self) -> UsertypeHandle<ModuleValue> {
     match self {
       Self::Fn(m) => m.clone(),
@@ -752,7 +759,7 @@ impl EnvEntry {
   }
 }
 
-impl Debug for EnvEntry {
+impl Debug for ModuleEntry {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
       Self::Fn(_) => f.debug_tuple("Fn").finish(),

@@ -1,12 +1,11 @@
-use super::{EnvStack, Stack};
+use super::{ModuleStack, Stack};
 use crate::{
   prelude::*,
   value::{tags::*, Mark, MutVoid, ValueMeta},
+  FastHashSet,
 };
-use ahash::RandomState;
 use ptr::MutPtr;
 use std::{
-  collections::HashSet,
   fmt::{self, Display, Formatter},
   mem,
   ops::{Deref, DerefMut},
@@ -244,7 +243,7 @@ impl Default for AsyncDisposal {
   }
 }
 
-type AllocationSet = HashSet<u64, RandomState>;
+type AllocationSet = FastHashSet<u64>;
 
 pub struct Gc {
   next_run: Instant,
@@ -271,8 +270,8 @@ impl Gc {
   pub(crate) fn clean_if_time<'v>(
     &mut self,
     stack: &Stack,
-    envs: &EnvStack,
-    cached_values: impl IntoIterator<Item = &'v Value>,
+    envs: &ModuleStack,
+    cache: &mut Cache,
     export: Option<&Value>,
   ) -> Result<usize, SystemError> {
     let now = Instant::now();
@@ -283,19 +282,19 @@ impl Gc {
 
     self.next_run = now + self.frequency;
 
-    self.clean(stack, envs, cached_values, export)
+    self.clean(stack, envs, cache, export)
   }
 
   pub(crate) fn clean<'v>(
     &mut self,
     stack: &Stack,
-    envs: &EnvStack,
-    cached_values: impl IntoIterator<Item = &'v Value>,
+    envs: &ModuleStack,
+    cache: &mut Cache,
     export: Option<&Value>,
   ) -> Result<usize, SystemError> {
     self.ref_check_native_handles();
 
-    let marked_allocations = self.trace(stack, envs, cached_values, export);
+    let marked_allocations = self.trace(stack, envs, cache, export);
 
     let unmarked_allocations = self.find_unmarked(marked_allocations);
 
@@ -304,6 +303,7 @@ impl Gc {
     for alloc in &unmarked_allocations {
       let removed = self.allocations.remove(alloc);
       debug_assert!(removed);
+      cache.forget(alloc);
     }
 
     if cleaned > 0 {
@@ -315,13 +315,7 @@ impl Gc {
     Ok(cleaned)
   }
 
-  fn trace<'v>(
-    &self,
-    stack: &Stack,
-    envs: &EnvStack,
-    cached_values: impl IntoIterator<Item = &'v Value>,
-    export: Option<&Value>,
-  ) -> AllocationSet {
+  fn trace<'v>(&self, stack: &Stack, envs: &ModuleStack, cache: &Cache, export: Option<&Value>) -> AllocationSet {
     let mut marked_allocations = Marker::default();
 
     for handle in &self.native_handles {
@@ -332,7 +326,7 @@ impl Gc {
       marked_allocations.trace(value)
     }
 
-    for value in cached_values {
+    for value in cache.values() {
       marked_allocations.trace(value);
     }
 
@@ -577,7 +571,14 @@ mod tests {
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc.clean(&Default::default(), &Default::default(), [], None).unwrap();
+    let cleaned = gc
+      .clean(
+        &Default::default(),
+        &Default::default(),
+        &mut Default::default(),
+        Default::default(),
+      )
+      .unwrap();
     assert_eq!(cleaned, 1);
   }
 
@@ -592,7 +593,14 @@ mod tests {
 
     gc.allocate(SomeType {});
 
-    let cleaned = gc.clean(&Default::default(), &Default::default(), [], None).unwrap();
+    let cleaned = gc
+      .clean(
+        &Default::default(),
+        &Default::default(),
+        &mut Default::default(),
+        Default::default(),
+      )
+      .unwrap();
 
     assert_eq!(cleaned, 1);
   }
@@ -607,11 +615,25 @@ mod tests {
 
     {
       let _handle = gc.allocate_typed_handle(struct_value);
-      let cleaned = gc.clean(&Default::default(), &Default::default(), [], None).unwrap();
+      let cleaned = gc
+        .clean(
+          &Default::default(),
+          &Default::default(),
+          &mut Default::default(),
+          Default::default(),
+        )
+        .unwrap();
       assert_eq!(cleaned, 0);
     }
 
-    let cleaned = gc.clean(&Default::default(), &Default::default(), [], None).unwrap();
+    let cleaned = gc
+      .clean(
+        &Default::default(),
+        &Default::default(),
+        &mut Default::default(),
+        Default::default(),
+      )
+      .unwrap();
     assert_eq!(cleaned, 2);
   }
 }

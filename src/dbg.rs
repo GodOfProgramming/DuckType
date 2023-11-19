@@ -74,7 +74,7 @@ pub enum EnvCmd {
 impl EnvCmd {
   fn exec(self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
     let output = match self {
-      EnvCmd::Get { name } => Some(if let Some(value) = vm.current_env().lookup(&name) {
+      EnvCmd::Get { name } => Some(if let Some(value) = vm.modules.last().lookup(&name) {
         format!("{:?}", value)
       } else {
         format!("no item in the env with the name '{}'", name)
@@ -88,10 +88,10 @@ impl EnvCmd {
           ValueCommand::String { value } => vm.gc.allocate(value),
         };
 
-        vm.current_env_mut().define(name, value);
+        vm.modules.last_mut().define(name, value);
         None
       }
-      EnvCmd::Count => Some(format!("{}", vm.envs.len())),
+      EnvCmd::Count => Some(format!("{}", vm.modules.len())),
     };
     Ok(CommandOutput::new(output, false))
   }
@@ -152,6 +152,7 @@ pub enum GcCmd {
   Count,
   Clean,
 }
+
 impl GcCmd {
   fn exec(&self, _vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
     todo!()
