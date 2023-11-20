@@ -231,7 +231,7 @@ impl AstGenerator {
       self.expression()?;
     }
 
-    if !self.consume(Token::LeftBrace, "expected '{' after paren") {
+    if !self.consume(Token::LeftBrace, "expected '\x7b' after paren") {
       return None;
     }
 
@@ -330,7 +330,7 @@ impl AstGenerator {
             self.expression()?;
           }
 
-          if !self.consume(Token::LeftBrace, "expected '{' after paren") {
+          if !self.consume(Token::LeftBrace, "expected '\x7b' after paren") {
             return None;
           }
 
@@ -465,7 +465,7 @@ impl AstGenerator {
 
     match self.scope_depth.checked_sub(1) {
       Some(v) => self.scope_depth = v,
-      None => self.error::<0>("unclosed scope detected, probably missing a '{' somewhere"),
+      None => self.error::<0>("unclosed scope detected, probably missing a '\x7b' somewhere"),
     }
 
     statements
@@ -484,7 +484,7 @@ impl AstGenerator {
     });
     self.returnable = prev_returnable;
 
-    if self.consume(Token::RightBrace, "expected '}' after block") {
+    if self.consume(Token::RightBrace, "expected '\x7d' after block") {
       Some(BlockStatement::new(statements, loc))
     } else {
       None
@@ -493,55 +493,6 @@ impl AstGenerator {
 
   fn normal_block(&mut self, loc: SourceLocation) -> Option<BlockStatement> {
     self.block(self.returnable, loc)
-  }
-
-  fn branch(&mut self) -> Option<IfStatement> {
-    if let Some(expr) = self.expression() {
-      if !self.consume(Token::LeftBrace, "expected '{' after condition") {
-        return None;
-      }
-
-      if let Some(block_loc) = self.meta_at::<1>() {
-        if let Some(block) = self.normal_block(block_loc) {
-          let else_block = if self.advance_if_matches(Token::Else) {
-            if let Some(else_meta) = self.meta_at::<1>() {
-              if let Some(token) = self.current() {
-                match token {
-                  Token::LeftBrace => {
-                    self.advance();
-                    Some(Statement::from(self.normal_block(else_meta)?))
-                  }
-                  Token::If => {
-                    self.advance();
-                    Some(Statement::from(self.branch()?))
-                  }
-                  _ => {
-                    self.error::<0>(String::from("unexpected token after 'else'"));
-                    return None;
-                  }
-                }
-              } else {
-                self.error::<1>(String::from("unexpected end of file"));
-                return None;
-              }
-            } else {
-              // sanity check
-              self.error::<0>(String::from("could not find original token"));
-              return None;
-            }
-          } else {
-            None
-          };
-
-          return Some(IfStatement::new(expr, Statement::from(block), else_block, block_loc));
-        }
-      } else {
-        // sanity check
-        self.error::<0>(String::from("could not find original token"));
-      }
-    }
-
-    None
   }
 
   fn parse_parameters(&mut self, terminator: Token) -> Option<Params> {

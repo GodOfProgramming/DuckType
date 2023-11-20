@@ -130,7 +130,7 @@ impl AstStatement for ForStatement {
           }
 
           if let Some(increment) = ast.expression() {
-            if ast.consume(Token::LeftBrace, "expected '{' after increment") {
+            if ast.consume(Token::LeftBrace, "expected '\x7b' after increment") {
               let prev = ast.in_loop;
               ast.in_loop = true;
               ast.meta_at::<1>().unwrap_and(|block_loc| {
@@ -168,13 +168,43 @@ impl IfStatement {
       loc,
     }
   }
+
+  fn branch(ast: &mut AstGenerator) -> Option<Self> {
+    let expr = ast.expression()?;
+    if !ast.consume(Token::LeftBrace, "expected '\x7b' after condition") {
+      return None;
+    }
+
+    let block_loc = ast.meta_at::<1>()?;
+    let block = ast.normal_block(block_loc)?;
+    let else_block = if ast.advance_if_matches(Token::Else) {
+      let else_meta = ast.meta_at::<1>()?;
+      let token = ast.current()?;
+      match token {
+        Token::LeftBrace => {
+          ast.advance();
+          Some(Statement::from(ast.normal_block(else_meta)?))
+        }
+        Token::If => {
+          ast.advance();
+          Some(Statement::from(Self::branch(ast)?))
+        }
+        _ => {
+          ast.error::<0>(String::from("unexpected token after 'else'"));
+          return None;
+        }
+      }
+    } else {
+      None
+    };
+
+    Some(IfStatement::new(expr, Statement::from(block), else_block, block_loc))
+  }
 }
 
 impl AstStatement for IfStatement {
   fn stmt(ast: &mut AstGenerator) {
-    if let Some(if_stmt) = ast.branch() {
-      ast.add(if_stmt);
-    }
+    Self::branch(ast).unwrap_and(|stmt| ast.add(stmt));
   }
 }
 
@@ -195,7 +225,7 @@ impl LoopStatement {
 
 impl AstStatement for LoopStatement {
   fn stmt(ast: &mut AstGenerator) {
-    if !ast.consume(Token::LeftBrace, "expect '{' after loop") {
+    if !ast.consume(Token::LeftBrace, "expect '\x7b' after loop") {
       return;
     }
 
@@ -243,7 +273,7 @@ impl AstStatement for MatchStatement {
   fn stmt(ast: &mut AstGenerator) {
     if let Some(loc) = ast.meta_at::<1>() {
       if let Some(expr) = ast.expression() {
-        if !ast.consume(Token::LeftBrace, "expected '{' after expression") {
+        if !ast.consume(Token::LeftBrace, "expected '\x7b' after expression") {
           return;
         }
 
@@ -289,7 +319,7 @@ impl AstStatement for MatchStatement {
           }
         }
 
-        if !ast.consume(Token::RightBrace, "expected '}' after match") {
+        if !ast.consume(Token::RightBrace, "expected '\x7d' after match") {
           return;
         }
 
@@ -368,7 +398,7 @@ impl WhileStatement {
 impl AstStatement for WhileStatement {
   fn stmt(ast: &mut AstGenerator) {
     ast.expression().unwrap_and(|expr| {
-      if !ast.consume(Token::LeftBrace, "expected '{' after expression") {
+      if !ast.consume(Token::LeftBrace, "expected '\x7b' after expression") {
         return;
       }
 

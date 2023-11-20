@@ -99,7 +99,7 @@ impl AstExpression for ClassExpression {
       return None;
     };
 
-    if !ast.consume(Token::LeftBrace, "expected '{' to begin class body") {
+    if !ast.consume(Token::LeftBrace, "expected '\x7b' to begin class body") {
       return None;
     }
 
@@ -190,7 +190,7 @@ impl AstExpression for ClassExpression {
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '}' after class body") {
+    if !ast.consume(Token::RightBrace, "expected '\x7d' after class body") {
       return None;
     }
 
@@ -458,7 +458,7 @@ impl AstExpression for ModExpression {
       return None;
     };
 
-    if !ast.consume(Token::LeftBrace, "expected '{' after mod name") {
+    if !ast.consume(Token::LeftBrace, "expected '\x7b' after mod name") {
       return None;
     }
 
@@ -556,7 +556,7 @@ impl AstExpression for ModExpression {
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '}' after module body") {
+    if !ast.consume(Token::RightBrace, "expected '\x7d' after module body") {
       return None;
     }
 
@@ -579,8 +579,8 @@ impl StructExpression {
 impl AstExpression for StructExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     let struct_meta = ast.meta_at::<1>()?;
-    // needed here because infix advances to '{' after seeing "struct"
-    if !ast.consume(Token::LeftBrace, "expected '{' to begin struct body") {
+    // needed here because infix advances to left brace after seeing "struct"
+    if !ast.consume(Token::LeftBrace, "expected '\x7b' to begin struct body") {
       return None;
     }
 
@@ -611,7 +611,7 @@ impl AstExpression for StructExpression {
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '}' after struct") {
+    if !ast.consume(Token::RightBrace, "expected '\x7d' after struct") {
       return None;
     }
 

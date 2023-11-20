@@ -214,8 +214,9 @@ impl<'src> Scanner<'src> {
         let token = match c {
           '(' => Token::LeftParen,
           ')' => Token::RightParen,
-          '{' => Token::LeftBrace,
-          '}' => Token::RightBrace,
+          // hex so vim doesn't get confused
+          '\x7b' => Token::LeftBrace,
+          '\x7d' => Token::RightBrace,
           '[' => Token::LeftBracket,
           ']' => Token::RightBracket,
           ',' => Token::Comma,

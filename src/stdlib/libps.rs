@@ -15,7 +15,12 @@ fn exit(code: i32) -> UsageResult {
 }
 
 #[native]
-fn thread_sleep(seconds: f64) -> UsageResult<()> {
+fn thread_sleep(seconds: (Option<i32>, Option<f64>)) -> UsageResult<()> {
+  let seconds = match seconds {
+    (Some(isec), None) => isec as f64,
+    (None, Some(fsec)) => fsec,
+    _ => Err(UsageError::InvalidArgument("std::ps::thread::sleep", 0))?,
+  };
   std::thread::sleep(Duration::from_secs_f64(seconds));
   Ok(())
 }
