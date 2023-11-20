@@ -396,11 +396,11 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn binary_register_expr(&mut self, expr: BinaryRegisterExpression) {
     let left = match expr.left {
-      StorageLocation::Stack(expr) => {
+      VarStorage::Stack(expr) => {
         self.emit_expr(*expr);
         (Storage::Stack, ShortAddr(0))
       }
-      StorageLocation::Ident(ident) => {
+      VarStorage::Ident(ident) => {
         if let Some(var) = self.resolve_ident(&ident, expr.loc) {
           match var {
             Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
@@ -420,11 +420,11 @@ impl<'p> BytecodeGenerator<'p> {
     };
 
     let right = match expr.right {
-      StorageLocation::Stack(expr) => {
+      VarStorage::Stack(expr) => {
         self.emit_expr(*expr);
         (Storage::Stack, ShortAddr(0))
       }
-      StorageLocation::Ident(ident) => {
+      VarStorage::Ident(ident) => {
         if let Some(var) = self.resolve_ident(&ident, expr.loc) {
           match var {
             Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
@@ -656,12 +656,12 @@ impl<'p> BytecodeGenerator<'p> {
     self.emit((Opcode::CreateVec, sz), expr.loc);
   }
 
-  fn sized_vec_expr(&mut self, expr: VecWithSizeExpression) {
+  fn sized_vec_expr(&mut self, expr: SizedVecExpression) {
     self.emit_expr(*expr.item);
     self.emit((Opcode::CreateSizedVec, expr.size as usize), expr.loc);
   }
 
-  fn dynamic_vec_expr(&mut self, expr: VecWithDynamicSizeExpression) {
+  fn dynamic_vec_expr(&mut self, expr: DynVecExpression) {
     self.emit_expr(*expr.item);
     self.emit_expr(*expr.size);
     self.emit(Opcode::CreateDynamicVec, expr.loc);
@@ -695,7 +695,7 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn class_expr(&mut self, expr: ClassExpression) {
     if let Some(ident) = self.add_const_ident(expr.name) {
-      self.emit_expr(*expr.creator);
+      self.emit_expr(*expr.self_type);
       self.emit((Opcode::CreateClass, ident), expr.loc);
 
       if let Some(initializer) = expr.initializer {
@@ -856,7 +856,6 @@ impl<'p> BytecodeGenerator<'p> {
       println!("expr {}", expr);
     }
     match expr {
-      Expression::Empty => panic!("Empty expressions are just placeholders and should not make it out of optimization"),
       Expression::And(expr) => self.and_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),
       Expression::Binary(expr) => self.binary_expr(expr),
@@ -878,8 +877,8 @@ impl<'p> BytecodeGenerator<'p> {
       Expression::Struct(expr) => self.struct_expr(expr),
       Expression::Unary(expr) => self.unary_expr(expr),
       Expression::Vec(expr) => self.vec_expr(expr),
-      Expression::VecWithSize(expr) => self.sized_vec_expr(expr),
-      Expression::VecWithDynamicSize(expr) => self.dynamic_vec_expr(expr),
+      Expression::SizedVec(expr) => self.sized_vec_expr(expr),
+      Expression::DynVec(expr) => self.dynamic_vec_expr(expr),
     }
   }
 

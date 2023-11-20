@@ -4,7 +4,11 @@ mod libps;
 mod libstr;
 mod libtime;
 
-use crate::{prelude::*, value::prelude::module_value::ModuleType, FastHashMap};
+use crate::{
+  prelude::*,
+  value::{prelude::module_value::ModuleType, NATIVE_FN_TAG},
+  FastHashMap,
+};
 use std::{collections::BTreeMap, env};
 
 pub(crate) mod names {
@@ -62,10 +66,7 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
       lib.define("f64", Value::new::<f64>(Default::default()));
       lib.define("char", Value::new::<char>(Default::default()));
       lib.define("bool", Value::new::<bool>(Default::default()));
-      lib.define(
-        "native",
-        Value::new::<NativeFn>(unsafe { std::mem::transmute(std::ptr::null::<NativeFn>()) }),
-      );
+      lib.define("native", Value { bits: NATIVE_FN_TAG });
       lib.define("str", gc.allocate(IdValue::new(StringValue::ID)));
     });
 

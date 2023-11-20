@@ -19,9 +19,7 @@ impl BlockStatement {
 impl AstStatement for BlockStatement {
   fn stmt(ast: &mut AstGenerator) {
     ast.meta_at::<1>().unwrap_and(|block_loc| {
-      ast.normal_block(block_loc).unwrap_and(|block| {
-        ast.statements.push(Statement::from(block));
-      });
+      ast.normal_block(block_loc).unwrap_and(|block| ast.add(block));
     });
   }
 }
@@ -48,9 +46,7 @@ impl AstStatement for BreakStatement {
       return;
     }
 
-    ast.meta_at::<2>().unwrap_and(|loc| {
-      ast.statements.push(Statement::from(Self::new(loc)));
-    });
+    ast.meta_at::<2>().unwrap_and(|loc| ast.add(Self::new(loc)));
   }
 }
 
@@ -76,9 +72,7 @@ impl AstStatement for ContStatement {
       return;
     }
 
-    ast.meta_at::<2>().unwrap_and(|loc| {
-      ast.statements.push(Statement::from(Self::new(loc)));
-    });
+    ast.meta_at::<2>().unwrap_and(|loc| ast.add(Self::new(loc)));
   }
 }
 
@@ -94,17 +88,17 @@ pub struct ForStatement {
 
 impl ForStatement {
   pub(super) fn new(
-    initializer: Statement,
-    comparison: Expression,
-    increment: Expression,
-    block: Statement,
+    initializer: impl Into<Statement>,
+    comparison: impl Into<Expression>,
+    increment: impl Into<Expression>,
+    block: impl Into<Statement>,
     loc: SourceLocation,
   ) -> Self {
     Self {
-      initializer: Box::new(initializer),
-      comparison,
-      increment,
-      block: Box::new(block),
+      initializer: Box::new(initializer.into()),
+      comparison: comparison.into(),
+      increment: increment.into(),
+      block: Box::new(block.into()),
       loc,
     }
   }
@@ -136,18 +130,12 @@ impl AstStatement for ForStatement {
           }
 
           if let Some(increment) = ast.expression() {
-            if ast.consume(Token::LeftBrace, "expected '{' after increment") {
+            if ast.consume(Token::LeftBrace, "expected '\x7b' after increment") {
               let prev = ast.in_loop;
               ast.in_loop = true;
               ast.meta_at::<1>().unwrap_and(|block_loc| {
                 if let Some(block) = ast.normal_block(block_loc) {
-                  ast.statements.push(Statement::from(Self::new(
-                    initializer,
-                    comparison,
-                    increment,
-                    Statement::from(block),
-                    for_loc,
-                  )));
+                  ast.add(Self::new(initializer, comparison, increment, block, for_loc));
                 }
               });
               ast.in_loop = prev;
@@ -180,13 +168,43 @@ impl IfStatement {
       loc,
     }
   }
+
+  fn branch(ast: &mut AstGenerator) -> Option<Self> {
+    let expr = ast.expression()?;
+    if !ast.consume(Token::LeftBrace, "expected '\x7b' after condition") {
+      return None;
+    }
+
+    let block_loc = ast.meta_at::<1>()?;
+    let block = ast.normal_block(block_loc)?;
+    let else_block = if ast.advance_if_matches(Token::Else) {
+      let else_meta = ast.meta_at::<1>()?;
+      let token = ast.current()?;
+      match token {
+        Token::LeftBrace => {
+          ast.advance();
+          Some(Statement::from(ast.normal_block(else_meta)?))
+        }
+        Token::If => {
+          ast.advance();
+          Some(Statement::from(Self::branch(ast)?))
+        }
+        _ => {
+          ast.error::<0>(String::from("unexpected token after 'else'"));
+          return None;
+        }
+      }
+    } else {
+      None
+    };
+
+    Some(IfStatement::new(expr, Statement::from(block), else_block, block_loc))
+  }
 }
 
 impl AstStatement for IfStatement {
   fn stmt(ast: &mut AstGenerator) {
-    if let Some(if_stmt) = ast.branch() {
-      ast.statements.push(Statement::from(if_stmt));
-    }
+    Self::branch(ast).unwrap_and(|stmt| ast.add(stmt));
   }
 }
 
@@ -207,7 +225,7 @@ impl LoopStatement {
 
 impl AstStatement for LoopStatement {
   fn stmt(ast: &mut AstGenerator) {
-    if !ast.consume(Token::LeftBrace, "expect '{' after loop") {
+    if !ast.consume(Token::LeftBrace, "expect '\x7b' after loop") {
       return;
     }
 
@@ -216,9 +234,7 @@ impl AstStatement for LoopStatement {
 
     if let Some(loc) = ast.meta_at::<1>() {
       if let Some(block) = ast.normal_block(loc) {
-        ast
-          .statements
-          .push(Statement::from(LoopStatement::new(Statement::from(block), loc)));
+        ast.add(LoopStatement::new(Statement::from(block), loc))
       }
     } else {
       // sanity check
@@ -257,7 +273,7 @@ impl AstStatement for MatchStatement {
   fn stmt(ast: &mut AstGenerator) {
     if let Some(loc) = ast.meta_at::<1>() {
       if let Some(expr) = ast.expression() {
-        if !ast.consume(Token::LeftBrace, "expected '{' after expression") {
+        if !ast.consume(Token::LeftBrace, "expected '\x7b' after expression") {
           return;
         }
 
@@ -303,7 +319,7 @@ impl AstStatement for MatchStatement {
           }
         }
 
-        if !ast.consume(Token::RightBrace, "expected '}' after match") {
+        if !ast.consume(Token::RightBrace, "expected '\x7d' after match") {
           return;
         }
 
@@ -382,7 +398,7 @@ impl WhileStatement {
 impl AstStatement for WhileStatement {
   fn stmt(ast: &mut AstGenerator) {
     ast.expression().unwrap_and(|expr| {
-      if !ast.consume(Token::LeftBrace, "expected '{' after expression") {
+      if !ast.consume(Token::LeftBrace, "expected '\x7b' after expression") {
         return;
       }
 

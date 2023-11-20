@@ -10,7 +10,6 @@ pub use ops::*;
 
 #[derive(Debug)]
 pub enum Expression {
-  Empty,
   And(AndExpression),
   Assign(AssignExpression),
   Binary(BinaryExpression),
@@ -32,15 +31,14 @@ pub enum Expression {
   Struct(StructExpression),
   Unary(UnaryExpression),
   Vec(VecExpression),
-  VecWithSize(VecWithSizeExpression),
-  VecWithDynamicSize(VecWithDynamicSizeExpression),
+  SizedVec(SizedVecExpression),
+  DynVec(DynVecExpression),
 }
 
 impl Expression {
   #[cfg(feature = "visit-ast")]
   pub(super) fn dump(&self, tmpl: &mut TemplateBuffer) {
     match self {
-      Expression::Empty => (),
       Expression::And(_) => (),
       Expression::Assign(_) => (),
       Expression::Binary(_) => (),
@@ -97,8 +95,8 @@ impl Expression {
       Expression::Struct(_) => (),
       Expression::Unary(_) => (),
       Expression::Vec(_) => (),
-      Expression::VecWithSize(_) => (),
-      Expression::VecWithDynamicSize(_) => (),
+      Expression::SizedVec(_) => (),
+      Expression::DynVec(_) => (),
     }
   }
 }
@@ -106,7 +104,6 @@ impl Expression {
 impl Display for Expression {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
     match self {
-      Self::Empty => panic!("Empty expressions are just placeholders and should not make it out of optimization"),
       Self::And(_) => write!(f, "and"),
       Self::Assign(_) => write!(f, "assign"),
       Self::Binary(_) => write!(f, "binary"),
@@ -128,8 +125,8 @@ impl Display for Expression {
       Self::Struct(_) => write!(f, "struct"),
       Self::Unary(u) => write!(f, "unary {:?}", u.op),
       Self::Vec(_) => write!(f, "vec"),
-      Self::VecWithSize(_) => write!(f, "sized vec"),
-      Self::VecWithDynamicSize(_) => write!(f, "dynamic vec"),
+      Self::SizedVec(_) => write!(f, "sized vec"),
+      Self::DynVec(_) => write!(f, "dynamic vec"),
     }
   }
 }
@@ -260,14 +257,14 @@ impl From<ScopeResolutionExpression> for Expression {
   }
 }
 
-impl From<VecWithSizeExpression> for Expression {
-  fn from(expr: VecWithSizeExpression) -> Self {
-    Self::VecWithSize(expr)
+impl From<SizedVecExpression> for Expression {
+  fn from(expr: SizedVecExpression) -> Self {
+    Self::SizedVec(expr)
   }
 }
 
-impl From<VecWithDynamicSizeExpression> for Expression {
-  fn from(expr: VecWithDynamicSizeExpression) -> Self {
-    Self::VecWithDynamicSize(expr)
+impl From<DynVecExpression> for Expression {
+  fn from(expr: DynVecExpression) -> Self {
+    Self::DynVec(expr)
   }
 }

@@ -52,6 +52,10 @@ impl Cache {
       .cloned()
   }
 
+  pub(crate) fn resolve_mod(&self, value: Value, key: impl Into<ConstIndex>) -> Option<Value> {
+    self.mods.get(&value.bits).and_then(|m| m.get(&key.into())).cloned()
+  }
+
   pub(crate) fn add_lib(&mut self, id: FileIdType, value: Value) {
     self.libs.insert(id, value);
   }
@@ -60,8 +64,8 @@ impl Cache {
     self.libs.get(&id).cloned()
   }
 
-  pub(crate) fn add_to_mod(&mut self, module: &UsertypeHandle<ModuleValue>, key: impl Into<ConstIndex>, value: Value) {
-    self.mods.entry(module.value().bits).or_default().insert(key.into(), value);
+  pub(crate) fn add_to_mod(&mut self, module: Value, key: impl Into<ConstIndex>, value: Value) {
+    self.mods.entry(module.bits).or_default().insert(key.into(), value);
   }
 
   pub(crate) fn add_global(&mut self, id: impl Into<ConstIndex>, value: Value) {
@@ -79,7 +83,7 @@ impl Cache {
   }
 
   pub(crate) fn forget(&mut self, addr: &u64) {
-    self.mods.remove(&addr);
+    self.mods.remove(addr);
   }
 }
 

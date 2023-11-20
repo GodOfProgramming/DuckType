@@ -540,9 +540,7 @@ impl InstructionData for () {
     Some(())
   }
 
-  fn unchecked_data(_: u64) -> Self {
-    ()
-  }
+  fn unchecked_data(_: u64) -> Self {}
 }
 
 impl<T0, T1> InstructionData for (T0, T1)
@@ -652,11 +650,16 @@ impl Display for Stack {
     if self.is_empty() {
       write!(f, "               | [ ]")
     } else {
-      let formatted = self
-        .iter()
-        .rev()
-        .enumerate()
-        .map(|(index, item)| format!("{:#15}| [ {:?} ]", self.len() - 1 - index, item));
+      let cols = termion::terminal_size()
+        .map(|(c, _)| c.saturating_sub(22) as usize)
+        .unwrap_or(64);
+      let formatted = self.iter().rev().enumerate().map(|(index, item)| {
+        let mut vs = format!("{item:?}");
+        if vs.len() > cols {
+          vs = format!("{}...", &vs[0..cols.saturating_sub(3)]);
+        }
+        format!("{:#15}| [ {} ]", self.len() - 1 - index, vs)
+      });
 
       let look = itertools::join(formatted, "\n");
 
@@ -702,7 +705,7 @@ pub(crate) struct ModuleStack {
 }
 
 impl ModuleStack {
-  pub(crate) fn iter<'v>(&'v self) -> std::slice::Iter<'v, ModuleEntry> {
+  pub(crate) fn iter(&self) -> std::slice::Iter<ModuleEntry> {
     self.envs.iter()
   }
 

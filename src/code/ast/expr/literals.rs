@@ -54,10 +54,16 @@ impl AstExpression for IdentExpression {
   }
 }
 
+impl From<IdentExpression> for Ident {
+  fn from(value: IdentExpression) -> Self {
+    value.ident
+  }
+}
+
 #[derive(Debug)]
 pub struct ClassExpression {
   pub name: Ident,
-  pub creator: Box<Expression>,
+  pub self_type: Box<Expression>,
   pub initializer: Option<Box<Expression>>,
   pub methods: Vec<(Ident, Expression)>,
   pub loc: SourceLocation,
@@ -73,7 +79,7 @@ impl ClassExpression {
   ) -> Self {
     Self {
       name,
-      creator: Box::new(creator),
+      self_type: Box::new(creator),
       initializer: initializer.map(Box::new),
       methods,
       loc,
@@ -93,7 +99,7 @@ impl AstExpression for ClassExpression {
       return None;
     };
 
-    if !ast.consume(Token::LeftBrace, "expected '{' to begin class body") {
+    if !ast.consume(Token::LeftBrace, "expected '\x7b' to begin class body") {
       return None;
     }
 
@@ -184,7 +190,7 @@ impl AstExpression for ClassExpression {
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '}' after class body") {
+    if !ast.consume(Token::RightBrace, "expected '\x7d' after class body") {
       return None;
     }
 
@@ -452,7 +458,7 @@ impl AstExpression for ModExpression {
       return None;
     };
 
-    if !ast.consume(Token::LeftBrace, "expected '{' after mod name") {
+    if !ast.consume(Token::LeftBrace, "expected '\x7b' after mod name") {
       return None;
     }
 
@@ -550,7 +556,7 @@ impl AstExpression for ModExpression {
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '}' after module body") {
+    if !ast.consume(Token::RightBrace, "expected '\x7d' after module body") {
       return None;
     }
 
@@ -573,8 +579,8 @@ impl StructExpression {
 impl AstExpression for StructExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     let struct_meta = ast.meta_at::<1>()?;
-    // needed here because infix advances to '{' after seeing "struct"
-    if !ast.consume(Token::LeftBrace, "expected '{' to begin struct body") {
+    // needed here because infix advances to left brace after seeing "struct"
+    if !ast.consume(Token::LeftBrace, "expected '\x7b' to begin struct body") {
       return None;
     }
 
@@ -605,7 +611,7 @@ impl AstExpression for StructExpression {
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '}' after struct") {
+    if !ast.consume(Token::RightBrace, "expected '\x7d' after struct") {
       return None;
     }
 
@@ -642,33 +648,19 @@ impl AstExpression for VecExpression {
       }
     }
 
-    let mut vec_size = None;
-    let mut dyn_size = None;
+    let mut size = None;
 
     if items.len() == 1 {
       // test if ';' is found
       if ast.advance_if_matches(Token::Semicolon) {
         // then check for a size
-        if let Some(Token::Number(NumberToken::I32(size))) = ast.current() {
-          ast.advance();
-          if size >= 0 {
-            vec_size = Some(size);
-          } else {
-            ast.error::<1>("vec size must be >= 0");
-            return None;
-          }
-        } else {
-          dyn_size = Some(ast.expression()?);
-        }
+        size = Some(ast.expression()?);
       }
     }
 
     if ast.consume(Token::RightBracket, "expect ']' after arguments") {
-      if let Some(size) = vec_size {
-        // fixed size vec
-        Some(VecWithSizeExpression::new(items.swap_remove(0), size, bracket_meta).into())
-      } else if let Some(size) = dyn_size {
-        Some(VecWithDynamicSizeExpression::new(items.swap_remove(0), size, bracket_meta).into())
+      if let Some(size) = size {
+        Some(DynVecExpression::new(items.swap_remove(0), size, bracket_meta).into())
       } else {
         // normal vec
         let vec = Self::new(items, bracket_meta);
@@ -687,13 +679,13 @@ impl AstExpression for VecExpression {
 }
 
 #[derive(Debug)]
-pub struct VecWithDynamicSizeExpression {
+pub struct DynVecExpression {
   pub item: Box<Expression>,
   pub size: Box<Expression>,
   pub loc: SourceLocation,
 }
 
-impl VecWithDynamicSizeExpression {
+impl DynVecExpression {
   fn new(item: Expression, size: Expression, loc: SourceLocation) -> Self {
     Self {
       item: Box::new(item),
@@ -704,13 +696,13 @@ impl VecWithDynamicSizeExpression {
 }
 
 #[derive(Debug)]
-pub struct VecWithSizeExpression {
+pub struct SizedVecExpression {
   pub item: Box<Expression>,
   pub size: i32,
   pub loc: SourceLocation,
 }
 
-impl VecWithSizeExpression {
+impl SizedVecExpression {
   pub fn new(item: Expression, size: i32, loc: SourceLocation) -> Self {
     Self {
       item: Box::new(item),

@@ -267,7 +267,7 @@ impl Gc {
     }
   }
 
-  pub(crate) fn clean_if_time<'v>(
+  pub(crate) fn clean_if_time(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
@@ -285,7 +285,7 @@ impl Gc {
     self.clean(stack, envs, cache, export)
   }
 
-  pub(crate) fn clean<'v>(
+  pub(crate) fn clean(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
@@ -315,7 +315,7 @@ impl Gc {
     Ok(cleaned)
   }
 
-  fn trace<'v>(&self, stack: &Stack, envs: &ModuleStack, cache: &Cache, export: Option<&Value>) -> AllocationSet {
+  fn trace(&self, stack: &Stack, envs: &ModuleStack, cache: &Cache, export: Option<&Value>) -> AllocationSet {
     let mut marked_allocations = Marker::default();
 
     for handle in &self.native_handles {

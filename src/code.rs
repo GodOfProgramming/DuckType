@@ -49,7 +49,7 @@ pub(crate) fn compile(
   let mut ast = Ast::try_from(file_id, tokens, token_locations)?;
 
   if opts.optimize {
-    opt::optimize(&mut ast);
+    ast = opt::optimize(ast);
   }
 
   let source = Rc::new(source.as_ref().to_string());
