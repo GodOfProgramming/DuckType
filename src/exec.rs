@@ -652,11 +652,16 @@ impl Display for Stack {
     if self.is_empty() {
       write!(f, "               | [ ]")
     } else {
-      let formatted = self
-        .iter()
-        .rev()
-        .enumerate()
-        .map(|(index, item)| format!("{:#15}| [ {:?} ]", self.len() - 1 - index, item));
+      let cols = termion::terminal_size()
+        .map(|(c, _)| c.saturating_sub(22) as usize)
+        .unwrap_or(64);
+      let formatted = self.iter().rev().enumerate().map(|(index, item)| {
+        let mut vs = format!("{item:?}");
+        if vs.len() > cols {
+          vs = format!("{}...", vs[0..cols.saturating_sub(3)].to_string());
+        }
+        format!("{:#15}| [ {} ]", self.len() - 1 - index, vs)
+      });
 
       let look = itertools::join(formatted, "\n");
 

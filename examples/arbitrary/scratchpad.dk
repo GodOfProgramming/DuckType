@@ -1,4 +1,12 @@
-{
-  use std::debug;
-  println debug;
+fn foo() {
+  fn bar() {
+  }
+
+  bar();
 }
+
+foo();
+foo();
+
+std::reflect::disasm;
+std::reflect::disasm;

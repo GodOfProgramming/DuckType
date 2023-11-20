@@ -89,6 +89,18 @@ macro_rules! current_module_mut {
   };
 }
 
+#[cfg(feature = "runtime-disassembly")]
+macro_rules! cache_hit {
+  () => {
+    println!("{:>28}", "| [cache hit]");
+  };
+}
+
+#[cfg(not(feature = "runtime-disassembly"))]
+macro_rules! cache_hit {
+  () => {};
+}
+
 pub struct Vm {
   pub(crate) stack: Stack,
   pub(crate) stack_frame: StackFrame,
@@ -314,7 +326,7 @@ impl Vm {
         }
         Opcode::DefineGlobal => self.exec(|this| this.exec_define_global(data!(inst)))?,
         Opcode::DefineScope => self.exec(|this| this.exec_define_scope(data!(inst)))?,
-        Opcode::Resolve => self.exec(|this| this.exec_scope_resolution(data!(inst)))?,
+        Opcode::Resolve => self.exec(|this| this.exec_resolve(data!(inst)))?,
         Opcode::EnterBlock => {
           self.push_scope();
           self.check_gc(export.as_ref())?;
@@ -536,7 +548,7 @@ impl Vm {
   }
 
   fn exec_load_global(&mut self, loc: LongAddr) -> OpResult {
-    let var = self.ident_value(loc)?;
+    let var = self.value_of_ident(loc)?;
     self.stack_push(var);
     Ok(())
   }
@@ -571,7 +583,7 @@ impl Vm {
       let v = this.stack_peek().ok_or(UsageError::EmptyStack)?;
       let module = current_module_mut!(this);
       if module.define(name.clone(), v.clone()) {
-        this.cache.add_to_mod(module, loc, v);
+        this.cache.add_to_mod(module.value(), loc, v);
         Ok(())
       } else {
         let level = current_module!(this).search_for(0, &name);
@@ -1005,17 +1017,29 @@ impl Vm {
     }
   }
 
-  fn exec_scope_resolution(&mut self, ident: usize) -> OpResult {
+  fn exec_resolve(&mut self, ident: usize) -> OpResult {
     let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
 
-    let name = self.cache.const_at(ident).ok_or(UsageError::InvalidConst(ident))?;
+    let hit = self.cache.resolve_mod(obj.clone(), ident);
 
-    if let ConstantValue::String(name) = name {
-      let value = obj.resolve(name)?;
-      self.stack_push(value);
-      Ok(())
-    } else {
-      Err(UsageError::InvalidIdentifier(name.to_string()))
+    match hit {
+      Some(value) => {
+        cache_hit!();
+        self.stack_push(value);
+        Ok(())
+      }
+      None => {
+        let name = self.cache.const_at(ident).ok_or(UsageError::InvalidConst(ident))?;
+
+        if let ConstantValue::String(name) = name {
+          let value = obj.resolve(name)?;
+          self.cache.add_to_mod(obj, ident, value.clone());
+          self.stack_push(value);
+          Ok(())
+        } else {
+          Err(UsageError::InvalidIdentifier(name.to_string()))
+        }
+      }
     }
   }
 
@@ -1228,7 +1252,7 @@ impl Vm {
       Storage::Local => self
         .stack_load(self.stack_frame.sp + addr)
         .ok_or(UsageError::InvalidStackIndex(addr)),
-      Storage::Global => self.ident_value(addr),
+      Storage::Global => self.value_of_ident(addr),
     }
   }
 
@@ -1327,7 +1351,13 @@ impl Vm {
     Ok(())
   }
 
-  fn ident_value(&self, ident_loc: impl Into<usize>) -> OpResult<Value> {
+  /// Tries to find the cached value at the given location and if not performs a slow lookup
+  ///
+  /// Do not attempt to optimize with caching the current module's value
+  ///
+  /// Scopes are created and destroyed rapidly at the moment,
+  /// which explodes the size of the cache map
+  fn value_of_ident(&self, ident_loc: impl Into<usize>) -> OpResult<Value> {
     let ident = ident_loc.into();
     let module = current_module!(self);
     let hit = self.cache.find_var(module, ident);
