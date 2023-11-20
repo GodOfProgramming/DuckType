@@ -54,9 +54,9 @@ impl AstExpression for IdentExpression {
   }
 }
 
-impl Into<Ident> for IdentExpression {
-  fn into(self) -> Ident {
-    self.ident
+impl From<IdentExpression> for Ident {
+  fn from(value: IdentExpression) -> Self {
+    value.ident
   }
 }
 

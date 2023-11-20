@@ -1,12 +1,1 @@
-fn foo() {
-  fn bar() {
-  }
-
-  bar();
-}
-
-foo();
-foo();
-
-std::reflect::disasm;
-std::reflect::disasm;
+println std::debug is std::types::native;

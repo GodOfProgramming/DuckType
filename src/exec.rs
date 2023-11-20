@@ -540,9 +540,7 @@ impl InstructionData for () {
     Some(())
   }
 
-  fn unchecked_data(_: u64) -> Self {
-    ()
-  }
+  fn unchecked_data(_: u64) -> Self {}
 }
 
 impl<T0, T1> InstructionData for (T0, T1)
@@ -658,7 +656,7 @@ impl Display for Stack {
       let formatted = self.iter().rev().enumerate().map(|(index, item)| {
         let mut vs = format!("{item:?}");
         if vs.len() > cols {
-          vs = format!("{}...", vs[0..cols.saturating_sub(3)].to_string());
+          vs = format!("{}...", &vs[0..cols.saturating_sub(3)]);
         }
         format!("{:#15}| [ {} ]", self.len() - 1 - index, vs)
       });
@@ -707,7 +705,7 @@ pub(crate) struct ModuleStack {
 }
 
 impl ModuleStack {
-  pub(crate) fn iter<'v>(&'v self) -> std::slice::Iter<'v, ModuleEntry> {
+  pub(crate) fn iter(&self) -> std::slice::Iter<ModuleEntry> {
     self.envs.iter()
   }
 

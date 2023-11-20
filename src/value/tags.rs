@@ -27,7 +27,7 @@ pub enum Tag {
 
 #[allow(unused)]
 mod unused_idea {
-  pub const PRIMITIVE_VALUE_BITMASK: u64 = 2u64.pow(32) - 1 << 32;
+  pub const PRIMITIVE_VALUE_BITMASK: u64 = (2u64.pow(32) - 1) << 32;
 
   const fn make_variant<const I: u64, const V: u64>() -> u64 {
     I | reverse_bits::<V>() >> 16

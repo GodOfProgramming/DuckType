@@ -169,9 +169,7 @@ impl Vm {
     self.stack_frames = Default::default();
     self.modules.push(ModuleEntry::File(module));
 
-    let res = self.execute(RunMode::File);
-
-    res
+    self.execute(RunMode::File)
   }
 
   pub fn run_string(&mut self, source: impl AsRef<str>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
@@ -1058,7 +1056,7 @@ impl Vm {
         left.type_id() == right.type_id()
       }
     } else if left.is::<NativeFn>() {
-      if right.pointer() == std::ptr::null() {
+      if right.pointer().is_null() {
         left.tag() == right.tag()
       } else {
         left.bits == right.bits
@@ -1204,9 +1202,7 @@ impl Vm {
   where
     F: FnOnce(&mut Self) -> OpResult<T>,
   {
-    let r = f(self).map_err(|e| self.error(e));
-
-    r
+    f(self).map_err(|e| self.error(e))
   }
 
   fn unary_op<F>(&mut self, opcode: Opcode, f: F) -> Result<(), UsageError>
@@ -1399,7 +1395,7 @@ impl Vm {
       Some(hit) => Ok(hit),
       None => match self.cache.const_at(ident) {
         Some(ConstantValue::String(name)) => current_module!(self)
-          .lookup(&name)
+          .lookup(name)
           .ok_or_else(|| UsageError::UndefinedVar(name.clone())),
         Some(name) => Err(UsageError::InvalidIdentifier(name.to_string()))?,
         None => Err(UsageError::InvalidConst(ident))?,

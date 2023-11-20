@@ -78,7 +78,7 @@ impl ModuleValue {
   {
     let mut retval: Option<Value> = None;
 
-    for part in path.into_mod_path() {
+    for part in path.mod_path_iter() {
       match retval {
         Some(rt) => retval = Some(rt.resolve(part)?),
         None => retval = self.lookup(part),
@@ -202,7 +202,7 @@ where
   T: AsRef<str> + 't,
 {
   type Iter: Iterator<Item = &'t T> + 't;
-  fn into_mod_path(&'t self) -> Self::Iter;
+  fn mod_path_iter(&'t self) -> Self::Iter;
 }
 
 impl<'t, T> IntoModPath<'t, T> for T
@@ -210,7 +210,7 @@ where
   T: AsRef<str> + 't,
 {
   type Iter = Once<&'t T>;
-  fn into_mod_path(&'t self) -> Self::Iter {
+  fn mod_path_iter(&'t self) -> Self::Iter {
     iter::once(self)
   }
 }
@@ -220,7 +220,7 @@ where
   T: AsRef<str> + 't,
 {
   type Iter = std::slice::Iter<'t, T>;
-  fn into_mod_path(&'t self) -> Self::Iter {
+  fn mod_path_iter(&'t self) -> Self::Iter {
     self.iter()
   }
 }
@@ -230,7 +230,7 @@ where
   T: AsRef<str> + 't,
 {
   type Iter = std::slice::Iter<'t, T>;
-  fn into_mod_path(&'t self) -> Self::Iter {
+  fn mod_path_iter(&'t self) -> Self::Iter {
     self.iter()
   }
 }

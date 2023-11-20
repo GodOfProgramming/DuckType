@@ -83,7 +83,7 @@ impl Cache {
   }
 
   pub(crate) fn forget(&mut self, addr: &u64) {
-    self.mods.remove(&addr);
+    self.mods.remove(addr);
   }
 }
 
