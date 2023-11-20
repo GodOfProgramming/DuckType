@@ -247,6 +247,10 @@ impl AstGenerator {
 
   /* Utility functions */
 
+  fn add(&mut self, stmt: impl Into<Statement>) {
+    self.statements.push(stmt.into())
+  }
+
   fn current(&self) -> Option<Token> {
     self.peek_after::<0>()
   }

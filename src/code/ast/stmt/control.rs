@@ -19,9 +19,7 @@ impl BlockStatement {
 impl AstStatement for BlockStatement {
   fn stmt(ast: &mut AstGenerator) {
     ast.meta_at::<1>().unwrap_and(|block_loc| {
-      ast.normal_block(block_loc).unwrap_and(|block| {
-        ast.statements.push(Statement::from(block));
-      });
+      ast.normal_block(block_loc).unwrap_and(|block| ast.add(block));
     });
   }
 }
@@ -48,9 +46,7 @@ impl AstStatement for BreakStatement {
       return;
     }
 
-    ast.meta_at::<2>().unwrap_and(|loc| {
-      ast.statements.push(Statement::from(Self::new(loc)));
-    });
+    ast.meta_at::<2>().unwrap_and(|loc| ast.add(Self::new(loc)));
   }
 }
 
@@ -76,9 +72,7 @@ impl AstStatement for ContStatement {
       return;
     }
 
-    ast.meta_at::<2>().unwrap_and(|loc| {
-      ast.statements.push(Statement::from(Self::new(loc)));
-    });
+    ast.meta_at::<2>().unwrap_and(|loc| ast.add(Self::new(loc)));
   }
 }
 
@@ -94,17 +88,17 @@ pub struct ForStatement {
 
 impl ForStatement {
   pub(super) fn new(
-    initializer: Statement,
-    comparison: Expression,
-    increment: Expression,
-    block: Statement,
+    initializer: impl Into<Statement>,
+    comparison: impl Into<Expression>,
+    increment: impl Into<Expression>,
+    block: impl Into<Statement>,
     loc: SourceLocation,
   ) -> Self {
     Self {
-      initializer: Box::new(initializer),
-      comparison,
-      increment,
-      block: Box::new(block),
+      initializer: Box::new(initializer.into()),
+      comparison: comparison.into(),
+      increment: increment.into(),
+      block: Box::new(block.into()),
       loc,
     }
   }
@@ -141,13 +135,7 @@ impl AstStatement for ForStatement {
               ast.in_loop = true;
               ast.meta_at::<1>().unwrap_and(|block_loc| {
                 if let Some(block) = ast.normal_block(block_loc) {
-                  ast.statements.push(Statement::from(Self::new(
-                    initializer,
-                    comparison,
-                    increment,
-                    Statement::from(block),
-                    for_loc,
-                  )));
+                  ast.add(Self::new(initializer, comparison, increment, block, for_loc));
                 }
               });
               ast.in_loop = prev;
@@ -185,7 +173,7 @@ impl IfStatement {
 impl AstStatement for IfStatement {
   fn stmt(ast: &mut AstGenerator) {
     if let Some(if_stmt) = ast.branch() {
-      ast.statements.push(Statement::from(if_stmt));
+      ast.add(if_stmt);
     }
   }
 }
@@ -216,9 +204,7 @@ impl AstStatement for LoopStatement {
 
     if let Some(loc) = ast.meta_at::<1>() {
       if let Some(block) = ast.normal_block(loc) {
-        ast
-          .statements
-          .push(Statement::from(LoopStatement::new(Statement::from(block), loc)));
+        ast.add(LoopStatement::new(Statement::from(block), loc))
       }
     } else {
       // sanity check
