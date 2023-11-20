@@ -101,6 +101,20 @@ macro_rules! cache_hit {
   () => {};
 }
 
+#[cfg(not(debug_assertions))]
+macro_rules! stack_pop {
+  ($this:ident) => {
+    $this.stack_pop()
+  };
+}
+
+#[cfg(debug_assertions)]
+macro_rules! stack_pop {
+  ($this:ident) => {
+    $this.stack_pop()?
+  };
+}
+
 pub struct Vm {
   pub(crate) stack: Stack,
   pub(crate) stack_frame: StackFrame,
@@ -210,7 +224,7 @@ impl Vm {
         .ok_or_else(|| self.error(UsageError::InvalidInstruction(inst)))?;
 
       match opcode {
-        Opcode::Pop => self.exec_pop(),
+        Opcode::Pop => self.exec(|this| this.exec_pop())?,
         Opcode::PopN => self.exec(|this| Ok(this.exec_pop_n(data!(inst))))?,
         Opcode::Const => {
           self.exec(|this| this.exec_const(data!(inst)))?;
@@ -320,10 +334,7 @@ impl Vm {
         Opcode::Breakpoint => {
           self.dbg()?;
         }
-        Opcode::Export => {
-          let value = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
-          export = Some(value);
-        }
+        Opcode::Export => self.exec(|this| this.exec_export(&mut export))?,
         Opcode::DefineGlobal => self.exec(|this| this.exec_define_global(data!(inst)))?,
         Opcode::DefineScope => self.exec(|this| this.exec_define_scope(data!(inst)))?,
         Opcode::Resolve => self.exec(|this| this.exec_resolve(data!(inst)))?,
@@ -438,34 +449,8 @@ impl Vm {
           let idx = self.stack_size() - 2;
           self.stack.swap_remove(idx);
         }
-        Opcode::Is => {
-          let right = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
-          let left = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
-
-          let is_type = if let Some(instance) = left.cast_to::<InstanceValue>() {
-            instance.class.bits == right.bits
-          } else if left.is_ptr() {
-            if let Some(right) = right.cast_to::<IdValue>() {
-              left.type_id() == &right.id
-            } else {
-              left.type_id() == right.type_id()
-            }
-          } else if left.is::<NativeFn>() {
-            if right.pointer() == std::ptr::null() {
-              left.tag() == right.tag()
-            } else {
-              left.bits == right.bits
-            }
-          } else {
-            left.tag() == right.tag()
-          };
-
-          self.stack_push(Value::new(is_type))
-        }
-        Opcode::Quack => {
-          let value = self.exec(|this| this.stack_pop().ok_or(UsageError::EmptyStack))?;
-          Err(self.error(UsageError::Quack(value)))?;
-        }
+        Opcode::Is => self.exec(|this| this.exec_is())?,
+        Opcode::Quack => self.exec(|this| this.exec_quack())?,
         Opcode::Unknown => self.exec_unknown(inst)?,
       }
 
@@ -525,8 +510,9 @@ impl Vm {
     self.stack_push(Value::from(false));
   }
 
-  fn exec_pop(&mut self) {
-    self.stack_pop();
+  fn exec_pop(&mut self) -> OpResult {
+    stack_pop!(self);
+    Ok(())
   }
 
   fn exec_pop_n(&mut self, count: usize) {
@@ -554,20 +540,20 @@ impl Vm {
   }
 
   fn exec_store_stack(&mut self, loc: LongAddr) -> OpResult {
-    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let value = stack_pop!(self);
     self.stack_store_rev(loc.0, value);
     Ok(())
   }
 
   fn exec_store_local(&mut self, loc: LongAddr) -> OpResult {
-    let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
+    let value = self.stack_peek();
     self.stack_store(self.stack_frame.sp + loc.0, value);
     Ok(())
   }
 
   fn exec_define_global(&mut self, loc: LongAddr) -> OpResult {
     self.validate_ident_and(loc, |this, name| {
-      let v = this.stack_peek().ok_or(UsageError::EmptyStack)?;
+      let v = this.stack_peek();
       if this.globals.insert(name.clone(), v.clone()).is_none() {
         this.cache.add_global(loc, v);
         Ok(())
@@ -580,7 +566,7 @@ impl Vm {
 
   fn exec_define_scope(&mut self, loc: LongAddr) -> OpResult {
     self.validate_ident_and(loc, |this, name| {
-      let v = this.stack_peek().ok_or(UsageError::EmptyStack)?;
+      let v = this.stack_peek();
       let module = current_module_mut!(this);
       if module.define(name.clone(), v.clone()) {
         this.cache.add_to_mod(module.value(), loc, v);
@@ -594,7 +580,7 @@ impl Vm {
 
   fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
     self.validate_ident_and(loc, |this, name| {
-      let value = this.stack_peek().ok_or(UsageError::EmptyStack)?;
+      let value = this.stack_peek();
 
       if this.globals.insert(name.clone(), value.clone()).is_some() {
         this.cache.add_global(loc, value);
@@ -606,8 +592,8 @@ impl Vm {
   }
 
   fn exec_initialize_member(&mut self, loc: usize) -> OpResult {
-    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
+    let value = stack_pop!(self);
+    let mut obj = self.stack_peek();
     let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
@@ -619,8 +605,8 @@ impl Vm {
   }
 
   fn exec_initialize_method(&mut self, loc: usize) -> OpResult {
-    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
+    let value = stack_pop!(self);
+    let mut obj = self.stack_peek();
 
     let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
@@ -637,16 +623,16 @@ impl Vm {
   }
 
   fn exec_initialize_constructor(&mut self) -> OpResult {
-    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let mut obj = self.stack_peek().ok_or(UsageError::EmptyStack)?;
+    let value = stack_pop!(self);
+    let mut obj = self.stack_peek();
     let class = obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment)?;
     class.set_constructor(value);
     Ok(())
   }
 
   fn exec_assign_member(&mut self, loc: usize) -> OpResult {
-    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let mut obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let value = stack_pop!(self);
+    let mut obj = stack_pop!(self);
 
     let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
@@ -662,7 +648,7 @@ impl Vm {
   }
 
   fn exec_lookup_member(&mut self, loc: usize) -> OpResult {
-    let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let obj = stack_pop!(self);
 
     let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
@@ -676,7 +662,7 @@ impl Vm {
   }
 
   fn exec_peek_member(&mut self, loc: usize) -> OpResult {
-    let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
+    let value = self.stack_peek();
 
     let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
@@ -859,12 +845,12 @@ impl Vm {
 
   /// when f evaluates to true, short circuit
   fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, offset: usize, f: F) -> OpResult<bool> {
-    let value = self.stack_peek().ok_or(UsageError::EmptyStack)?;
+    let value = self.stack_peek();
     if f(value) {
       self.jump(offset);
       Ok(true)
     } else {
-      self.stack_pop();
+      stack_pop!(self);
       Ok(false)
     }
   }
@@ -890,29 +876,29 @@ impl Vm {
   }
 
   fn exec_index_assign(&mut self) -> OpResult {
-    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let index = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let indexable = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let value = stack_pop!(self);
+    let index = stack_pop!(self);
+    let indexable = stack_pop!(self);
     (indexable.vtable().assign_index)(MutPtr::new(self), indexable, index, value.clone())?;
     self.stack_push(value);
     Ok(())
   }
 
   fn exec_check(&mut self) -> OpResult {
-    let b = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let a = self.stack_peek().ok_or(UsageError::EmptyStack)?;
+    let b = stack_pop!(self);
+    let a = self.stack_peek();
     self.stack_push(Value::from(a == b));
     Ok(())
   }
 
   fn exec_println(&mut self) -> OpResult {
-    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let value = stack_pop!(self);
     println!("{value}");
     Ok(())
   }
 
   fn exec_jump_if_false(&mut self, offset: usize) -> OpResult<bool> {
-    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let value = stack_pop!(self);
 
     if !value.truthy() {
       self.jump(offset);
@@ -934,7 +920,7 @@ impl Vm {
   }
 
   fn exec_sized_vec(&mut self, repeats: usize) -> OpResult {
-    let item = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let item = stack_pop!(self);
     let vec = vec![item; repeats];
     let vec = self.gc.allocate(vec);
     self.stack_push(vec);
@@ -942,9 +928,9 @@ impl Vm {
   }
 
   fn exec_dyn_vec(&mut self) -> OpResult {
-    let repeats = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let repeats = stack_pop!(self);
     let repeats = repeats.cast_to::<i32>().ok_or(UsageError::CoercionError(repeats, "i32"))?;
-    let item = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let item = stack_pop!(self);
     let vec = vec![item; repeats as usize];
     let vec = self.gc.allocate(vec);
     self.stack_push(vec);
@@ -952,8 +938,8 @@ impl Vm {
   }
 
   fn exec_create_closure(&mut self) -> OpResult {
-    let function = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let captures = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let function = stack_pop!(self);
+    let captures = stack_pop!(self);
     let f = function.cast_to::<FunctionValue>().ok_or(UsageError::ClosureType)?;
     let c = captures.cast_to::<VecValue>().ok_or(UsageError::CaptureType)?;
 
@@ -966,8 +952,8 @@ impl Vm {
     let mut members = Vec::with_capacity(size);
 
     for _ in 0..size {
-      let key = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-      let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+      let key = stack_pop!(self);
+      let value = stack_pop!(self);
       if let Some(key) = key.cast_to::<StringValue>() {
         let id = self
           .cache
@@ -989,7 +975,7 @@ impl Vm {
   }
 
   fn exec_create_class(&mut self, loc: usize) -> OpResult {
-    let creator = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let creator = stack_pop!(self);
     let name = self.cache.const_at(loc).ok_or(UsageError::InvalidConst(loc))?;
 
     if let ConstantValue::String(name) = name {
@@ -1018,7 +1004,7 @@ impl Vm {
   }
 
   fn exec_resolve(&mut self, ident: usize) -> OpResult {
-    let obj = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let obj = stack_pop!(self);
 
     let hit = self.cache.resolve_mod(obj.clone(), ident);
 
@@ -1053,6 +1039,43 @@ impl Vm {
     self.modules.pop();
   }
 
+  fn exec_export(&mut self, export: &mut Option<Value>) -> OpResult {
+    let value = stack_pop!(self);
+    *export = Some(value);
+    Ok(())
+  }
+
+  fn exec_is(&mut self) -> OpResult {
+    let right = stack_pop!(self);
+    let left = stack_pop!(self);
+
+    let is_type = if let Some(instance) = left.cast_to::<InstanceValue>() {
+      instance.class.bits == right.bits
+    } else if left.is_ptr() {
+      if let Some(right) = right.cast_to::<IdValue>() {
+        left.type_id() == &right.id
+      } else {
+        left.type_id() == right.type_id()
+      }
+    } else if left.is::<NativeFn>() {
+      if right.pointer() == std::ptr::null() {
+        left.tag() == right.tag()
+      } else {
+        left.bits == right.bits
+      }
+    } else {
+      left.tag() == right.tag()
+    };
+
+    self.stack_push(Value::new(is_type));
+    Ok(())
+  }
+
+  fn exec_quack(&mut self) -> OpResult {
+    let value = stack_pop!(self);
+    Err(UsageError::Quack(value))
+  }
+
   fn exec_req(&mut self) -> ExecResult {
     fn try_to_find_file(root: &Path, desired: &PathBuf, attempts: &mut Vec<PathBuf>) -> Option<PathBuf> {
       let direct = root.join(desired);
@@ -1076,7 +1099,12 @@ impl Vm {
       None
     }
 
-    let value = self.stack_pop().ok_or_else(|| self.error(UsageError::EmptyStack))?;
+    // TODO really need to figure out how to turn usage errors into regular ones without the passthrough
+    let value = (|| {
+      let value = stack_pop!(self);
+      Ok(value)
+    })()
+    .map_err(|err| self.error(err))?;
 
     let mut attempts = Vec::with_capacity(10);
 
@@ -1185,7 +1213,7 @@ impl Vm {
   where
     F: FnOnce(Value) -> Result<Value, UsageError>,
   {
-    let value = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let value = stack_pop!(self);
 
     if value.is_ptr() {
       let key = match opcode {
@@ -1209,8 +1237,8 @@ impl Vm {
   where
     F: FnOnce(Value, Value) -> Result<Value, UsageError>,
   {
-    let bv = self.stack_pop().ok_or(UsageError::EmptyStack)?;
-    let av = self.stack_pop().ok_or(UsageError::EmptyStack)?;
+    let bv = stack_pop!(self);
+    let av = stack_pop!(self);
     self.do_binary_op(opcode, av, bv, f)
   }
 
@@ -1248,7 +1276,7 @@ impl Vm {
   fn load_from_storage(&mut self, st: Storage, addr: impl Into<usize>) -> OpResult<Value> {
     let addr = addr.into();
     match st {
-      Storage::Stack => self.stack_pop().ok_or(UsageError::EmptyStack),
+      Storage::Stack => Ok(stack_pop!(self)),
       Storage::Local => self
         .stack_load(self.stack_frame.sp + addr)
         .ok_or(UsageError::InvalidStackIndex(addr)),
@@ -1293,8 +1321,14 @@ impl Vm {
     self.stack.push(value);
   }
 
-  pub fn stack_pop(&mut self) -> Option<Value> {
-    self.stack.pop()
+  #[cfg(debug_assertions)]
+  pub fn stack_pop(&mut self) -> UsageResult {
+    self.stack.pop().ok_or(UsageError::EmptyStack)
+  }
+
+  #[cfg(not(debug_assertions))]
+  pub fn stack_pop(&mut self) -> Value {
+    self.stack.pop().unwrap()
   }
 
   pub fn stack_pop_n(&mut self, count: usize) {
@@ -1324,8 +1358,8 @@ impl Vm {
     self.stack[st_len - 1 - index] = value;
   }
 
-  pub fn stack_peek(&self) -> Option<Value> {
-    self.stack.last().cloned()
+  pub fn stack_peek(&self) -> Value {
+    self.stack.last().cloned().unwrap()
   }
 
   pub fn stack_append(&mut self, other: Vec<Value>) {
