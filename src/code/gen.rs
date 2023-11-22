@@ -80,6 +80,8 @@ impl<'p> BytecodeGenerator<'p> {
       self.emit_stmt(stmt);
     }
 
+    self.emit(Opcode::Ret, SourceLocation { line: 0, column: 0 });
+
     if self.errors.is_empty() {
       Ok(self.ctx)
     } else {
@@ -1212,6 +1214,8 @@ impl<'p> BytecodeGenerator<'p> {
         this.emit_stmt(body);
 
         this.reduce_locals_to_depth(this.fn_depth, loc);
+
+        this.emit(Opcode::Ret, loc);
 
         let ctx = this.current_fn.take().unwrap();
 

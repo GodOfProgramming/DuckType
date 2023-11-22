@@ -21,6 +21,7 @@ use strum::EnumCount;
 use strum_macros::{EnumCount, EnumIter, FromRepr};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
 pub struct Instruction(u64);
 
 impl Instruction {
