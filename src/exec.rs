@@ -117,6 +117,7 @@ where
 
 #[derive(Hash, Default, Clone, Copy, Debug, PartialEq, Eq, EnumCount, FromRepr, EnumIter)]
 #[repr(u8)]
+#[macros::opcode_bindings(crate::bindings)]
 pub enum Opcode {
   /// Unknown instruction
   /// Value given when one cannot be interpreted

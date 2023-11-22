@@ -53,6 +53,10 @@ macros = { path = "macros" }
 pretty_assertions = "1.4"
 evalexpr = "11.1"
 
+[build-dependencies]
+bindgen = "0.69"
+cc = "1.0"
+
 [profile.release]
 strip = true
 lto = true

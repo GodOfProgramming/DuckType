@@ -1,3 +1,4 @@
+mod bindings;
 pub(crate) mod code;
 pub(crate) mod dbg;
 pub mod error;
