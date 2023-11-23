@@ -689,6 +689,7 @@ pub struct StackFrame {
   pub ip: usize,
   pub sp: usize,
   pub ctx: SmartPtr<Context>,
+  pub export: Option<Value>,
 }
 
 impl StackFrame {
@@ -697,6 +698,7 @@ impl StackFrame {
       ip: Default::default(),
       sp,
       ctx,
+      export: None,
     }
   }
 }

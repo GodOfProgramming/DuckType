@@ -14,13 +14,17 @@ constexpr std::uint64_t OPCODE_BITMASK = 0b1111111;
 #define JMP(inst, ip)        goto* JUMP_TABLE[inst[(*ip)] & OPCODE_BITMASK]
 #define DISASM(vm, inst, ip) exec_disasm(vm, FETCH(inst, ip))
 
+#define CHECK(expr)                                                            \
+  if (!(expr)) {                                                               \
+    return;                                                                    \
+  }
+
 namespace duck_type
 {
-  extern "C" void execute(
-   Vm vm, Instruction* instructions, std::size_t* ip, Exp exp)
+  extern "C" void execute(Vm vm, Instruction* instructions, std::size_t* ip)
   {
     // MUST BE IN SYNC WITH ENUMS
-    constexpr void* JUMP_TABLE[] = {
+    static const void* JUMP_TABLE[] = {
      CASE_ADDR(Unknown),
      CASE_ADDR(Const),
      CASE_ADDR(Nil),
@@ -98,19 +102,19 @@ namespace duck_type
     CASE(Const)
     {
       DISASM(vm, instructions, ip);
-      exec_const(vm, FETCH(instructions, ip), exp);
+      CHECK(exec_const(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(Store)
     {
       DISASM(vm, instructions, ip);
-      exec_store(vm, FETCH(instructions, ip));
+      CHECK(exec_store(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(Load)
     {
       DISASM(vm, instructions, ip);
-      exec_load(vm, FETCH(instructions, ip));
+      CHECK(exec_load(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(Nil)
@@ -134,79 +138,79 @@ namespace duck_type
     CASE(InitializeMember)
     {
       DISASM(vm, instructions, ip);
-      exec_initialize_member(vm, FETCH(instructions, ip), exp);
+      CHECK(exec_initialize_member(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(AssignMember)
     {
       DISASM(vm, instructions, ip);
-      exec_assign_member(vm, FETCH(instructions, ip), exp);
+      CHECK(exec_assign_member(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(LookupMember)
     {
       DISASM(vm, instructions, ip);
-      exec_lookup_member(vm, FETCH(instructions, ip), exp);
+      CHECK(exec_lookup_member(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(PeekMember)
     {
       DISASM(vm, instructions, ip);
-      exec_peek_member(vm, FETCH(instructions, ip), exp);
+      CHECK(exec_peek_member(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(InitializeConstructor)
     {
       DISASM(vm, instructions, ip);
-      exec_initialize_constructor(vm, exp);
+      CHECK(exec_initialize_constructor(vm));
       INC_JMP(instructions, ip);
     }
     CASE(InitializeMethod)
     {
       DISASM(vm, instructions, ip);
-      exec_initialize_method(vm, FETCH(instructions, ip), exp);
+      CHECK(exec_initialize_method(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(CreateVec)
     {
       DISASM(vm, instructions, ip);
-      exec_create_vec(vm, FETCH(instructions, ip), exp);
+      CHECK(exec_create_vec(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(CreateSizedVec)
     {
       DISASM(vm, instructions, ip);
-      exec_create_sized_vec(vm, FETCH(instructions, ip), exp);
+      CHECK(exec_create_sized_vec(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(CreateDynamicVec)
     {
       DISASM(vm, instructions, ip);
-      exec_create_dyn_vec(vm, exp);
+      CHECK(exec_create_dyn_vec(vm));
       INC_JMP(instructions, ip);
     }
     CASE(CreateClosure)
     {
       DISASM(vm, instructions, ip);
-      exec_create_closure(vm, exp);
+      CHECK(exec_create_closure(vm));
       INC_JMP(instructions, ip);
     }
     CASE(CreateStruct)
     {
       DISASM(vm, instructions, ip);
-      exec_create_struct(vm, FETCH(instructions, ip), exp);
+      CHECK(exec_create_struct(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(CreateClass)
     {
       DISASM(vm, instructions, ip);
-      exec_create_class(vm, FETCH(instructions, ip), exp);
+      exec_create_class(vm, FETCH(instructions, ip));
       INC_JMP(instructions, ip);
     }
     CASE(CreateModule)
     {
       DISASM(vm, instructions, ip);
-      exec_create_module(vm, FETCH(instructions, ip), exp);
+      exec_create_module(vm, FETCH(instructions, ip));
       INC_JMP(instructions, ip);
     }
     CASE(Equal)
@@ -359,10 +363,15 @@ namespace duck_type
       exec_swap_pop(vm);
       INC_JMP(instructions, ip);
     }
+    CASE(Ret)
+    {
+      DISASM(vm, instructions, ip);
+      return;
+    }
     CASE(Req)
     {
       DISASM(vm, instructions, ip);
-      exec_req(vm, exp);
+      exec_req(vm);
       JMP(instructions, ip);
     }
     CASE(Breakpoint)
@@ -374,7 +383,7 @@ namespace duck_type
     CASE(Export)
     {
       DISASM(vm, instructions, ip);
-      exec_export(vm, exp);
+      exec_export(vm);
       INC_JMP(instructions, ip);
     }
     CASE(DefineGlobal)
@@ -398,7 +407,7 @@ namespace duck_type
     CASE(EnterBlock)
     {
       DISASM(vm, instructions, ip);
-      exec_enter_block(vm, exp);
+      exec_enter_block(vm);
       INC_JMP(instructions, ip);
     }
     CASE(PopScope)
@@ -424,11 +433,6 @@ namespace duck_type
       DISASM(vm, instructions, ip);
       exec_unknown(vm, FETCH(instructions, ip));
       INC_JMP(instructions, ip);
-    }
-    CASE(Ret)
-    {
-      DISASM(vm, instructions, ip);
-      // break
     }
   }
 }  // namespace duck_type

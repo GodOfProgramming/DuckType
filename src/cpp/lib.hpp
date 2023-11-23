@@ -1,9 +1,9 @@
 #include <cinttypes>
 
-#define DECL(name, ...) extern "C" void name(__VA_ARGS__)
+#define DECL(name, ...)             extern "C" void name(__VA_ARGS__)
+#define DECL_RET(retval, name, ...) extern "C" auto name(__VA_ARGS__)->retval
 
 using Vm          = void*;
-using Exp         = void*;
 using Instruction = std::uint64_t;
 
 namespace duck_type
@@ -70,8 +70,7 @@ namespace duck_type
     Quack,
   };
 
-  extern "C" void execute(
-   Vm vm, Instruction* instructions, std::size_t* ip, Exp exp);
+  extern "C" void execute(Vm vm, Instruction* instructions, std::size_t* ip);
 }  // namespace duck_type
 
 DECL(exec_disasm, Vm, Instruction);
@@ -80,11 +79,11 @@ DECL(exec_pop, Vm);
 
 DECL(exec_pop_n, Vm, Instruction);
 
-DECL(exec_const, Vm, Instruction, Exp);
+DECL_RET(bool, exec_const, Vm, Instruction);
 
-DECL(exec_store, Vm, Instruction);
+DECL_RET(bool, exec_store, Vm, Instruction);
 
-DECL(exec_load, Vm, Instruction);
+DECL_RET(bool, exec_load, Vm, Instruction);
 
 DECL(exec_nil, Vm);
 
@@ -92,31 +91,31 @@ DECL(exec_true, Vm);
 
 DECL(exec_false, Vm);
 
-DECL(exec_initialize_member, Vm, Instruction, Exp);
+DECL_RET(bool, exec_initialize_member, Vm, Instruction);
 
-DECL(exec_assign_member, Vm, Instruction, Exp);
+DECL_RET(bool, exec_assign_member, Vm, Instruction);
 
-DECL(exec_lookup_member, Vm, Instruction, Exp);
+DECL_RET(bool, exec_lookup_member, Vm, Instruction);
 
-DECL(exec_peek_member, Vm, Instruction, Exp);
+DECL_RET(bool, exec_peek_member, Vm, Instruction);
 
-DECL(exec_initialize_constructor, Vm, Exp);
+DECL_RET(bool, exec_initialize_constructor, Vm);
 
-DECL(exec_initialize_method, Vm, Instruction, Exp);
+DECL_RET(bool, exec_initialize_method, Vm, Instruction);
 
-DECL(exec_create_vec, Vm, Instruction, Exp);
+DECL_RET(bool, exec_create_vec, Vm, Instruction);
 
-DECL(exec_create_sized_vec, Vm, Instruction, Exp);
+DECL_RET(bool, exec_create_sized_vec, Vm, Instruction);
 
-DECL(exec_create_dyn_vec, Vm, Exp);
+DECL_RET(bool, exec_create_dyn_vec, Vm);
 
-DECL(exec_create_closure, Vm, Exp);
+DECL_RET(bool, exec_create_closure, Vm);
 
-DECL(exec_create_struct, Vm, Instruction, Exp);
+DECL_RET(bool, exec_create_struct, Vm, Instruction);
 
-DECL(exec_create_class, Vm, Instruction, Exp);
+DECL(exec_create_class, Vm, Instruction);
 
-DECL(exec_create_module, Vm, Instruction, Exp);
+DECL(exec_create_module, Vm, Instruction);
 
 DECL(exec_check, Vm);
 
@@ -130,11 +129,11 @@ DECL(exec_loop, Vm, Instruction);
 
 DECL(exec_call, Vm, Instruction);
 
-DECL(exec_req, Vm, Exp);
+DECL(exec_req, Vm);
 
 DECL(exec_dbg, Vm);
 
-DECL(exec_export, Vm, Exp);
+DECL(exec_export, Vm);
 
 DECL(exec_define_global, Vm, Instruction);
 
@@ -142,7 +141,7 @@ DECL(exec_define_scope, Vm, Instruction);
 
 DECL(exec_resolve, Vm, Instruction);
 
-DECL(exec_enter_block, Vm, Exp);
+DECL(exec_enter_block, Vm);
 
 DECL(exec_pop_scope, Vm);
 

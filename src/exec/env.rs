@@ -34,8 +34,8 @@ pub struct Cache {
 }
 
 impl Cache {
-  pub fn const_at(&self, index: impl Into<usize>) -> Option<&ConstantValue> {
-    self.consts.get(index.into())
+  pub fn const_at(&self, index: impl Into<usize>) -> &ConstantValue {
+    &self.consts[index.into()]
   }
 
   pub fn consts(&self) -> &Vec<ConstantValue> {
@@ -192,8 +192,7 @@ impl<'p> InstructionDisassembler<'p> {
   }
 
   fn const_at_column(cache: &Cache, index: impl Into<usize>) -> String {
-    let cval = &ConstantValue::StaticString("????");
-    let value = cache.const_at(index).unwrap_or(cval);
+    let value = cache.const_at(index);
     format!("{value: >4?}")
   }
 

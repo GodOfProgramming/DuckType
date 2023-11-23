@@ -1,4 +1,4 @@
-use super::{ModuleStack, Stack};
+use super::{ModuleStack, Stack, StackFrame};
 use crate::{
   prelude::*,
   value::{tags::*, Mark, MutVoid, ValueMeta},
@@ -272,7 +272,8 @@ impl Gc {
     stack: &Stack,
     envs: &ModuleStack,
     cache: &mut Cache,
-    export: Option<&Value>,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
   ) -> Result<usize, SystemError> {
     let now = Instant::now();
 
@@ -282,7 +283,7 @@ impl Gc {
 
     self.next_run = now + self.frequency;
 
-    self.clean(stack, envs, cache, export)
+    self.clean(stack, envs, cache, stack_frame, stack_frames)
   }
 
   pub(crate) fn clean(
@@ -290,11 +291,12 @@ impl Gc {
     stack: &Stack,
     envs: &ModuleStack,
     cache: &mut Cache,
-    export: Option<&Value>,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
   ) -> Result<usize, SystemError> {
     self.ref_check_native_handles();
 
-    let marked_allocations = self.trace(stack, envs, cache, export);
+    let marked_allocations = self.trace(stack, envs, cache, stack_frame, stack_frames);
 
     let unmarked_allocations = self.find_unmarked(marked_allocations);
 
@@ -315,7 +317,14 @@ impl Gc {
     Ok(cleaned)
   }
 
-  fn trace(&self, stack: &Stack, envs: &ModuleStack, cache: &Cache, export: Option<&Value>) -> AllocationSet {
+  fn trace(
+    &self,
+    stack: &Stack,
+    envs: &ModuleStack,
+    cache: &Cache,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
+  ) -> AllocationSet {
     let mut marked_allocations = Marker::default();
 
     for handle in &self.native_handles {
@@ -336,8 +345,14 @@ impl Gc {
       marked_allocations.trace(&value);
     }
 
-    if let Some(value) = export {
+    if let Some(value) = &stack_frame.export {
       marked_allocations.trace(value);
+    }
+
+    for frame in stack_frames {
+      if let Some(value) = &frame.export {
+        marked_allocations.trace(value);
+      }
     }
 
     marked_allocations.into()
@@ -576,7 +591,8 @@ mod tests {
         &Default::default(),
         &Default::default(),
         &mut Default::default(),
-        Default::default(),
+        &Default::default(),
+        &[],
       )
       .unwrap();
     assert_eq!(cleaned, 1);
@@ -598,7 +614,8 @@ mod tests {
         &Default::default(),
         &Default::default(),
         &mut Default::default(),
-        Default::default(),
+        &Default::default(),
+        &[],
       )
       .unwrap();
 
@@ -620,7 +637,8 @@ mod tests {
           &Default::default(),
           &Default::default(),
           &mut Default::default(),
-          Default::default(),
+          &Default::default(),
+          &[],
         )
         .unwrap();
       assert_eq!(cleaned, 0);
@@ -631,7 +649,8 @@ mod tests {
         &Default::default(),
         &Default::default(),
         &mut Default::default(),
-        Default::default(),
+        &Default::default(),
+        &[],
       )
       .unwrap();
     assert_eq!(cleaned, 2);

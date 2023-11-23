@@ -32,7 +32,8 @@ assert_eq_size!(usize, MutVoid);
 assert_eq_size!(usize, f64);
 assert_eq_size!(usize, u64);
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Value {
   pub bits: u64,
 }
