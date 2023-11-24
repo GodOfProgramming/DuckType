@@ -12,13 +12,13 @@ use super::Statement;
 #[derive(Debug)]
 pub struct ClassStatement {
   pub ident: Ident,
-  pub body: Expression,
+  pub class: Expression,
   pub loc: SourceLocation,
 }
 
 impl ClassStatement {
   pub(super) fn new(ident: Ident, body: Expression, loc: SourceLocation) -> Self {
-    Self { ident, body, loc }
+    Self { ident, class: body, loc }
   }
 }
 

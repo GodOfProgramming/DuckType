@@ -39,6 +39,11 @@ pub(crate) mod names {
   pub const MATH: &str = "math";
 
   pub const IO: &str = "io";
+
+  pub const VM: &str = "vm";
+  pub(crate) mod vm {
+    pub const GC: &str = "gc";
+  }
 }
 
 pub fn enable_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> FastHashMap<String, Value> {
@@ -107,6 +112,12 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
 
     let libval = lib.value();
     lib.define(names::IO, libio::duck_type_autogen_create_module(gc, libval));
+
+    defmod(gc, lib, names::VM, |gc, mut lib| {
+      defmod(gc, &mut lib, names::vm::GC, |_, mut lib| {
+        lib.define("total_cycles", Value::new::<NativeFn>(total_cycles));
+      });
+    });
   })
 }
 
@@ -141,4 +152,9 @@ fn math_abs(arg: (Option<i32>, Option<f64>)) -> UsageResult {
 fn math_rand_i32() -> UsageResult<i32> {
   let val = rand::random();
   Ok(val)
+}
+
+#[native(with_vm)]
+fn total_cycles(vm: &mut Vm) -> UsageResult<i32> {
+  Ok(vm.gc.num_cycles as i32)
 }

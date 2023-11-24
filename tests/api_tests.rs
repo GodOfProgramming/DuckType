@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use ducktype::prelude::*;
 use macros::Fields;
 use tfix::prelude::*;
@@ -11,7 +9,7 @@ struct ApiTest {
 
 impl TestFixture for ApiTest {
   fn set_up() -> Self {
-    let mut gc = SmartPtr::new(Gc::new(Duration::from_nanos(0)));
+    let mut gc = SmartPtr::new(Gc::new(Memory::Mb(100)));
     let env = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*test*"), |gc, mut lib| {
       let libval = lib.handle.value.clone();
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
@@ -87,7 +85,7 @@ mod tests {
 
     assert!(unsafe { !B });
 
-    t.vm.check_gc().unwrap();
+    t.vm.force_gc().unwrap();
 
     t.vm.gc.terminate();
 

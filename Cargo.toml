@@ -78,6 +78,7 @@ runtime-disassembly = []
 print-precedence = []
 quit-after-disassemble = []
 jtbl = []
+check-opcodes = []
 
 [target.'cfg(unix)'.features]
 profile = []

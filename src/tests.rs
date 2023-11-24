@@ -11,7 +11,7 @@ struct IntegrationTest {
 
 impl IntegrationTest {
   fn new() -> Self {
-    let mut gc = SmartPtr::new(Gc::always_run());
+    let mut gc = SmartPtr::new(Gc::test_default());
     let env = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*test*"), |gc, mut lib| {
       let libval = lib.handle.value.clone();
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
@@ -242,8 +242,8 @@ impl ScriptTest {
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
     Self {
-      vm: Vm::new(SmartPtr::new(Gc::always_run()), false, []),
-      opt: Vm::new(SmartPtr::new(Gc::always_run()), true, []),
+      vm: Vm::new(SmartPtr::new(Gc::test_default()), false, []),
+      opt: Vm::new(SmartPtr::new(Gc::test_default()), true, []),
     }
   }
 }
@@ -251,14 +251,21 @@ impl TestFixture for ScriptTest {
 #[fixture(ScriptTest)]
 mod script_tests {
   use super::*;
-  use crate::code::gen::{CAPTURE_OPS, GENERATED_OPS};
   use itertools::Itertools;
   use std::fs;
-  use strum::IntoEnumIterator;
 
   #[test]
   fn run_test_scripts(t: &mut ScriptTest) {
-    CAPTURE_OPS.set(true);
+    #[cfg(feature = "check-opcodes")]
+    use {
+      crate::code::gen::{CAPTURE_OPS, GENERATED_OPS},
+      strum::IntoEnumIterator,
+    };
+
+    #[cfg(feature = "check-opcodes")]
+    {
+      CAPTURE_OPS.set(true);
+    }
 
     fs::read_dir("tests/scripts").into_iter().for_each(|dir| {
       dir
@@ -268,20 +275,23 @@ mod script_tests {
         .for_each(|entry| t.run(&entry.path()))
     });
 
-    GENERATED_OPS.with_borrow(|ops| {
-      let mut unaccounted = Vec::new();
-      for op in Opcode::iter() {
-        if !matches!(op, Opcode::Unknown | Opcode::Breakpoint) {
-          if !ops.contains(&op) {
-            unaccounted.push(op);
+    #[cfg(feature = "check-opcodes")]
+    {
+      GENERATED_OPS.with_borrow(|ops| {
+        let mut unaccounted = Vec::new();
+        for op in Opcode::iter() {
+          if !matches!(op, Opcode::Unknown | Opcode::Breakpoint) {
+            if !ops.contains(&op) {
+              unaccounted.push(op);
+            }
           }
         }
-      }
-      if !unaccounted.is_empty() {
-        panic!("Did not account for opcodes in tests: {}", itertools::join(unaccounted, ", "));
-      }
-    });
+        if !unaccounted.is_empty() {
+          panic!("Did not account for opcodes in tests: {}", itertools::join(unaccounted, ", "));
+        }
+      });
 
-    CAPTURE_OPS.set(false);
+      CAPTURE_OPS.set(false);
+    }
   }
 }

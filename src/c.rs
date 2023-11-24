@@ -291,11 +291,6 @@ pub extern "C" fn exec_resolve(vm: &mut Vm, inst: Instruction) -> bool {
 }
 
 #[no_mangle]
-pub extern "C" fn exec_enter_block(vm: &mut Vm) {
-  vm.exec_enter_block();
-}
-
-#[no_mangle]
 pub extern "C" fn exec_pop_scope(vm: &mut Vm) {
   vm.exec_pop_scope();
 }

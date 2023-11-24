@@ -283,7 +283,6 @@ impl Vm {
           Opcode::DefineGlobal => self.exec_define_global(inst.data())?,
           Opcode::DefineScope => self.exec_define_scope(inst.data())?,
           Opcode::Resolve => self.exec_resolve(inst.data())?,
-          Opcode::EnterBlock => self.exec_enter_block(),
           Opcode::PopScope => self.pop_scope(),
           Opcode::Swap => self.exec_swap(inst.data()),
           Opcode::SwapPop => self.exec_swap_pop(),
@@ -324,14 +323,27 @@ impl Vm {
   }
 
   pub fn check_gc(&mut self) -> ExecResult {
-    self.gc.clean_if_time(
+    self
+      .gc
+      .clean_if_time(
+        &self.stack,
+        &self.modules,
+        &mut self.cache,
+        &self.stack_frame,
+        &self.stack_frames,
+      )
+      .map_err(|e| e.into())
+  }
+
+  pub fn force_gc(&mut self) -> ExecResult<usize> {
+    let cleaned = self.gc.clean(
       &self.stack,
       &self.modules,
       &mut self.cache,
       &self.stack_frame,
       &self.stack_frames,
     )?;
-    Ok(())
+    Ok(cleaned)
   }
 
   pub fn get_global(&self, name: &str) -> Option<Value> {
@@ -834,7 +846,7 @@ impl Vm {
         let name = self.cache.const_at(ident);
 
         if let ConstantValue::String(name) = name {
-          let value = obj.resolve(name).unwrap();
+          let value = self.wrap_err(|_| obj.resolve(name))?;
           self.cache.add_to_mod(obj, ident, value.clone());
           self.stack_push(value);
         } else {
@@ -843,10 +855,6 @@ impl Vm {
       }
     }
     Ok(())
-  }
-
-  fn exec_enter_block(&mut self) {
-    self.push_scope();
   }
 
   fn exec_pop_scope(&mut self) {
@@ -1294,12 +1302,6 @@ impl Vm {
     }
   }
 
-  fn push_scope(&mut self) {
-    let leaf = current_module!(self).value();
-    let handle = self.gc.allocate_typed_handle(ModuleValue::new_scope(leaf));
-    self.modules.push(ModuleEntry::Block(handle));
-  }
-
   fn pop_scope(&mut self) {
     self.modules.pop();
   }
@@ -1404,10 +1406,11 @@ impl Vm {
 
   /// Tries to find the cached value at the given location and if not performs a slow lookup
   ///
-  /// Do not attempt to optimize with caching the current module's value
+  /// Since primitives can be globals, caching global values accessed via modules is not possible
+  /// with how things are currently implemented
   ///
-  /// Scopes are created and destroyed rapidly at the moment,
-  /// which explodes the size of the cache map
+  /// In short, primitive globals cached in the current module won't have their value updated
+  /// if modified outside of that scope
   fn value_of_ident(&self, ident_loc: impl Into<usize>) -> OpResult<Value> {
     let ident = ident_loc.into();
     let module = current_module!(self);

@@ -786,6 +786,9 @@ pub(crate) struct ValueMeta {
   /// Reference count to values that exist in native code and can't be traced
   pub(crate) ref_count: AtomicUsize,
 
+  /// The size of the allocated item and the meta
+  pub(crate) size: usize,
+
   #[allow(unused)]
   pub(crate) mark: Mark,
 }

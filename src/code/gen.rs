@@ -94,8 +94,6 @@ impl<'p> BytecodeGenerator<'p> {
   fn block_stmt(&mut self, stmt: BlockStatement) {
     let loc = stmt.loc;
 
-    self.emit(Opcode::EnterBlock, loc);
-
     let this_scope = self.scope_depth;
     self.new_scope(|this| {
       for statement in stmt.statements {
@@ -103,8 +101,6 @@ impl<'p> BytecodeGenerator<'p> {
       }
       this.reduce_locals_to_depth(this_scope, loc);
     });
-
-    self.emit(Opcode::PopScope, loc);
   }
 
   fn break_stmt(&mut self, stmt: BreakStatement) {
@@ -119,7 +115,7 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn class_stmt(&mut self, stmt: ClassStatement) {
     if let Some(var) = self.declare_global(stmt.ident.clone()) {
-      self.emit_expr(stmt.body);
+      self.emit_expr(stmt.class);
 
       self.define_scope(var, stmt.loc);
       self.emit(Opcode::Pop, stmt.loc);

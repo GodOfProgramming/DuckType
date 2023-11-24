@@ -346,10 +346,6 @@ pub enum Opcode {
   ///
   /// Encoding: | usize |
   Resolve,
-  /// Push a new env
-  ///
-  /// Encoding: None
-  EnterBlock,
   /// Pop an env
   ///
   /// Encoding: None
@@ -710,7 +706,6 @@ impl ModuleStack {
       ModuleEntry::Fn(e) => e,
       ModuleEntry::Mod(e) => e,
       ModuleEntry::File(e) => e,
-      ModuleEntry::Block(e) => e,
       ModuleEntry::String(e) => e,
     }
   }
@@ -720,7 +715,6 @@ impl ModuleStack {
       ModuleEntry::Fn(e) => e,
       ModuleEntry::Mod(e) => e,
       ModuleEntry::File(e) => e,
-      ModuleEntry::Block(e) => e,
       ModuleEntry::String(e) => e,
     }
   }
@@ -730,7 +724,6 @@ pub(crate) enum ModuleEntry {
   Fn(UsertypeHandle<ModuleValue>),
   Mod(UsertypeHandle<ModuleValue>),
   File(UsertypeHandle<ModuleValue>),
-  Block(UsertypeHandle<ModuleValue>),
   String(UsertypeHandle<ModuleValue>),
 }
 
@@ -740,7 +733,6 @@ impl ModuleEntry {
       Self::Fn(m) => m.clone(),
       Self::Mod(m) => m.clone(),
       Self::File(m) => m.clone(),
-      Self::Block(m) => m.clone(),
       Self::String(m) => m.clone(),
     }
   }
@@ -752,7 +744,6 @@ impl Debug for ModuleEntry {
       Self::Fn(_) => f.debug_tuple("Fn").finish(),
       Self::Mod(_) => f.debug_tuple("Mod").finish(),
       Self::File(_) => f.debug_tuple("File").finish(),
-      Self::Block(_) => f.debug_tuple("Block").finish(),
       Self::String(_) => f.debug_tuple("String").finish(),
     }
   }

@@ -88,7 +88,7 @@ impl Optimize for BlockStatement {
 impl Optimize for ClassStatement {
   type Output = Statement;
   fn optimize(mut self) -> Self::Output {
-    self.body = self.body.optimize();
+    self.class = self.class.optimize();
     self.into()
   }
 }

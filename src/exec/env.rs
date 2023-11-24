@@ -82,6 +82,10 @@ impl Cache {
     self.globals.values().chain(self.libs.values())
   }
 
+  pub(crate) fn len(&self) -> usize {
+    self.globals.len() + self.libs.len()
+  }
+
   pub(crate) fn forget(&mut self, addr: &u64) {
     self.mods.remove(addr);
   }

@@ -59,7 +59,7 @@ impl Statement {
       }
       Statement::Break(_) => (),
       Statement::Cont(_) => (),
-      Statement::Class(c) => c.body.dump(tmpl),
+      Statement::Class(c) => c.class.dump(tmpl),
       Statement::Export(_) => (),
       Statement::Fn(_) => (),
       Statement::For(_) => (),
