@@ -77,7 +77,7 @@ disassemble = []
 runtime-disassembly = []
 print-precedence = []
 quit-after-disassemble = []
-jump-table = []
+jtbl = []
 
 [target.'cfg(unix)'.features]
 profile = []

@@ -1,15 +1,13 @@
 #include <cinttypes>
 
-#define DECL(name, ...)             extern "C" void name(__VA_ARGS__)
-#define DECL_RET(retval, name, ...) extern "C" auto name(__VA_ARGS__)->retval
+#define DECL(name, ...) extern "C" void name(__VA_ARGS__)
+#define DECL_RET(retval, name, ...) extern "C" auto name(__VA_ARGS__) -> retval
 
-using Vm          = void*;
+using Vm = void*;
 using Instruction = std::uint64_t;
 
-namespace duck_type
-{
-  enum Opcode : std::uint8_t
-  {
+namespace duck_type {
+enum Opcode : std::uint8_t {
     Unknown,
     Const,
     Nil,
@@ -68,16 +66,17 @@ namespace duck_type
     PopScope,
     Is,
     Quack,
-  };
+};
 
-  extern "C" void execute(Vm vm, Instruction* instructions, std::size_t* ip);
+extern "C" void
+execute(Vm vm, Instruction const* instructions, std::size_t* ip);
 }  // namespace duck_type
 
 DECL(exec_pop, Vm);
 
 DECL(exec_pop_n, Vm, Instruction);
 
-DECL_RET(bool, exec_const, Vm, Instruction);
+DECL(exec_const, Vm, Instruction);
 
 DECL_RET(bool, exec_store, Vm, Instruction);
 

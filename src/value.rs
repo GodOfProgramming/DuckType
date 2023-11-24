@@ -670,9 +670,9 @@ impl Not for Value {
   }
 }
 
-type NativeBinaryOp = for<'a> fn(MutPtr<Vm>, Value, Value) -> UsageResult;
-
-type NativeTernaryOp = for<'a> fn(MutPtr<Vm>, Value, Value, Value) -> UsageResult;
+pub(crate) type NativeUnaryOp = for<'a> fn(MutPtr<Vm>, Value) -> UsageResult;
+pub(crate) type NativeBinaryOp = for<'a> fn(MutPtr<Vm>, Value, Value) -> UsageResult;
+pub(crate) type NativeTernaryOp = for<'a> fn(MutPtr<Vm>, Value, Value, Value) -> UsageResult;
 
 pub struct VTable {
   get_member: fn(&Value, MutPtr<Gc>, Field) -> UsageResult<Option<Value>>,
@@ -683,6 +683,8 @@ pub struct VTable {
   resolve: fn(ConstVoid, &str) -> UsageResult,
 
   // ops
+  pub(crate) neg: NativeUnaryOp,
+  pub(crate) not: NativeUnaryOp,
   pub(crate) add: NativeBinaryOp,
   pub(crate) sub: NativeBinaryOp,
   pub(crate) mul: NativeBinaryOp,
@@ -716,7 +718,8 @@ impl VTable {
       set_member: |this, gc, name, value| {
         <T as Usertype>::set(Self::cast_mut(this), Self::typed_cast_mut(gc.raw()), name, value)
       },
-
+      neg: |vm, value| <T as Operators>::__neg__(Self::typed_cast_mut(vm.raw()), value),
+      not: |vm, value| <T as Operators>::__not__(Self::typed_cast_mut(vm.raw()), value),
       add: |vm, left, right| <T as Operators>::__add__(Self::typed_cast_mut(vm.raw()), left, right),
       sub: |vm, left, right| <T as Operators>::__sub__(Self::typed_cast_mut(vm.raw()), left, right),
       mul: |vm, left, right| <T as Operators>::__mul__(Self::typed_cast_mut(vm.raw()), left, right),
