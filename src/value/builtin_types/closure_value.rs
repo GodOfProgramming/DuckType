@@ -32,7 +32,7 @@ impl Operators for ClosureValue {
     self.function.check_args(airity)?;
 
     for capture in &self.captures {
-      vm.stack_push(capture.clone());
+      vm.stack_push(*capture);
     }
 
     self.function.invoke(vm, self.captures.len())

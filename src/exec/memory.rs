@@ -45,12 +45,13 @@ impl From<Memory> for usize {
 }
 
 pub struct Gc {
-  pub(crate) allocations: AllocationSet,
-  native_handles: AllocationSet,
   disposer: AsyncDisposal,
 
-  limit: usize,
-  allocated_memory: usize,
+  pub(crate) allocations: AllocationSet,
+  pub(crate) native_handles: AllocationSet,
+
+  pub(crate) limit: usize,
+  pub(crate) allocated_memory: usize,
 
   pub(crate) num_cycles: usize,
 }
@@ -58,16 +59,16 @@ pub struct Gc {
 impl Gc {
   pub fn new(initial_limit: Memory) -> Self {
     Self {
+      disposer: AsyncDisposal::new(),
       allocations: AllocationSet::with_capacity(1024),
       native_handles: AllocationSet::with_capacity(512),
-      disposer: AsyncDisposal::new(),
       limit: initial_limit.into(),
       allocated_memory: 0,
       num_cycles: 0,
     }
   }
 
-  pub(crate) fn clean_if_time(
+  pub(crate) fn poll(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
@@ -76,7 +77,6 @@ impl Gc {
     stack_frames: &[StackFrame],
   ) -> Result<(), SystemError> {
     if self.allocated_memory > self.limit {
-      // println!("cleaning {} bytes of memory with limit {}", self.allocated_memory, self.limit);
       self.clean(stack, envs, cache, stack_frame, stack_frames)?;
     }
     Ok(())
@@ -136,9 +136,7 @@ impl Gc {
       marked_allocations.trace(value)
     }
 
-    for value in cache.values() {
-      marked_allocations.trace(value);
-    }
+    cache.trace(&mut marked_allocations);
 
     for env in envs.iter() {
       let handle = env.module();
@@ -195,7 +193,6 @@ impl Gc {
     }
 
     let allocated = unsafe { &mut *allocate_type(AllocatedObject::new(item)) };
-    // println!("allocating {} bytes for id {}", allocated.meta.size, T::ID);
     self.allocated_memory += allocated.meta.size;
 
     let ptr = &mut allocated.obj as *mut T as MutVoid;
@@ -280,7 +277,7 @@ impl Allocation<Value> for Gc {
 
 impl Allocation<&Value> for Gc {
   fn allocate(&mut self, value: &Value) -> Value {
-    value.clone()
+    *value
   }
 }
 
@@ -395,7 +392,7 @@ where
   }
 
   pub fn value(&self) -> Value {
-    self.handle.value.clone()
+    self.handle.value
   }
 }
 
@@ -489,7 +486,7 @@ impl DerefMut for ValueHandle {
 
 impl From<ValueHandle> for Value {
   fn from(handle: ValueHandle) -> Self {
-    handle.value.clone()
+    handle.value
   }
 }
 
@@ -499,9 +496,7 @@ impl Clone for ValueHandle {
       self.value.meta().ref_count.fetch_add(1, Ordering::Relaxed);
     }
 
-    Self {
-      value: self.value.clone(),
-    }
+    Self { value: self.value }
   }
 }
 
@@ -542,7 +537,7 @@ impl Marker {
     }
   }
   pub fn trace(&mut self, value: &Value) {
-    if !self.marked_values.contains(&value.bits) {
+    if value.is_ptr() && !self.marked_values.contains(&value.bits) {
       self.marked_values.insert(value.bits);
       value.trace_vtable(self);
     }

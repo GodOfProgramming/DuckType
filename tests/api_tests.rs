@@ -11,7 +11,7 @@ impl TestFixture for ApiTest {
   fn set_up() -> Self {
     let mut gc = SmartPtr::new(Gc::new(Memory::Mb(100)));
     let env = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-      let libval = lib.handle.value.clone();
+      let libval = lib.value();
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
     });
 
@@ -75,7 +75,7 @@ mod tests {
     }
 
     let mut env = ModuleBuilder::initialize(&mut t.vm.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-      let libval = lib.handle.value.clone();
+      let libval = lib.value();
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
     });
 

@@ -39,7 +39,7 @@ impl VecValue {
 
   fn insert(&mut self, index: i32, value: Value) -> UsageResult<Value> {
     if let Some(v) = self.buffer.get_mut(index as usize) {
-      *v = value.clone();
+      *v = value;
       Ok(value)
     } else {
       Err(UsageError::InvalidIndex(index, value))
@@ -70,8 +70,8 @@ impl Operators for VecValue {
     let internal_value = left
       .buffer
       .get_mut(index as usize)
-      .ok_or_else(|| UsageError::InvalidIndex(index, value.clone()))?;
-    *internal_value = value.clone();
+      .ok_or_else(|| UsageError::InvalidIndex(index, value))?;
+    *internal_value = value;
     Ok(value)
   }
 

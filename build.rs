@@ -1,8 +1,8 @@
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
-  const SOURCES: &'static [&'static str] = &["src/cpp/lib.cpp"];
-  const HEADERS: &'static [&'static str] = &["src/cpp/lib.hpp"];
+  const SOURCES: &[&str] = &["src/cpp/lib.cpp"];
+  const HEADERS: &[&str] = &["src/cpp/lib.hpp"];
 
   for file in SOURCES.iter().chain(HEADERS) {
     println!("cargo:rerun-if-changed={}", file);

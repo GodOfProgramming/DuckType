@@ -116,7 +116,6 @@ pub struct Vm {
   pub(crate) stack: Stack,
   pub(crate) stack_frame: StackFrame,
   pub(crate) stack_frames: Vec<StackFrame>,
-  globals: FastHashMap<String, Value>,
 
   pub gc: SmartPtr<Gc>,
 
@@ -144,7 +143,6 @@ impl Vm {
       stack_frame: Default::default(),
       stack_frames: Default::default(),
       stack: Stack::with_capacity(INITIAL_STACK_SIZE),
-      globals: Default::default(),
       gc,
       cache: Default::default(),
       modules: Default::default(),
@@ -298,8 +296,8 @@ impl Vm {
     match exec_type {
       RunMode::File => {
         let info = self.opened_files.pop().expect("file must be popped when leaving a file");
-        if let Some(export) = &self.stack_frame.export {
-          self.cache.add_lib(info.id, export.clone());
+        if let Some(export) = self.stack_frame.export {
+          self.cache.add_lib(info.id, export);
         }
 
         // pop until a file module is found
@@ -325,7 +323,7 @@ impl Vm {
   pub fn check_gc(&mut self) -> ExecResult {
     self
       .gc
-      .clean_if_time(
+      .poll(
         &self.stack,
         &self.modules,
         &mut self.cache,
@@ -347,13 +345,15 @@ impl Vm {
   }
 
   pub fn get_global(&self, name: &str) -> Option<Value> {
-    self.globals.get(name).cloned()
+    self.cache.get_global_by_name(name)
   }
 
   pub fn set_global(&mut self, name: impl ToString, value: impl Into<Value>) {
     let name = name.to_string();
-    self.cache.invalidate_global(&name);
-    self.globals.insert(name, value.into());
+    let value = value.into();
+
+    let id = self.cache.add_const(&name);
+    self.cache.set_global(id, value);
   }
 
   #[cold]
@@ -473,7 +473,7 @@ impl Vm {
       let name = this.cache.const_at(loc);
 
       if let ConstantValue::String(name) = name {
-        obj.set_member(&mut this.gc, Field::new(loc, name), value.clone())?;
+        obj.set_member(&mut this.gc, Field::new(loc, name), value)?;
         this.stack_push(value);
         Ok(())
       } else {
@@ -631,7 +631,7 @@ impl Vm {
 
     if let ConstantValue::String(name) = name {
       let leaf = current_module!(self);
-      let module = ModuleValue::new_child(name, leaf.handle.value.clone());
+      let module = ModuleValue::new_child(name, leaf.handle.value);
       let handle = self.gc.allocate_typed_handle(module);
       self.modules.push(ModuleEntry::Mod(handle.clone()));
       self.stack_push(handle.value());
@@ -746,17 +746,15 @@ impl Vm {
 
     match found_file.extension().and_then(|s| s.to_str()) {
       Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-        let value = if let Some(value) = self.cache.get_lib(file_id) {
-          value.clone()
-        } else {
+        let value = self.cache.get_lib(file_id).unwrap_or_else(|| {
           let lib: Container<NativeApi> =
             unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
           let value: Value = lib.duck_type_load_module(self).into();
           self.opened_native_libs.insert(found_file, lib);
-          self.cache.add_lib(file_id, value.clone());
+          self.cache.add_lib(file_id, value);
           value
-        };
+        });
 
         self.stack_push(value);
       }
@@ -764,7 +762,7 @@ impl Vm {
         let source = fs::read_to_string(&found_file).map_err(Error::other_system_err)?;
 
         if let Some(value) = self.cache.get_lib(file_id) {
-          self.stack_push(value.clone());
+          self.stack_push(value);
         } else {
           self.filemap.add(file_id, &found_file);
 
@@ -775,7 +773,7 @@ impl Vm {
             &mut self.gc,
             ModuleType::new_global(format!("<file export {}>", found_file.display())),
             |gc, mut lib| {
-              let libval = lib.handle.value.clone();
+              let libval = lib.value();
               lib.env.extend(stdlib::enable_std(gc, libval, &self.args));
             },
           );
@@ -804,9 +802,8 @@ impl Vm {
   fn exec_define_global(&mut self, loc: LongAddr) -> ExecResult {
     self.wrap_err_mut(|this| {
       this.validate_ident_and(loc, |this, name| {
-        let v = this.stack_peek();
-        if this.globals.insert(name.clone(), v.clone()).is_none() {
-          this.cache.add_global(loc, v);
+        let value = this.stack_peek();
+        if this.cache.set_global(loc, value) {
           Ok(())
         } else {
           let level = current_module!(this).search_for(0, &name);
@@ -819,10 +816,10 @@ impl Vm {
   fn exec_define_scope(&mut self, loc: LongAddr) -> ExecResult {
     self.wrap_err_mut(|this| {
       this.validate_ident_and(loc, |this, name| {
-        let v = this.stack_peek();
+        let value = this.stack_peek();
         let module = current_module_mut!(this);
-        if module.define(name.clone(), v.clone()) {
-          this.cache.add_to_mod(module.value(), loc, v);
+        if module.define(name.clone(), value) {
+          this.cache.add_to_mod(module.value(), loc, value);
           Ok(())
         } else {
           let level = current_module!(this).search_for(0, &name);
@@ -835,7 +832,7 @@ impl Vm {
   fn exec_resolve(&mut self, ident: usize) -> ExecResult {
     let obj = self.stack_pop();
 
-    let hit = self.cache.resolve_mod(obj.clone(), ident);
+    let hit = self.cache.resolve_mod(obj, ident);
 
     match hit {
       Some(value) => {
@@ -847,7 +844,7 @@ impl Vm {
 
         if let ConstantValue::String(name) = name {
           let value = self.wrap_err(|_| obj.resolve(name))?;
-          self.cache.add_to_mod(obj, ident, value.clone());
+          self.cache.add_to_mod(obj, ident, value);
           self.stack_push(value);
         } else {
           Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
@@ -988,7 +985,7 @@ impl Vm {
       let value = this.stack_pop();
       let index = this.stack_pop();
       let indexable = this.stack_pop();
-      (indexable.vtable().assign_index)(MutPtr::new(this), indexable, index, value.clone())?;
+      (indexable.vtable().assign_index)(MutPtr::new(this), indexable, index, value)?;
       this.stack_push(value);
       Ok(())
     })
@@ -1164,8 +1161,7 @@ impl Vm {
     self.validate_ident_and(loc, |this, name| {
       let value = this.stack_peek();
 
-      if this.globals.insert(name.clone(), value.clone()).is_some() {
-        this.cache.add_global(loc, value);
+      if !this.cache.set_global(loc, value) {
         Ok(())
       } else {
         Err(UsageError::UndefinedVar(name))
@@ -1416,7 +1412,10 @@ impl Vm {
     let module = current_module!(self);
     let hit = self.cache.find_var(module, ident);
     match hit {
-      Some(hit) => Ok(hit),
+      Some(hit) => {
+        cache_hit!();
+        Ok(hit)
+      }
       None => match self.cache.const_at(ident) {
         ConstantValue::String(name) => current_module!(self)
           .lookup(name)

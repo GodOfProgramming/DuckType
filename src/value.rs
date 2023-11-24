@@ -127,7 +127,7 @@ impl Value {
   where
     T: MaybeFrom<Self>,
   {
-    T::maybe_from(self.clone())
+    T::maybe_from(*self)
   }
 
   // -- native closure
@@ -160,7 +160,7 @@ impl Value {
       let output = f(vm, Args::new(args))?;
       Ok(output)
     } else {
-      (self.vtable().invoke)(self.pointer_mut(), MutPtr::new(vm), self.clone(), airity)
+      (self.vtable().invoke)(self.pointer_mut(), MutPtr::new(vm), *self, airity)
     }
   }
 
@@ -272,7 +272,7 @@ impl TryFrom<Value> for i32 {
 
 impl From<&Value> for Value {
   fn from(item: &Value) -> Value {
-    item.clone()
+    *item
   }
 }
 

@@ -88,7 +88,7 @@ impl StructValue {
       .members
       .binary_search_by_key(id, |m| m.id)
       .ok()
-      .map(|idx| self.members[idx].value.clone())
+      .map(|idx| self.members[idx].value)
   }
 
   fn get_id_by_field(&self, field: Field) -> Result<usize, UsageError> {

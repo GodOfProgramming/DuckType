@@ -116,6 +116,7 @@ fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHand
     defmod(gc, lib, names::VM, |gc, mut lib| {
       defmod(gc, &mut lib, names::vm::GC, |_, mut lib| {
         lib.define("total_cycles", Value::new::<NativeFn>(total_cycles));
+        lib.define("print_stats", Value::new::<NativeFn>(print_stats));
       });
     });
   })
@@ -157,4 +158,23 @@ fn math_rand_i32() -> UsageResult<i32> {
 #[native(with_vm)]
 fn total_cycles(vm: &mut Vm) -> UsageResult<i32> {
   Ok(vm.gc.num_cycles as i32)
+}
+
+#[native(with_vm)]
+fn print_stats(vm: &mut Vm) -> UsageResult<()> {
+  println!(
+    "{}",
+    itertools::join(
+      [
+        "------ Gc Stats ------",
+        &format!("No. cycles ------------- {}", vm.gc.num_cycles),
+        &format!("No. allocations -------- {}", vm.gc.allocations.len()),
+        &format!("No. handles ------------ {}", vm.gc.native_handles.len()),
+        &format!("Memory in use ---------- {}", vm.gc.allocated_memory),
+        &format!("Limit till next cycle -- {}", vm.gc.limit),
+      ],
+      "\n"
+    )
+  );
+  Ok(())
 }

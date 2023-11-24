@@ -13,7 +13,21 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/target/debug/duck",
-      "args": ["run", "${workspaceFolder}/examples/arbitrary/scratchpad.dk"],
+      "args": ["run", "examples/arbitrary/scratchpad.dk"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "duck debug benchmark",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/duck",
+      "args": [
+        "--gc-mb",
+        "10",
+        "-o",
+        "run",
+        "examples/benchmarks/benchmarks.dk"
+      ],
       "cwd": "${workspaceFolder}"
     }
   ]

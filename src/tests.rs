@@ -13,7 +13,7 @@ impl IntegrationTest {
   fn new() -> Self {
     let mut gc = SmartPtr::new(Gc::test_default());
     let env = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-      let libval = lib.handle.value.clone();
+      let libval = lib.value();
       lib.env.extend(stdlib::enable_std(gc, libval, &[]));
     });
 
@@ -221,7 +221,7 @@ impl ScriptTest {
     {
       println!("Running non-optimized {:?}", script);
       let env = ModuleBuilder::initialize(&mut self.vm.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-        let libval = lib.handle.value.clone();
+        let libval = lib.value();
         lib.env.extend(stdlib::enable_std(gc, libval, &[]));
       });
       self.vm.run_file(script, env).unwrap();
@@ -231,7 +231,7 @@ impl ScriptTest {
     {
       println!("Running optimized {:?}", script);
       let env = ModuleBuilder::initialize(&mut self.opt.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-        let libval = lib.handle.value.clone();
+        let libval = lib.value();
         lib.env.extend(stdlib::enable_std(gc, libval, &[]));
       });
       self.opt.run_file(script, env).unwrap();

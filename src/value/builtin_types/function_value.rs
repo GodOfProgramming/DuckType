@@ -28,7 +28,7 @@ impl FunctionValue {
   }
 
   pub fn invoke(&mut self, vm: &mut Vm, offset: usize) -> UsageResult {
-    let env = UsertypeHandle::new(vm.gc.handle_from(self.env.clone()));
+    let env = UsertypeHandle::new(vm.gc.handle_from(self.env));
     vm.run_fn(self.ctx.clone(), env, self.airity + offset)
       .map_err(UsageError::Preformated)
   }

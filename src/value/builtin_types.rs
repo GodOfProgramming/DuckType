@@ -291,7 +291,7 @@ where
   T: MaybeFrom<Value>,
 {
   fn try_unwrap_arg(&mut self, fn_name: &'static str, pos: usize) -> UsageResult<T> {
-    T::maybe_from(self.items.next().clone().unwrap()).ok_or(UsageError::InvalidArgument(fn_name, pos))
+    T::maybe_from(self.items.next().unwrap()).ok_or(UsageError::InvalidArgument(fn_name, pos))
   }
 }
 
