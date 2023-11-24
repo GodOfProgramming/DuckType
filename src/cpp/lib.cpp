@@ -135,6 +135,108 @@ namespace duck_type
       exec_false(vm);
       INC_JMP(instructions, ip);
     }
+    CASE(Equal)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_equal(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(NotEqual)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_not_equal(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(Greater)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_greater(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(GreaterEqual)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_greater_equal(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(Less)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_less(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(LessEqual)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_less_equal(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(Add)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_add(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(Sub)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_sub(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(Mul)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_mul(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(Div)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_div(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(Rem)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_rem(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(Index)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_index(vm));
+      INC_JMP(instructions, ip);
+    }
+    CASE(AssignIndex)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_index_assign(vm));
+      INC_JMP(instructions, ip);
+    }
+    CASE(Not)
+    {
+      DISASM(vm, instructions, ip);
+      exec_not(vm);
+      INC_JMP(instructions, ip);
+    }
+    CASE(Negate)
+    {
+      DISASM(vm, instructions, ip);
+      exec_negate(vm);
+      INC_JMP(instructions, ip);
+    }
+    CASE(Or)
+    {
+      DISASM(vm, instructions, ip);
+      exec_or(vm, FETCH(instructions, ip));
+      JMP(instructions, ip);
+    }
+    CASE(And)
+    {
+      DISASM(vm, instructions, ip);
+      exec_and(vm, FETCH(instructions, ip));
+      JMP(instructions, ip);
+    }
     CASE(InitializeMember)
     {
       DISASM(vm, instructions, ip);
@@ -204,121 +306,19 @@ namespace duck_type
     CASE(CreateClass)
     {
       DISASM(vm, instructions, ip);
-      exec_create_class(vm, FETCH(instructions, ip));
+      CHECK(exec_create_class(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(CreateModule)
     {
       DISASM(vm, instructions, ip);
-      exec_create_module(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(Equal)
-    {
-      DISASM(vm, instructions, ip);
-      exec_equal(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(NotEqual)
-    {
-      DISASM(vm, instructions, ip);
-      exec_not_equal(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(Greater)
-    {
-      DISASM(vm, instructions, ip);
-      exec_greater(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(GreaterEqual)
-    {
-      DISASM(vm, instructions, ip);
-      exec_greater_equal(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(Less)
-    {
-      DISASM(vm, instructions, ip);
-      exec_less(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(LessEqual)
-    {
-      DISASM(vm, instructions, ip);
-      exec_less_equal(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(Add)
-    {
-      DISASM(vm, instructions, ip);
-      exec_add(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(Sub)
-    {
-      DISASM(vm, instructions, ip);
-      exec_sub(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(Mul)
-    {
-      DISASM(vm, instructions, ip);
-      exec_mul(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(Div)
-    {
-      DISASM(vm, instructions, ip);
-      exec_div(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(Rem)
-    {
-      DISASM(vm, instructions, ip);
-      exec_rem(vm, FETCH(instructions, ip));
-      INC_JMP(instructions, ip);
-    }
-    CASE(Index)
-    {
-      DISASM(vm, instructions, ip);
-      exec_index(vm);
-      INC_JMP(instructions, ip);
-    }
-    CASE(AssignIndex)
-    {
-      DISASM(vm, instructions, ip);
-      exec_index_assign(vm);
-      INC_JMP(instructions, ip);
-    }
-    CASE(Or)
-    {
-      DISASM(vm, instructions, ip);
-      exec_or(vm, FETCH(instructions, ip));
-      JMP(instructions, ip);
-    }
-    CASE(And)
-    {
-      DISASM(vm, instructions, ip);
-      exec_and(vm, FETCH(instructions, ip));
-      JMP(instructions, ip);
-    }
-    CASE(Not)
-    {
-      DISASM(vm, instructions, ip);
-      exec_not(vm);
-      INC_JMP(instructions, ip);
-    }
-    CASE(Negate)
-    {
-      DISASM(vm, instructions, ip);
-      exec_negate(vm);
+      CHECK(exec_create_module(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(Check)
     {
       DISASM(vm, instructions, ip);
-      exec_check(vm);
+      CHECK(exec_check(vm));
       INC_JMP(instructions, ip);
     }
     CASE(Println)
@@ -348,37 +348,19 @@ namespace duck_type
     CASE(Invoke)
     {
       DISASM(vm, instructions, ip);
-      exec_call(vm, FETCH(instructions, ip));
-      JMP(instructions, ip);
-    }
-    CASE(Swap)
-    {
-      DISASM(vm, instructions, ip);
-      exec_swap(vm, FETCH(instructions, ip));
+      CHECK(exec_call(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
-    CASE(SwapPop)
+    CASE(Req)
     {
       DISASM(vm, instructions, ip);
-      exec_swap_pop(vm);
+      CHECK(exec_req(vm));
       INC_JMP(instructions, ip);
     }
     CASE(Ret)
     {
       DISASM(vm, instructions, ip);
       return;
-    }
-    CASE(Req)
-    {
-      DISASM(vm, instructions, ip);
-      exec_req(vm);
-      JMP(instructions, ip);
-    }
-    CASE(Breakpoint)
-    {
-      DISASM(vm, instructions, ip);
-      exec_dbg(vm);
-      INC_JMP(instructions, ip);
     }
     CASE(Export)
     {
@@ -389,19 +371,19 @@ namespace duck_type
     CASE(DefineGlobal)
     {
       DISASM(vm, instructions, ip);
-      exec_define_global(vm, FETCH(instructions, ip));
+      CHECK(exec_define_global(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(DefineScope)
     {
       DISASM(vm, instructions, ip);
-      exec_define_scope(vm, FETCH(instructions, ip));
+      CHECK(exec_define_scope(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(Resolve)
     {
       DISASM(vm, instructions, ip);
-      exec_resolve(vm, FETCH(instructions, ip));
+      CHECK(exec_resolve(vm, FETCH(instructions, ip)));
       INC_JMP(instructions, ip);
     }
     CASE(EnterBlock)
@@ -416,22 +398,40 @@ namespace duck_type
       exec_pop_scope(vm);
       INC_JMP(instructions, ip);
     }
+    CASE(Swap)
+    {
+      DISASM(vm, instructions, ip);
+      exec_swap(vm, FETCH(instructions, ip));
+      INC_JMP(instructions, ip);
+    }
+    CASE(SwapPop)
+    {
+      DISASM(vm, instructions, ip);
+      exec_swap_pop(vm);
+      INC_JMP(instructions, ip);
+    }
     CASE(Is)
     {
       DISASM(vm, instructions, ip);
-      exec_is(vm);
+      CHECK(exec_is(vm));
       INC_JMP(instructions, ip);
     }
     CASE(Quack)
     {
       DISASM(vm, instructions, ip);
-      exec_quack(vm);
+      CHECK(exec_quack(vm));
       INC_JMP(instructions, ip);
     }
     CASE(Unknown)
     {
       DISASM(vm, instructions, ip);
-      exec_unknown(vm, FETCH(instructions, ip));
+      CHECK(exec_unknown(vm, FETCH(instructions, ip)));
+      INC_JMP(instructions, ip);
+    }
+    CASE(Breakpoint)
+    {
+      DISASM(vm, instructions, ip);
+      CHECK(exec_dbg(vm));
       INC_JMP(instructions, ip);
     }
   }

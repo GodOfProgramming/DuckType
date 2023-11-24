@@ -213,7 +213,7 @@ impl RuntimeError {
           msg = msg.to_string(),
           src_line = line,
           space = " ".repeat(opcode_ref.column - 1),
-          opcode = opcode_ref.inst.opcode().unwrap_or_default()
+          opcode = opcode_ref.inst.opcode()
         )
       })
       .unwrap_or_else(|| format!("invalid line at {}", opcode_ref.line))

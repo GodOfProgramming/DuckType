@@ -36,36 +36,19 @@ impl Instruction {
     Some(Self(inst))
   }
 
-  pub fn opcode(&self) -> Option<Opcode> {
-    Opcode::checked_data(self.0 & Opcode::MASK)
+  pub fn opcode(&self) -> Opcode {
+    Opcode::decode(self.0)
   }
 
-  #[cfg(not(debug_assertions))]
   pub fn data<T>(&self) -> T
   where
     T: InstructionData,
   {
-    T::unchecked_data(self.0 >> Self::DATA_OFFSET)
-  }
-
-  #[cfg(debug_assertions)]
-  pub fn data<T>(&self) -> Option<T>
-  where
-    T: InstructionData,
-  {
-    T::checked_data(self.0 >> Self::DATA_OFFSET)
+    T::decode(self.0 >> Self::DATA_OFFSET)
   }
 
   pub fn has_data(&self) -> bool {
     self.0 & Self::DATA_BIT == Self::DATA_BIT
-  }
-
-  /// Returns unchecked data meant for display and debugging purposes
-  pub fn display_data<T>(&self) -> T
-  where
-    T: InstructionData,
-  {
-    T::unchecked_data(self.0 >> Self::DATA_OFFSET)
   }
 }
 
@@ -103,9 +86,9 @@ where
 
   fn to_bits(self) -> u64;
 
-  fn checked_data(inst: u64) -> Option<Self>;
+  fn decode_checked(inst: u64) -> Option<Self>;
 
-  fn unchecked_data(inst: u64) -> Self;
+  fn decode(inst: u64) -> Self;
 
   fn encode(self) -> Option<u64> {
     Self::valid_bits(self.to_bits())
@@ -418,11 +401,11 @@ impl InstructionData for Opcode {
     self as u8 as u64
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     Self::from_repr((inst & Self::MASK).try_into().ok()?)
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     unsafe { mem::transmute((inst & Self::MASK) as u8) }
   }
 }
@@ -434,11 +417,11 @@ impl InstructionData for usize {
     self as u64
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     (inst & Self::MASK).try_into().ok()
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     (inst & Self::MASK) as usize
   }
 }
@@ -460,11 +443,11 @@ impl InstructionData for Storage {
     self as u8 as u64
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     Self::from_repr((inst & Self::MASK).try_into().ok()?)
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     unsafe { mem::transmute((inst & Self::MASK) as u8) }
   }
 }
@@ -479,11 +462,11 @@ impl InstructionData for LongAddr {
     self.0 as u64
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
-    Some(Self::unchecked_data(inst))
+  fn decode_checked(inst: u64) -> Option<Self> {
+    Some(Self::decode(inst))
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     Self((inst & Self::MASK) as usize)
   }
 }
@@ -510,11 +493,11 @@ impl InstructionData for ShortAddr {
     self.0 as u64
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     (inst & Self::MASK).try_into().map(Self).ok()
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     Self((inst & Self::MASK) as usize)
   }
 }
@@ -538,11 +521,11 @@ impl InstructionData for () {
     0
   }
 
-  fn checked_data(_: u64) -> Option<Self> {
+  fn decode_checked(_: u64) -> Option<Self> {
     Some(())
   }
 
-  fn unchecked_data(_: u64) -> Self {}
+  fn decode(_: u64) -> Self {}
 }
 
 impl<T0, T1> InstructionData for (T0, T1)
@@ -556,15 +539,12 @@ where
     self.0.to_bits() | self.1.to_bits() << T0::BITS
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
-    T0::checked_data(inst & T0::MASK).zip(T1::checked_data(inst >> T0::BITS & T1::MASK))
+  fn decode_checked(inst: u64) -> Option<Self> {
+    T0::decode_checked(inst & T0::MASK).zip(T1::decode_checked(inst >> T0::BITS & T1::MASK))
   }
 
-  fn unchecked_data(inst: u64) -> Self {
-    (
-      T0::unchecked_data(inst & T0::MASK),
-      T1::unchecked_data(inst >> T0::BITS & T1::MASK),
-    )
+  fn decode(inst: u64) -> Self {
+    (T0::decode(inst & T0::MASK), T1::decode(inst >> T0::BITS & T1::MASK))
   }
 }
 
@@ -580,22 +560,22 @@ where
     self.0.to_bits() | self.1.to_bits() << T0::BITS | self.2.to_bits() << (T0::BITS + T1::BITS)
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     match (
-      T0::checked_data(inst & T0::MASK),
-      T1::checked_data(inst >> T0::BITS & T1::MASK),
-      T2::checked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+      T0::decode_checked(inst & T0::MASK),
+      T1::decode_checked(inst >> T0::BITS & T1::MASK),
+      T2::decode_checked(inst >> (T0::BITS + T1::BITS) & T2::MASK),
     ) {
       (Some(t0), Some(t1), Some(t2)) => Some((t0, t1, t2)),
       _ => None,
     }
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     (
-      T0::unchecked_data(inst & T0::MASK),
-      T1::unchecked_data(inst >> T0::BITS & T1::MASK),
-      T2::unchecked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+      T0::decode(inst & T0::MASK),
+      T1::decode(inst >> T0::BITS & T1::MASK),
+      T2::decode(inst >> (T0::BITS + T1::BITS) & T2::MASK),
     )
   }
 }
@@ -616,24 +596,24 @@ where
       | self.3.to_bits() << (T0::BITS + T1::BITS + T2::BITS)
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     match (
-      T0::checked_data(inst & T0::MASK),
-      T1::checked_data(inst >> T0::BITS & T1::MASK),
-      T2::checked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
-      T3::checked_data(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
+      T0::decode_checked(inst & T0::MASK),
+      T1::decode_checked(inst >> T0::BITS & T1::MASK),
+      T2::decode_checked(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+      T3::decode_checked(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
     ) {
       (Some(t0), Some(t1), Some(t2), Some(t3)) => Some((t0, t1, t2, t3)),
       _ => None,
     }
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     (
-      T0::unchecked_data(inst & T0::MASK),
-      T1::unchecked_data(inst >> T0::BITS & T1::MASK),
-      T2::unchecked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
-      T3::unchecked_data(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
+      T0::decode(inst & T0::MASK),
+      T1::decode(inst >> T0::BITS & T1::MASK),
+      T2::decode(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+      T3::decode(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
     )
   }
 }
@@ -686,7 +666,7 @@ impl DerefMut for Stack {
 
 #[derive(Default)]
 pub struct StackFrame {
-  pub ip: usize,
+  pub ip: Box<usize>,
   pub sp: usize,
   pub ctx: SmartPtr<Context>,
   pub export: Option<Value>,
@@ -795,7 +775,7 @@ mod tests {
     let addr = LongAddr(ADDR);
     let bits = addr.encode().unwrap();
     assert_eq!(bits, ADDR as u64);
-    let addr = LongAddr::checked_data(bits).unwrap();
+    let addr = LongAddr::decode_checked(bits).unwrap();
     assert_eq!(addr, LongAddr(ADDR));
   }
 
@@ -803,8 +783,8 @@ mod tests {
   fn opcode_serde_cplx_inst() {
     let inst = Instruction::new(Opcode::Load, (Storage::Local, LongAddr(ADDR))).unwrap();
 
-    let op = inst.opcode().unwrap();
-    let (storage, addr) = inst.data::<(Storage, LongAddr)>().unwrap();
+    let op = inst.opcode();
+    let (storage, addr) = inst.data::<(Storage, LongAddr)>();
 
     assert_eq!(op, Opcode::Load);
     assert_eq!(storage, Storage::Local);
@@ -821,8 +801,8 @@ mod tests {
     )
     .unwrap();
 
-    let op = inst.opcode().unwrap();
-    let ((a_store, a_addr), (b_store, b_addr)) = inst.data::<((Storage, ShortAddr), (Storage, ShortAddr))>().unwrap();
+    let op = inst.opcode();
+    let ((a_store, a_addr), (b_store, b_addr)) = inst.data::<((Storage, ShortAddr), (Storage, ShortAddr))>();
 
     assert!(inst.has_data());
     assert_eq!(op, Opcode::Add);

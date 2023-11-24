@@ -65,21 +65,6 @@ pub(crate) enum RunMode {
   Fn,
 }
 
-// .ok_or(UsageError::InvalidInstruction($inst))?
-#[cfg(debug_assertions)]
-macro_rules! decode {
-  ($inst:ident) => {
-    $inst.data().unwrap()
-  };
-}
-
-#[cfg(not(debug_assertions))]
-macro_rules! decode {
-  ($inst:ident) => {
-    $inst.data()
-  };
-}
-
 macro_rules! current_module {
   ($this:ident) => {
     $this.modules.last()
@@ -209,9 +194,13 @@ impl Vm {
       bindings::duck_type_execute(
         self as *mut Vm as *mut c_void,
         self.ctx_mut().instructions.as_mut_ptr() as *mut u64,
-        &mut self.stack_frame.ip as *mut usize,
+        &mut *self.stack_frame.ip as *mut usize,
       )
     };
+
+    let mut result = Ok(());
+    mem::swap(&mut result, &mut self.last_error);
+    result?;
 
     match exec_type {
       RunMode::File => {
@@ -279,12 +268,6 @@ impl Vm {
     })
   }
 
-  fn exec_swap(&mut self, (addr_a, addr_b): (ShortAddr, ShortAddr)) -> OpResult {
-    let st_sz = self.stack_size() - 1;
-    self.stack.swap(st_sz - addr_a.0, st_sz - addr_b.0);
-    Ok(())
-  }
-
   fn exec_bool<F: FnOnce(Value, Value) -> bool>(&mut self, opcode: Opcode, f: F) -> OpResult {
     self.binary_op(opcode, |a, b| Ok(Value::from(f(a, b))))
   }
@@ -293,7 +276,7 @@ impl Vm {
     self.do_binary_op(opcode, av, bv, |a, b| Ok(Value::from(f(a, b))))
   }
 
-  fn exec_equal(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_equal_slow(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a == b)
   }
 
@@ -307,7 +290,7 @@ impl Vm {
     self.do_bool(opcode, av, bv, |a, b| a == b)
   }
 
-  fn exec_not_equal(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_not_equal_slow(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a != b)
   }
 
@@ -321,7 +304,7 @@ impl Vm {
     self.do_bool(opcode, av, bv, |a, b| a != b)
   }
 
-  fn exec_greater(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_greater_slow(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a > b)
   }
 
@@ -335,7 +318,7 @@ impl Vm {
     self.do_bool(opcode, av, bv, |a, b| a > b)
   }
 
-  fn exec_greater_equal(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_greater_equal_slow(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a >= b)
   }
 
@@ -349,7 +332,7 @@ impl Vm {
     self.do_bool(opcode, av, bv, |a, b| a >= b)
   }
 
-  fn exec_less(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_less_slow(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a < b)
   }
 
@@ -363,7 +346,7 @@ impl Vm {
     self.do_bool(opcode, av, bv, |a, b| a < b)
   }
 
-  fn exec_less_equal(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_less_equal_slow(&mut self, opcode: Opcode) -> OpResult {
     self.exec_bool(opcode, |a, b| a <= b)
   }
 
@@ -377,7 +360,7 @@ impl Vm {
     self.do_bool(opcode, av, bv, |a, b| a <= b)
   }
 
-  fn exec_add(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_add_slow(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a + b)
   }
 
@@ -391,7 +374,7 @@ impl Vm {
     self.do_binary_op(opcode, av, bv, |a, b| a + b)
   }
 
-  fn exec_sub(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_sub_slow(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a - b)
   }
 
@@ -405,7 +388,7 @@ impl Vm {
     self.do_binary_op(opcode, av, bv, |a, b| a - b)
   }
 
-  fn exec_mul(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_mul_slow(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a * b)
   }
 
@@ -419,7 +402,7 @@ impl Vm {
     self.do_binary_op(opcode, av, bv, |a, b| a * b)
   }
 
-  fn exec_div(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_div_slow(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a / b)
   }
 
@@ -433,7 +416,7 @@ impl Vm {
     self.do_binary_op(opcode, av, bv, |a, b| a / b)
   }
 
-  fn exec_rem(&mut self, opcode: Opcode) -> OpResult {
+  fn exec_rem_slow(&mut self, opcode: Opcode) -> OpResult {
     self.binary_op(opcode, |a, b| a % b)
   }
 
@@ -448,11 +431,11 @@ impl Vm {
   }
 
   fn jump(&mut self, offset: usize) {
-    self.stack_frame.ip += offset;
+    *self.stack_frame.ip += offset;
   }
 
   fn jump_back(&mut self, offset: usize) {
-    self.stack_frame.ip -= offset;
+    *self.stack_frame.ip -= offset;
   }
 
   /// when f evaluates to true, short circuit
@@ -462,37 +445,8 @@ impl Vm {
       self.jump(offset);
     } else {
       self.stack_pop();
-      self.stack_frame.ip += 1;
+      *self.stack_frame.ip += 1;
     }
-  }
-
-  fn exec_or(&mut self, offset: usize) {
-    self.exec_logical(offset, |v| v.truthy())
-  }
-
-  fn exec_and(&mut self, offset: usize) {
-    self.exec_logical(offset, |v| v.falsy())
-  }
-
-  fn exec_not(&mut self, opcode: Opcode) -> OpResult {
-    self.unary_op(opcode, |v| Ok(!v))
-  }
-
-  fn exec_negate(&mut self, opcode: Opcode) -> OpResult {
-    self.unary_op(opcode, |v| -v)
-  }
-
-  fn exec_index(&mut self, opcode: Opcode) -> OpResult {
-    self.binary_op(opcode, |_, _| Err(UsageError::InvalidBinary))
-  }
-
-  fn exec_index_assign(&mut self) -> OpResult {
-    let value = self.stack_pop();
-    let index = self.stack_pop();
-    let indexable = self.stack_pop();
-    (indexable.vtable().assign_index)(MutPtr::new(self), indexable, index, value.clone())?;
-    self.stack_push(value);
-    Ok(())
   }
 
   fn push_scope(&mut self) {
@@ -505,40 +459,16 @@ impl Vm {
     self.modules.pop();
   }
 
-  fn exec_is(&mut self) -> OpResult {
-    let right = self.stack_pop();
-    let left = self.stack_pop();
-
-    let is_type = if let Some(instance) = left.cast_to::<InstanceValue>() {
-      instance.class.bits == right.bits
-    } else if left.is_ptr() {
-      if let Some(right) = right.cast_to::<IdValue>() {
-        left.type_id() == &right.id
-      } else {
-        left.type_id() == right.type_id()
-      }
-    } else if left.is::<NativeFn>() {
-      if right.pointer().is_null() {
-        left.tag() == right.tag()
-      } else {
-        left.bits == right.bits
-      }
-    } else {
-      left.tag() == right.tag()
-    };
-
-    self.stack_push(Value::new(is_type));
-    Ok(())
-  }
-
-  fn exec_quack(&mut self) -> OpResult {
-    let value = self.stack_pop();
-    Err(UsageError::Quack(value))
-  }
-
   /* Utility Functions */
 
-  fn exec<F, T>(&mut self, f: F) -> ExecResult<T>
+  fn wrap_err<F, T>(&self, f: F) -> ExecResult<T>
+  where
+    F: FnOnce(&Self) -> OpResult<T>,
+  {
+    f(self).map_err(|e| self.error(e))
+  }
+
+  fn wrap_err_mut<F, T>(&mut self, f: F) -> ExecResult<T>
   where
     F: FnOnce(&mut Self) -> OpResult<T>,
   {
@@ -578,7 +508,7 @@ impl Vm {
     self.do_binary_op(opcode, av, bv, f)
   }
 
-  fn do_binary_op<F>(&mut self, opcode: Opcode, av: Value, bv: Value, f: F) -> Result<(), UsageError>
+  fn invoke_binary_op<F>(&mut self, opcode: Opcode, av: Value, bv: Value, f: F) -> Result<Value, UsageError>
   where
     F: FnOnce(Value, Value) -> Result<Value, UsageError>,
   {
@@ -600,13 +530,19 @@ impl Vm {
         _ => Err(UsageError::InvalidBinary)?,
       };
 
-      let output = bin_op(MutPtr::new(self), av, bv)?;
-      self.stack_push(output);
-      Ok(())
+      bin_op(MutPtr::new(self), av, bv)
     } else {
-      self.stack_push(f(av, bv)?);
-      Ok(())
+      f(av, bv)
     }
+  }
+
+  fn do_binary_op<F>(&mut self, opcode: Opcode, av: Value, bv: Value, f: F) -> Result<(), UsageError>
+  where
+    F: FnOnce(Value, Value) -> Result<Value, UsageError>,
+  {
+    let value = self.invoke_binary_op(opcode, av, bv, f)?;
+    self.stack_push(value);
+    Ok(())
   }
 
   fn load_from_storage(&mut self, st: Storage, addr: impl Into<usize>) -> OpResult<Value> {
@@ -778,8 +714,8 @@ impl Vm {
 
   #[cold]
   fn error(&self, e: UsageError) -> Error {
-    let opcode = self.stack_frame.ctx.instructions[self.stack_frame.ip];
-    Error::runtime_error(self.error_at(opcode, |opcode_ref| RuntimeError::new(e, &self.filemap, opcode_ref)))
+    let instruction = self.stack_frame.ctx.instructions[*self.stack_frame.ip];
+    Error::runtime_error(self.error_at(instruction, |opcode_ref| RuntimeError::new(e, &self.filemap, opcode_ref)))
   }
 
   #[cold]
@@ -791,10 +727,10 @@ impl Vm {
       .stack_frame
       .ctx
       .meta
-      .reflect(inst, self.stack_frame.ip)
+      .reflect(inst, *self.stack_frame.ip)
       .map(f)
       .unwrap_or_else(|| RuntimeError {
-        msg: UsageError::IpOutOfBounds(self.stack_frame.ip).to_string(),
+        msg: UsageError::IpOutOfBounds(*self.stack_frame.ip).to_string(),
         file: self.filemap.get(self.stack_frame.ctx.meta.file_id),
         line: 0,
         column: 0,
@@ -815,6 +751,7 @@ impl Vm {
 // ops
 
 impl Vm {
+  #[allow(unused)]
   fn exec_disasm(&self, inst: Instruction) {
     self.stack_display();
 
@@ -827,7 +764,7 @@ impl Vm {
           cache: &self.cache,
         },
         inst,
-        offset: self.stack_frame.ip,
+        offset: *self.stack_frame.ip,
       }
     );
   }
@@ -855,7 +792,7 @@ impl Vm {
     match storage {
       Storage::Stack => self.exec_store_stack(addr),
       Storage::Local => self.exec_store_local(addr),
-      Storage::Global => self.exec(|this| this.exec_store_global(addr))?,
+      Storage::Global => self.wrap_err_mut(|this| this.exec_store_global(addr))?,
     }
     Ok(())
   }
@@ -864,7 +801,7 @@ impl Vm {
     match storage {
       Storage::Stack => self.exec_load_stack(addr),
       Storage::Local => self.exec_load_local(addr),
-      Storage::Global => self.exec(|this| this.exec_load_global(addr))?,
+      Storage::Global => self.wrap_err_mut(|this| this.exec_load_global(addr))?,
     }
     Ok(())
   }
@@ -882,68 +819,70 @@ impl Vm {
   }
 
   fn exec_initialize_member(&mut self, loc: usize) -> ExecResult {
-    let value = self.stack_pop();
-    let mut obj = self.stack_peek();
-    let name = self.cache.const_at(loc);
+    self.wrap_err_mut(|this| {
+      let value = this.stack_pop();
+      let mut obj = this.stack_peek();
+      let name = this.cache.const_at(loc);
 
-    if let ConstantValue::String(name) = name {
-      let out = obj.set_member(&mut self.gc, Field::new(loc, name), value);
-      self.exec(|_| out)?;
-    } else {
-      Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
-    }
-
+      if let ConstantValue::String(name) = name {
+        obj.set_member(&mut this.gc, Field::new(loc, name), value)?;
+        Ok(())
+      } else {
+        Err(UsageError::InvalidIdentifier(name.to_string()))
+      }
+    })?;
     self.check_gc()
   }
 
   fn exec_assign_member(&mut self, loc: usize) -> ExecResult {
-    let value = self.stack_pop();
-    let mut obj = self.stack_pop();
+    self.wrap_err_mut(|this| {
+      let value = this.stack_pop();
+      let mut obj = this.stack_pop();
 
-    let name = self.cache.const_at(loc);
+      let name = this.cache.const_at(loc);
 
-    if let ConstantValue::String(name) = name {
-      self.exec(|this| obj.set_member(&mut this.gc, Field::new(loc, name), value.clone()))?;
-
-      self.stack_push(value);
-    } else {
-      Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
-    }
+      if let ConstantValue::String(name) = name {
+        obj.set_member(&mut this.gc, Field::new(loc, name), value.clone())?;
+        this.stack_push(value);
+        Ok(())
+      } else {
+        Err(UsageError::InvalidIdentifier(name.to_string()))
+      }
+    })?;
 
     self.check_gc()
   }
 
   fn exec_lookup_member(&mut self, loc: usize) -> ExecResult {
-    let obj = self.stack_pop();
+    self.wrap_err_mut(|this| {
+      let obj = this.stack_pop();
 
-    let name = self.cache.const_at(loc);
+      let name = this.cache.const_at(loc);
 
-    if let ConstantValue::String(name) = name {
-      let value = self
-        .exec(|this| obj.get_member(&mut this.gc, Field::new(loc, name)))?
-        .unwrap_or_default();
-
-      self.stack_push(value);
-    } else {
-      Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
-    }
-
-    self.check_gc()
+      if let ConstantValue::String(name) = name {
+        let member = obj.get_member(&mut this.gc, Field::new(loc, name))?.unwrap_or_default();
+        this.stack_push(member);
+        Ok(())
+      } else {
+        Err(UsageError::InvalidIdentifier(name.to_string()))
+      }
+    })
   }
 
   fn exec_peek_member(&mut self, loc: usize) -> ExecResult {
-    let value = self.stack_peek();
+    self.wrap_err_mut(|this| {
+      let value = this.stack_peek();
 
-    let name = self.cache.const_at(loc);
+      let name = this.cache.const_at(loc);
 
-    if let ConstantValue::String(name) = name {
-      let member = self
-        .exec(|this| value.get_member(&mut this.gc, Field::new(loc, name)))?
-        .unwrap_or_default();
-      self.stack_push(member);
-    } else {
-      Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
-    }
+      if let ConstantValue::String(name) = name {
+        let member = value.get_member(&mut this.gc, Field::new(loc, name))?.unwrap_or_default();
+        this.stack_push(member);
+        Ok(())
+      } else {
+        Err(UsageError::InvalidIdentifier(name.to_string()))
+      }
+    })?;
 
     self.check_gc()
   }
@@ -951,7 +890,7 @@ impl Vm {
   fn exec_initialize_constructor(&mut self) -> ExecResult {
     let value = self.stack_pop();
     let mut obj = self.stack_peek();
-    let class = self.exec(|_| obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment))?;
+    let class = self.wrap_err_mut(|_| obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment))?;
     class.set_constructor(value);
     self.check_gc()
   }
@@ -963,9 +902,12 @@ impl Vm {
     let name = self.cache.const_at(loc);
 
     if let ConstantValue::String(name) = name {
-      let class = self.exec(|_| obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment))?;
-      let method = self.exec(|_| value.cast_to::<FunctionValue>().ok_or(UsageError::MethodType))?;
-      class.set_method(name, method.clone());
+      self.wrap_err(|_| {
+        let class = obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment)?;
+        let method = value.cast_to::<FunctionValue>().ok_or(UsageError::MethodType)?;
+        class.set_method(name, method.clone());
+        Ok(())
+      })?;
     } else {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
@@ -990,7 +932,7 @@ impl Vm {
 
   fn exec_create_dyn_vec(&mut self) -> ExecResult {
     let repeats = self.stack_pop();
-    let repeats = self.exec(|_| repeats.cast_to::<i32>().ok_or(UsageError::CoercionError(repeats, "i32")))?;
+    let repeats = self.wrap_err_mut(|_| repeats.cast_to::<i32>().ok_or(UsageError::CoercionError(repeats, "i32")))?;
     let item = self.stack_pop();
     let vec = vec![item; repeats as usize];
     let vec = self.gc.allocate(vec);
@@ -999,43 +941,46 @@ impl Vm {
   }
 
   fn exec_create_closure(&mut self) -> ExecResult {
-    let function = self.stack_pop();
-    let captures = self.stack_pop();
+    self.wrap_err_mut(|this| {
+      let function = this.stack_pop();
+      let captures = this.stack_pop();
 
-    let captures = self.exec(|_| captures.cast_to::<VecValue>().ok_or(UsageError::CaptureType))?;
-    let function = self.exec(|_| function.cast_to::<FunctionValue>().ok_or(UsageError::ClosureType))?;
+      let captures = captures.cast_to::<VecValue>().ok_or(UsageError::CaptureType)?;
+      let function = function.cast_to::<FunctionValue>().ok_or(UsageError::ClosureType)?;
 
-    let closure = self.gc.allocate(ClosureValue::new(captures, function.clone()));
-    self.stack_push(closure);
+      let closure = this.gc.allocate(ClosureValue::new(captures, function.clone()));
+      this.stack_push(closure);
+      Ok(())
+    })?;
 
     self.check_gc()
   }
 
   fn exec_create_struct(&mut self, nmem: usize) -> ExecResult {
-    let mut members = Vec::with_capacity(nmem);
+    self.wrap_err_mut(|this| {
+      let mut members = Vec::with_capacity(nmem);
 
-    for _ in 0..nmem {
-      let key = self.stack_pop();
-      let value = self.stack_pop();
-      let key = self.exec(|_| {
-        key
+      for _ in 0..nmem {
+        let key = this.stack_pop();
+        let value = this.stack_pop();
+        let key = key
           .cast_to::<StringValue>()
-          .ok_or_else(|| UsageError::InvalidIdentifier(key.to_string()))
-      })?;
-      let id = self.exec(|this| {
-        this
+          .ok_or_else(|| UsageError::InvalidIdentifier(key.to_string()))?;
+        let id = this
           .cache
           .strings
           .get_by_right(&**key)
           .cloned()
-          .ok_or(UsageError::InvalidIdentifier(key.to_string()))
-      })?;
-      members.push((((**key).clone(), id), value));
-    }
+          .ok_or(UsageError::InvalidIdentifier(key.to_string()))?;
+        members.push((((**key).clone(), id), value));
+      }
 
-    let struct_value = self.gc.allocate(StructValue::new(members));
+      let struct_value = this.gc.allocate(StructValue::new(members));
 
-    self.stack_push(struct_value);
+      this.stack_push(struct_value);
+
+      Ok(())
+    })?;
 
     self.check_gc()
   }
@@ -1052,6 +997,431 @@ impl Vm {
     }
 
     self.check_gc()
+  }
+
+  fn exec_create_module(&mut self, loc: usize) -> ExecResult {
+    let name = self.cache.const_at(loc);
+
+    if let ConstantValue::String(name) = name {
+      let leaf = current_module!(self);
+      let module = ModuleValue::new_child(name, leaf.handle.value.clone());
+      let handle = self.gc.allocate_typed_handle(module);
+      self.modules.push(ModuleEntry::Mod(handle.clone()));
+      self.stack_push(handle.value());
+    } else {
+      Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
+    }
+
+    self.check_gc()
+  }
+
+  fn exec_check(&mut self) -> ExecResult {
+    let b = self.stack_pop();
+    let a = self.stack_peek();
+    self.wrap_err_mut(|this| this.do_binary_op(Opcode::Equal, a, b, |a, b| Ok(Value::from(a == b))))
+  }
+
+  fn exec_println(&mut self) {
+    let value = self.stack_pop();
+    println!("{value}");
+  }
+
+  fn exec_jump(&mut self, offset: usize) {
+    self.jump(offset);
+  }
+
+  fn exec_jump_if_false(&mut self, offset: usize) {
+    let value = self.stack_pop();
+
+    if value.truthy() {
+      *self.stack_frame.ip += 1;
+    } else {
+      self.jump(offset);
+    }
+  }
+
+  fn exec_loop(&mut self, offset: usize) {
+    self.jump_back(offset);
+  }
+
+  // TODO change calls back to not use recursion
+  fn exec_call(&mut self, airity: usize) -> ExecResult {
+    let callable = self.stack_load_rev(airity);
+    self.wrap_err_mut(|this| this.call_value(callable, airity))
+  }
+
+  fn exec_req(&mut self) -> ExecResult {
+    fn try_to_find_file(root: &Path, desired: &PathBuf, attempts: &mut Vec<PathBuf>) -> Option<PathBuf> {
+      let direct = root.join(desired);
+      if direct.exists() {
+        return Some(direct);
+      }
+      attempts.push(direct.clone());
+
+      let direct_with_native_extension = direct.with_extension(dlopen2::utils::PLATFORM_FILE_EXTENSION);
+      if direct_with_native_extension.exists() {
+        return Some(direct_with_native_extension);
+      }
+      attempts.push(direct_with_native_extension);
+
+      let direct_with_script_extension = direct.with_extension(EXTENSION);
+      if direct_with_script_extension.exists() {
+        return Some(direct_with_script_extension);
+      }
+      attempts.push(direct_with_script_extension);
+
+      None
+    }
+
+    let value = self.stack_pop();
+
+    let mut attempts = Vec::with_capacity(10);
+
+    let file_str = value.to_string();
+    let this_file = self.opened_files.last().map(|f| f.path.clone());
+
+    let required_file = PathBuf::from(file_str.as_str());
+
+    let mut found_file = None;
+
+    // find relative first, skip if None, None will be during repl so go to cwd
+    if let Some(this_dir) = this_file.and_then(|this_file| this_file.parent().map(|p| p.to_path_buf())) {
+      found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
+    }
+
+    // then try to find from cwd
+    if found_file.is_none() {
+      let this_dir = std::env::current_dir().map_err(Error::other_system_err)?;
+      found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
+    }
+
+    // if still not found, try searching library paths
+    if found_file.is_none() {
+      use stdlib::names::{env::*, *};
+      if let Some(paths) = current_module!(self)
+        .lookup_path(&[STD, ENV, PATHS])
+        .map(|l| l.and_then(|l| l.cast_to::<VecValue>()))
+        .map_err(|e| self.error(e))?
+      {
+        for path in paths.iter() {
+          let base = PathBuf::from(path.to_string());
+          found_file = try_to_find_file(&base, &required_file, &mut attempts);
+          if found_file.is_some() {
+            break;
+          }
+        }
+      }
+    }
+
+    let found_file = found_file.ok_or_else(|| self.error(UsageError::BadReq(attempts)))?;
+
+    let file_id = PlatformMetadata::id_of(&found_file).map_err(Error::other_system_err)?;
+
+    match found_file.extension().and_then(|s| s.to_str()) {
+      Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
+        let value = if let Some(value) = self.cache.get_lib(file_id) {
+          value.clone()
+        } else {
+          let lib: Container<NativeApi> =
+            unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
+
+          let value: Value = lib.duck_type_load_module(self).into();
+          self.opened_native_libs.insert(found_file, lib);
+          self.cache.add_lib(file_id, value.clone());
+          value
+        };
+
+        self.stack_push(value);
+      }
+      _ => {
+        let source = fs::read_to_string(&found_file).map_err(Error::other_system_err)?;
+
+        if let Some(value) = self.cache.get_lib(file_id) {
+          self.stack_push(value.clone());
+        } else {
+          self.filemap.add(file_id, &found_file);
+
+          let opts = CompileOpts { optimize: self.opt };
+          let new_ctx =
+            code::compile_file(&mut self.cache, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
+          let gmod = ModuleBuilder::initialize(
+            &mut self.gc,
+            ModuleType::new_global(format!("<file export {}>", found_file.display())),
+            |gc, mut lib| {
+              let libval = lib.handle.value.clone();
+              lib.env.extend(stdlib::enable_std(gc, libval, &self.args));
+            },
+          );
+
+          self.new_frame(new_ctx, 0);
+          self.modules.push(ModuleEntry::File(gmod));
+          self.opened_files.push(FileInfo::new(found_file, file_id));
+          let output = self.execute(RunMode::File)?;
+          self.stack_push(output);
+        }
+      }
+    }
+
+    self.check_gc()
+  }
+
+  fn exec_dbg(&mut self) -> ExecResult {
+    self.dbg()
+  }
+
+  fn exec_export(&mut self) {
+    let value = self.stack_pop();
+    self.stack_frame.export = Some(value);
+  }
+
+  fn exec_define_global(&mut self, loc: LongAddr) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      this.validate_ident_and(loc, |this, name| {
+        let v = this.stack_peek();
+        if this.globals.insert(name.clone(), v.clone()).is_none() {
+          this.cache.add_global(loc, v);
+          Ok(())
+        } else {
+          let level = current_module!(this).search_for(0, &name);
+          Err(UsageError::Redefine { level, name })
+        }
+      })
+    })
+  }
+
+  fn exec_define_scope(&mut self, loc: LongAddr) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      this.validate_ident_and(loc, |this, name| {
+        let v = this.stack_peek();
+        let module = current_module_mut!(this);
+        if module.define(name.clone(), v.clone()) {
+          this.cache.add_to_mod(module.value(), loc, v);
+          Ok(())
+        } else {
+          let level = current_module!(this).search_for(0, &name);
+          Err(UsageError::Redefine { level, name })
+        }
+      })
+    })
+  }
+
+  fn exec_resolve(&mut self, ident: usize) -> ExecResult {
+    let obj = self.stack_pop();
+
+    let hit = self.cache.resolve_mod(obj.clone(), ident);
+
+    match hit {
+      Some(value) => {
+        cache_hit!();
+        self.stack_push(value);
+      }
+      None => {
+        let name = self.cache.const_at(ident);
+
+        if let ConstantValue::String(name) = name {
+          let value = obj.resolve(name).unwrap();
+          self.cache.add_to_mod(obj, ident, value.clone());
+          self.stack_push(value);
+        } else {
+          Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
+        }
+      }
+    }
+    Ok(())
+  }
+
+  fn exec_enter_block(&mut self) {
+    self.push_scope();
+  }
+
+  fn exec_pop_scope(&mut self) {
+    self.pop_scope();
+  }
+
+  fn exec_equal(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_equal_fast(Opcode::Equal, inst.data())
+      } else {
+        this.exec_equal_slow(Opcode::Equal)
+      }
+    })
+  }
+
+  fn exec_not_equal(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_not_equal_fast(Opcode::NotEqual, inst.data())
+      } else {
+        this.exec_not_equal_slow(Opcode::NotEqual)
+      }
+    })
+  }
+
+  fn exec_greater(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_greater_fast(Opcode::Greater, inst.data())
+      } else {
+        this.exec_greater_slow(Opcode::Greater)
+      }
+    })
+  }
+
+  fn exec_greater_equal(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_greater_equal_fast(Opcode::GreaterEqual, inst.data())
+      } else {
+        this.exec_greater_equal_slow(Opcode::GreaterEqual)
+      }
+    })
+  }
+
+  fn exec_less(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_less_fast(Opcode::Less, inst.data())
+      } else {
+        this.exec_less_slow(Opcode::Less)
+      }
+    })
+  }
+
+  fn exec_less_equal(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_less_equal_fast(Opcode::LessEqual, inst.data())
+      } else {
+        this.exec_less_equal_slow(Opcode::LessEqual)
+      }
+    })
+  }
+
+  fn exec_add(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_add_fast(Opcode::Add, inst.data())
+      } else {
+        this.exec_add_slow(Opcode::Add)
+      }
+    })
+  }
+
+  fn exec_sub(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_sub_fast(Opcode::Sub, inst.data())
+      } else {
+        this.exec_sub_slow(Opcode::Sub)
+      }
+    })
+  }
+
+  fn exec_mul(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_mul_fast(Opcode::Mul, inst.data())
+      } else {
+        this.exec_mul_slow(Opcode::Mul)
+      }
+    })
+  }
+
+  fn exec_div(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_div_fast(Opcode::Div, inst.data())
+      } else {
+        this.exec_div_slow(Opcode::Div)
+      }
+    })
+  }
+
+  fn exec_rem(&mut self, inst: Instruction) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      if inst.has_data() {
+        this.exec_rem_fast(Opcode::Rem, inst.data())
+      } else {
+        this.exec_rem_slow(Opcode::Rem)
+      }
+    })
+  }
+
+  fn exec_negate(&mut self, opcode: Opcode) -> ExecResult {
+    self.wrap_err_mut(|this| this.unary_op(opcode, |v| -v))
+  }
+
+  fn exec_not(&mut self, opcode: Opcode) -> ExecResult {
+    self.wrap_err_mut(|this| this.unary_op(opcode, |v| Ok(!v)))
+  }
+
+  fn exec_index(&mut self, opcode: Opcode) -> ExecResult {
+    self.wrap_err_mut(|this| this.binary_op(opcode, |_, _| Err(UsageError::InvalidBinary)))
+  }
+
+  fn exec_index_assign(&mut self) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      let value = this.stack_pop();
+      let index = this.stack_pop();
+      let indexable = this.stack_pop();
+      (indexable.vtable().assign_index)(MutPtr::new(this), indexable, index, value.clone())?;
+      this.stack_push(value);
+      Ok(())
+    })
+  }
+
+  fn exec_or(&mut self, offset: usize) {
+    self.exec_logical(offset, |v| v.truthy());
+  }
+
+  fn exec_and(&mut self, offset: usize) {
+    self.exec_logical(offset, |v| v.falsy());
+  }
+
+  fn exec_swap(&mut self, (addr_a, addr_b): (ShortAddr, ShortAddr)) {
+    let st_sz = self.stack_size() - 1;
+    self.stack.swap(st_sz - addr_a.0, st_sz - addr_b.0);
+  }
+
+  fn exec_swap_pop(&mut self) {
+    let idx = self.stack_size() - 2;
+    self.stack.swap_remove(idx);
+  }
+
+  fn exec_is(&mut self) -> ExecResult {
+    let right = self.stack_pop();
+    let left = self.stack_pop();
+
+    let is_type = if let Some(instance) = left.cast_to::<InstanceValue>() {
+      instance.class.bits == right.bits
+    } else if left.is_ptr() {
+      if let Some(right) = right.cast_to::<IdValue>() {
+        left.type_id() == &right.id
+      } else {
+        left.type_id() == right.type_id()
+      }
+    } else if left.is::<NativeFn>() {
+      if right.pointer().is_null() {
+        left.tag() == right.tag()
+      } else {
+        left.bits == right.bits
+      }
+    } else {
+      left.tag() == right.tag()
+    };
+
+    self.stack_push(Value::new(is_type));
+    Ok(())
+  }
+
+  fn exec_quack(&mut self) -> ExecResult {
+    let value = self.stack_pop();
+    Err(self.error(UsageError::Quack(value)))
+  }
+
+  fn exec_unknown(&self, inst: Instruction) -> ExecResult {
+    Err(self.error(UsageError::InvalidInstruction(inst)))
   }
 }
 
@@ -1071,24 +1441,24 @@ pub extern "C" fn exec_pop(vm: &mut Vm) {
 
 #[no_mangle]
 pub extern "C" fn exec_pop_n(vm: &mut Vm, inst: Instruction) {
-  vm.exec_pop_n(decode!(inst));
+  vm.exec_pop_n(inst.data());
 }
 
 #[no_mangle]
 pub extern "C" fn exec_const(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_const(decode!(inst));
+  vm.last_error = vm.exec_const(inst.data());
   vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_store(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_store(decode!(inst));
+  vm.last_error = vm.exec_store(inst.data());
   vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_load(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_load(decode!(inst));
+  vm.last_error = vm.exec_load(inst.data());
   vm.last_error.is_ok()
 }
 
@@ -1108,26 +1478,126 @@ pub extern "C" fn exec_false(vm: &mut Vm) {
 }
 
 #[no_mangle]
+pub extern "C" fn exec_add(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_add(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_sub(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_sub(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_mul(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_mul(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_div(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_div(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_rem(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_rem(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_equal(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_equal(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_not_equal(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_not_equal(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_greater(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_greater(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_greater_equal(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_greater_equal(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_less(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_less(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_less_equal(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_less_equal(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_index(vm: &mut Vm) -> bool {
+  vm.last_error = vm.exec_index(Opcode::Index);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_index_assign(vm: &mut Vm) -> bool {
+  vm.last_error = vm.exec_index_assign();
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_negate(vm: &mut Vm) -> bool {
+  vm.last_error = vm.exec_negate(Opcode::Negate);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_not(vm: &mut Vm) -> bool {
+  vm.last_error = vm.exec_not(Opcode::Not);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_or(vm: &mut Vm, inst: Instruction) {
+  vm.exec_or(inst.data());
+}
+
+#[no_mangle]
+pub extern "C" fn exec_and(vm: &mut Vm, inst: Instruction) {
+  vm.exec_and(inst.data());
+}
+
+#[no_mangle]
 pub extern "C" fn exec_initialize_member(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_initialize_member(decode!(inst));
+  vm.last_error = vm.exec_initialize_member(inst.data());
   vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_assign_member(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_assign_member(decode!(inst));
+  vm.last_error = vm.exec_assign_member(inst.data());
   vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_lookup_member(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_lookup_member(decode!(inst));
+  vm.last_error = vm.exec_lookup_member(inst.data());
   vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_peek_member(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_peek_member(decode!(inst));
+  vm.last_error = vm.exec_peek_member(inst.data());
   vm.last_error.is_ok()
 }
 
@@ -1139,19 +1609,19 @@ pub extern "C" fn exec_initialize_constructor(vm: &mut Vm) -> bool {
 
 #[no_mangle]
 pub extern "C" fn exec_initialize_method(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_initialize_method(decode!(inst));
+  vm.last_error = vm.exec_initialize_method(inst.data());
   vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_create_vec(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_create_vec(decode!(inst));
+  vm.last_error = vm.exec_create_vec(inst.data());
   vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_create_sized_vec(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_create_sized_vec(decode!(inst));
+  vm.last_error = vm.exec_create_sized_vec(inst.data());
   vm.last_error.is_ok()
 }
 
@@ -1169,442 +1639,125 @@ pub extern "C" fn exec_create_closure(vm: &mut Vm) -> bool {
 
 #[no_mangle]
 pub extern "C" fn exec_create_struct(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_create_struct(decode!(inst));
+  vm.last_error = vm.exec_create_struct(inst.data());
   vm.last_error.is_ok()
 }
 
 #[no_mangle]
-pub extern "C" fn exec_create_class(vm: &mut Vm, inst: Instruction) {
-  let loc: usize = decode!(inst);
-  let creator = vm.stack_pop();
-  let name = vm.cache.const_at(loc);
-
-  if let ConstantValue::String(name) = name {
-    let v = vm.gc.allocate(ClassValue::new(name, creator));
-    vm.stack_push(v);
-  } else {
-    panic!("{}", UsageError::InvalidIdentifier(name.to_string()));
-  }
-  vm.check_gc().unwrap();
+pub extern "C" fn exec_create_class(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_create_class(inst.data());
+  vm.last_error.is_ok()
 }
 
 /// Create a module and make it the current
 #[no_mangle]
-pub extern "C" fn exec_create_module(vm: &mut Vm, inst: Instruction) {
-  let loc: usize = decode!(inst);
-  let name = vm.cache.const_at(loc);
-
-  if let ConstantValue::String(name) = name {
-    let leaf = current_module!(vm);
-    let module = ModuleValue::new_child(name, leaf.handle.value.clone());
-    let handle = vm.gc.allocate_typed_handle(module);
-    vm.modules.push(ModuleEntry::Mod(handle.clone()));
-    vm.stack_push(handle.value());
-  } else {
-    panic!("{}", UsageError::InvalidIdentifier(name.to_string()));
-  }
-  vm.check_gc().unwrap();
+pub extern "C" fn exec_create_module(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_create_module(inst.data());
+  vm.last_error.is_ok()
 }
 
 #[no_mangle]
-pub extern "C" fn exec_check(vm: &mut Vm) {
-  let b = vm.stack_pop();
-  let a = vm.stack_peek();
-  vm.stack_push(Value::from(a == b)); // TODO actual binary eq op
+pub extern "C" fn exec_check(vm: &mut Vm) -> bool {
+  vm.last_error = vm.exec_check();
+  vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_println(vm: &mut Vm) {
-  let value = vm.stack_pop();
-  println!("{value}");
+  vm.exec_println();
 }
 
 #[no_mangle]
 pub extern "C" fn exec_jump(vm: &mut Vm, inst: Instruction) {
-  let offset: usize = decode!(inst);
-  vm.jump(offset);
+  vm.exec_jump(inst.data());
 }
 
-/// Returns true if the jump was performed
 #[no_mangle]
 pub extern "C" fn exec_jump_if_false(vm: &mut Vm, inst: Instruction) {
-  let offset: usize = decode!(inst);
-  let value = vm.stack_pop();
-
-  if !value.truthy() {
-    vm.jump(offset);
-  } else {
-    vm.stack_frame.ip += 1;
-  }
+  vm.exec_jump_if_false(inst.data());
 }
 
 #[no_mangle]
 pub extern "C" fn exec_loop(vm: &mut Vm, inst: Instruction) {
-  let offset: usize = decode!(inst);
-  vm.jump_back(offset);
+  vm.exec_loop(inst.data());
 }
 
 #[no_mangle]
-pub extern "C" fn exec_call(vm: &mut Vm, inst: Instruction) {
-  let airity: usize = decode!(inst);
-  vm.stack_frame.ip += 1;
-  let callable = vm.stack_load_rev(airity);
-  vm.call_value(callable, airity).unwrap();
+pub extern "C" fn exec_call(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_call(inst.data());
+  vm.last_error.is_ok()
 }
 
 #[no_mangle]
-pub extern "C" fn exec_req(vm: &mut Vm) {
-  vm.stack_frame.ip += 1;
-  fn try_to_find_file(root: &Path, desired: &PathBuf, attempts: &mut Vec<PathBuf>) -> Option<PathBuf> {
-    let direct = root.join(desired);
-    if direct.exists() {
-      return Some(direct);
-    }
-    attempts.push(direct.clone());
-
-    let direct_with_native_extension = direct.with_extension(dlopen2::utils::PLATFORM_FILE_EXTENSION);
-    if direct_with_native_extension.exists() {
-      return Some(direct_with_native_extension);
-    }
-    attempts.push(direct_with_native_extension);
-
-    let direct_with_script_extension = direct.with_extension(EXTENSION);
-    if direct_with_script_extension.exists() {
-      return Some(direct_with_script_extension);
-    }
-    attempts.push(direct_with_script_extension);
-
-    None
-  }
-
-  // TODO really need to figure out how to turn usage errors into regular ones without the passthrough
-  let value = vm.stack_pop();
-
-  let mut attempts = Vec::with_capacity(10);
-
-  let file_str = value.to_string();
-  let this_file = vm.opened_files.last().map(|f| f.path.clone());
-
-  let required_file = PathBuf::from(file_str.as_str());
-
-  let mut found_file = None;
-
-  // find relative first, skip if None, None will be during repl so go to cwd
-  if let Some(this_dir) = this_file.and_then(|this_file| this_file.parent().map(|p| p.to_path_buf())) {
-    found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
-  }
-
-  // then try to find from cwd
-  if found_file.is_none() {
-    let this_dir = std::env::current_dir().map_err(Error::other_system_err).unwrap();
-    found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
-  }
-
-  // if still not found, try searching library paths
-  if found_file.is_none() {
-    use stdlib::names::{env::*, *};
-    if let Some(paths) = current_module!(vm)
-      .lookup_path(&[STD, ENV, PATHS])
-      .map(|l| l.and_then(|l| l.cast_to::<VecValue>()))
-      .map_err(|e| vm.error(e))
-      .unwrap()
-    {
-      for path in paths.iter() {
-        let base = PathBuf::from(path.to_string());
-        found_file = try_to_find_file(&base, &required_file, &mut attempts);
-        if found_file.is_some() {
-          break;
-        }
-      }
-    }
-  }
-
-  let found_file = found_file.ok_or_else(|| vm.error(UsageError::BadReq(attempts))).unwrap();
-
-  let file_id = PlatformMetadata::id_of(&found_file).map_err(Error::other_system_err).unwrap();
-
-  match found_file.extension().and_then(|s| s.to_str()) {
-    Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-      let value = if let Some(value) = vm.cache.get_lib(file_id) {
-        value.clone()
-      } else {
-        let lib: Container<NativeApi> =
-          unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
-
-        let value: Value = lib.duck_type_load_module(vm).into();
-        vm.opened_native_libs.insert(found_file, lib);
-        vm.cache.add_lib(file_id, value.clone());
-        value
-      };
-
-      vm.stack_push(value);
-    }
-    _ => {
-      let source = fs::read_to_string(&found_file).map_err(Error::other_system_err).unwrap();
-
-      if let Some(value) = vm.cache.get_lib(file_id) {
-        vm.stack_push(value.clone());
-      } else {
-        vm.filemap.add(file_id, &found_file);
-
-        let opts = CompileOpts { optimize: vm.opt };
-        let new_ctx = code::compile_file(&mut vm.cache, file_id, source, opts)
-          .map_err(|e| e.with_filename(&vm.filemap))
-          .unwrap();
-        let gmod = ModuleBuilder::initialize(
-          &mut vm.gc,
-          ModuleType::new_global(format!("<file export {}>", found_file.display())),
-          |gc, mut lib| {
-            let libval = lib.handle.value.clone();
-            lib.env.extend(stdlib::enable_std(gc, libval, &vm.args));
-          },
-        );
-
-        vm.new_frame(new_ctx, 0);
-        vm.modules.push(ModuleEntry::File(gmod));
-        vm.opened_files.push(FileInfo::new(found_file, file_id));
-        let output = vm.execute(RunMode::File).unwrap();
-        vm.stack_push(output);
-      }
-    }
-  }
-
-  vm.check_gc().unwrap();
-}
-
-#[no_mangle]
-pub extern "C" fn exec_dbg(vm: &mut Vm) {
-  vm.dbg().unwrap();
+pub extern "C" fn exec_req(vm: &mut Vm) -> bool {
+  vm.last_error = vm.exec_req();
+  vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_export(vm: &mut Vm) {
-  let value = vm.stack_pop();
-  vm.stack_frame.export = Some(value);
+  vm.exec_export();
 }
 
 #[no_mangle]
-pub extern "C" fn exec_define_global(vm: &mut Vm, inst: Instruction) {
-  let loc: LongAddr = decode!(inst);
-  vm.validate_ident_and(loc, |this, name| {
-    let v = this.stack_peek();
-    if this.globals.insert(name.clone(), v.clone()).is_none() {
-      this.cache.add_global(loc, v);
-      Ok(())
-    } else {
-      let level = current_module!(this).search_for(0, &name);
-      Err(UsageError::Redefine { level, name })
-    }
-  })
-  .unwrap();
+pub extern "C" fn exec_define_global(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_define_global(inst.data());
+  vm.last_error.is_ok()
 }
 
 #[no_mangle]
-pub extern "C" fn exec_define_scope(vm: &mut Vm, inst: Instruction) {
-  let loc: LongAddr = decode!(inst);
-  vm.validate_ident_and(loc, |this, name| {
-    let v = this.stack_peek();
-    let module = current_module_mut!(this);
-    if module.define(name.clone(), v.clone()) {
-      this.cache.add_to_mod(module.value(), loc, v);
-      Ok(())
-    } else {
-      let level = current_module!(this).search_for(0, &name);
-      Err(UsageError::Redefine { level, name })
-    }
-  })
-  .unwrap();
+pub extern "C" fn exec_define_scope(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_define_scope(inst.data());
+  vm.last_error.is_ok()
 }
 
 #[no_mangle]
-pub extern "C" fn exec_resolve(vm: &mut Vm, inst: Instruction) {
-  let ident: usize = decode!(inst);
-  let obj = vm.stack_pop();
-
-  let hit = vm.cache.resolve_mod(obj.clone(), ident);
-
-  match hit {
-    Some(value) => {
-      cache_hit!();
-      vm.stack_push(value);
-    }
-    None => {
-      let name = vm.cache.const_at(ident);
-
-      if let ConstantValue::String(name) = name {
-        let value = obj.resolve(name).unwrap();
-        vm.cache.add_to_mod(obj, ident, value.clone());
-        vm.stack_push(value);
-      } else {
-        panic!("{}", UsageError::InvalidIdentifier(name.to_string()));
-      }
-    }
-  }
+pub extern "C" fn exec_resolve(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_resolve(inst.data());
+  vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_enter_block(vm: &mut Vm) {
-  vm.push_scope();
-  vm.check_gc().unwrap();
+  vm.exec_enter_block();
 }
 
 #[no_mangle]
 pub extern "C" fn exec_pop_scope(vm: &mut Vm) {
-  vm.pop_scope();
-}
-
-#[no_mangle]
-pub extern "C" fn exec_equal(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_equal_fast(Opcode::Equal, decode!(inst)).unwrap();
-  } else {
-    vm.exec_equal(Opcode::Equal).unwrap();
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_not_equal(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_not_equal_fast(Opcode::NotEqual, decode!(inst)).unwrap();
-  } else {
-    vm.exec_not_equal(Opcode::NotEqual).unwrap();
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_greater(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_greater_fast(Opcode::Greater, decode!(inst)).unwrap();
-  } else {
-    vm.exec_greater(Opcode::Greater).unwrap()
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_greater_equal(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_greater_equal_fast(Opcode::GreaterEqual, decode!(inst)).unwrap();
-  } else {
-    vm.exec_greater_equal(Opcode::GreaterEqual).unwrap();
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_less(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_less_fast(Opcode::Less, decode!(inst)).unwrap();
-  } else {
-    vm.exec_less(Opcode::Less).unwrap();
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_less_equal(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_less_equal_fast(Opcode::LessEqual, decode!(inst)).unwrap();
-  } else {
-    vm.exec_less_equal(Opcode::LessEqual).unwrap();
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_add(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_add_fast(Opcode::Add, decode!(inst)).unwrap();
-  } else {
-    vm.exec_add(Opcode::Add).unwrap();
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_sub(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_sub_fast(Opcode::Sub, decode!(inst)).unwrap();
-  } else {
-    vm.exec_sub(Opcode::Sub).unwrap();
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_mul(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_mul_fast(Opcode::Mul, decode!(inst)).unwrap();
-  } else {
-    vm.exec_mul(Opcode::Mul).unwrap();
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_div(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_div_fast(Opcode::Div, decode!(inst)).unwrap();
-  } else {
-    vm.exec_div(Opcode::Div).unwrap();
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_rem(vm: &mut Vm, inst: Instruction) {
-  if inst.has_data() {
-    vm.exec_rem_fast(Opcode::Rem, decode!(inst)).unwrap();
-  } else {
-    vm.exec_rem(Opcode::Rem).unwrap();
-  }
-}
-
-#[no_mangle]
-pub extern "C" fn exec_negate(vm: &mut Vm) {
-  vm.exec_negate(Opcode::Negate).unwrap();
-}
-
-#[no_mangle]
-pub extern "C" fn exec_not(vm: &mut Vm) {
-  vm.exec_not(Opcode::Not).unwrap();
-}
-
-#[no_mangle]
-pub extern "C" fn exec_index(vm: &mut Vm) {
-  vm.exec_index(Opcode::Index).unwrap();
-}
-
-#[no_mangle]
-pub extern "C" fn exec_index_assign(vm: &mut Vm) {
-  vm.exec_index_assign().unwrap();
-}
-
-#[no_mangle]
-pub extern "C" fn exec_or(vm: &mut Vm, inst: Instruction) {
-  vm.exec_or(decode!(inst));
-}
-
-#[no_mangle]
-pub extern "C" fn exec_and(vm: &mut Vm, inst: Instruction) {
-  vm.exec_and(decode!(inst));
+  vm.exec_pop_scope();
 }
 
 #[no_mangle]
 pub extern "C" fn exec_swap(vm: &mut Vm, inst: Instruction) {
-  vm.exec_swap(decode!(inst)).unwrap();
+  vm.exec_swap(inst.data());
 }
 
 #[no_mangle]
 pub extern "C" fn exec_swap_pop(vm: &mut Vm) {
-  let idx = vm.stack_size() - 2;
-  vm.stack.swap_remove(idx);
+  vm.exec_swap_pop();
 }
 
 #[no_mangle]
-pub extern "C" fn exec_is(vm: &mut Vm) {
-  vm.exec_is().unwrap();
+pub extern "C" fn exec_is(vm: &mut Vm) -> bool {
+  vm.last_error = vm.exec_is();
+  vm.last_error.is_ok()
 }
 
 #[no_mangle]
-pub extern "C" fn exec_quack(vm: &mut Vm) {
-  vm.exec_quack().unwrap();
+pub extern "C" fn exec_quack(vm: &mut Vm) -> bool {
+  vm.last_error = vm.exec_quack();
+  vm.last_error.is_ok()
 }
 
 #[cold]
 #[no_mangle]
-pub extern "C" fn exec_unknown(vm: &Vm, inst: Instruction) {
-  panic!("{}", vm.error(UsageError::InvalidInstruction(inst)));
+pub extern "C" fn exec_unknown(vm: &mut Vm, inst: Instruction) -> bool {
+  vm.last_error = vm.exec_unknown(inst);
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
+pub extern "C" fn exec_dbg(vm: &mut Vm) -> bool {
+  vm.last_error = vm.exec_dbg();
+  vm.last_error.is_ok()
 }

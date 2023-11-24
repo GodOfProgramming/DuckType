@@ -91,6 +91,40 @@ DECL(exec_true, Vm);
 
 DECL(exec_false, Vm);
 
+DECL_RET(bool, exec_add, Vm, Instruction);
+
+DECL_RET(bool, exec_sub, Vm, Instruction);
+
+DECL_RET(bool, exec_mul, Vm, Instruction);
+
+DECL_RET(bool, exec_div, Vm, Instruction);
+
+DECL_RET(bool, exec_rem, Vm, Instruction);
+
+DECL_RET(bool, exec_equal, Vm, Instruction);
+
+DECL_RET(bool, exec_not_equal, Vm, Instruction);
+
+DECL_RET(bool, exec_greater, Vm, Instruction);
+
+DECL_RET(bool, exec_greater_equal, Vm, Instruction);
+
+DECL_RET(bool, exec_less, Vm, Instruction);
+
+DECL_RET(bool, exec_less_equal, Vm, Instruction);
+
+DECL_RET(bool, exec_index, Vm);
+
+DECL_RET(bool, exec_index_assign, Vm);
+
+DECL_RET(bool, exec_negate, Vm);
+
+DECL_RET(bool, exec_not, Vm);
+
+DECL(exec_or, Vm, Instruction);
+
+DECL(exec_and, Vm, Instruction);
+
 DECL_RET(bool, exec_initialize_member, Vm, Instruction);
 
 DECL_RET(bool, exec_assign_member, Vm, Instruction);
@@ -113,11 +147,11 @@ DECL_RET(bool, exec_create_closure, Vm);
 
 DECL_RET(bool, exec_create_struct, Vm, Instruction);
 
-DECL(exec_create_class, Vm, Instruction);
+DECL_RET(bool, exec_create_class, Vm, Instruction);
 
-DECL(exec_create_module, Vm, Instruction);
+DECL_RET(bool, exec_create_module, Vm, Instruction);
 
-DECL(exec_check, Vm);
+DECL_RET(bool, exec_check, Vm);
 
 DECL(exec_println, Vm);
 
@@ -127,64 +161,30 @@ DECL(exec_jump_if_false, Vm, Instruction);
 
 DECL(exec_loop, Vm, Instruction);
 
-DECL(exec_call, Vm, Instruction);
+DECL_RET(bool, exec_call, Vm, Instruction);
 
-DECL(exec_req, Vm);
-
-DECL(exec_dbg, Vm);
+DECL_RET(bool, exec_req, Vm);
 
 DECL(exec_export, Vm);
 
-DECL(exec_define_global, Vm, Instruction);
+DECL_RET(bool, exec_define_global, Vm, Instruction);
 
-DECL(exec_define_scope, Vm, Instruction);
+DECL_RET(bool, exec_define_scope, Vm, Instruction);
 
-DECL(exec_resolve, Vm, Instruction);
+DECL_RET(bool, exec_resolve, Vm, Instruction);
 
 DECL(exec_enter_block, Vm);
 
 DECL(exec_pop_scope, Vm);
 
-DECL(exec_equal, Vm, Instruction);
-
-DECL(exec_not_equal, Vm, Instruction);
-
-DECL(exec_greater, Vm, Instruction);
-
-DECL(exec_greater_equal, Vm, Instruction);
-
-DECL(exec_less, Vm, Instruction);
-
-DECL(exec_less_equal, Vm, Instruction);
-
-DECL(exec_add, Vm, Instruction);
-
-DECL(exec_sub, Vm, Instruction);
-
-DECL(exec_mul, Vm, Instruction);
-
-DECL(exec_div, Vm, Instruction);
-
-DECL(exec_rem, Vm, Instruction);
-
-DECL(exec_negate, Vm);
-
-DECL(exec_not, Vm);
-
-DECL(exec_index, Vm);
-
-DECL(exec_index_assign, Vm);
-
-DECL(exec_or, Vm, Instruction);
-
-DECL(exec_and, Vm, Instruction);
-
 DECL(exec_swap, Vm, Instruction);
 
 DECL(exec_swap_pop, Vm);
 
-DECL(exec_is, Vm);
+DECL_RET(bool, exec_is, Vm);
 
-DECL(exec_quack, Vm);
+DECL_RET(bool, exec_quack, Vm);
 
-DECL(exec_unknown, Vm, Instruction);
+DECL_RET(bool, exec_unknown, Vm, Instruction);
+
+DECL_RET(bool, exec_dbg, Vm);
