@@ -115,6 +115,15 @@ pub trait UsertypeMethods {
   }
 }
 
+macro_rules! unary_op {
+  ($name:ident) => {
+    #[allow(unused_variables)]
+    fn $name(vm: &mut Vm, value: Value) -> UsageResult {
+      Err(UsageError::Unimplemented(stringify!($name)))
+    }
+  };
+}
+
 macro_rules! binary_op {
   ($name:ident) => {
     #[allow(unused_variables)]
@@ -134,6 +143,11 @@ macro_rules! ternary_op {
 }
 
 pub trait Operators {
+  fn __not__(_: &mut Vm, value: Value) -> UsageResult {
+    Ok(!value)
+  }
+
+  unary_op!(__neg__);
   binary_op!(__add__);
   binary_op!(__sub__);
   binary_op!(__mul__);

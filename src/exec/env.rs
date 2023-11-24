@@ -34,8 +34,8 @@ pub struct Cache {
 }
 
 impl Cache {
-  pub fn const_at(&self, index: impl Into<usize>) -> Option<&ConstantValue> {
-    self.consts.get(index.into())
+  pub fn const_at(&self, index: impl Into<usize>) -> &ConstantValue {
+    &self.consts[index.into()]
   }
 
   pub fn consts(&self) -> &Vec<ConstantValue> {
@@ -102,8 +102,8 @@ impl Context {
     }
   }
 
-  pub fn fetch(&self, index: usize) -> Option<Instruction> {
-    self.instructions.get(index).cloned()
+  pub fn fetch(&self, index: usize) -> Instruction {
+    self.instructions[index]
   }
 
   pub(crate) fn write(&mut self, inst: Instruction, line: usize, column: usize) {
@@ -112,7 +112,7 @@ impl Context {
       CAPTURE_OPS.with_borrow(|should_cap| {
         if *should_cap {
           GENERATED_OPS.with_borrow_mut(|ops| {
-            ops.insert(inst.opcode().unwrap());
+            ops.insert(inst.opcode());
           });
         }
       });
@@ -192,8 +192,7 @@ impl<'p> InstructionDisassembler<'p> {
   }
 
   fn const_at_column(cache: &Cache, index: impl Into<usize>) -> String {
-    let cval = &ConstantValue::StaticString("????");
-    let value = cache.const_at(index).unwrap_or(cval);
+    let value = cache.const_at(index);
     format!("{value: >4?}")
   }
 
@@ -240,9 +239,9 @@ impl<'p> Display for InstructionDisassembler<'p> {
       write!(f, "?????")?;
     }
 
-    match inst.opcode().unwrap_or_default() {
+    match inst.opcode() {
       Opcode::Const => {
-        let index: usize = inst.display_data();
+        let index: usize = inst.data();
         write!(
           f,
           "{} {} {}",
@@ -252,11 +251,11 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::PopN => {
-        let n: usize = inst.display_data();
+        let n: usize = inst.data();
         write!(f, "{} {}", Self::opcode_column("PopN"), Self::value_column(n))
       }
       Opcode::Load => {
-        let (storage, index): (Storage, LongAddr) = inst.display_data();
+        let (storage, index): (Storage, LongAddr) = inst.data();
         match storage {
           Storage::Stack => write!(f, "{}", Self::opcode_column("Load Stack")),
           Storage::Local => write!(
@@ -274,7 +273,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         }
       }
       Opcode::Store => {
-        let (storage, index): (Storage, LongAddr) = inst.display_data();
+        let (storage, index): (Storage, LongAddr) = inst.data();
         match storage {
           Storage::Stack => write!(f, "{}", Self::opcode_column("Store Stack")),
           Storage::Local => write!(
@@ -292,7 +291,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         }
       }
       Opcode::DefineGlobal => {
-        let ident: usize = inst.display_data();
+        let ident: usize = inst.data();
         write!(
           f,
           "{} {} {}",
@@ -302,7 +301,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::DefineScope => {
-        let ident: usize = inst.display_data();
+        let ident: usize = inst.data();
         write!(
           f,
           "{} {} {}",
@@ -312,7 +311,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::AssignMember => {
-        let index: usize = inst.display_data();
+        let index: usize = inst.data();
         write!(
           f,
           "{} {} {}",
@@ -322,7 +321,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::LookupMember => {
-        let index: usize = inst.display_data();
+        let index: usize = inst.data();
         write!(
           f,
           "{} {} {}",
@@ -332,7 +331,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::Jump => {
-        let forward: usize = inst.display_data();
+        let forward: usize = inst.data();
         write!(
           f,
           "{} {: >14}",
@@ -341,7 +340,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::JumpIfFalse => {
-        let forward: usize = inst.display_data();
+        let forward: usize = inst.data();
         write!(
           f,
           "{} {: >14}",
@@ -350,7 +349,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::Loop => {
-        let backward: usize = inst.display_data();
+        let backward: usize = inst.data();
         write!(
           f,
           "{} {: >14}",
@@ -359,11 +358,11 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::Or => {
-        let forward: usize = inst.display_data();
+        let forward: usize = inst.data();
         write!(f, "{} {: >14}", Self::opcode_column("Or"), Self::address_of(offset + forward))
       }
       Opcode::And => {
-        let forward: usize = inst.display_data();
+        let forward: usize = inst.data();
         write!(
           f,
           "{} {: >14}",
@@ -372,19 +371,19 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::Invoke => {
-        let args: usize = inst.display_data();
+        let args: usize = inst.data();
         write!(f, "{} {}", Self::opcode_column("Call"), Self::value_column(args))
       }
       Opcode::CreateStruct => {
-        let items: usize = inst.display_data();
+        let items: usize = inst.data();
         write!(f, "{} {}", Self::opcode_column("CreateStruct"), Self::value_column(items))
       }
       Opcode::CreateVec => {
-        let items: usize = inst.display_data();
+        let items: usize = inst.data();
         write!(f, "{} {}", Self::opcode_column("CreateVec"), Self::value_column(items))
       }
       Opcode::Resolve => {
-        let ident: usize = inst.display_data();
+        let ident: usize = inst.data();
         write!(
           f,
           "{} {} {}",
@@ -394,7 +393,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::Add if inst.has_data() => {
-        let (st_a, addr_a, st_b, addr_b) = inst.display_data::<(Storage, ShortAddr, Storage, ShortAddr)>();
+        let (st_a, addr_a, st_b, addr_b) = inst.data::<(Storage, ShortAddr, Storage, ShortAddr)>();
         write!(
           f,
           "{} {} {}",
@@ -404,7 +403,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::Sub if inst.has_data() => {
-        let (st_a, addr_a, st_b, addr_b) = inst.display_data::<(Storage, ShortAddr, Storage, ShortAddr)>();
+        let (st_a, addr_a, st_b, addr_b) = inst.data::<(Storage, ShortAddr, Storage, ShortAddr)>();
         write!(
           f,
           "{} {} {}",
@@ -414,7 +413,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::Mul if inst.has_data() => {
-        let (st_a, addr_a, st_b, addr_b) = inst.display_data::<(Storage, ShortAddr, Storage, ShortAddr)>();
+        let (st_a, addr_a, st_b, addr_b) = inst.data::<(Storage, ShortAddr, Storage, ShortAddr)>();
         write!(
           f,
           "{} {} {}",
@@ -424,7 +423,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::Div if inst.has_data() => {
-        let (st_a, addr_a, st_b, addr_b) = inst.display_data::<(Storage, ShortAddr, Storage, ShortAddr)>();
+        let (st_a, addr_a, st_b, addr_b) = inst.data::<(Storage, ShortAddr, Storage, ShortAddr)>();
         write!(
           f,
           "{} {} {}",
@@ -434,7 +433,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::Rem if inst.has_data() => {
-        let (st_a, addr_a, st_b, addr_b) = inst.display_data::<(Storage, ShortAddr, Storage, ShortAddr)>();
+        let (st_a, addr_a, st_b, addr_b) = inst.data::<(Storage, ShortAddr, Storage, ShortAddr)>();
         write!(
           f,
           "{} {} {}",
@@ -444,7 +443,7 @@ impl<'p> Display for InstructionDisassembler<'p> {
         )
       }
       Opcode::Swap => {
-        let (addr_a, addr_b) = inst.display_data::<(ShortAddr, ShortAddr)>();
+        let (addr_a, addr_b) = inst.data::<(ShortAddr, ShortAddr)>();
         write!(
           f,
           "{} {} {}",

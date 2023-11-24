@@ -1,3 +1,4 @@
+mod bindings;
 mod common;
 mod native_types;
 mod user_types;
@@ -8,7 +9,7 @@ use quote::quote;
 use syn::{
   parenthesized,
   parse::{Parse, ParseStream},
-  parse_macro_input, Ident, Item, ItemFn, ItemImpl, ItemStruct,
+  parse_macro_input, Ident, Item, ItemEnum, ItemFn, ItemImpl, ItemStruct, Path,
 };
 
 struct StrAttr {
@@ -156,4 +157,12 @@ pub fn ternary(args: TokenStream, input: TokenStream) -> TokenStream {
   };
 
   native_types::native_ternary(&item, with_vm).into()
+}
+
+#[proc_macro_attribute]
+pub fn opcode_bindings(args: TokenStream, input: TokenStream) -> TokenStream {
+  let item_enum: ItemEnum = parse_macro_input!(input as ItemEnum);
+  let binding: Path = parse_macro_input!(args as Path);
+
+  bindings::bind_opcodes(item_enum, binding).into()
 }

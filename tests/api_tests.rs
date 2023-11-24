@@ -87,7 +87,7 @@ mod tests {
 
     assert!(unsafe { !B });
 
-    t.vm.check_gc(None).unwrap();
+    t.vm.check_gc().unwrap();
 
     t.vm.gc.terminate();
 

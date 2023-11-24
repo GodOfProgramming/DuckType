@@ -21,6 +21,7 @@ use strum::EnumCount;
 use strum_macros::{EnumCount, EnumIter, FromRepr};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
 pub struct Instruction(u64);
 
 impl Instruction {
@@ -35,36 +36,19 @@ impl Instruction {
     Some(Self(inst))
   }
 
-  pub fn opcode(&self) -> Option<Opcode> {
-    Opcode::checked_data(self.0 & Opcode::MASK)
+  pub fn opcode(&self) -> Opcode {
+    Opcode::decode(self.0)
   }
 
-  #[cfg(not(debug_assertions))]
   pub fn data<T>(&self) -> T
   where
     T: InstructionData,
   {
-    T::unchecked_data(self.0 >> Self::DATA_OFFSET)
-  }
-
-  #[cfg(debug_assertions)]
-  pub fn data<T>(&self) -> Option<T>
-  where
-    T: InstructionData,
-  {
-    T::checked_data(self.0 >> Self::DATA_OFFSET)
+    T::decode(self.0 >> Self::DATA_OFFSET)
   }
 
   pub fn has_data(&self) -> bool {
     self.0 & Self::DATA_BIT == Self::DATA_BIT
-  }
-
-  /// Returns unchecked data meant for display and debugging purposes
-  pub fn display_data<T>(&self) -> T
-  where
-    T: InstructionData,
-  {
-    T::unchecked_data(self.0 >> Self::DATA_OFFSET)
   }
 }
 
@@ -102,9 +86,9 @@ where
 
   fn to_bits(self) -> u64;
 
-  fn checked_data(inst: u64) -> Option<Self>;
+  fn decode_checked(inst: u64) -> Option<Self>;
 
-  fn unchecked_data(inst: u64) -> Self;
+  fn decode(inst: u64) -> Self;
 
   fn encode(self) -> Option<u64> {
     Self::valid_bits(self.to_bits())
@@ -117,17 +101,28 @@ where
 
 #[derive(Hash, Default, Clone, Copy, Debug, PartialEq, Eq, EnumCount, FromRepr, EnumIter)]
 #[repr(u8)]
+#[cfg_attr(feature = "jtbl", macros::opcode_bindings(crate::bindings))]
 pub enum Opcode {
-  /// Unknown instruction
-  /// Value given when one cannot be interpreted
+  /// Pops a value off the stack
   ///
   /// Encoding: None
-  #[default]
-  Unknown,
+  Pop,
+  /// Pops N values off the stack.
+  ///
+  /// Encoding: | usize |
+  PopN,
   /// Looks up a constant value at the specified location.
   ///
   /// Encoding: | usize |
   Const,
+  /// Store the value on the stack in the given location
+  ///
+  /// Encoding: | Storage | LongAddr |
+  Store,
+  /// Load a value and push it onto the stack
+  ///
+  /// Encoding: | Storage | LongAddr |
+  Load,
   /// Pushes a nil value on to the stack
   ///
   /// Encoding: None
@@ -140,49 +135,36 @@ pub enum Opcode {
   ///
   /// Encoding: None
   False,
-  /// Pops a value off the stack
+  /// Pops two values off the stack, calculates the sum, then pushes the result back on
   ///
-  /// Encoding: None
-  Pop,
-  /// Pops N values off the stack.
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: | usize |
-  PopN,
-  /// Store the value on the stack in the given location
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Add,
+  /// Pops two values off the stack, calculates the difference, then pushes the result back on
   ///
-  /// Encoding: | Storage | LongAddr |
-  Store,
-  /// Load a value and push it onto the stack
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: | Storage | LongAddr |
-  Load,
-  /// Assigns a value to a member on an object
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Sub,
+  /// Pops two values off the stack, calculates the product, then pushes the result back on
   ///
-  /// \[ Value \] \
-  /// \[ Object \]
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: | usize |
-  AssignMember,
-  /// Initializes a member of an object, keeping the object on the stack for further assignments
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Mul,
+  /// Pops two values off the stack, calculates the quotient, then pushes the result back on
   ///
-  /// Encoding: | usize |
-  InitializeMember,
-  /// Initializes a method on a class, keeping the class on the stack for further assignments
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: | usize |
-  InitializeMethod,
-  /// Initializes the constructor on a class, keeping the class on the stack for further assignments
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Div,
+  /// Pops two values off the stack, calculates the remainder, then pushes the result back on
   ///
-  /// Encoding: None
-  InitializeConstructor,
-  /// Looks up the member on the next value on the stack, replacing it with the member's value
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: | usize |
-  LookupMember,
-  /// Looks up the member of the next value on the stack, pushing the value
-  ///
-  /// Encoding: | usize |
-  PeekMember,
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Rem,
   /// Pops two values off the stack, compares, then pushes the result back on
   ///
   /// With data two locations are looked up, compared, and the result placed back on the stack
@@ -219,36 +201,6 @@ pub enum Opcode {
   ///
   /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   LessEqual,
-  /// Pops two values off the stack, calculates the sum, then pushes the result back on
-  ///
-  /// With data two locations are looked up and the operation applied, the result placed back on the stack
-  ///
-  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
-  Add,
-  /// Pops two values off the stack, calculates the difference, then pushes the result back on
-  ///
-  /// With data two locations are looked up and the operation applied, the result placed back on the stack
-  ///
-  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
-  Sub,
-  /// Pops two values off the stack, calculates the product, then pushes the result back on
-  ///
-  /// With data two locations are looked up and the operation applied, the result placed back on the stack
-  ///
-  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
-  Mul,
-  /// Pops two values off the stack, calculates the quotient, then pushes the result back on
-  ///
-  /// With data two locations are looked up and the operation applied, the result placed back on the stack
-  ///
-  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
-  Div,
-  /// Pops two values off the stack, calculates the remainder, then pushes the result back on
-  ///
-  /// With data two locations are looked up and the operation applied, the result placed back on the stack
-  ///
-  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
-  Rem,
   /// Pop two items off the stack, using the first as the index and the second as the indexable, pushing the result back on
   ///
   /// With data two locations are looked up and the operation applied, the result placed back on the stack
@@ -261,6 +213,14 @@ pub enum Opcode {
   ///
   /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   AssignIndex,
+  /// Pops a value off the stack, inverts its numerical value, then pushes that back on
+  ///
+  /// Encoding: None
+  Negate,
+  /// Pops a value off the stack, inverts its truthy value, then pushes that back on
+  ///
+  /// Encoding: None
+  Not,
   /// Peeks at the stack. If the top value is true, the ip in incremented
   ///
   /// Encoding: | usize |
@@ -269,55 +229,33 @@ pub enum Opcode {
   ///
   /// Encoding: | usize |
   And,
-  /// Pops a value off the stack, inverts its truthy value, then pushes that back on
-  ///
-  /// Encoding: None
-  Not,
-  /// Pops a value off the stack, inverts its numerical value, then pushes that back on
-  ///
-  /// Encoding: None
-  Negate,
-  /// Pops a value off the stack, and compares it with the peeked value, pushing the new value on
-  ///
-  /// Encoding: None
-  Check,
-  /// Pops a value off the stack and prints it to the screen
-  ///
-  /// Encoding: None
-  Println,
-  /// Jumps the ip forward unconditionally
+  /// Initializes a member of an object, keeping the object on the stack for further assignments
   ///
   /// Encoding: | usize |
-  Jump,
-  /// Jumps the ip forward if the value on the stack is falsy
+  InitializeMember,
+  /// Assigns a value to a member on an object
+  ///
+  /// \[ Value \] \
+  /// \[ Object \]
   ///
   /// Encoding: | usize |
-  JumpIfFalse,
-  /// Jumps the instruction pointer backwards a number of instructions
+  AssignMember,
+  /// Looks up the member on the next value on the stack, replacing it with the member's value
   ///
   /// Encoding: | usize |
-  Loop,
-  /// Calls the value on the stack. Number of arguments is specified by the modifying bits
+  LookupMember,
+  /// Looks up the member of the next value on the stack, pushing the value
   ///
   /// Encoding: | usize |
-  Invoke,
-  /// Swaps the two locations on the stack
-  ///
-  /// Encoding: | ShortAddr | ShortAddr |
-  Swap,
-  /// Swaps the last two items on the stack and pops
+  PeekMember,
+  /// Initializes the constructor on a class, keeping the class on the stack for further assignments
   ///
   /// Encoding: None
-  SwapPop,
-  /// Exits from a function, returning nil on the previous frame
+  InitializeConstructor,
+  /// Initializes a method on a class, keeping the class on the stack for further assignments
   ///
-  /// Encoding: None
-  Ret,
-  /// Load an external file, or pull from the cache if already loaded.
-  /// The file name is the value on the stack
-  ///
-  /// Encoding: None
-  Req,
+  /// Encoding: | usize |
+  InitializeMethod,
   /// Create a vec of values and push it on the stack.
   /// Items come off the top of the stack.
   /// The number of items is specified in the encoding
@@ -354,10 +292,39 @@ pub enum Opcode {
   ///
   /// Encoding: | usize |
   CreateModule,
-  /// Halt the VM when this instruction is reached and enter the debugger
+  /// Pops a value off the stack, and compares it with the peeked value, pushing the new value on
   ///
   /// Encoding: None
-  Breakpoint,
+  Check,
+  /// Pops a value off the stack and prints it to the screen
+  ///
+  /// Encoding: None
+  Println,
+  /// Jumps the ip forward unconditionally
+  ///
+  /// Encoding: | usize |
+  Jump,
+  /// Jumps the ip forward if the value on the stack is falsy
+  ///
+  /// Encoding: | usize |
+  JumpIfFalse,
+  /// Jumps the instruction pointer backwards a number of instructions
+  ///
+  /// Encoding: | usize |
+  Loop,
+  /// Calls the value on the stack. Number of arguments is specified by the modifying bits
+  ///
+  /// Encoding: | usize |
+  Invoke,
+  /// Load an external file, or pull from the cache if already loaded.
+  /// The file name is the value on the stack
+  ///
+  /// Encoding: None
+  Req,
+  /// Exits from a function, returning nil on the previous frame
+  ///
+  /// Encoding: None
+  Ret,
   /// Mark the current value as exported
   ///
   /// Encoding: None
@@ -387,6 +354,14 @@ pub enum Opcode {
   ///
   /// Encoding: None
   PopScope,
+  /// Swaps the two locations on the stack
+  ///
+  /// Encoding: | ShortAddr | ShortAddr |
+  Swap,
+  /// Swaps the last two items on the stack and pops
+  ///
+  /// Encoding: None
+  SwapPop,
   /// Pop two values off the stack, check if the second is of the first's type
   ///
   /// For instances this will get it's underlying class's type id and compare that with the right's type id
@@ -399,6 +374,16 @@ pub enum Opcode {
   ///
   /// Encoding: None
   Quack,
+  /// Unknown instruction
+  /// Value given when one cannot be interpreted
+  ///
+  /// Encoding: None
+  #[default]
+  Unknown,
+  /// Halt the VM when this instruction is reached and enter the debugger
+  ///
+  /// Encoding: None
+  Breakpoint,
 }
 
 static_assertions::const_assert!(Opcode::COUNT < 2usize.pow(Opcode::BITS as u32));
@@ -416,11 +401,11 @@ impl InstructionData for Opcode {
     self as u8 as u64
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     Self::from_repr((inst & Self::MASK).try_into().ok()?)
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     unsafe { mem::transmute((inst & Self::MASK) as u8) }
   }
 }
@@ -432,11 +417,11 @@ impl InstructionData for usize {
     self as u64
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     (inst & Self::MASK).try_into().ok()
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     (inst & Self::MASK) as usize
   }
 }
@@ -458,11 +443,11 @@ impl InstructionData for Storage {
     self as u8 as u64
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     Self::from_repr((inst & Self::MASK).try_into().ok()?)
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     unsafe { mem::transmute((inst & Self::MASK) as u8) }
   }
 }
@@ -477,11 +462,11 @@ impl InstructionData for LongAddr {
     self.0 as u64
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
-    Some(Self::unchecked_data(inst))
+  fn decode_checked(inst: u64) -> Option<Self> {
+    Some(Self::decode(inst))
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     Self((inst & Self::MASK) as usize)
   }
 }
@@ -508,11 +493,11 @@ impl InstructionData for ShortAddr {
     self.0 as u64
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     (inst & Self::MASK).try_into().map(Self).ok()
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     Self((inst & Self::MASK) as usize)
   }
 }
@@ -536,11 +521,11 @@ impl InstructionData for () {
     0
   }
 
-  fn checked_data(_: u64) -> Option<Self> {
+  fn decode_checked(_: u64) -> Option<Self> {
     Some(())
   }
 
-  fn unchecked_data(_: u64) -> Self {}
+  fn decode(_: u64) -> Self {}
 }
 
 impl<T0, T1> InstructionData for (T0, T1)
@@ -554,15 +539,12 @@ where
     self.0.to_bits() | self.1.to_bits() << T0::BITS
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
-    T0::checked_data(inst & T0::MASK).zip(T1::checked_data(inst >> T0::BITS & T1::MASK))
+  fn decode_checked(inst: u64) -> Option<Self> {
+    T0::decode_checked(inst & T0::MASK).zip(T1::decode_checked(inst >> T0::BITS & T1::MASK))
   }
 
-  fn unchecked_data(inst: u64) -> Self {
-    (
-      T0::unchecked_data(inst & T0::MASK),
-      T1::unchecked_data(inst >> T0::BITS & T1::MASK),
-    )
+  fn decode(inst: u64) -> Self {
+    (T0::decode(inst & T0::MASK), T1::decode(inst >> T0::BITS & T1::MASK))
   }
 }
 
@@ -578,22 +560,22 @@ where
     self.0.to_bits() | self.1.to_bits() << T0::BITS | self.2.to_bits() << (T0::BITS + T1::BITS)
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     match (
-      T0::checked_data(inst & T0::MASK),
-      T1::checked_data(inst >> T0::BITS & T1::MASK),
-      T2::checked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+      T0::decode_checked(inst & T0::MASK),
+      T1::decode_checked(inst >> T0::BITS & T1::MASK),
+      T2::decode_checked(inst >> (T0::BITS + T1::BITS) & T2::MASK),
     ) {
       (Some(t0), Some(t1), Some(t2)) => Some((t0, t1, t2)),
       _ => None,
     }
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     (
-      T0::unchecked_data(inst & T0::MASK),
-      T1::unchecked_data(inst >> T0::BITS & T1::MASK),
-      T2::unchecked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+      T0::decode(inst & T0::MASK),
+      T1::decode(inst >> T0::BITS & T1::MASK),
+      T2::decode(inst >> (T0::BITS + T1::BITS) & T2::MASK),
     )
   }
 }
@@ -614,24 +596,24 @@ where
       | self.3.to_bits() << (T0::BITS + T1::BITS + T2::BITS)
   }
 
-  fn checked_data(inst: u64) -> Option<Self> {
+  fn decode_checked(inst: u64) -> Option<Self> {
     match (
-      T0::checked_data(inst & T0::MASK),
-      T1::checked_data(inst >> T0::BITS & T1::MASK),
-      T2::checked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
-      T3::checked_data(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
+      T0::decode_checked(inst & T0::MASK),
+      T1::decode_checked(inst >> T0::BITS & T1::MASK),
+      T2::decode_checked(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+      T3::decode_checked(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
     ) {
       (Some(t0), Some(t1), Some(t2), Some(t3)) => Some((t0, t1, t2, t3)),
       _ => None,
     }
   }
 
-  fn unchecked_data(inst: u64) -> Self {
+  fn decode(inst: u64) -> Self {
     (
-      T0::unchecked_data(inst & T0::MASK),
-      T1::unchecked_data(inst >> T0::BITS & T1::MASK),
-      T2::unchecked_data(inst >> (T0::BITS + T1::BITS) & T2::MASK),
-      T3::unchecked_data(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
+      T0::decode(inst & T0::MASK),
+      T1::decode(inst >> T0::BITS & T1::MASK),
+      T2::decode(inst >> (T0::BITS + T1::BITS) & T2::MASK),
+      T3::decode(inst >> (T0::BITS + T1::BITS + T2::BITS) & T3::MASK),
     )
   }
 }
@@ -684,9 +666,10 @@ impl DerefMut for Stack {
 
 #[derive(Default)]
 pub struct StackFrame {
-  pub ip: usize,
+  pub ip: Box<usize>,
   pub sp: usize,
   pub ctx: SmartPtr<Context>,
+  pub export: Option<Value>,
 }
 
 impl StackFrame {
@@ -695,6 +678,7 @@ impl StackFrame {
       ip: Default::default(),
       sp,
       ctx,
+      export: None,
     }
   }
 }
@@ -791,7 +775,7 @@ mod tests {
     let addr = LongAddr(ADDR);
     let bits = addr.encode().unwrap();
     assert_eq!(bits, ADDR as u64);
-    let addr = LongAddr::checked_data(bits).unwrap();
+    let addr = LongAddr::decode_checked(bits).unwrap();
     assert_eq!(addr, LongAddr(ADDR));
   }
 
@@ -799,8 +783,8 @@ mod tests {
   fn opcode_serde_cplx_inst() {
     let inst = Instruction::new(Opcode::Load, (Storage::Local, LongAddr(ADDR))).unwrap();
 
-    let op = inst.opcode().unwrap();
-    let (storage, addr) = inst.data::<(Storage, LongAddr)>().unwrap();
+    let op = inst.opcode();
+    let (storage, addr) = inst.data::<(Storage, LongAddr)>();
 
     assert_eq!(op, Opcode::Load);
     assert_eq!(storage, Storage::Local);
@@ -817,8 +801,8 @@ mod tests {
     )
     .unwrap();
 
-    let op = inst.opcode().unwrap();
-    let ((a_store, a_addr), (b_store, b_addr)) = inst.data::<((Storage, ShortAddr), (Storage, ShortAddr))>().unwrap();
+    let op = inst.opcode();
+    let ((a_store, a_addr), (b_store, b_addr)) = inst.data::<((Storage, ShortAddr), (Storage, ShortAddr))>();
 
     assert!(inst.has_data());
     assert_eq!(op, Opcode::Add);
