@@ -102,8 +102,8 @@ impl Context {
     }
   }
 
-  pub fn fetch(&self, index: usize) -> Option<Instruction> {
-    self.instructions.get(index).cloned()
+  pub fn fetch(&self, index: usize) -> Instruction {
+    self.instructions[index]
   }
 
   pub(crate) fn write(&mut self, inst: Instruction, line: usize, column: usize) {

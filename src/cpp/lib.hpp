@@ -73,8 +73,6 @@ namespace duck_type
   extern "C" void execute(Vm vm, Instruction* instructions, std::size_t* ip);
 }  // namespace duck_type
 
-DECL(exec_disasm, Vm, Instruction);
-
 DECL(exec_pop, Vm);
 
 DECL(exec_pop_n, Vm, Instruction);
@@ -188,3 +186,5 @@ DECL_RET(bool, exec_quack, Vm);
 DECL_RET(bool, exec_unknown, Vm, Instruction);
 
 DECL_RET(bool, exec_dbg, Vm);
+
+DECL(exec_disasm, Vm, Instruction);

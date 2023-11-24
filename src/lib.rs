@@ -190,17 +190,106 @@ impl Vm {
   }
 
   pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
-    unsafe {
-      bindings::duck_type_execute(
-        self as *mut Vm as *mut c_void,
-        self.ctx_mut().instructions.as_mut_ptr() as *mut u64,
-        &mut *self.stack_frame.ip as *mut usize,
-      )
-    };
+    #[cfg(feature = "jump-table")]
+    {
+      unsafe {
+        bindings::duck_type_execute(
+          self as *mut Vm as *mut c_void,
+          self.ctx_mut().instructions.as_mut_ptr() as *mut u64,
+          &mut *self.stack_frame.ip as *mut usize,
+        )
+      };
 
-    let mut result = Ok(());
-    mem::swap(&mut result, &mut self.last_error);
-    result?;
+      let mut result = Ok(());
+      mem::swap(&mut result, &mut self.last_error);
+      result?;
+    }
+
+    #[cfg(not(feature = "jump-table"))]
+    {
+      'fetch_cycle: loop {
+        let inst = self.stack_frame.ctx.fetch(*self.stack_frame.ip);
+
+        let opcode = inst.opcode();
+
+        match opcode {
+          Opcode::Pop => self.exec_pop(),
+          Opcode::PopN => self.exec_pop_n(inst.data()),
+          Opcode::Const => self.exec_const(inst.data())?,
+          Opcode::Store => self.exec_store(inst.data())?,
+          Opcode::Load => self.exec_load(inst.data())?,
+          Opcode::Nil => self.exec_nil(),
+          Opcode::True => self.exec_true(),
+          Opcode::False => self.exec_false(),
+          Opcode::Add => self.exec_add(inst)?,
+          Opcode::Sub => self.exec_sub(inst)?,
+          Opcode::Mul => self.exec_mul(inst)?,
+          Opcode::Div => self.exec_div(inst)?,
+          Opcode::Rem => self.exec_rem(inst)?,
+          Opcode::Equal => self.exec_equal(inst)?,
+          Opcode::NotEqual => self.exec_not_equal(inst)?,
+          Opcode::Greater => self.exec_greater(inst)?,
+          Opcode::GreaterEqual => self.exec_greater_equal(inst)?,
+          Opcode::Less => self.exec_less(inst)?,
+          Opcode::LessEqual => self.exec_less_equal(inst)?,
+          Opcode::Index => self.exec_index()?,
+          Opcode::AssignIndex => self.exec_index_assign()?,
+          Opcode::Negate => self.exec_negate()?,
+          Opcode::Not => self.exec_not()?,
+          Opcode::Or => {
+            self.exec_or(inst.data());
+            continue 'fetch_cycle;
+          }
+          Opcode::And => {
+            self.exec_and(inst.data());
+            continue 'fetch_cycle;
+          }
+          Opcode::InitializeMember => self.exec_initialize_member(inst.data())?,
+          Opcode::AssignMember => self.exec_assign_member(inst.data())?,
+          Opcode::LookupMember => self.exec_lookup_member(inst.data())?,
+          Opcode::PeekMember => self.exec_peek_member(inst.data())?,
+          Opcode::InitializeConstructor => self.exec_initialize_constructor()?,
+          Opcode::InitializeMethod => self.exec_initialize_method(inst.data())?,
+          Opcode::CreateVec => self.exec_create_vec(inst.data())?,
+          Opcode::CreateSizedVec => self.exec_create_sized_vec(inst.data())?,
+          Opcode::CreateDynamicVec => self.exec_create_dyn_vec()?,
+          Opcode::CreateClosure => self.exec_create_closure()?,
+          Opcode::CreateStruct => self.exec_create_struct(inst.data())?,
+          Opcode::CreateClass => self.exec_create_class(inst.data())?,
+          Opcode::CreateModule => self.exec_create_module(inst.data())?,
+          Opcode::Check => self.exec_check()?,
+          Opcode::Println => self.exec_println(),
+          Opcode::Jump => {
+            self.exec_jump(inst.data());
+            continue 'fetch_cycle;
+          }
+          Opcode::JumpIfFalse => {
+            self.exec_jump_if_false(inst.data());
+            continue 'fetch_cycle;
+          }
+          Opcode::Loop => {
+            self.exec_loop(inst.data());
+            continue 'fetch_cycle;
+          }
+          Opcode::Invoke => self.exec_call(inst.data())?,
+          Opcode::Req => self.exec_req()?,
+          Opcode::Ret => break 'fetch_cycle,
+          Opcode::Export => self.exec_export(),
+          Opcode::DefineGlobal => self.exec_define_global(inst.data())?,
+          Opcode::DefineScope => self.exec_define_scope(inst.data())?,
+          Opcode::Resolve => self.exec_resolve(inst.data())?,
+          Opcode::EnterBlock => self.exec_enter_block(),
+          Opcode::PopScope => self.pop_scope(),
+          Opcode::Swap => self.exec_swap(inst.data()),
+          Opcode::SwapPop => self.exec_swap_pop(),
+          Opcode::Is => self.exec_is()?,
+          Opcode::Quack => self.exec_quack()?,
+          Opcode::Unknown => self.exec_unknown(inst)?,
+          Opcode::Breakpoint => self.exec_dbg()?,
+        }
+        *self.stack_frame.ip += 1;
+      }
+    }
 
     match exec_type {
       RunMode::File => {
@@ -1348,16 +1437,16 @@ impl Vm {
     })
   }
 
-  fn exec_negate(&mut self, opcode: Opcode) -> ExecResult {
-    self.wrap_err_mut(|this| this.unary_op(opcode, |v| -v))
+  fn exec_negate(&mut self) -> ExecResult {
+    self.wrap_err_mut(|this| this.unary_op(Opcode::Negate, |v| -v))
   }
 
-  fn exec_not(&mut self, opcode: Opcode) -> ExecResult {
-    self.wrap_err_mut(|this| this.unary_op(opcode, |v| Ok(!v)))
+  fn exec_not(&mut self) -> ExecResult {
+    self.wrap_err_mut(|this| this.unary_op(Opcode::Not, |v| Ok(!v)))
   }
 
-  fn exec_index(&mut self, opcode: Opcode) -> ExecResult {
-    self.wrap_err_mut(|this| this.binary_op(opcode, |_, _| Err(UsageError::InvalidBinary)))
+  fn exec_index(&mut self) -> ExecResult {
+    self.wrap_err_mut(|this| this.binary_op(Opcode::Index, |_, _| Err(UsageError::InvalidBinary)))
   }
 
   fn exec_index_assign(&mut self) -> ExecResult {
@@ -1372,7 +1461,7 @@ impl Vm {
   }
 
   fn exec_or(&mut self, offset: usize) {
-    self.exec_logical(offset, |v| v.truthy());
+    self.exec_logical(offset, |v| v.truthy())
   }
 
   fn exec_and(&mut self, offset: usize) {
@@ -1545,7 +1634,7 @@ pub extern "C" fn exec_less_equal(vm: &mut Vm, inst: Instruction) -> bool {
 
 #[no_mangle]
 pub extern "C" fn exec_index(vm: &mut Vm) -> bool {
-  vm.last_error = vm.exec_index(Opcode::Index);
+  vm.last_error = vm.exec_index();
   vm.last_error.is_ok()
 }
 
@@ -1557,13 +1646,13 @@ pub extern "C" fn exec_index_assign(vm: &mut Vm) -> bool {
 
 #[no_mangle]
 pub extern "C" fn exec_negate(vm: &mut Vm) -> bool {
-  vm.last_error = vm.exec_negate(Opcode::Negate);
+  vm.last_error = vm.exec_negate();
   vm.last_error.is_ok()
 }
 
 #[no_mangle]
 pub extern "C" fn exec_not(vm: &mut Vm) -> bool {
-  vm.last_error = vm.exec_not(Opcode::Not);
+  vm.last_error = vm.exec_not();
   vm.last_error.is_ok()
 }
 

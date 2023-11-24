@@ -103,16 +103,26 @@ where
 #[repr(u8)]
 #[macros::opcode_bindings(crate::bindings)]
 pub enum Opcode {
-  /// Unknown instruction
-  /// Value given when one cannot be interpreted
+  /// Pops a value off the stack
   ///
   /// Encoding: None
-  #[default]
-  Unknown,
+  Pop,
+  /// Pops N values off the stack.
+  ///
+  /// Encoding: | usize |
+  PopN,
   /// Looks up a constant value at the specified location.
   ///
   /// Encoding: | usize |
   Const,
+  /// Store the value on the stack in the given location
+  ///
+  /// Encoding: | Storage | LongAddr |
+  Store,
+  /// Load a value and push it onto the stack
+  ///
+  /// Encoding: | Storage | LongAddr |
+  Load,
   /// Pushes a nil value on to the stack
   ///
   /// Encoding: None
@@ -125,49 +135,36 @@ pub enum Opcode {
   ///
   /// Encoding: None
   False,
-  /// Pops a value off the stack
+  /// Pops two values off the stack, calculates the sum, then pushes the result back on
   ///
-  /// Encoding: None
-  Pop,
-  /// Pops N values off the stack.
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: | usize |
-  PopN,
-  /// Store the value on the stack in the given location
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Add,
+  /// Pops two values off the stack, calculates the difference, then pushes the result back on
   ///
-  /// Encoding: | Storage | LongAddr |
-  Store,
-  /// Load a value and push it onto the stack
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: | Storage | LongAddr |
-  Load,
-  /// Assigns a value to a member on an object
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Sub,
+  /// Pops two values off the stack, calculates the product, then pushes the result back on
   ///
-  /// \[ Value \] \
-  /// \[ Object \]
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: | usize |
-  AssignMember,
-  /// Initializes a member of an object, keeping the object on the stack for further assignments
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Mul,
+  /// Pops two values off the stack, calculates the quotient, then pushes the result back on
   ///
-  /// Encoding: | usize |
-  InitializeMember,
-  /// Initializes a method on a class, keeping the class on the stack for further assignments
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: | usize |
-  InitializeMethod,
-  /// Initializes the constructor on a class, keeping the class on the stack for further assignments
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Div,
+  /// Pops two values off the stack, calculates the remainder, then pushes the result back on
   ///
-  /// Encoding: None
-  InitializeConstructor,
-  /// Looks up the member on the next value on the stack, replacing it with the member's value
+  /// With data two locations are looked up and the operation applied, the result placed back on the stack
   ///
-  /// Encoding: | usize |
-  LookupMember,
-  /// Looks up the member of the next value on the stack, pushing the value
-  ///
-  /// Encoding: | usize |
-  PeekMember,
+  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
+  Rem,
   /// Pops two values off the stack, compares, then pushes the result back on
   ///
   /// With data two locations are looked up, compared, and the result placed back on the stack
@@ -204,36 +201,6 @@ pub enum Opcode {
   ///
   /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   LessEqual,
-  /// Pops two values off the stack, calculates the sum, then pushes the result back on
-  ///
-  /// With data two locations are looked up and the operation applied, the result placed back on the stack
-  ///
-  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
-  Add,
-  /// Pops two values off the stack, calculates the difference, then pushes the result back on
-  ///
-  /// With data two locations are looked up and the operation applied, the result placed back on the stack
-  ///
-  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
-  Sub,
-  /// Pops two values off the stack, calculates the product, then pushes the result back on
-  ///
-  /// With data two locations are looked up and the operation applied, the result placed back on the stack
-  ///
-  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
-  Mul,
-  /// Pops two values off the stack, calculates the quotient, then pushes the result back on
-  ///
-  /// With data two locations are looked up and the operation applied, the result placed back on the stack
-  ///
-  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
-  Div,
-  /// Pops two values off the stack, calculates the remainder, then pushes the result back on
-  ///
-  /// With data two locations are looked up and the operation applied, the result placed back on the stack
-  ///
-  /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
-  Rem,
   /// Pop two items off the stack, using the first as the index and the second as the indexable, pushing the result back on
   ///
   /// With data two locations are looked up and the operation applied, the result placed back on the stack
@@ -246,6 +213,14 @@ pub enum Opcode {
   ///
   /// Encoding: [ None ] | [ Storage | ShortAddr | Storage | ShortAddr ]
   AssignIndex,
+  /// Pops a value off the stack, inverts its numerical value, then pushes that back on
+  ///
+  /// Encoding: None
+  Negate,
+  /// Pops a value off the stack, inverts its truthy value, then pushes that back on
+  ///
+  /// Encoding: None
+  Not,
   /// Peeks at the stack. If the top value is true, the ip in incremented
   ///
   /// Encoding: | usize |
@@ -254,55 +229,33 @@ pub enum Opcode {
   ///
   /// Encoding: | usize |
   And,
-  /// Pops a value off the stack, inverts its truthy value, then pushes that back on
-  ///
-  /// Encoding: None
-  Not,
-  /// Pops a value off the stack, inverts its numerical value, then pushes that back on
-  ///
-  /// Encoding: None
-  Negate,
-  /// Pops a value off the stack, and compares it with the peeked value, pushing the new value on
-  ///
-  /// Encoding: None
-  Check,
-  /// Pops a value off the stack and prints it to the screen
-  ///
-  /// Encoding: None
-  Println,
-  /// Jumps the ip forward unconditionally
+  /// Initializes a member of an object, keeping the object on the stack for further assignments
   ///
   /// Encoding: | usize |
-  Jump,
-  /// Jumps the ip forward if the value on the stack is falsy
+  InitializeMember,
+  /// Assigns a value to a member on an object
+  ///
+  /// \[ Value \] \
+  /// \[ Object \]
   ///
   /// Encoding: | usize |
-  JumpIfFalse,
-  /// Jumps the instruction pointer backwards a number of instructions
+  AssignMember,
+  /// Looks up the member on the next value on the stack, replacing it with the member's value
   ///
   /// Encoding: | usize |
-  Loop,
-  /// Calls the value on the stack. Number of arguments is specified by the modifying bits
+  LookupMember,
+  /// Looks up the member of the next value on the stack, pushing the value
   ///
   /// Encoding: | usize |
-  Invoke,
-  /// Swaps the two locations on the stack
-  ///
-  /// Encoding: | ShortAddr | ShortAddr |
-  Swap,
-  /// Swaps the last two items on the stack and pops
+  PeekMember,
+  /// Initializes the constructor on a class, keeping the class on the stack for further assignments
   ///
   /// Encoding: None
-  SwapPop,
-  /// Exits from a function, returning nil on the previous frame
+  InitializeConstructor,
+  /// Initializes a method on a class, keeping the class on the stack for further assignments
   ///
-  /// Encoding: None
-  Ret,
-  /// Load an external file, or pull from the cache if already loaded.
-  /// The file name is the value on the stack
-  ///
-  /// Encoding: None
-  Req,
+  /// Encoding: | usize |
+  InitializeMethod,
   /// Create a vec of values and push it on the stack.
   /// Items come off the top of the stack.
   /// The number of items is specified in the encoding
@@ -339,10 +292,39 @@ pub enum Opcode {
   ///
   /// Encoding: | usize |
   CreateModule,
-  /// Halt the VM when this instruction is reached and enter the debugger
+  /// Pops a value off the stack, and compares it with the peeked value, pushing the new value on
   ///
   /// Encoding: None
-  Breakpoint,
+  Check,
+  /// Pops a value off the stack and prints it to the screen
+  ///
+  /// Encoding: None
+  Println,
+  /// Jumps the ip forward unconditionally
+  ///
+  /// Encoding: | usize |
+  Jump,
+  /// Jumps the ip forward if the value on the stack is falsy
+  ///
+  /// Encoding: | usize |
+  JumpIfFalse,
+  /// Jumps the instruction pointer backwards a number of instructions
+  ///
+  /// Encoding: | usize |
+  Loop,
+  /// Calls the value on the stack. Number of arguments is specified by the modifying bits
+  ///
+  /// Encoding: | usize |
+  Invoke,
+  /// Load an external file, or pull from the cache if already loaded.
+  /// The file name is the value on the stack
+  ///
+  /// Encoding: None
+  Req,
+  /// Exits from a function, returning nil on the previous frame
+  ///
+  /// Encoding: None
+  Ret,
   /// Mark the current value as exported
   ///
   /// Encoding: None
@@ -372,6 +354,14 @@ pub enum Opcode {
   ///
   /// Encoding: None
   PopScope,
+  /// Swaps the two locations on the stack
+  ///
+  /// Encoding: | ShortAddr | ShortAddr |
+  Swap,
+  /// Swaps the last two items on the stack and pops
+  ///
+  /// Encoding: None
+  SwapPop,
   /// Pop two values off the stack, check if the second is of the first's type
   ///
   /// For instances this will get it's underlying class's type id and compare that with the right's type id
@@ -384,6 +374,16 @@ pub enum Opcode {
   ///
   /// Encoding: None
   Quack,
+  /// Unknown instruction
+  /// Value given when one cannot be interpreted
+  ///
+  /// Encoding: None
+  #[default]
+  Unknown,
+  /// Halt the VM when this instruction is reached and enter the debugger
+  ///
+  /// Encoding: None
+  Breakpoint,
 }
 
 static_assertions::const_assert!(Opcode::COUNT < 2usize.pow(Opcode::BITS as u32));
