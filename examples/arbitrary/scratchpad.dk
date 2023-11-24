@@ -1,1 +1,8 @@
-quack "foobar";
+fn bnmk(timer: Timer, i) {
+  # timer.start();
+  i += 1;
+  x += i + i * i / i % i;
+  # timer.stop();
+}
+
+println std::reflect::disasm(bnmk);

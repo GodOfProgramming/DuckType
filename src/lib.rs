@@ -450,8 +450,7 @@ impl Vm {
       } else {
         Err(UsageError::InvalidIdentifier(name.to_string()))
       }
-    })?;
-    self.check_gc()
+    })
   }
 
   fn exec_assign_member(&mut self, loc: usize) -> ExecResult {
@@ -468,9 +467,7 @@ impl Vm {
       } else {
         Err(UsageError::InvalidIdentifier(name.to_string()))
       }
-    })?;
-
-    self.check_gc()
+    })
   }
 
   fn exec_lookup_member(&mut self, loc: usize) -> ExecResult {
@@ -502,9 +499,7 @@ impl Vm {
       } else {
         Err(UsageError::InvalidIdentifier(name.to_string()))
       }
-    })?;
-
-    self.check_gc()
+    })
   }
 
   fn exec_initialize_constructor(&mut self) -> ExecResult {
@@ -666,7 +661,8 @@ impl Vm {
 
   fn exec_call(&mut self, airity: usize) -> ExecResult {
     let callable = self.stack_load_rev(airity);
-    self.wrap_err_mut(|this| this.call_value(callable, airity))
+    self.wrap_err_mut(|this| this.call_value(callable, airity))?;
+    self.check_gc()
   }
 
   fn exec_req(&mut self) -> ExecResult {
