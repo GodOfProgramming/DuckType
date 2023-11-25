@@ -60,7 +60,7 @@ impl FnStatement {
 
 impl AstStatement for FnStatement {
   fn stmt(ast: &mut AstGenerator) {
-    if let Some(stmt) = ast.parse_fn(true) {
+    if let Some(stmt) = ast.parse_fn() {
       ast.statements.push(stmt);
     }
   }

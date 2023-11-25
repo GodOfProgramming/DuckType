@@ -217,6 +217,7 @@ impl Vm {
     {
       'fetch_cycle: loop {
         let inst = self.stack_frame.ctx.fetch(*self.stack_frame.ip);
+        self.exec_disasm(inst);
         match inst.opcode() {
           Opcode::Pop => self.exec_pop(),
           Opcode::PopN => self.exec_pop_n(inst.data()),
@@ -283,7 +284,8 @@ impl Vm {
           Opcode::DefineGlobal => self.exec_define_global(inst.data())?,
           Opcode::DefineScope => self.exec_define_scope(inst.data())?,
           Opcode::Resolve => self.exec_resolve(inst.data())?,
-          Opcode::PopScope => self.pop_scope(),
+          Opcode::EnableModule => self.exec_enable_module()?,
+          Opcode::PopScope => self.exec_pop_scope(),
           Opcode::Swap => self.exec_swap(inst.data()),
           Opcode::SwapPop => self.exec_swap_pop(),
           Opcode::Is => self.exec_is()?,
@@ -390,20 +392,23 @@ impl Vm {
 impl Vm {
   #[allow(unused)]
   fn exec_disasm(&self, inst: Instruction) {
-    self.stack_display();
+    #[cfg(feature = "runtime-disassembly")]
+    {
+      self.stack_display();
 
-    println!(
-      "{}",
-      InstructionDisassembler {
-        ctx: &ContextDisassembler {
-          ctx: self.ctx(),
-          stack: &self.stack,
-          cache: &self.cache,
-        },
-        inst,
-        offset: *self.stack_frame.ip,
-      }
-    );
+      println!(
+        "{}",
+        InstructionDisassembler {
+          ctx: &ContextDisassembler {
+            ctx: self.ctx(),
+            stack: &self.stack,
+            cache: &self.cache,
+          },
+          inst,
+          offset: *self.stack_frame.ip,
+        }
+      );
+    }
   }
 
   fn exec_pop(&mut self) {
@@ -638,9 +643,8 @@ impl Vm {
     if let ConstantValue::String(name) = name {
       let leaf = current_module!(self);
       let module = ModuleValue::new_child(name, leaf.handle.value);
-      let handle = self.gc.allocate_typed_handle(module);
-      self.modules.push(ModuleEntry::Mod(handle.clone()));
-      self.stack_push(handle.value());
+      let value = self.make_value_from(module);
+      self.stack_push(value);
     } else {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
@@ -851,6 +855,17 @@ impl Vm {
       }
     }
     Ok(())
+  }
+
+  fn exec_enable_module(&mut self) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      let value = this.stack_peek();
+      let handle = this
+        .maybe_make_usertype_handle::<ModuleValue>(value)
+        .ok_or(UsageError::InvalidModule(value))?;
+      this.modules.push(ModuleEntry::Mod(handle));
+      Ok(())
+    })
   }
 
   fn exec_pop_scope(&mut self) {
@@ -1315,6 +1330,10 @@ impl Vm {
 
   pub fn make_handle(&mut self, value: Value) -> ValueHandle {
     self.gc.handle_from(value)
+  }
+
+  pub fn maybe_make_usertype_handle<T: Usertype>(&mut self, value: Value) -> Option<UsertypeHandle<T>> {
+    value.is::<T>().then(|| UsertypeHandle::new(self.make_handle(value)))
   }
 
   pub fn make_usertype_handle_from<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {

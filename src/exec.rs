@@ -345,6 +345,10 @@ pub enum Opcode {
   ///
   /// Encoding: | usize |
   Resolve,
+  /// Push the last value on the stack as a module
+  ///
+  /// Encoding: None
+  EnableModule,
   /// Pop an env
   ///
   /// Encoding: None

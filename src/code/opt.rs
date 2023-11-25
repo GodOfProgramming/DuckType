@@ -497,7 +497,7 @@ impl Optimize for MethodExpression {
 impl Optimize for ModExpression {
   type Output = Expression;
   fn optimize(mut self) -> Self::Output {
-    self.items = self.items.optimize();
+    self.statements = self.statements.optimize();
     self.into()
   }
 }

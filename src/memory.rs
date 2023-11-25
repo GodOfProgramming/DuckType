@@ -57,6 +57,8 @@ where
   pub(crate) allocated_memory: usize,
 
   pub(crate) num_cycles: usize,
+
+  num_limit_repeats: usize,
 }
 
 impl<D> Gc<D>
@@ -66,11 +68,12 @@ where
   pub fn new(initial_limit: Memory) -> Self {
     Self {
       disposer: D::default(),
-      allocations: AllocationSet::with_capacity(1024),
+      allocations: AllocationSet::with_capacity(512),
       native_handles: AllocationSet::with_capacity(512),
       limit: initial_limit.into(),
       allocated_memory: 0,
       num_cycles: 0,
+      num_limit_repeats: 0,
     }
   }
 
@@ -116,12 +119,35 @@ where
       self.disposer.dispose(unmarked_allocations).map_err(|e| e.into())?;
     }
 
-    self.allocated_memory = self.allocated_memory.saturating_sub(released);
-    self.limit = usize::max(self.allocated_memory.saturating_mul(2), self.limit);
+    self.calc_limit(released);
 
     self.num_cycles += 1;
 
     Ok(cleaned)
+  }
+
+  fn calc_limit(&mut self, released: usize) {
+    const REPEAT_LIM: usize = 7;
+    const ALLOC_DENOMINATOR: usize = 2;
+
+    let previously_allocated = self.allocated_memory;
+    self.allocated_memory = self.allocated_memory.saturating_sub(released);
+
+    let prev_limit = self.limit;
+    self.limit = {
+      if self.num_limit_repeats > REPEAT_LIM && previously_allocated / ALLOC_DENOMINATOR > self.allocated_memory {
+        self.num_limit_repeats = 0;
+        // memory isn't being allocated rapidly, try to find a middle ground
+        self.limit / ALLOC_DENOMINATOR
+      } else {
+        // memory is possibly being allocated rapidly, either increase the limit to account or restore the existing
+        usize::max(self.allocated_memory.saturating_mul(2), self.limit)
+      }
+    };
+
+    if self.limit == prev_limit {
+      self.num_limit_repeats += 1;
+    }
   }
 
   fn trace(

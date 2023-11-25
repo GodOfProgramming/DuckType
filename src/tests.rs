@@ -216,21 +216,15 @@ impl ScriptTest {
     // non-opt
     {
       println!("Running non-optimized {:?}", script);
-      let env = ModuleBuilder::initialize(&mut self.vm, ModuleType::new_global("*test*"), |gc, mut lib| {
-        let libval = lib.value();
-        lib.env.extend(stdlib::make_stdlib(gc, libval, &[]));
-      });
-      self.vm.run_file(script, env).unwrap();
+      let stdlib = self.vm.generate_stdlib("*test*");
+      self.vm.run_file(script, stdlib).unwrap();
     }
 
     // opt
     {
       println!("Running optimized {:?}", script);
-      let env = ModuleBuilder::initialize(&mut self.opt, ModuleType::new_global("*test*"), |gc, mut lib| {
-        let libval = lib.value();
-        lib.env.extend(stdlib::make_stdlib(gc, libval, &[]));
-      });
-      self.opt.run_file(script, env).unwrap();
+      let stdlib = self.vm.generate_stdlib("*test*");
+      self.opt.run_file(script, stdlib).unwrap();
     }
   }
 }

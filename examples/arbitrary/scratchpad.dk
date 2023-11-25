@@ -1,10 +1,9 @@
-let c = class Foo {
+let foo = class Foo {
   self as nil
 
-  fn init() {
+  fn bar() {
     ret Foo();
   }
 };
 
-println c.init();
-println Foo.init();
+println foo.bar();

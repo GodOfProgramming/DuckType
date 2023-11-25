@@ -1,12 +1,12 @@
-use std::{collections::BTreeSet, fmt::Display};
-
 use crate::code::{
-  ast::{AstExpression, AstGenerator, BlockStatement, Ident, Params, RetStatement, SelfRules, Statement, SELF_IDENT},
+  ast::{
+    AstExpression, AstGenerator, BlockStatement, Expression, ExpressionStatement, Ident, LetStatement, Params, RetStatement,
+    SelfRules, Statement, SELF_IDENT,
+  },
   lex::{NumberToken, Token},
   SourceLocation,
 };
-
-use super::Expression;
+use std::{collections::BTreeSet, fmt::Display};
 
 #[derive(Debug)]
 pub struct GroupExpression;
@@ -436,13 +436,115 @@ impl MethodExpression {
 #[derive(Debug)]
 pub struct ModExpression {
   pub name: Ident,
-  pub items: Vec<(Ident, Expression)>,
+  pub statements: Vec<Statement>,
   pub loc: SourceLocation,
 }
 
 impl ModExpression {
-  pub(super) fn new(name: Ident, items: Vec<(Ident, Expression)>, loc: SourceLocation) -> Self {
-    Self { name, items, loc }
+  pub(super) fn new(name: Ident, items: Vec<Statement>, loc: SourceLocation) -> Self {
+    Self {
+      name,
+      statements: items,
+      loc,
+    }
+  }
+
+  fn named_expr(
+    ast: &mut AstGenerator,
+    ident: String,
+    declared_items: &mut BTreeSet<String>,
+    module_items: &mut Vec<Statement>,
+    loc: SourceLocation,
+  ) -> Option<()> {
+    if !declared_items.contains(&ident) {
+      declared_items.insert(ident.clone());
+      ast.advance();
+
+      let member = Ident::new_module(ident.clone());
+
+      let value = if ast.advance_if_matches(Token::Colon) {
+        ast.expression()?
+      } else {
+        let ident = Ident::new(ident);
+        Expression::from(IdentExpression::new(ident, loc))
+      };
+
+      module_items.push(Statement::from(LetStatement::new(member, Some(value), loc)));
+    } else {
+      ast.error::<0>("duplicate identifier found");
+      return None;
+    }
+
+    if !matches!(ast.current(), Some(Token::RightBrace)) && !ast.consume(Token::Comma, "expected ',' after expression") {
+      return None;
+    }
+
+    Some(())
+  }
+
+  fn inner_module(
+    ast: &mut AstGenerator,
+    declared_items: &mut BTreeSet<String>,
+    module_items: &mut Vec<Statement>,
+    loc: SourceLocation,
+  ) -> Option<()> {
+    ast.advance();
+    if let Token::Identifier(ident) = ast.current()? {
+      if !declared_items.contains(&ident) {
+        declared_items.insert(ident);
+        let module = Self::prefix(ast)?;
+        module_items.push(Statement::from(ExpressionStatement::new(module, loc)));
+      } else {
+        ast.error::<0>("duplicate identifier found");
+        return None;
+      }
+    } else {
+      ast.error::<0>("mod name is invalid");
+      return None;
+    }
+
+    Some(())
+  }
+
+  fn class(
+    ast: &mut AstGenerator,
+    declared_items: &mut BTreeSet<String>,
+    module_items: &mut Vec<Statement>,
+    loc: SourceLocation,
+  ) -> Option<()> {
+    ast.advance();
+    if let Token::Identifier(ident) = ast.current()? {
+      if !declared_items.contains(&ident) {
+        declared_items.insert(ident);
+        let class = ClassExpression::prefix(ast)?;
+        module_items.push(Statement::from(ExpressionStatement::new(class, loc)));
+      } else {
+        ast.error::<0>("duplicate identifier found");
+        return None;
+      }
+    } else {
+      ast.error::<0>("class name is invalid");
+      return None;
+    }
+    Some(())
+  }
+
+  fn function(ast: &mut AstGenerator, declared_items: &mut BTreeSet<String>, module_items: &mut Vec<Statement>) -> Option<()> {
+    ast.advance();
+    if let Token::Identifier(ident) = ast.current()? {
+      if !declared_items.contains(&ident) {
+        declared_items.insert(ident);
+        let function = ast.parse_fn()?;
+        module_items.push(function);
+      } else {
+        ast.error::<0>("duplicate method definition");
+        return None;
+      }
+    } else {
+      ast.error::<0>("function name is invalid");
+      return None;
+    }
+    Some(())
   }
 }
 
@@ -462,95 +564,16 @@ impl AstExpression for ModExpression {
       return None;
     }
 
-    let mut module_items = Vec::default();
     let mut declared_items = BTreeSet::default();
+    let mut module_items = Vec::default();
 
     while let Some(token) = ast.current() {
       let member_loc = ast.meta_at::<0>()?;
       match token {
-        Token::Identifier(ident) => {
-          if !declared_items.contains(&ident) {
-            declared_items.insert(ident.clone());
-            ast.advance();
-
-            if ast.advance_if_matches(Token::Colon) {
-              let ident = Ident::new(ident);
-              if let Some(expr) = ast.expression() {
-                module_items.push((ident, expr));
-              }
-            } else {
-              module_items.push((
-                Ident::new(ident.clone()),
-                Expression::from(IdentExpression::new(Ident::new(ident), member_loc)),
-              ))
-            }
-          } else {
-            ast.error::<0>("duplicate identifier found");
-          }
-          if !matches!(ast.current(), Some(Token::RightBrace)) && !ast.consume(Token::Comma, "expected ',' after expression") {
-            return None;
-          }
-        }
-        Token::Mod => {
-          ast.advance();
-          if let Some(Token::Identifier(ident)) = ast.current() {
-            if !declared_items.contains(&ident) {
-              declared_items.insert(ident.clone());
-              if let Some(module) = Self::prefix(ast) {
-                module_items.push((Ident::new(ident), module));
-              }
-            } else {
-              ast.error::<0>("duplicate identifier found");
-            }
-          } else {
-            ast.error::<0>("mod name is invalid");
-          }
-        }
-        Token::Class => {
-          ast.advance();
-          if let Some(Token::Identifier(ident)) = ast.current() {
-            if !declared_items.contains(&ident) {
-              declared_items.insert(ident.clone());
-              if let Some(class) = ClassExpression::prefix(ast) {
-                module_items.push((Ident::new(ident), class));
-              }
-            } else {
-              ast.error::<0>("duplicate identifier found");
-            }
-          } else {
-            ast.error::<0>("class name is invalid");
-          }
-        }
-        Token::Fn => {
-          ast.advance();
-          if let Some(validator) = ast.fn_ident_validator() {
-            if ast.consume(Token::LeftParen, "expected '(' after identifier") {
-              if let Some(params) = ast.parse_parameters(Token::RightParen) {
-                if let Some(ident) = validator(ast, &params) {
-                  if !declared_items.contains(&ident.name) {
-                    if let Some(function) = ast.parse_lambda(true, params, |this, params, body| {
-                      declared_items.insert(ident.name.clone());
-                      if params.found_self {
-                        this.error::<0>("cannot use ast in module function");
-                        None
-                      } else {
-                        Some(Expression::from(LambdaExpression::new(
-                          params.list,
-                          Statement::from(body),
-                          member_loc,
-                        )))
-                      }
-                    }) {
-                      module_items.push((ident, function));
-                    }
-                  } else {
-                    ast.error::<0>("duplicate method definition");
-                  }
-                }
-              }
-            }
-          }
-        }
+        Token::Identifier(ident) => Self::named_expr(ast, ident, &mut declared_items, &mut module_items, member_loc)?,
+        Token::Mod => Self::inner_module(ast, &mut declared_items, &mut module_items, member_loc)?,
+        Token::Class => Self::class(ast, &mut declared_items, &mut module_items, member_loc)?,
+        Token::Fn => Self::function(ast, &mut declared_items, &mut module_items)?,
         Token::RightBrace => break,
         t => ast.error::<0>(format!("unexpected token in module {t}")),
       }

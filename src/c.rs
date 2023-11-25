@@ -291,6 +291,12 @@ pub extern "C" fn exec_resolve(vm: &mut Vm, inst: Instruction) -> bool {
 }
 
 #[no_mangle]
+pub extern "C" fn exec_enable_module(vm: &mut Vm) -> bool {
+  vm.last_error = vm.exec_enable_module();
+  vm.last_error.is_ok()
+}
+
+#[no_mangle]
 pub extern "C" fn exec_pop_scope(vm: &mut Vm) {
   vm.exec_pop_scope();
 }

@@ -367,6 +367,9 @@ pub enum UsageError {
   #[error("capture list must be a vec")]
   CaptureType,
 
+  #[error("Expected a module, found {0}")]
+  InvalidModule(Value),
+
   #[error("Invalid instruction: {0}")]
   InvalidInstruction(Instruction),
 

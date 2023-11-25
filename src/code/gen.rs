@@ -114,9 +114,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn class_stmt(&mut self, stmt: ClassStatement) {
-    let var = self.declare_global(stmt.ident.clone());
     self.emit_expr(stmt.class);
-    self.define_scope(var, stmt.loc);
     self.emit(Opcode::Pop, stmt.loc);
   }
 
@@ -130,7 +128,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn fn_stmt(&mut self, stmt: FnStatement) {
-    let var = self.declare_global(stmt.ident.clone());
+    let var = self.declare_nonlocal(stmt.ident.clone());
     let nargs = stmt.params.len();
     self.emit_fn(Some(stmt.ident), stmt.params, nargs, *stmt.body, stmt.loc);
     self.define_scope(var, stmt.loc);
@@ -179,15 +177,15 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn let_stmt(&mut self, stmt: LetStatement) {
-    let is_global = stmt.ident.global;
-    if let Some(var) = self.declare_variable(stmt.ident, stmt.loc) {
-      if let Some(value) = stmt.value {
-        self.emit_expr(value);
-      } else {
-        self.emit(Opcode::Nil, stmt.loc);
-      };
+    if let Some(value) = stmt.value {
+      self.emit_expr(value);
+    } else {
+      self.emit(Opcode::Nil, stmt.loc);
+    };
 
-      if self.define_variable(var, stmt.loc) && is_global {
+    let is_scoped = stmt.ident.scope.is_some();
+    if let Some(var) = self.declare_variable(stmt.ident.clone(), stmt.loc) {
+      if self.define_variable(stmt.ident, var, stmt.loc) && is_scoped {
         self.emit(Opcode::Pop, stmt.loc);
       }
     }
@@ -228,9 +226,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn mod_stmt(&mut self, stmt: ModStatement) {
-    let var = self.declare_global(stmt.ident.clone());
     self.emit_expr(stmt.body);
-    self.define_scope(var, stmt.loc);
     self.emit(Opcode::Pop, stmt.loc);
   }
 
@@ -245,7 +241,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn req_stmt(&mut self, stmt: ReqStatement) {
-    let var = self.declare_global(stmt.ident);
+    let var = self.declare_nonlocal(stmt.ident);
     self.emit_expr(stmt.expr);
     self.define_scope(var, stmt.loc);
     self.emit(Opcode::Pop, stmt.loc);
@@ -270,11 +266,11 @@ impl<'p> BytecodeGenerator<'p> {
   fn use_stmt(&mut self, stmt: UseStatement) {
     let initial = stmt.path.first().cloned().unwrap(); // validated in ast
     let var = stmt.path.last().cloned().unwrap(); // validated in ast
-    let var_idx = self.declare_global(var);
+    let var_idx = self.declare_nonlocal(var);
     if let Some(lookup) = self.resolve_ident(&initial, stmt.loc) {
       let get = match lookup {
         Lookup::Local(index) => (Opcode::Load, (Storage::Local, LongAddr(index))),
-        Lookup::Global => (Opcode::Load, (Storage::Global, LongAddr(self.declare_global(initial)))),
+        Lookup::Global => (Opcode::Load, (Storage::Global, LongAddr(self.declare_nonlocal(initial)))),
       };
 
       self.emit(get, stmt.loc);
@@ -362,7 +358,7 @@ impl<'p> BytecodeGenerator<'p> {
         if let Some(var) = self.resolve_ident(&ident, expr.loc) {
           match var {
             Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
-            Lookup::Global => (Storage::Global, ShortAddr(self.declare_global(ident))),
+            Lookup::Global => (Storage::Global, ShortAddr(self.declare_nonlocal(ident))),
           }
         } else {
           return;
@@ -379,7 +375,7 @@ impl<'p> BytecodeGenerator<'p> {
         if let Some(var) = self.resolve_ident(&ident, expr.loc) {
           match var {
             Lookup::Local(index) => (Storage::Local, ShortAddr(index)),
-            Lookup::Global => (Storage::Global, ShortAddr(self.declare_global(ident))),
+            Lookup::Global => (Storage::Global, ShortAddr(self.declare_nonlocal(ident))),
           }
         } else {
           return;
@@ -420,7 +416,7 @@ impl<'p> BytecodeGenerator<'p> {
     if let Some(lookup) = self.resolve_ident(&expr.ident, expr.loc) {
       let get = match lookup {
         Lookup::Local(index) => (Opcode::Load, (Storage::Local, LongAddr(index))),
-        Lookup::Global => (Opcode::Load, (Storage::Global, LongAddr(self.declare_global(expr.ident)))),
+        Lookup::Global => (Opcode::Load, (Storage::Global, LongAddr(self.declare_nonlocal(expr.ident)))),
       };
 
       self.emit(get, expr.loc);
@@ -441,7 +437,7 @@ impl<'p> BytecodeGenerator<'p> {
         if let Some(lookup) = self.resolve_ident(&ident, loc) {
           let set = match lookup {
             Lookup::Local(index) => (Opcode::Store, (Storage::Local, LongAddr(index))),
-            Lookup::Global => (Opcode::Store, (Storage::Global, LongAddr(self.declare_global(ident)))),
+            Lookup::Global => (Opcode::Store, (Storage::Global, LongAddr(self.declare_nonlocal(ident)))),
           };
 
           self.emit_expr(value);
@@ -465,7 +461,7 @@ impl<'p> BytecodeGenerator<'p> {
           (Opcode::Load, (Storage::Local, LongAddr(index))),
         ),
         Lookup::Global => {
-          let global_index = self.declare_global(ident);
+          let global_index = self.declare_nonlocal(ident);
           (
             (Opcode::Store, (Storage::Global, LongAddr(global_index))),
             (Opcode::Load, (Storage::Global, LongAddr(global_index))),
@@ -618,6 +614,7 @@ impl<'p> BytecodeGenerator<'p> {
 
     self.emit_expr(*expr.self_type);
     self.emit((Opcode::CreateClass, ident), expr.loc);
+    self.emit((Opcode::DefineScope, ident), expr.loc);
 
     if let Some(initializer) = expr.initializer {
       if let Some((function, is_static)) = self.create_class_fn(Ident::new("<constructor>"), *initializer) {
@@ -650,12 +647,13 @@ impl<'p> BytecodeGenerator<'p> {
   fn mod_expr(&mut self, expr: ModExpression) {
     let ident = self.add_const_ident(expr.name);
     self.emit((Opcode::CreateModule, ident), expr.loc);
-    for (member, assign) in expr.items {
-      let ident = self.add_const_ident(member);
-      self.emit_expr(assign);
-      self.define_scope(ident, expr.loc);
-      self.emit(Opcode::Pop, expr.loc);
-    }
+    self.emit((Opcode::DefineScope, ident), expr.loc);
+    self.emit(Opcode::EnableModule, expr.loc);
+    self.new_scope(|this| {
+      for stmt in expr.statements {
+        this.emit_stmt(stmt);
+      }
+    });
     self.emit(Opcode::PopScope, expr.loc);
   }
 
@@ -915,8 +913,8 @@ impl<'p> BytecodeGenerator<'p> {
   ///
   /// If local it's None
   fn declare_variable(&mut self, ident: Ident, loc: SourceLocation) -> Option<Option<usize>> {
-    if ident.global {
-      Some(Some(self.declare_global(ident)))
+    if ident.scope.is_some() {
+      Some(Some(self.declare_nonlocal(ident)))
     } else if self.declare_local(ident, loc) {
       Some(None)
     } else {
@@ -928,7 +926,7 @@ impl<'p> BytecodeGenerator<'p> {
   /**
    * Returns the index of the identifier name
    */
-  fn declare_global(&mut self, ident: Ident) -> usize {
+  fn declare_nonlocal(&mut self, ident: Ident) -> usize {
     self.add_const_ident(ident)
   }
 
@@ -982,15 +980,28 @@ impl<'p> BytecodeGenerator<'p> {
   /// If global, the location of its name will be specified by 'var'
   ///
   /// If local, the last entry in the locals vector will be the variable to mark as initialized
-  fn define_variable(&mut self, global_var: Option<usize>, loc: SourceLocation) -> bool {
-    if let Some(var) = global_var {
-      self.define_global(var, loc);
-      true
-    } else if self.define_local() {
-      true
-    } else {
-      self.error(loc, "could not define variable");
-      false
+  fn define_variable(&mut self, ident: Ident, var_name_id: Option<usize>, loc: SourceLocation) -> bool {
+    match (ident.scope, var_name_id) {
+      (Some(IdentScope::Module), Some(var)) => {
+        self.define_scope(var, loc);
+        true
+      }
+      (Some(IdentScope::Global), Some(var)) => {
+        self.define_global(var, loc);
+        true
+      }
+      (None, None) => {
+        if self.define_local() {
+          true
+        } else {
+          self.error(loc, "could not define variable");
+          false
+        }
+      }
+      _ => {
+        self.error(loc, "invalid parameter combination for var definition");
+        false
+      }
     }
   }
 
@@ -1081,7 +1092,7 @@ impl<'p> BytecodeGenerator<'p> {
 
       this.new_scope(|this| {
         for arg in args {
-          if arg.global {
+          if arg.has_global_name() {
             this.error(loc, "parameter cannot be a global variable");
             continue;
           }

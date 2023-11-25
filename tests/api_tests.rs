@@ -69,14 +69,11 @@ mod tests {
       })
     }
 
-    let mut env = ModuleBuilder::initialize(&mut t.vm, ModuleType::new_global("*test*"), |gc, mut lib| {
-      let libval = lib.value();
-      lib.env.extend(stdlib::make_stdlib(gc, libval, []));
-    });
+    let mut stdlib = t.vm.generate_stdlib("*test*");
 
-    env.define("make_leaker", Value::new::<NativeFn>(make_leaker));
+    stdlib.define("make_leaker", Value::new::<NativeFn>(make_leaker));
 
-    t.vm.run_string(SCRIPT, env).unwrap();
+    t.vm.run_string(SCRIPT, stdlib).unwrap();
 
     assert!(unsafe { !B });
 
