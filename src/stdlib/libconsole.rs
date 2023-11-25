@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use std::io::{stdin, stdout, Write};
 
-pub fn console(_: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
+pub fn console(_: &mut Vm, mut lib: UsertypeHandle<ModuleValue>) {
   lib.define("write", Value::new::<NativeFn>(write));
   lib.define("flush", Value::new::<NativeFn>(flush));
   lib.define("writeln", Value::new::<NativeFn>(writeln));

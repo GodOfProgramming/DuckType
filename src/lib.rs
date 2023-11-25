@@ -7,6 +7,7 @@ pub(crate) mod code;
 pub(crate) mod dbg;
 pub mod error;
 pub(crate) mod exec;
+mod memory;
 pub mod stdlib;
 mod util;
 pub(crate) mod value;
@@ -14,17 +15,18 @@ pub(crate) mod value;
 pub mod prelude {
   pub use super::error::*;
   pub use super::exec::prelude::*;
+  pub use super::memory::*;
   pub use super::stdlib;
   pub use super::value::prelude::*;
-  pub use super::Vm;
+  pub use super::{MakeValueFrom, Vm};
   pub use macros::*;
   pub use ptr::SmartPtr;
 }
 
 pub mod macro_requirements {
   pub use crate::prelude::{
-    methods, native, Args, Fields, MaybeFrom, ModuleBuilder, Operators, TryUnwrapArg, UsageError, UsageResult, Usertype,
-    UsertypeFields, UsertypeMethods, Value, Vm,
+    methods, native, Args, Fields, MakeValueFrom, MaybeFrom, ModuleBuilder, Operators, TryUnwrapArg, UsageError, UsageResult,
+    Usertype, UsertypeFields, UsertypeMethods, Value, Vm,
   };
   pub use uuid;
 }
@@ -41,7 +43,7 @@ use clap::Parser;
 use code::CompileOpts;
 use dlopen2::wrapper::Container;
 use dlopen2::wrapper::WrapperApi;
-use exec::memory::{Allocation, Gc};
+use memory::Gc;
 use prelude::module_value::ModuleType;
 use ptr::{MutPtr, SmartPtr};
 use rustyline::{error::ReadlineError, DefaultEditor};
@@ -413,10 +415,8 @@ impl Vm {
   }
 
   fn exec_const(&mut self, index: LongAddr) {
-    let c = self.cache.const_at(index);
-
-    let module = current_module!(self).into();
-    let value = Value::from_constant(&mut self.gc, module, c);
+    let c = self.cache.const_at(index).clone();
+    let value = self.make_value_from(c);
     self.stack_push(value);
   }
 
@@ -457,7 +457,10 @@ impl Vm {
       let name = this.cache.const_at(loc);
 
       if let ConstantValue::String(name) = name {
-        obj.set_member(&mut this.gc, Field::new(loc, name), value)?;
+        // TODO this is a hacky workaround the borrow checker not understanding
+        // the cache will not be modified on member sets
+        let name = ptr::ConstPtr::new(name);
+        obj.set_member(this, Field::new(loc, name.as_str()), value)?;
         Ok(())
       } else {
         Err(UsageError::InvalidIdentifier(name.to_string()))
@@ -473,7 +476,8 @@ impl Vm {
       let name = this.cache.const_at(loc);
 
       if let ConstantValue::String(name) = name {
-        obj.set_member(&mut this.gc, Field::new(loc, name), value)?;
+        let name = ptr::ConstPtr::new(name);
+        obj.set_member(this, Field::new(loc, name.as_str()), value)?;
         this.stack_push(value);
         Ok(())
       } else {
@@ -489,7 +493,8 @@ impl Vm {
       let name = this.cache.const_at(loc);
 
       if let ConstantValue::String(name) = name {
-        let member = obj.get_member(&mut this.gc, Field::new(loc, name))?.unwrap_or_default();
+        let name = ptr::ConstPtr::new(name);
+        let member = obj.get_member(this, Field::new(loc, name.as_str()))?.unwrap_or_default();
         this.stack_push(member);
         Ok(())
       } else {
@@ -505,7 +510,8 @@ impl Vm {
       let name = this.cache.const_at(loc);
 
       if let ConstantValue::String(name) = name {
-        let member = value.get_member(&mut this.gc, Field::new(loc, name))?.unwrap_or_default();
+        let name = ptr::ConstPtr::new(name);
+        let member = value.get_member(this, Field::new(loc, name.as_str()))?.unwrap_or_default();
         this.stack_push(member);
         Ok(())
       } else {
@@ -544,7 +550,7 @@ impl Vm {
 
   fn exec_create_vec(&mut self, num_items: usize) -> ExecResult {
     let list = self.stack_drain_from(num_items);
-    let list = self.gc.allocate(list);
+    let list = self.make_value_from(list);
     self.stack_push(list);
     self.check_gc()
   }
@@ -552,7 +558,7 @@ impl Vm {
   fn exec_create_sized_vec(&mut self, repeats: usize) -> ExecResult {
     let item = self.stack_pop();
     let vec = vec![item; repeats];
-    let vec = self.gc.allocate(vec);
+    let vec = self.make_value_from(vec);
     self.stack_push(vec);
     self.check_gc()
   }
@@ -562,7 +568,7 @@ impl Vm {
     let repeats = self.wrap_err_mut(|_| repeats.cast_to::<i32>().ok_or(UsageError::CoercionError(repeats, "i32")))?;
     let item = self.stack_pop();
     let vec = vec![item; repeats as usize];
-    let vec = self.gc.allocate(vec);
+    let vec = self.make_value_from(vec);
     self.stack_push(vec);
     self.check_gc()
   }
@@ -575,7 +581,7 @@ impl Vm {
       let captures = captures.cast_to::<VecValue>().ok_or(UsageError::CaptureType)?;
       let function = function.cast_to::<FunctionValue>().ok_or(UsageError::ClosureType)?;
 
-      let closure = this.gc.allocate(ClosureValue::new(captures, function.clone()));
+      let closure = this.make_value_from(ClosureValue::new(captures, function.clone()));
       this.stack_push(closure);
       Ok(())
     })?;
@@ -602,7 +608,7 @@ impl Vm {
         members.push((((**key).clone(), id), value));
       }
 
-      let struct_value = this.gc.allocate(StructValue::new(members));
+      let struct_value = this.make_value_from(StructValue::new(members));
 
       this.stack_push(struct_value);
 
@@ -617,7 +623,7 @@ impl Vm {
     let name = self.cache.const_at(loc);
 
     if let ConstantValue::String(name) = name {
-      let v = self.gc.allocate(ClassValue::new(name, creator));
+      let v = self.make_value_from(ClassValue::new(name, creator));
       self.stack_push(v);
     } else {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
@@ -769,14 +775,7 @@ impl Vm {
           let opts = CompileOpts { optimize: self.opt };
           let new_ctx =
             code::compile_file(&mut self.cache, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
-          let gmod = ModuleBuilder::initialize(
-            &mut self.gc,
-            ModuleType::new_global(format!("<file export {}>", found_file.display())),
-            |gc, mut lib| {
-              let libval = lib.value();
-              lib.env.extend(stdlib::enable_std(gc, libval, &self.args));
-            },
-          );
+          let gmod = self.generate_stdlib(format!("<file export {}>", found_file.display()));
 
           self.new_frame(new_ctx, 0);
           self.modules.push(ModuleEntry::File(gmod));
@@ -1306,6 +1305,22 @@ impl Vm {
 /* Utility Functions */
 
 impl Vm {
+  pub fn generate_stdlib(&mut self, global_mod_name: impl ToString) -> UsertypeHandle<ModuleValue> {
+    let args = self.args.clone();
+    ModuleBuilder::initialize(self, ModuleType::new_global(global_mod_name), |vm, mut lib| {
+      let libval = lib.value();
+      lib.env.extend(stdlib::make_stdlib(vm, libval, args));
+    })
+  }
+
+  pub fn make_handle(&mut self, value: Value) -> ValueHandle {
+    self.gc.handle_from(value)
+  }
+
+  pub fn make_usertype_handle_from<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
+    self.gc.allocate_typed_handle(item)
+  }
+
   fn wrap_err<F, T>(&self, f: F) -> ExecResult<T>
   where
     F: FnOnce(&Self) -> OpResult<T>,
@@ -1455,5 +1470,146 @@ impl Vm {
       ip = self.stack_frame.ip,
       sp = self.stack_frame.sp
     );
+  }
+}
+
+pub trait MakeValueFrom<T> {
+  fn make_value_from(&mut self, item: T) -> Value;
+}
+
+impl MakeValueFrom<Value> for Vm {
+  fn make_value_from(&mut self, item: Value) -> Value {
+    item
+  }
+}
+
+impl MakeValueFrom<&Value> for Vm {
+  fn make_value_from(&mut self, item: &Value) -> Value {
+    *item
+  }
+}
+
+impl MakeValueFrom<()> for Vm {
+  fn make_value_from(&mut self, item: ()) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<i32> for Vm {
+  fn make_value_from(&mut self, item: i32) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<&i32> for Vm {
+  fn make_value_from(&mut self, item: &i32) -> Value {
+    self.make_value_from(*item)
+  }
+}
+
+impl MakeValueFrom<f64> for Vm {
+  fn make_value_from(&mut self, item: f64) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<&f64> for Vm {
+  fn make_value_from(&mut self, item: &f64) -> Value {
+    self.make_value_from(*item)
+  }
+}
+
+impl MakeValueFrom<bool> for Vm {
+  fn make_value_from(&mut self, item: bool) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<&bool> for Vm {
+  fn make_value_from(&mut self, item: &bool) -> Value {
+    self.make_value_from(*item)
+  }
+}
+
+impl MakeValueFrom<char> for Vm {
+  fn make_value_from(&mut self, item: char) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<&char> for Vm {
+  fn make_value_from(&mut self, item: &char) -> Value {
+    self.make_value_from(*item)
+  }
+}
+
+impl MakeValueFrom<NativeFn> for Vm {
+  fn make_value_from(&mut self, item: NativeFn) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<ConstantValue> for Vm {
+  fn make_value_from(&mut self, item: ConstantValue) -> Value {
+    match item {
+      ConstantValue::Integer(v) => self.make_value_from(v),
+      ConstantValue::Float(v) => self.make_value_from(v),
+      ConstantValue::String(v) => self.make_value_from(v),
+      ConstantValue::StaticString(v) => self.make_value_from(v),
+      ConstantValue::Fn(v) => {
+        let env = current_module!(self).into();
+        let env = self.make_value_from(ModuleValue::new_scope(env));
+        self.make_value_from(FunctionValue::from_constant(v, env))
+      }
+    }
+  }
+}
+
+impl MakeValueFrom<&str> for Vm {
+  fn make_value_from(&mut self, item: &str) -> Value {
+    self.gc.allocate::<StringValue>(item.into())
+  }
+}
+
+impl MakeValueFrom<String> for Vm {
+  fn make_value_from(&mut self, item: String) -> Value {
+    self.gc.allocate::<StringValue>(item.into())
+  }
+}
+
+impl MakeValueFrom<&String> for Vm {
+  fn make_value_from(&mut self, item: &String) -> Value {
+    self.gc.allocate::<StringValue>(item.clone().into())
+  }
+}
+
+impl MakeValueFrom<&[Value]> for Vm {
+  fn make_value_from(&mut self, item: &[Value]) -> Value {
+    self.gc.allocate(VecValue::new_from_slice(item))
+  }
+}
+
+impl MakeValueFrom<Vec<Value>> for Vm {
+  fn make_value_from(&mut self, item: Vec<Value>) -> Value {
+    self.gc.allocate(VecValue::new_from_vec(item))
+  }
+}
+
+impl<T> MakeValueFrom<T> for Vm
+where
+  T: Usertype,
+{
+  fn make_value_from(&mut self, item: T) -> Value {
+    self.gc.allocate::<T>(item)
+  }
+}
+
+impl<T> MakeValueFrom<Vec<T>> for Vm
+where
+  T: Usertype,
+{
+  fn make_value_from(&mut self, item: Vec<T>) -> Value {
+    let list = item.into_iter().map(|v| self.gc.allocate(v)).collect();
+    self.gc.allocate(VecValue::new_from_vec(list))
   }
 }

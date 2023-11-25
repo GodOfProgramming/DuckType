@@ -65,7 +65,7 @@ pub struct SourceLocation {
   pub column: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ConstantValue {
   Integer(i32),
   Float(f64),

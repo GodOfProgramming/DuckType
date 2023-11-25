@@ -11,10 +11,10 @@ pub struct FunctionValue {
 }
 
 impl FunctionValue {
-  pub fn from_constant(f: &FunctionConstant, env: Value) -> Self {
+  pub fn from_constant(f: FunctionConstant, env: Value) -> Self {
     Self {
       airity: f.airity,
-      ctx: f.ctx.clone(),
+      ctx: f.ctx,
       env,
     }
   }

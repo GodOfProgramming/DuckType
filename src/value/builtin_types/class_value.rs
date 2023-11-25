@@ -29,13 +29,13 @@ impl ClassValue {
     self.initializer = Some(value);
   }
 
-  pub fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> Option<Value> {
+  pub fn get_method(&self, vm: &mut Vm, this: Value, field: Field) -> Option<Value> {
     field.name.and_then(|name| {
       self
         .methods
         .get(name)
         .cloned()
-        .map(|method| gc.allocate(MethodValue::new(*this, method)))
+        .map(|method| vm.make_value_from(MethodValue::new(this, method)))
     })
   }
 
@@ -53,11 +53,11 @@ impl ClassValue {
 }
 
 impl UsertypeFields for ClassValue {
-  fn get_field(&self, _gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
+  fn get_field(&self, _: &mut Vm, field: Field) -> UsageResult<Option<Value>> {
     Ok(field.name.and_then(|name| self.get_static(name)))
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
+  fn set_field(&mut self, _: &mut Vm, field: Field, value: Value) -> UsageResult<()> {
     if let Some(name) = field.name {
       self.set_static(name, value);
       Ok(())

@@ -1,4 +1,4 @@
-use crate::{code::ConstantValue, prelude::*};
+use crate::prelude::*;
 use ptr::MutPtr;
 use static_assertions::assert_eq_size;
 use std::{
@@ -75,19 +75,6 @@ impl Value {
     self.is::<()>() || self.is::<bool>() && self.bits & VALUE_BITMASK == 0
   }
 
-  pub fn from_constant(gc: &mut Gc, env: Value, v: &ConstantValue) -> Self {
-    match v {
-      ConstantValue::Integer(v) => Self::from(*v),
-      ConstantValue::Float(v) => Self::from(*v),
-      ConstantValue::String(v) => gc.allocate(v),
-      ConstantValue::StaticString(v) => gc.allocate(*v),
-      ConstantValue::Fn(v) => {
-        let env = gc.allocate(ModuleValue::new_scope(env));
-        gc.allocate(FunctionValue::from_constant(v, env))
-      }
-    }
-  }
-
   pub fn is<T>(&self) -> bool
   where
     Self: IsType<T>,
@@ -132,18 +119,18 @@ impl Value {
 
   // -- native closure
 
-  pub fn native_closure<N, F>(gc: &mut Gc, name: N, f: F) -> Self
+  pub fn native_closure<N, F>(vm: &mut Vm, name: N, f: F) -> Self
   where
     N: ToString,
     F: FnMut(&mut Vm, Args) -> UsageResult + 'static,
   {
-    gc.allocate(NativeClosureValue::new(name, f))
+    vm.make_value_from(NativeClosureValue::new(name, f))
   }
 
   // -- native closure method
 
-  pub fn native_method(gc: &mut Gc, this: Value, f: NativeFn) -> Self {
-    gc.allocate(NativeMethodValue::new(this, f))
+  pub fn native_method(vm: &mut Vm, this: Value, f: NativeFn) -> Self {
+    vm.make_value_from(NativeMethodValue::new(this, f))
   }
 
   // value pointer
@@ -164,12 +151,12 @@ impl Value {
     }
   }
 
-  pub fn get_member(&self, gc: &mut Gc, name: Field) -> UsageResult<Option<Value>> {
-    (self.vtable().get_member)(self, MutPtr::new(gc), name)
+  pub fn get_member(&self, vm: &mut Vm, name: Field) -> UsageResult<Option<Value>> {
+    (self.vtable().get_member)(*self, MutPtr::new(vm), name)
   }
 
-  pub fn set_member(&mut self, gc: &mut Gc, name: Field, value: Value) -> UsageResult<()> {
-    (self.vtable().set_member)(self.pointer_mut(), MutPtr::new(gc), name, value)
+  pub fn set_member(&mut self, vm: &mut Vm, name: Field, value: Value) -> UsageResult<()> {
+    (self.vtable().set_member)(self.pointer_mut(), MutPtr::new(vm), name, value)
   }
 
   pub fn define(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> UsageResult<bool> {
@@ -293,12 +280,6 @@ impl From<i32> for Value {
     Self {
       bits: unsafe { mem::transmute::<i64, u64>(item as i64 & u32::MAX as i64 | i64::default()) } | I32_TAG,
     }
-  }
-}
-
-impl From<&i32> for Value {
-  fn from(item: &i32) -> Self {
-    Self::from(*item)
   }
 }
 
@@ -675,8 +656,8 @@ pub(crate) type NativeBinaryOp = for<'a> fn(MutPtr<Vm>, Value, Value) -> UsageRe
 pub(crate) type NativeTernaryOp = for<'a> fn(MutPtr<Vm>, Value, Value, Value) -> UsageResult;
 
 pub struct VTable {
-  get_member: fn(&Value, MutPtr<Gc>, Field) -> UsageResult<Option<Value>>,
-  set_member: fn(MutVoid, MutPtr<Gc>, Field, Value) -> UsageResult<()>,
+  get_member: fn(Value, MutPtr<Vm>, Field) -> UsageResult<Option<Value>>,
+  set_member: fn(MutVoid, MutPtr<Vm>, Field, Value) -> UsageResult<()>,
 
   define: fn(MutVoid, &str, Value) -> UsageResult<bool>,
   assign: fn(MutVoid, &str, Value) -> UsageResult<bool>,
@@ -714,9 +695,9 @@ pub struct VTable {
 impl VTable {
   pub const fn new<T: Usertype>() -> Self {
     Self {
-      get_member: |this, gc, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::typed_cast_mut(gc.raw()), this, name),
-      set_member: |this, gc, name, value| {
-        <T as Usertype>::set(Self::cast_mut(this), Self::typed_cast_mut(gc.raw()), name, value)
+      get_member: |this, vm, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::typed_cast_mut(vm.raw()), this, name),
+      set_member: |this, vm, name, value| {
+        <T as Usertype>::set(Self::cast_mut(this), Self::typed_cast_mut(vm.raw()), name, value)
       },
       neg: |vm, value| <T as Operators>::__neg__(Self::typed_cast_mut(vm.raw()), value),
       not: |vm, value| <T as Operators>::__not__(Self::typed_cast_mut(vm.raw()), value),

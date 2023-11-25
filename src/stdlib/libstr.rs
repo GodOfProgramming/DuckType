@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-pub fn string(_: &mut SmartPtr<Gc>, mut lib: UsertypeHandle<ModuleValue>) {
+pub fn string(_: &mut Vm, mut lib: UsertypeHandle<ModuleValue>) {
   lib.define("parse_number", Value::new::<NativeFn>(parse_number));
   lib.define("contains", Value::new::<NativeFn>(contains));
   lib.define("is_prefix", Value::new::<NativeFn>(is_prefix));
@@ -37,7 +37,7 @@ fn is_prefix(string: Value, substr: Value) -> UsageResult {
 
 fn concat(vm: &mut Vm, args: Args) -> UsageResult {
   let str = itertools::join(args.list, "");
-  Ok(vm.gc.allocate(str))
+  Ok(vm.make_value_from(str))
 }
 
 #[native]

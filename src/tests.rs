@@ -6,28 +6,24 @@ use tfix::{fixture, TestFixture};
 struct IntegrationTest {
   script: String,
   vm: Vm,
-  env: UsertypeHandle<ModuleValue>,
+  libstd: UsertypeHandle<ModuleValue>,
 }
 
 impl IntegrationTest {
   fn new() -> Self {
-    let mut gc = SmartPtr::new(Gc::test_default());
-    let env = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-      let libval = lib.value();
-      lib.env.extend(stdlib::enable_std(gc, libval, &[]));
-    });
-
-    let vm = Vm::new(gc, false, []);
+    let gc = SmartPtr::new(Gc::test_default());
+    let mut vm = Vm::new(gc, false, []);
+    let libstd = vm.generate_stdlib("*test*");
 
     Self {
       script: Default::default(),
       vm,
-      env,
+      libstd,
     }
   }
 
   fn run<F: FnOnce(&mut Self, Value)>(&mut self, f: F) {
-    let env = self.env.clone();
+    let env = self.libstd.clone();
     match self.vm.run_string(&self.script, env) {
       Ok(v) => f(self, v),
       Err(err) => panic!("{}", err),
@@ -50,8 +46,8 @@ mod integration_tests {
   fn adding_a_global(test: &mut IntegrationTest) {
     test.script = "export foo;".into();
 
-    test.env.define(String::from("foo"), test.vm.gc.allocate("foo"));
-    match test.vm.run_string(&test.script, test.env.clone()) {
+    test.libstd.define(String::from("foo"), test.vm.make_value_from("foo"));
+    match test.vm.run_string(&test.script, test.libstd.clone()) {
       Ok(res) => {
         assert_eq!("foo", **res.cast_to::<StringValue>().expect("value is not a string"));
       }
@@ -64,7 +60,7 @@ mod integration_tests {
   fn calling_a_native_function(test: &mut IntegrationTest) {
     test.script = "let x = 1; export test_func(x, 2);".into();
 
-    test.env.define(
+    test.libstd.define(
       "test_func",
       Value::new::<NativeFn>(|_, args| {
         let args = &args.list;
@@ -75,7 +71,7 @@ mod integration_tests {
       }),
     );
 
-    match test.vm.run_string(&test.script, test.env.clone()) {
+    match test.vm.run_string(&test.script, test.libstd.clone()) {
       Ok(res) => assert_eq!(Value::from(3f64), res),
       Err(err) => panic!("{:#?}", err),
     };
@@ -220,9 +216,9 @@ impl ScriptTest {
     // non-opt
     {
       println!("Running non-optimized {:?}", script);
-      let env = ModuleBuilder::initialize(&mut self.vm.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
+      let env = ModuleBuilder::initialize(&mut self.vm, ModuleType::new_global("*test*"), |gc, mut lib| {
         let libval = lib.value();
-        lib.env.extend(stdlib::enable_std(gc, libval, &[]));
+        lib.env.extend(stdlib::make_stdlib(gc, libval, &[]));
       });
       self.vm.run_file(script, env).unwrap();
     }
@@ -230,9 +226,9 @@ impl ScriptTest {
     // opt
     {
       println!("Running optimized {:?}", script);
-      let env = ModuleBuilder::initialize(&mut self.opt.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
+      let env = ModuleBuilder::initialize(&mut self.opt, ModuleType::new_global("*test*"), |gc, mut lib| {
         let libval = lib.value();
-        lib.env.extend(stdlib::enable_std(gc, libval, &[]));
+        lib.env.extend(stdlib::make_stdlib(gc, libval, &[]));
       });
       self.opt.run_file(script, env).unwrap();
     }

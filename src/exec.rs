@@ -1,8 +1,7 @@
 mod env;
-pub mod memory;
 
 pub mod prelude {
-  pub use super::{env::prelude::*, memory::*};
+  pub use super::env::prelude::*;
   #[allow(unused_imports)]
   pub(crate) use super::{
     env::{ContextDisassembler, InstructionDisassembler},

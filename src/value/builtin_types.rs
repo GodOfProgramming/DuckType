@@ -87,30 +87,31 @@ where
   const ID: Uuid;
   const VTABLE: VTable = VTable::new::<Self>();
 
-  fn get(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>> {
-    match <Self as UsertypeFields>::get_field(self, gc, field.clone())? {
+  fn get(&self, vm: &mut Vm, this: Value, field: Field) -> UsageResult<Option<Value>> {
+    match <Self as UsertypeFields>::get_field(self, vm, field.clone())? {
       Some(value) => Ok(Some(value)),
-      None => <Self as UsertypeMethods>::get_method(self, gc, this, field),
+      None => <Self as UsertypeMethods>::get_method(self, vm, this, field),
     }
   }
 
-  fn set(&mut self, gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
-    <Self as UsertypeFields>::set_field(self, gc, field, value)
+  fn set(&mut self, vm: &mut Vm, field: Field, value: Value) -> UsageResult<()> {
+    <Self as UsertypeFields>::set_field(self, vm, field, value)
   }
 }
 
 pub trait UsertypeFields {
-  fn get_field(&self, gc: &mut Gc, field: Field) -> UsageResult<Option<Value>>;
-  fn set_field(&mut self, gc: &mut Gc, field: Field, value: Value) -> UsageResult<()>;
+  fn get_field(&self, vm: &mut Vm, field: Field) -> UsageResult<Option<Value>>;
+  fn set_field(&mut self, vm: &mut Vm, field: Field, value: Value) -> UsageResult<()>;
 }
 
 pub trait UsertypeMethods {
-  fn __new__(_vm: &mut Vm, _args: Args) -> UsageResult {
+  #[allow(unused_variables)]
+  fn __new__(vm: &mut Vm, args: Args) -> UsageResult {
     Err(UsageError::UndefinedInitializer)
   }
 
   #[allow(unused_variables)]
-  fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>> {
+  fn get_method(&self, vm: &mut Vm, this: Value, field: Field) -> UsageResult<Option<Value>> {
     Err(UsageError::Unimplemented("__get_method__"))
   }
 }
