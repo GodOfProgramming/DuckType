@@ -88,7 +88,7 @@ impl Optimize for BlockStatement {
 impl Optimize for ClassStatement {
   type Output = Statement;
   fn optimize(mut self) -> Self::Output {
-    self.body = self.body.optimize();
+    self.class = self.class.optimize();
     self.into()
   }
 }
@@ -497,7 +497,7 @@ impl Optimize for MethodExpression {
 impl Optimize for ModExpression {
   type Output = Expression;
   fn optimize(mut self) -> Self::Output {
-    self.items = self.items.optimize();
+    self.statements = self.statements.optimize();
     self.into()
   }
 }

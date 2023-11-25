@@ -1,26 +1,19 @@
-use std::time::Duration;
-
 use ducktype::prelude::*;
 use macros::Fields;
 use tfix::prelude::*;
 
 struct ApiTest {
   vm: Vm,
-  env: UsertypeHandle<ModuleValue>,
+  stdlib: UsertypeHandle<ModuleValue>,
 }
 
 impl TestFixture for ApiTest {
   fn set_up() -> Self {
-    let mut gc = SmartPtr::new(Gc::new(Duration::from_nanos(0)));
-    let env = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-      let libval = lib.handle.value.clone();
-      lib.env.extend(stdlib::enable_std(gc, libval, &[]));
-    });
+    let gc = SmartPtr::new(Gc::new(Memory::Mb(100)));
+    let mut vm = Vm::new(gc, false, []);
+    let stdlib = vm.generate_stdlib("*test*");
 
-    Self {
-      vm: Vm::new(gc, false, []),
-      env,
-    }
+    Self { vm, stdlib }
   }
 }
 
@@ -47,8 +40,8 @@ mod tests {
   #[test]
   fn can_register_global_variables(t: &mut ApiTest) {
     let script = "export some_var;";
-    assert!(t.env.define("some_var", Value::from(true)));
-    let res = t.vm.run_string(script, t.env.clone()).unwrap();
+    assert!(t.stdlib.define("some_var", Value::from(true)));
+    let res = t.vm.run_string(script, t.stdlib.clone()).unwrap();
     assert!(res == Value::from(true));
   }
 
@@ -56,9 +49,9 @@ mod tests {
   fn can_register_lambda(t: &mut ApiTest) {
     let script = "export some_func();";
     assert!(t
-      .env
+      .stdlib
       .define("some_func", Value::new::<NativeFn>(|_, _args| Ok(Value::from(true)))));
-    let res = t.vm.run_string(script, t.env.clone()).unwrap();
+    let res = t.vm.run_string(script, t.stdlib.clone()).unwrap();
     assert!(res == Value::from(true));
   }
 
@@ -76,18 +69,15 @@ mod tests {
       })
     }
 
-    let mut env = ModuleBuilder::initialize(&mut t.vm.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-      let libval = lib.handle.value.clone();
-      lib.env.extend(stdlib::enable_std(gc, libval, &[]));
-    });
+    let mut stdlib = t.vm.generate_stdlib("*test*");
 
-    env.define("make_leaker", Value::new::<NativeFn>(make_leaker));
+    stdlib.define("make_leaker", Value::new::<NativeFn>(make_leaker));
 
-    t.vm.run_string(SCRIPT, env).unwrap();
+    t.vm.run_string(SCRIPT, stdlib).unwrap();
 
     assert!(unsafe { !B });
 
-    t.vm.check_gc().unwrap();
+    t.vm.force_gc().unwrap();
 
     t.vm.gc.terminate();
 

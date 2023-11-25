@@ -76,7 +76,7 @@ execute(Vm vm, Instruction const* instructions, std::size_t* ip) {
         JTBL_ADDR(DefineGlobal),
         JTBL_ADDR(DefineScope),
         JTBL_ADDR(Resolve),
-        JTBL_ADDR(EnterBlock),
+        JTBL_ADDR(EnableModule),
         JTBL_ADDR(PopScope),
         JTBL_ADDR(Is),
         JTBL_ADDR(Quack),
@@ -333,9 +333,9 @@ execute(Vm vm, Instruction const* instructions, std::size_t* ip) {
         CHECK(exec_resolve(vm, FETCH(instructions, ip)));
         INC_JMP(instructions, ip);
     }
-    CASE(EnterBlock) {
+    CASE(EnableModule) {
         DISASM(vm, instructions, ip);
-        exec_enter_block(vm);
+        CHECK(exec_enable_module(vm));
         INC_JMP(instructions, ip);
     }
     CASE(PopScope) {

@@ -313,49 +313,34 @@ impl AstGenerator {
     false
   }
 
-  fn parse_fn(&mut self, can_return: bool) -> Option<Statement> {
-    if let Some(loc) = self.meta_at::<0>() {
-      if let Some(validator) = self.fn_ident_validator() {
-        if !self.consume(Token::LeftParen, "expect '(' after function name") {
-          return None;
-        }
+  fn parse_fn(&mut self) -> Option<Statement> {
+    let loc = self.meta_at::<0>()?;
 
-        if let Some(params) = self.parse_parameters(Token::RightParen) {
-          if params.found_self {
-            self.error::<0>(String::from("found 'self' in invalid context"));
-            return None;
-          }
+    let validator = self.fn_ident_validator()?;
 
-          if self.advance_if_matches(Token::Arrow) {
-            self.expression()?;
-          }
-
-          if !self.consume(Token::LeftBrace, "expected '\x7b' after paren") {
-            return None;
-          }
-
-          if let Some(block_loc) = self.meta_at::<1>() {
-            let ident = validator(self, &params)?;
-            self
-              .block(can_return, block_loc)
-              .map(|body| Statement::from(FnStatement::new(ident, params.list, Statement::from(body), loc)))
-          } else {
-            // sanity check
-            self.error::<0>(String::from("could not find original token"));
-            None
-          }
-        } else {
-          None
-        }
-      } else {
-        self.error::<0>(String::from("expected an identifier"));
-        None
-      }
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
-      None
+    if !self.consume(Token::LeftParen, "expect '(' after function name") {
+      return None;
     }
+
+    let params = self.parse_parameters(Token::RightParen)?;
+    if params.found_self {
+      self.error::<0>(String::from("found 'self' in invalid context"));
+      return None;
+    }
+
+    if self.advance_if_matches(Token::Arrow) {
+      self.expression()?;
+    }
+
+    if !self.consume(Token::LeftBrace, "expected '\x7b' after paren") {
+      return None;
+    }
+
+    let block_loc = self.meta_at::<1>()?;
+    let ident = validator(self, &params)?;
+    self
+      .block(true, block_loc)
+      .map(|body| Statement::from(FnStatement::new(ident, params.list, Statement::from(body), loc)))
   }
 
   fn resolve(&mut self) -> Vec<Ident> {
@@ -813,7 +798,10 @@ impl AstGenerator {
             None?
           }
         }
-        _ => None?,
+        t => {
+          self.error::<0>(format!("invalid fn name {}", t));
+          None?
+        }
       },
     };
 
@@ -825,26 +813,52 @@ impl AstGenerator {
   }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum IdentScope {
+  Module,
+  Global,
+}
+
 #[derive(Debug, Clone)]
 pub struct Ident {
   pub name: String,
-  pub global: bool,
+  pub scope: Option<IdentScope>,
+  pub global_name: bool,
 }
 
 impl Ident {
   pub fn new(name: impl Into<String>) -> Self {
     let name = name.into();
+    let global_name = matches!(name.chars().next(), Some('$'));
     Self {
-      global: matches!(name.chars().next(), Some('$')),
       name,
+      scope: global_name.then_some(IdentScope::Global),
+      global_name,
+    }
+  }
+
+  pub fn new_module(name: impl Into<String>) -> Self {
+    let name = name.into();
+    let global_name = matches!(name.chars().next(), Some('$'));
+    Self {
+      name,
+      scope: Some(IdentScope::Module),
+      global_name,
     }
   }
 
   pub fn new_global(name: impl Into<String>) -> Self {
+    let name = name.into();
+    let global_name = matches!(name.chars().next(), Some('$'));
     Self {
-      name: name.into(),
-      global: true,
+      name,
+      scope: Some(IdentScope::Global),
+      global_name,
     }
+  }
+
+  pub fn has_global_name(&self) -> bool {
+    self.global_name
   }
 }
 

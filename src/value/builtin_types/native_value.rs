@@ -74,7 +74,7 @@ impl NativeMethodValue {
 impl Operators for NativeMethodValue {
   fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, airity: usize) -> UsageResult {
     let args = vm.stack_drain_from(airity);
-    let args = Args::new_with_this(self.this.clone(), args);
+    let args = Args::new_with_this(self.this, args);
     (self.callee)(vm, args)
   }
 

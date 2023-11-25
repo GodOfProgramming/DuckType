@@ -6,7 +6,7 @@ suite("Modules", |s| {
   s.describe("general usage", |t| {
     let $TEST_STRING = "foobarbaz";
 
-    mod Foo {
+    mod foo {
       class Bar {
         self as struct {
           value: nil,
@@ -21,7 +21,7 @@ suite("Modules", |s| {
         }
       }
 
-      mod Baz {
+      mod baz {
         fn foobarbaz() {
           ret $TEST_STRING;
         }
@@ -29,9 +29,9 @@ suite("Modules", |s| {
     }
 
     let test_string = "foobar";
-    let bar = Foo::Bar(test_string);
+    let bar = foo::Bar(test_string);
 
     t.expect(bar.display_string()).to_be(test_string);
-    t.expect(Foo::Baz::foobarbaz()).to_be($TEST_STRING);
+    t.expect(foo::baz::foobarbaz()).to_be($TEST_STRING);
   });
 });

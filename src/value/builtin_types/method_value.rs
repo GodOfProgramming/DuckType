@@ -30,7 +30,7 @@ impl MethodValue {
 
 impl Operators for MethodValue {
   fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult {
-    vm.stack_push(self.this.clone());
+    vm.stack_push(self.this);
     self.function.__ivk__(vm, Value::nil, airity + 1)
   }
 

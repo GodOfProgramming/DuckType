@@ -1,7 +1,6 @@
 use std::{
-  collections::{btree_map, hash_map, BTreeMap},
+  collections::BTreeMap,
   fmt::{self, Display, Formatter},
-  iter::Chain,
 };
 
 #[cfg(test)]
@@ -34,12 +33,42 @@ pub struct Cache {
 }
 
 impl Cache {
+  pub fn add_const(&mut self, const_val: impl Into<ConstantValue>) -> usize {
+    let c = const_val.into();
+
+    let string = if let ConstantValue::String(string) = &c {
+      if let Some(index) = self.strings.get_by_right(string.as_str()) {
+        return *index;
+      }
+      Some(string.clone())
+    } else {
+      None
+    };
+
+    let index = self.consts.len();
+    self.consts.push(c);
+
+    if let Some(string) = string {
+      self.strings.insert(index, string);
+    }
+
+    index
+  }
+
   pub fn const_at(&self, index: impl Into<usize>) -> &ConstantValue {
     &self.consts[index.into()]
   }
 
   pub fn consts(&self) -> &Vec<ConstantValue> {
     &self.consts
+  }
+
+  pub(crate) fn set_global(&mut self, id: impl Into<ConstIndex>, value: Value) -> bool {
+    self.globals.insert(id.into(), value).is_none()
+  }
+
+  pub(crate) fn get_global_by_name(&self, name: &str) -> Option<Value> {
+    self.strings.get_by_right(name).and_then(|idx| self.globals.get(idx)).cloned()
   }
 
   pub(crate) fn find_var(&self, env: &UsertypeHandle<ModuleValue>, key: impl Into<ConstIndex>) -> Option<Value> {
@@ -68,18 +97,14 @@ impl Cache {
     self.mods.entry(module.bits).or_default().insert(key.into(), value);
   }
 
-  pub(crate) fn add_global(&mut self, id: impl Into<ConstIndex>, value: Value) {
-    self.globals.insert(id.into(), value);
-  }
-
-  pub(crate) fn invalidate_global(&mut self, name: &str) {
-    if let Some(index) = self.strings.get_by_right(name) {
-      self.globals.remove(index);
+  pub(crate) fn trace(&self, marker: &mut Marker) {
+    for value in self.globals.values().chain(self.libs.values()) {
+      marker.trace(value);
     }
   }
 
-  pub(crate) fn values(&self) -> Chain<hash_map::Values<'_, usize, Value>, btree_map::Values<'_, FileIdType, Value>> {
-    self.globals.values().chain(self.libs.values())
+  pub(crate) fn len(&self) -> usize {
+    self.globals.len() + self.libs.len()
   }
 
   pub(crate) fn forget(&mut self, addr: &u64) {

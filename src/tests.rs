@@ -6,28 +6,24 @@ use tfix::{fixture, TestFixture};
 struct IntegrationTest {
   script: String,
   vm: Vm,
-  env: UsertypeHandle<ModuleValue>,
+  libstd: UsertypeHandle<ModuleValue>,
 }
 
 impl IntegrationTest {
   fn new() -> Self {
-    let mut gc = SmartPtr::new(Gc::always_run());
-    let env = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-      let libval = lib.handle.value.clone();
-      lib.env.extend(stdlib::enable_std(gc, libval, &[]));
-    });
-
-    let vm = Vm::new(gc, false, []);
+    let gc = SmartPtr::new(Gc::test_default());
+    let mut vm = Vm::new(gc, false, []);
+    let libstd = vm.generate_stdlib("*test*");
 
     Self {
       script: Default::default(),
       vm,
-      env,
+      libstd,
     }
   }
 
   fn run<F: FnOnce(&mut Self, Value)>(&mut self, f: F) {
-    let env = self.env.clone();
+    let env = self.libstd.clone();
     match self.vm.run_string(&self.script, env) {
       Ok(v) => f(self, v),
       Err(err) => panic!("{}", err),
@@ -50,8 +46,8 @@ mod integration_tests {
   fn adding_a_global(test: &mut IntegrationTest) {
     test.script = "export foo;".into();
 
-    test.env.define(String::from("foo"), test.vm.gc.allocate("foo"));
-    match test.vm.run_string(&test.script, test.env.clone()) {
+    test.libstd.define(String::from("foo"), test.vm.make_value_from("foo"));
+    match test.vm.run_string(&test.script, test.libstd.clone()) {
       Ok(res) => {
         assert_eq!("foo", **res.cast_to::<StringValue>().expect("value is not a string"));
       }
@@ -64,7 +60,7 @@ mod integration_tests {
   fn calling_a_native_function(test: &mut IntegrationTest) {
     test.script = "let x = 1; export test_func(x, 2);".into();
 
-    test.env.define(
+    test.libstd.define(
       "test_func",
       Value::new::<NativeFn>(|_, args| {
         let args = &args.list;
@@ -75,7 +71,7 @@ mod integration_tests {
       }),
     );
 
-    match test.vm.run_string(&test.script, test.env.clone()) {
+    match test.vm.run_string(&test.script, test.libstd.clone()) {
       Ok(res) => assert_eq!(Value::from(3f64), res),
       Err(err) => panic!("{:#?}", err),
     };
@@ -220,21 +216,15 @@ impl ScriptTest {
     // non-opt
     {
       println!("Running non-optimized {:?}", script);
-      let env = ModuleBuilder::initialize(&mut self.vm.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-        let libval = lib.handle.value.clone();
-        lib.env.extend(stdlib::enable_std(gc, libval, &[]));
-      });
-      self.vm.run_file(script, env).unwrap();
+      let stdlib = self.vm.generate_stdlib("*test*");
+      self.vm.run_file(script, stdlib).unwrap();
     }
 
     // opt
     {
       println!("Running optimized {:?}", script);
-      let env = ModuleBuilder::initialize(&mut self.opt.gc, ModuleType::new_global("*test*"), |gc, mut lib| {
-        let libval = lib.handle.value.clone();
-        lib.env.extend(stdlib::enable_std(gc, libval, &[]));
-      });
-      self.opt.run_file(script, env).unwrap();
+      let stdlib = self.vm.generate_stdlib("*test*");
+      self.opt.run_file(script, stdlib).unwrap();
     }
   }
 }
@@ -242,8 +232,8 @@ impl ScriptTest {
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
     Self {
-      vm: Vm::new(SmartPtr::new(Gc::always_run()), false, []),
-      opt: Vm::new(SmartPtr::new(Gc::always_run()), true, []),
+      vm: Vm::new(SmartPtr::new(Gc::test_default()), false, []),
+      opt: Vm::new(SmartPtr::new(Gc::test_default()), true, []),
     }
   }
 }
@@ -251,14 +241,21 @@ impl TestFixture for ScriptTest {
 #[fixture(ScriptTest)]
 mod script_tests {
   use super::*;
-  use crate::code::gen::{CAPTURE_OPS, GENERATED_OPS};
   use itertools::Itertools;
   use std::fs;
-  use strum::IntoEnumIterator;
 
   #[test]
   fn run_test_scripts(t: &mut ScriptTest) {
-    CAPTURE_OPS.set(true);
+    #[cfg(feature = "check-opcodes")]
+    use {
+      crate::code::gen::{CAPTURE_OPS, GENERATED_OPS},
+      strum::IntoEnumIterator,
+    };
+
+    #[cfg(feature = "check-opcodes")]
+    {
+      CAPTURE_OPS.set(true);
+    }
 
     fs::read_dir("tests/scripts").into_iter().for_each(|dir| {
       dir
@@ -268,20 +265,23 @@ mod script_tests {
         .for_each(|entry| t.run(&entry.path()))
     });
 
-    GENERATED_OPS.with_borrow(|ops| {
-      let mut unaccounted = Vec::new();
-      for op in Opcode::iter() {
-        if !matches!(op, Opcode::Unknown | Opcode::Breakpoint) {
-          if !ops.contains(&op) {
-            unaccounted.push(op);
+    #[cfg(feature = "check-opcodes")]
+    {
+      GENERATED_OPS.with_borrow(|ops| {
+        let mut unaccounted = Vec::new();
+        for op in Opcode::iter() {
+          if !matches!(op, Opcode::Unknown | Opcode::Breakpoint) {
+            if !ops.contains(&op) {
+              unaccounted.push(op);
+            }
           }
         }
-      }
-      if !unaccounted.is_empty() {
-        panic!("Did not account for opcodes in tests: {}", itertools::join(unaccounted, ", "));
-      }
-    });
+        if !unaccounted.is_empty() {
+          panic!("Did not account for opcodes in tests: {}", itertools::join(unaccounted, ", "));
+        }
+      });
 
-    CAPTURE_OPS.set(false);
+      CAPTURE_OPS.set(false);
+    }
   }
 }

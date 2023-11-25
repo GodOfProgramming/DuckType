@@ -7,6 +7,7 @@ pub(crate) mod code;
 pub(crate) mod dbg;
 pub mod error;
 pub(crate) mod exec;
+mod memory;
 pub mod stdlib;
 mod util;
 pub(crate) mod value;
@@ -14,17 +15,18 @@ pub(crate) mod value;
 pub mod prelude {
   pub use super::error::*;
   pub use super::exec::prelude::*;
+  pub use super::memory::*;
   pub use super::stdlib;
   pub use super::value::prelude::*;
-  pub use super::Vm;
+  pub use super::{MakeValueFrom, Vm};
   pub use macros::*;
   pub use ptr::SmartPtr;
 }
 
 pub mod macro_requirements {
   pub use crate::prelude::{
-    methods, native, Args, Fields, MaybeFrom, ModuleBuilder, Operators, TryUnwrapArg, UsageError, UsageResult, Usertype,
-    UsertypeFields, UsertypeMethods, Value, Vm,
+    methods, native, Args, Fields, MakeValueFrom, MaybeFrom, ModuleBuilder, Operators, TryUnwrapArg, UsageError, UsageResult,
+    Usertype, UsertypeFields, UsertypeMethods, Value, Vm,
   };
   pub use uuid;
 }
@@ -41,7 +43,7 @@ use clap::Parser;
 use code::CompileOpts;
 use dlopen2::wrapper::Container;
 use dlopen2::wrapper::WrapperApi;
-use exec::memory::{Allocation, Gc};
+use memory::Gc;
 use prelude::module_value::ModuleType;
 use ptr::{MutPtr, SmartPtr};
 use rustyline::{error::ReadlineError, DefaultEditor};
@@ -116,7 +118,6 @@ pub struct Vm {
   pub(crate) stack: Stack,
   pub(crate) stack_frame: StackFrame,
   pub(crate) stack_frames: Vec<StackFrame>,
-  globals: FastHashMap<String, Value>,
 
   pub gc: SmartPtr<Gc>,
 
@@ -144,7 +145,6 @@ impl Vm {
       stack_frame: Default::default(),
       stack_frames: Default::default(),
       stack: Stack::with_capacity(INITIAL_STACK_SIZE),
-      globals: Default::default(),
       gc,
       cache: Default::default(),
       modules: Default::default(),
@@ -217,6 +217,7 @@ impl Vm {
     {
       'fetch_cycle: loop {
         let inst = self.stack_frame.ctx.fetch(*self.stack_frame.ip);
+        self.exec_disasm(inst);
         match inst.opcode() {
           Opcode::Pop => self.exec_pop(),
           Opcode::PopN => self.exec_pop_n(inst.data()),
@@ -283,8 +284,8 @@ impl Vm {
           Opcode::DefineGlobal => self.exec_define_global(inst.data())?,
           Opcode::DefineScope => self.exec_define_scope(inst.data())?,
           Opcode::Resolve => self.exec_resolve(inst.data())?,
-          Opcode::EnterBlock => self.exec_enter_block(),
-          Opcode::PopScope => self.pop_scope(),
+          Opcode::EnableModule => self.exec_enable_module()?,
+          Opcode::PopScope => self.exec_pop_scope(),
           Opcode::Swap => self.exec_swap(inst.data()),
           Opcode::SwapPop => self.exec_swap_pop(),
           Opcode::Is => self.exec_is()?,
@@ -299,8 +300,8 @@ impl Vm {
     match exec_type {
       RunMode::File => {
         let info = self.opened_files.pop().expect("file must be popped when leaving a file");
-        if let Some(export) = &self.stack_frame.export {
-          self.cache.add_lib(info.id, export.clone());
+        if let Some(export) = self.stack_frame.export {
+          self.cache.add_lib(info.id, export);
         }
 
         // pop until a file module is found
@@ -324,24 +325,39 @@ impl Vm {
   }
 
   pub fn check_gc(&mut self) -> ExecResult {
-    self.gc.clean_if_time(
+    self
+      .gc
+      .poll(
+        &self.stack,
+        &self.modules,
+        &mut self.cache,
+        &self.stack_frame,
+        &self.stack_frames,
+      )
+      .map_err(|e| e.into())
+  }
+
+  pub fn force_gc(&mut self) -> ExecResult<usize> {
+    let cleaned = self.gc.clean(
       &self.stack,
       &self.modules,
       &mut self.cache,
       &self.stack_frame,
       &self.stack_frames,
     )?;
-    Ok(())
+    Ok(cleaned)
   }
 
   pub fn get_global(&self, name: &str) -> Option<Value> {
-    self.globals.get(name).cloned()
+    self.cache.get_global_by_name(name)
   }
 
   pub fn set_global(&mut self, name: impl ToString, value: impl Into<Value>) {
     let name = name.to_string();
-    self.cache.invalidate_global(&name);
-    self.globals.insert(name, value.into());
+    let value = value.into();
+
+    let id = self.cache.add_const(&name);
+    self.cache.set_global(id, value);
   }
 
   #[cold]
@@ -376,20 +392,23 @@ impl Vm {
 impl Vm {
   #[allow(unused)]
   fn exec_disasm(&self, inst: Instruction) {
-    self.stack_display();
+    #[cfg(feature = "runtime-disassembly")]
+    {
+      self.stack_display();
 
-    println!(
-      "{}",
-      InstructionDisassembler {
-        ctx: &ContextDisassembler {
-          ctx: self.ctx(),
-          stack: &self.stack,
-          cache: &self.cache,
-        },
-        inst,
-        offset: *self.stack_frame.ip,
-      }
-    );
+      println!(
+        "{}",
+        InstructionDisassembler {
+          ctx: &ContextDisassembler {
+            ctx: self.ctx(),
+            stack: &self.stack,
+            cache: &self.cache,
+          },
+          inst,
+          offset: *self.stack_frame.ip,
+        }
+      );
+    }
   }
 
   fn exec_pop(&mut self) {
@@ -401,10 +420,8 @@ impl Vm {
   }
 
   fn exec_const(&mut self, index: LongAddr) {
-    let c = self.cache.const_at(index);
-
-    let module = current_module!(self).into();
-    let value = Value::from_constant(&mut self.gc, module, c);
+    let c = self.cache.const_at(index).clone();
+    let value = self.make_value_from(c);
     self.stack_push(value);
   }
 
@@ -445,7 +462,10 @@ impl Vm {
       let name = this.cache.const_at(loc);
 
       if let ConstantValue::String(name) = name {
-        obj.set_member(&mut this.gc, Field::new(loc, name), value)?;
+        // TODO this is a hacky workaround the borrow checker not understanding
+        // the cache will not be modified on member sets
+        let name = ptr::ConstPtr::new(name);
+        obj.set_member(this, Field::new(loc, name.as_str()), value)?;
         Ok(())
       } else {
         Err(UsageError::InvalidIdentifier(name.to_string()))
@@ -461,7 +481,8 @@ impl Vm {
       let name = this.cache.const_at(loc);
 
       if let ConstantValue::String(name) = name {
-        obj.set_member(&mut this.gc, Field::new(loc, name), value.clone())?;
+        let name = ptr::ConstPtr::new(name);
+        obj.set_member(this, Field::new(loc, name.as_str()), value)?;
         this.stack_push(value);
         Ok(())
       } else {
@@ -477,7 +498,8 @@ impl Vm {
       let name = this.cache.const_at(loc);
 
       if let ConstantValue::String(name) = name {
-        let member = obj.get_member(&mut this.gc, Field::new(loc, name))?.unwrap_or_default();
+        let name = ptr::ConstPtr::new(name);
+        let member = obj.get_member(this, Field::new(loc, name.as_str()))?.unwrap_or_default();
         this.stack_push(member);
         Ok(())
       } else {
@@ -493,7 +515,8 @@ impl Vm {
       let name = this.cache.const_at(loc);
 
       if let ConstantValue::String(name) = name {
-        let member = value.get_member(&mut this.gc, Field::new(loc, name))?.unwrap_or_default();
+        let name = ptr::ConstPtr::new(name);
+        let member = value.get_member(this, Field::new(loc, name.as_str()))?.unwrap_or_default();
         this.stack_push(member);
         Ok(())
       } else {
@@ -532,7 +555,7 @@ impl Vm {
 
   fn exec_create_vec(&mut self, num_items: usize) -> ExecResult {
     let list = self.stack_drain_from(num_items);
-    let list = self.gc.allocate(list);
+    let list = self.make_value_from(list);
     self.stack_push(list);
     self.check_gc()
   }
@@ -540,7 +563,7 @@ impl Vm {
   fn exec_create_sized_vec(&mut self, repeats: usize) -> ExecResult {
     let item = self.stack_pop();
     let vec = vec![item; repeats];
-    let vec = self.gc.allocate(vec);
+    let vec = self.make_value_from(vec);
     self.stack_push(vec);
     self.check_gc()
   }
@@ -550,7 +573,7 @@ impl Vm {
     let repeats = self.wrap_err_mut(|_| repeats.cast_to::<i32>().ok_or(UsageError::CoercionError(repeats, "i32")))?;
     let item = self.stack_pop();
     let vec = vec![item; repeats as usize];
-    let vec = self.gc.allocate(vec);
+    let vec = self.make_value_from(vec);
     self.stack_push(vec);
     self.check_gc()
   }
@@ -563,7 +586,7 @@ impl Vm {
       let captures = captures.cast_to::<VecValue>().ok_or(UsageError::CaptureType)?;
       let function = function.cast_to::<FunctionValue>().ok_or(UsageError::ClosureType)?;
 
-      let closure = this.gc.allocate(ClosureValue::new(captures, function.clone()));
+      let closure = this.make_value_from(ClosureValue::new(captures, function.clone()));
       this.stack_push(closure);
       Ok(())
     })?;
@@ -590,7 +613,7 @@ impl Vm {
         members.push((((**key).clone(), id), value));
       }
 
-      let struct_value = this.gc.allocate(StructValue::new(members));
+      let struct_value = this.make_value_from(StructValue::new(members));
 
       this.stack_push(struct_value);
 
@@ -605,7 +628,7 @@ impl Vm {
     let name = self.cache.const_at(loc);
 
     if let ConstantValue::String(name) = name {
-      let v = self.gc.allocate(ClassValue::new(name, creator));
+      let v = self.make_value_from(ClassValue::new(name, creator));
       self.stack_push(v);
     } else {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
@@ -619,10 +642,9 @@ impl Vm {
 
     if let ConstantValue::String(name) = name {
       let leaf = current_module!(self);
-      let module = ModuleValue::new_child(name, leaf.handle.value.clone());
-      let handle = self.gc.allocate_typed_handle(module);
-      self.modules.push(ModuleEntry::Mod(handle.clone()));
-      self.stack_push(handle.value());
+      let module = ModuleValue::new_child(name, leaf.handle.value);
+      let value = self.make_value_from(module);
+      self.stack_push(value);
     } else {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
@@ -734,17 +756,15 @@ impl Vm {
 
     match found_file.extension().and_then(|s| s.to_str()) {
       Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
-        let value = if let Some(value) = self.cache.get_lib(file_id) {
-          value.clone()
-        } else {
+        let value = self.cache.get_lib(file_id).unwrap_or_else(|| {
           let lib: Container<NativeApi> =
             unsafe { Container::load(&found_file).expect("somehow wasn't able to load found file") };
 
           let value: Value = lib.duck_type_load_module(self).into();
           self.opened_native_libs.insert(found_file, lib);
-          self.cache.add_lib(file_id, value.clone());
+          self.cache.add_lib(file_id, value);
           value
-        };
+        });
 
         self.stack_push(value);
       }
@@ -752,21 +772,14 @@ impl Vm {
         let source = fs::read_to_string(&found_file).map_err(Error::other_system_err)?;
 
         if let Some(value) = self.cache.get_lib(file_id) {
-          self.stack_push(value.clone());
+          self.stack_push(value);
         } else {
           self.filemap.add(file_id, &found_file);
 
           let opts = CompileOpts { optimize: self.opt };
           let new_ctx =
             code::compile_file(&mut self.cache, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
-          let gmod = ModuleBuilder::initialize(
-            &mut self.gc,
-            ModuleType::new_global(format!("<file export {}>", found_file.display())),
-            |gc, mut lib| {
-              let libval = lib.handle.value.clone();
-              lib.env.extend(stdlib::enable_std(gc, libval, &self.args));
-            },
-          );
+          let gmod = self.generate_stdlib(format!("<file export {}>", found_file.display()));
 
           self.new_frame(new_ctx, 0);
           self.modules.push(ModuleEntry::File(gmod));
@@ -792,9 +805,8 @@ impl Vm {
   fn exec_define_global(&mut self, loc: LongAddr) -> ExecResult {
     self.wrap_err_mut(|this| {
       this.validate_ident_and(loc, |this, name| {
-        let v = this.stack_peek();
-        if this.globals.insert(name.clone(), v.clone()).is_none() {
-          this.cache.add_global(loc, v);
+        let value = this.stack_peek();
+        if this.cache.set_global(loc, value) {
           Ok(())
         } else {
           let level = current_module!(this).search_for(0, &name);
@@ -807,10 +819,10 @@ impl Vm {
   fn exec_define_scope(&mut self, loc: LongAddr) -> ExecResult {
     self.wrap_err_mut(|this| {
       this.validate_ident_and(loc, |this, name| {
-        let v = this.stack_peek();
+        let value = this.stack_peek();
         let module = current_module_mut!(this);
-        if module.define(name.clone(), v.clone()) {
-          this.cache.add_to_mod(module.value(), loc, v);
+        if module.define(name.clone(), value) {
+          this.cache.add_to_mod(module.value(), loc, value);
           Ok(())
         } else {
           let level = current_module!(this).search_for(0, &name);
@@ -823,7 +835,7 @@ impl Vm {
   fn exec_resolve(&mut self, ident: usize) -> ExecResult {
     let obj = self.stack_pop();
 
-    let hit = self.cache.resolve_mod(obj.clone(), ident);
+    let hit = self.cache.resolve_mod(obj, ident);
 
     match hit {
       Some(value) => {
@@ -834,8 +846,8 @@ impl Vm {
         let name = self.cache.const_at(ident);
 
         if let ConstantValue::String(name) = name {
-          let value = obj.resolve(name).unwrap();
-          self.cache.add_to_mod(obj, ident, value.clone());
+          let value = self.wrap_err(|_| obj.resolve(name))?;
+          self.cache.add_to_mod(obj, ident, value);
           self.stack_push(value);
         } else {
           Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
@@ -845,8 +857,15 @@ impl Vm {
     Ok(())
   }
 
-  fn exec_enter_block(&mut self) {
-    self.push_scope();
+  fn exec_enable_module(&mut self) -> ExecResult {
+    self.wrap_err_mut(|this| {
+      let value = this.stack_peek();
+      let handle = this
+        .maybe_make_usertype_handle::<ModuleValue>(value)
+        .ok_or(UsageError::InvalidModule(value))?;
+      this.modules.push(ModuleEntry::Mod(handle));
+      Ok(())
+    })
   }
 
   fn exec_pop_scope(&mut self) {
@@ -980,7 +999,7 @@ impl Vm {
       let value = this.stack_pop();
       let index = this.stack_pop();
       let indexable = this.stack_pop();
-      (indexable.vtable().assign_index)(MutPtr::new(this), indexable, index, value.clone())?;
+      (indexable.vtable().assign_index)(MutPtr::new(this), indexable, index, value)?;
       this.stack_push(value);
       Ok(())
     })
@@ -1156,8 +1175,7 @@ impl Vm {
     self.validate_ident_and(loc, |this, name| {
       let value = this.stack_peek();
 
-      if this.globals.insert(name.clone(), value.clone()).is_some() {
-        this.cache.add_global(loc, value);
+      if !this.cache.set_global(loc, value) {
         Ok(())
       } else {
         Err(UsageError::UndefinedVar(name))
@@ -1294,12 +1312,6 @@ impl Vm {
     }
   }
 
-  fn push_scope(&mut self) {
-    let leaf = current_module!(self).value();
-    let handle = self.gc.allocate_typed_handle(ModuleValue::new_scope(leaf));
-    self.modules.push(ModuleEntry::Block(handle));
-  }
-
   fn pop_scope(&mut self) {
     self.modules.pop();
   }
@@ -1308,6 +1320,26 @@ impl Vm {
 /* Utility Functions */
 
 impl Vm {
+  pub fn generate_stdlib(&mut self, global_mod_name: impl ToString) -> UsertypeHandle<ModuleValue> {
+    let args = self.args.clone();
+    ModuleBuilder::initialize(self, ModuleType::new_global(global_mod_name), |vm, mut lib| {
+      let libval = lib.value();
+      lib.env.extend(stdlib::make_stdlib(vm, libval, args));
+    })
+  }
+
+  pub fn make_handle(&mut self, value: Value) -> ValueHandle {
+    self.gc.handle_from(value)
+  }
+
+  pub fn maybe_make_usertype_handle<T: Usertype>(&mut self, value: Value) -> Option<UsertypeHandle<T>> {
+    value.is::<T>().then(|| UsertypeHandle::new(self.make_handle(value)))
+  }
+
+  pub fn make_usertype_handle_from<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
+    self.gc.allocate_typed_handle(item)
+  }
+
   fn wrap_err<F, T>(&self, f: F) -> ExecResult<T>
   where
     F: FnOnce(&Self) -> OpResult<T>,
@@ -1404,16 +1436,20 @@ impl Vm {
 
   /// Tries to find the cached value at the given location and if not performs a slow lookup
   ///
-  /// Do not attempt to optimize with caching the current module's value
+  /// Since primitives can be globals, caching global values accessed via modules is not possible
+  /// with how things are currently implemented
   ///
-  /// Scopes are created and destroyed rapidly at the moment,
-  /// which explodes the size of the cache map
+  /// In short, primitive globals cached in the current module won't have their value updated
+  /// if modified outside of that scope
   fn value_of_ident(&self, ident_loc: impl Into<usize>) -> OpResult<Value> {
     let ident = ident_loc.into();
     let module = current_module!(self);
     let hit = self.cache.find_var(module, ident);
     match hit {
-      Some(hit) => Ok(hit),
+      Some(hit) => {
+        cache_hit!();
+        Ok(hit)
+      }
       None => match self.cache.const_at(ident) {
         ConstantValue::String(name) => current_module!(self)
           .lookup(name)
@@ -1453,5 +1489,146 @@ impl Vm {
       ip = self.stack_frame.ip,
       sp = self.stack_frame.sp
     );
+  }
+}
+
+pub trait MakeValueFrom<T> {
+  fn make_value_from(&mut self, item: T) -> Value;
+}
+
+impl MakeValueFrom<Value> for Vm {
+  fn make_value_from(&mut self, item: Value) -> Value {
+    item
+  }
+}
+
+impl MakeValueFrom<&Value> for Vm {
+  fn make_value_from(&mut self, item: &Value) -> Value {
+    *item
+  }
+}
+
+impl MakeValueFrom<()> for Vm {
+  fn make_value_from(&mut self, item: ()) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<i32> for Vm {
+  fn make_value_from(&mut self, item: i32) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<&i32> for Vm {
+  fn make_value_from(&mut self, item: &i32) -> Value {
+    self.make_value_from(*item)
+  }
+}
+
+impl MakeValueFrom<f64> for Vm {
+  fn make_value_from(&mut self, item: f64) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<&f64> for Vm {
+  fn make_value_from(&mut self, item: &f64) -> Value {
+    self.make_value_from(*item)
+  }
+}
+
+impl MakeValueFrom<bool> for Vm {
+  fn make_value_from(&mut self, item: bool) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<&bool> for Vm {
+  fn make_value_from(&mut self, item: &bool) -> Value {
+    self.make_value_from(*item)
+  }
+}
+
+impl MakeValueFrom<char> for Vm {
+  fn make_value_from(&mut self, item: char) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<&char> for Vm {
+  fn make_value_from(&mut self, item: &char) -> Value {
+    self.make_value_from(*item)
+  }
+}
+
+impl MakeValueFrom<NativeFn> for Vm {
+  fn make_value_from(&mut self, item: NativeFn) -> Value {
+    Value::from(item)
+  }
+}
+
+impl MakeValueFrom<ConstantValue> for Vm {
+  fn make_value_from(&mut self, item: ConstantValue) -> Value {
+    match item {
+      ConstantValue::Integer(v) => self.make_value_from(v),
+      ConstantValue::Float(v) => self.make_value_from(v),
+      ConstantValue::String(v) => self.make_value_from(v),
+      ConstantValue::StaticString(v) => self.make_value_from(v),
+      ConstantValue::Fn(v) => {
+        let env = current_module!(self).into();
+        let env = self.make_value_from(ModuleValue::new_scope(env));
+        self.make_value_from(FunctionValue::from_constant(v, env))
+      }
+    }
+  }
+}
+
+impl MakeValueFrom<&str> for Vm {
+  fn make_value_from(&mut self, item: &str) -> Value {
+    self.gc.allocate::<StringValue>(item.into())
+  }
+}
+
+impl MakeValueFrom<String> for Vm {
+  fn make_value_from(&mut self, item: String) -> Value {
+    self.gc.allocate::<StringValue>(item.into())
+  }
+}
+
+impl MakeValueFrom<&String> for Vm {
+  fn make_value_from(&mut self, item: &String) -> Value {
+    self.gc.allocate::<StringValue>(item.clone().into())
+  }
+}
+
+impl MakeValueFrom<&[Value]> for Vm {
+  fn make_value_from(&mut self, item: &[Value]) -> Value {
+    self.gc.allocate(VecValue::new_from_slice(item))
+  }
+}
+
+impl MakeValueFrom<Vec<Value>> for Vm {
+  fn make_value_from(&mut self, item: Vec<Value>) -> Value {
+    self.gc.allocate(VecValue::new_from_vec(item))
+  }
+}
+
+impl<T> MakeValueFrom<T> for Vm
+where
+  T: Usertype,
+{
+  fn make_value_from(&mut self, item: T) -> Value {
+    self.gc.allocate::<T>(item)
+  }
+}
+
+impl<T> MakeValueFrom<Vec<T>> for Vm
+where
+  T: Usertype,
+{
+  fn make_value_from(&mut self, item: Vec<T>) -> Value {
+    let list = item.into_iter().map(|v| self.gc.allocate(v)).collect();
+    self.gc.allocate(VecValue::new_from_vec(list))
   }
 }

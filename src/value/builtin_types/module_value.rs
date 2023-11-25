@@ -108,11 +108,11 @@ impl ModuleValue {
 }
 
 impl UsertypeFields for ModuleValue {
-  fn get_field(&self, _gc: &mut Gc, _field: Field) -> UsageResult<Option<Value>> {
+  fn get_field(&self, _: &mut Vm, _field: Field) -> UsageResult<Option<Value>> {
     Err(UsageError::Immutable(self.__str__()))
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, _field: Field, _value: Value) -> UsageResult<()> {
+  fn set_field(&mut self, _: &mut Vm, _: Field, _: Value) -> UsageResult<()> {
     Err(UsageError::Immutable(self.__str__()))
   }
 }
@@ -155,7 +155,6 @@ where
 {
   Global { name: T },
   Child { name: T, parent: Value },
-  Scope { parent: Value },
 }
 
 impl<T> ModuleType<T>
@@ -169,29 +168,24 @@ where
   pub fn new_child(name: T, parent: Value) -> Self {
     Self::Child { name, parent }
   }
-
-  pub fn new_scope(parent: Value) -> Self {
-    Self::Scope { parent }
-  }
 }
 
 pub struct ModuleBuilder;
 
 impl ModuleBuilder {
-  pub fn initialize<T, F>(gc: &mut SmartPtr<Gc>, module_type: ModuleType<T>, f: F) -> UsertypeHandle<ModuleValue>
+  pub fn initialize<T, F>(vm: &mut Vm, module_type: ModuleType<T>, f: F) -> UsertypeHandle<ModuleValue>
   where
     T: ToString,
-    F: FnOnce(&mut SmartPtr<Gc>, UsertypeHandle<ModuleValue>),
+    F: FnOnce(&mut Vm, UsertypeHandle<ModuleValue>),
   {
     let module = match module_type {
       ModuleType::Global { name } => ModuleValue::new_global_module(name),
       ModuleType::Child { name, parent } => ModuleValue::new_child(name, parent),
-      ModuleType::Scope { parent } => ModuleValue::new_scope(parent),
     };
 
-    let module = gc.allocate_typed_handle(module);
+    let module = vm.gc.allocate_typed_handle(module);
 
-    f(gc, module.clone());
+    f(vm, module.clone());
 
     module
   }

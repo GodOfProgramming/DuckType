@@ -65,13 +65,49 @@ pub struct SourceLocation {
   pub column: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ConstantValue {
   Integer(i32),
   Float(f64),
   String(String),
   StaticString(&'static str),
   Fn(FunctionConstant),
+}
+
+impl From<i32> for ConstantValue {
+  fn from(value: i32) -> Self {
+    Self::Integer(value)
+  }
+}
+
+impl From<f64> for ConstantValue {
+  fn from(value: f64) -> Self {
+    Self::Float(value)
+  }
+}
+
+impl From<String> for ConstantValue {
+  fn from(value: String) -> Self {
+    Self::String(value)
+  }
+}
+
+impl From<&String> for ConstantValue {
+  fn from(value: &String) -> Self {
+    Self::String(value.clone())
+  }
+}
+
+impl From<&'static str> for ConstantValue {
+  fn from(value: &'static str) -> Self {
+    Self::StaticString(value)
+  }
+}
+
+impl From<FunctionConstant> for ConstantValue {
+  fn from(value: FunctionConstant) -> Self {
+    Self::Fn(value)
+  }
 }
 
 #[derive(Clone)]

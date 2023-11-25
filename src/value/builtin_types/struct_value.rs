@@ -88,7 +88,7 @@ impl StructValue {
       .members
       .binary_search_by_key(id, |m| m.id)
       .ok()
-      .map(|idx| self.members[idx].value.clone())
+      .map(|idx| self.members[idx].value)
   }
 
   fn get_id_by_field(&self, field: Field) -> Result<usize, UsageError> {
@@ -102,11 +102,11 @@ impl StructValue {
 }
 
 impl UsertypeFields for StructValue {
-  fn get_field(&self, _gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
+  fn get_field(&self, _: &mut Vm, field: Field) -> UsageResult<Option<Value>> {
     self.get_id_by_field(field).map(|id| self.get_mem_by_id(&id))
   }
 
-  fn set_field(&mut self, _gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
+  fn set_field(&mut self, _: &mut Vm, field: Field, value: Value) -> UsageResult<()> {
     self
       .get_id_by_field(field)
       .and_then(|id| self.get_idx_by_id(&id))

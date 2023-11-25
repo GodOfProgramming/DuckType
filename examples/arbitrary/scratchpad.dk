@@ -1,8 +1,9 @@
-fn bnmk(timer: Timer, i) {
-  # timer.start();
-  i += 1;
-  x += i + i * i / i % i;
-  # timer.stop();
-}
+let foo = class Foo {
+  self as nil
 
-println std::reflect::disasm(bnmk);
+  fn bar() {
+    ret Foo();
+  }
+};
+
+println foo.bar();

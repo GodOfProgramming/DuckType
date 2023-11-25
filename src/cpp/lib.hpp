@@ -62,7 +62,7 @@ enum Opcode : std::uint8_t {
     DefineGlobal,
     DefineScope,
     Resolve,
-    EnterBlock,
+    EnableModule,
     PopScope,
     Is,
     Quack,
@@ -170,7 +170,7 @@ DECL_RET(bool, exec_define_scope, Vm, Instruction);
 
 DECL_RET(bool, exec_resolve, Vm, Instruction);
 
-DECL(exec_enter_block, Vm);
+DECL_RET(bool, exec_enable_module, Vm);
 
 DECL(exec_pop_scope, Vm);
 

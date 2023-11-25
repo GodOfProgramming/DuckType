@@ -1,5 +1,5 @@
 use crate::common;
-use proc_macro2::{Ident, Literal, TokenStream};
+use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::quote;
 use std::env;
 use syn::{Fields, FnArg, ImplItem, ItemImpl, ItemStruct, Receiver};
@@ -74,10 +74,10 @@ pub(crate) fn derive_fields(struct_def: ItemStruct) -> TokenStream {
   quote! {
     #[automatically_derived]
     impl UsertypeFields for #name {
-      fn get_field(&self, gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
+      fn get_field(&self, vm: &mut Vm, field: Field) -> UsageResult<Option<Value>> {
         if let Some(name) = field.name {
           match name {
-            #(#ident_strs => Ok(Some(gc.allocate(&self.#idents))),)*
+            #(#ident_strs => Ok(Some(vm.make_value_from(&self.#idents))),)*
             _ => Ok(None),
           }
         } else {
@@ -85,7 +85,7 @@ pub(crate) fn derive_fields(struct_def: ItemStruct) -> TokenStream {
         }
       }
 
-      fn set_field(&mut self, gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
+      fn set_field(&mut self, vm: &mut Vm, field: Field, value: Value) -> UsageResult<()> {
         if let Some(name) = field.name {
           match name {
             #(#ident_strs => self.#idents = value.try_into()?,)*
@@ -143,6 +143,8 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     }
   }
 
+  let vm_ident = Ident::new("vm", Span::call_site());
+
   let method_strs = methods
     .iter()
     .map(|m| Literal::string(&m.name.to_string()))
@@ -162,13 +164,13 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       let args = common::make_arg_list(nargs, &name_str);
       if method.receiver.mutability.is_some() {
         method_lambda_bodies.push(quote! {
-          Value::native_method(gc, this.clone(), |vm, mut args| {
+          Value::native_method(#vm_ident, this, |#vm_ident, mut args| {
             if args.list.len() == #nargs + 1 {
               if let Some(mut this) = args.list.pop() {
                 if let Some(this) = this.cast_to_mut::<#me>() {
                   let mut args = args.into_arg_iter();
                   let output = #me::#name(this, #args)?;
-                  Ok(vm.gc.allocate(output))
+                  Ok(vm.make_value_from(output))
                 } else {
                   Err(UsageError::BadCast(#name_str, #me_str, this))
                 }
@@ -182,13 +184,13 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         });
       } else {
         method_lambda_bodies.push(quote! {
-          Value::native_method(gc, this.clone(), |vm, mut args| {
+          Value::native_method(#vm_ident, this, |#vm_ident, mut args| {
             if args.list.len() == #nargs + 1 {
               if let Some(this) = args.list.pop() {
                 if let Some(this) = this.cast_to::<#me>() {
                   let mut args = args.into_arg_iter();
                   let output = #me::#name(this, #args)?;
-                  Ok(vm.gc.allocate(output))
+                  Ok(vm.make_value_from(output))
                 } else {
                   Err(UsageError::BadCast(#name_str, #me_str, this))
                 }
@@ -218,7 +220,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         if args.list.len() == #nargs {
           let mut args = args.into_arg_iter();
           let output = #me::#name(#args)?;
-          Ok(vm.gc.allocate(output))
+          Ok(vm.make_value_from(output))
         } else {
           Err(UsageError::ArgumentError(args.list.len(), #nargs))
         }
@@ -239,7 +241,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
           if args.list.len() == #nargs {
             let mut args = args.into_arg_iter();
             let output = #name(#args)?;
-            Ok(vm.gc.allocate(output))
+            Ok(vm.make_value_from(output))
           } else {
             Err(UsageError::ArgumentError(args.list.len(), #nargs))
           }
@@ -255,7 +257,7 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
     impl UsertypeMethods for #me {
       #constructor_impl
 
-      fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>> {
+      fn get_method(&self, #vm_ident: &mut Vm, this: Value, field: Field) -> UsageResult<Option<Value>> {
         if let Some(name) = field.name {
           match name {
             #(#method_strs => Ok(Some(#method_lambda_bodies)),)*

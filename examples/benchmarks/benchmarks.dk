@@ -6,12 +6,22 @@ let REPS = 10_000_000;
 
 let x = 0;
 
+std::vm::gc::print_stats();
+
+let before_cleans = std::vm::gc::total_cycles();
+
 benchmark("simple math", REPS, [x] |timer: Timer, i| {
   timer.start();
   i += 1;
-  x += i + i * i / i % i;
+  # x += i + i * i / i % i;
   timer.stop();
 });
+
+let after_cleans = std::vm::gc::total_cycles();
+std::console::writeln("gc cleans = ", after_cleans - before_cleans);
+before_cleans = after_cleans;
+
+std::vm::gc::print_stats();
 
 fn simple_function() {}
 
@@ -20,6 +30,12 @@ benchmark("function calls", REPS, |timer: Timer, _i| {
   simple_function();
   timer.stop();
 });
+
+after_cleans = std::vm::gc::total_cycles();
+std::console::writeln("gc cleans = ", after_cleans - before_cleans);
+before_cleans = after_cleans;
+
+std::vm::gc::print_stats();
 
 let $OBJ = struct {
   foobarbaz: "foobarbaz"
@@ -31,3 +47,8 @@ benchmark("global & member access", REPS, |timer: Timer, _| {
   $OBJ.foobarbaz;
   timer.stop();
 });
+
+after_cleans = std::vm::gc::total_cycles();
+std::console::writeln("gc cleans = ", after_cleans - before_cleans);
+
+std::vm::gc::print_stats();

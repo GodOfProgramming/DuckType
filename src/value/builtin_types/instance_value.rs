@@ -15,7 +15,7 @@ impl InstanceValue {
   }
 
   fn call_binary(&self, vm: &mut Vm, left: Value, op: &str, operand: Value) -> UsageResult<Value> {
-    if let Some(mut op) = self.get_method(&mut vm.gc, &left, Field::named(op))? {
+    if let Some(mut op) = self.get_method(vm, left, Field::named(op))? {
       vm.stack_push(operand);
       op.call(vm, 1)
     } else {
@@ -26,19 +26,19 @@ impl InstanceValue {
 
 impl UsertypeFields for InstanceValue {
   /// Discards the error returned from struct when trying to access a method on it that won't exist
-  fn get_field(&self, gc: &mut Gc, field: Field) -> UsageResult<Option<Value>> {
-    Ok(self.data.get_member(gc, field).unwrap_or(None))
+  fn get_field(&self, vm: &mut Vm, field: Field) -> UsageResult<Option<Value>> {
+    Ok(self.data.get_member(vm, field).unwrap_or(None))
   }
 
-  fn set_field(&mut self, gc: &mut Gc, field: Field, value: Value) -> UsageResult<()> {
-    self.data.set_member(gc, field, value)
+  fn set_field(&mut self, vm: &mut Vm, field: Field, value: Value) -> UsageResult<()> {
+    self.data.set_member(vm, field, value)
   }
 }
 
 impl UsertypeMethods for InstanceValue {
-  fn get_method(&self, gc: &mut Gc, this: &Value, field: Field) -> UsageResult<Option<Value>> {
+  fn get_method(&self, vm: &mut Vm, this: Value, field: Field) -> UsageResult<Option<Value>> {
     if let Some(class) = self.class.cast_to::<ClassValue>() {
-      Ok(class.get_method(gc, this, field))
+      Ok(class.get_method(vm, this, field))
     } else {
       Err(UsageError::Infallible)
     }
@@ -121,7 +121,7 @@ impl Operators for InstanceValue {
   #[ternary(with_vm)]
   fn __idxeq__(vm: &mut Vm, left: Value, index: Value, value: Value) -> UsageResult {
     let lval = left.cast_to::<InstanceValue>().ok_or(UsageError::Infallible)?;
-    if let Some(mut op) = lval.get_method(&mut vm.gc, &left, Field::named(ops::INDEX_ASSIGN))? {
+    if let Some(mut op) = lval.get_method(vm, left, Field::named(ops::INDEX_ASSIGN))? {
       vm.stack_push(index);
       vm.stack_push(value);
       op.call(vm, 2)
@@ -132,7 +132,7 @@ impl Operators for InstanceValue {
 
   fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult {
     let mut callable = self
-      .get(&mut vm.gc, &this, Field::named("__ivk__"))?
+      .get(vm, this, Field::named("__ivk__"))?
       .map(Ok)
       .unwrap_or(Err(UsageError::UnexpectedNil))?;
 

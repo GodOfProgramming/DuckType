@@ -1,12 +1,15 @@
 use clap::{Parser, Subcommand};
 use ducktype::prelude::*;
-use std::{io::Read, path::PathBuf, time::Duration};
+use std::{io::Read, path::PathBuf};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
 struct Args {
   #[arg(short, long)]
   optimize: bool,
+
+  #[arg(short, long, default_value_t = 100)]
+  gc_mb: usize,
 
   #[arg(long, default_value_t = 16)]
   gc_frequency: u64,
@@ -37,7 +40,7 @@ fn main() -> Result<(), Error> {
   match args.command {
     Command::Uuid => println!("{}", Uuid::new_v4()),
     Command::Run { files, runargs } => {
-      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(args.gc_frequency)));
+      let gc = SmartPtr::new(Gc::new(Memory::Mb(args.gc_mb)));
 
       let mut vm = Vm::new(gc.clone(), args.optimize, runargs.clone());
 
@@ -51,11 +54,7 @@ fn main() -> Result<(), Error> {
       };
 
       for file in files {
-        let gmod = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*main*"), |gc, mut lib| {
-          let libval = lib.value();
-          lib.env.extend(stdlib::enable_std(gc, libval, &runargs));
-        });
-
+        let gmod = vm.generate_stdlib("*main*");
         let value = vm.run_file(file.clone(), gmod)?;
         println!("=> {value}");
       }
@@ -68,14 +67,9 @@ fn main() -> Result<(), Error> {
       }
     }
     Command::Pipe { runargs } => {
-      let mut gc = SmartPtr::new(Gc::new(Duration::from_millis(args.gc_frequency)));
-
-      let gmod = ModuleBuilder::initialize(&mut gc, ModuleType::new_global("*main*"), |gc, mut lib| {
-        let libval = lib.value();
-        lib.env.extend(stdlib::enable_std(gc, libval, &runargs));
-      });
-
+      let gc = SmartPtr::new(Gc::new(Memory::Mb(args.gc_mb)));
       let mut vm = Vm::new(gc, args.optimize, runargs.clone());
+      let gmod = vm.generate_stdlib("*main*");
       let mut input = String::new();
       std::io::stdin().read_to_string(&mut input).map_err(SystemError::IoError)?;
       let value = vm.run_string(input, gmod)?;

@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, MakeValueFrom};
 use clap::{ArgAction, Parser, Subcommand};
 use std::error::Error;
 
@@ -85,7 +85,7 @@ impl EnvCmd {
           ValueCommand::I32 { value } => value.into(),
           ValueCommand::F64 { value } => value.into(),
           ValueCommand::Char { value } => value.into(),
-          ValueCommand::String { value } => vm.gc.allocate(value),
+          ValueCommand::String { value } => vm.make_value_from(value),
         };
 
         vm.modules.last_mut().define(name, value);

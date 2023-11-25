@@ -39,74 +39,90 @@ pub(crate) mod names {
   pub const MATH: &str = "math";
 
   pub const IO: &str = "io";
+
+  pub const VM: &str = "vm";
+  pub(crate) mod vm {
+    pub const GC: &str = "gc";
+  }
 }
 
-pub fn enable_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> FastHashMap<String, Value> {
+pub fn make_stdlib(vm: &mut Vm, gmod: Value, args: impl Into<Vec<String>>) -> FastHashMap<String, Value> {
   let mut loaded_libs = BTreeMap::default();
 
-  loaded_libs.insert(names::STD, load_std(gc, gmod, args));
+  loaded_libs.insert(names::STD, load_std(vm, gmod, args.into()));
 
   loaded_libs.into_iter().map(|(k, v)| (k.into(), v.into())).collect()
 }
 
-fn defmod<F>(gc: &mut SmartPtr<Gc>, lib: &mut UsertypeHandle<ModuleValue>, name: &str, init: F)
+fn defmod<F>(vm: &mut Vm, lib: &mut UsertypeHandle<ModuleValue>, name: &str, init: F)
 where
-  F: FnOnce(&mut SmartPtr<Gc>, UsertypeHandle<ModuleValue>),
+  F: FnOnce(&mut Vm, UsertypeHandle<ModuleValue>),
 {
   let libval = lib.value();
-  lib.define(name, ModuleBuilder::initialize(gc, ModuleType::new_child(name, libval), init));
+  lib.define(name, ModuleBuilder::initialize(vm, ModuleType::new_child(name, libval), init));
 }
 
-fn load_std(gc: &mut SmartPtr<Gc>, gmod: Value, args: &[String]) -> UsertypeHandle<ModuleValue> {
-  ModuleBuilder::initialize(gc, ModuleType::new_child(names::STD, gmod), |gc, mut lib| {
+fn load_std(vm: &mut Vm, gmod: Value, args: Vec<String>) -> UsertypeHandle<ModuleValue> {
+  ModuleBuilder::initialize(vm, ModuleType::new_child(names::STD, gmod), |vm, mut lib| {
     let lib = &mut lib;
 
-    defmod(gc, lib, names::TYPES, |gc, mut lib| {
+    defmod(vm, lib, names::TYPES, |gc, mut lib| {
       lib.define("i32", Value::new::<i32>(Default::default()));
       lib.define("f64", Value::new::<f64>(Default::default()));
       lib.define("char", Value::new::<char>(Default::default()));
       lib.define("bool", Value::new::<bool>(Default::default()));
       lib.define("native", Value { bits: NATIVE_FN_TAG });
-      lib.define("str", gc.allocate(IdValue::new(StringValue::ID)));
+      lib.define("str", gc.make_value_from(IdValue::new(StringValue::ID)));
     });
 
     lib.define(names::DEBUG, Value::new::<NativeFn>(debug));
 
-    defmod(gc, lib, names::REFLECT, |_, mut lib| {
+    defmod(vm, lib, names::REFLECT, |_, mut lib| {
       lib.define("disasm", Value::new::<NativeFn>(disasm));
     });
 
-    defmod(gc, lib, names::ENV, |gc, mut lib| {
-      let args = args.iter().map(|arg| gc.allocate(arg.clone())).collect::<Vec<Value>>();
-      let args = gc.allocate(args);
+    defmod(vm, lib, names::ENV, |vm, mut lib| {
+      let args = args.iter().map(|arg| vm.make_value_from(arg.clone())).collect::<Vec<Value>>();
+      let args = vm.make_value_from(args);
       lib.define(names::env::ARGV, args);
 
       let mut lib_paths = Vec::default();
 
       if let Ok(paths) = env::var(names::env::PATHS_ENV_VAR) {
-        lib_paths.extend(paths.split_terminator(names::env::PATH_SEPARATOR).map(|v| gc.allocate(v)));
+        lib_paths.extend(
+          paths
+            .split_terminator(names::env::PATH_SEPARATOR)
+            .map(|v| vm.make_value_from(v)),
+        );
       }
 
-      lib.define(names::env::PATHS, gc.allocate(lib_paths));
+      lib.define(names::env::PATHS, vm.make_value_from(lib_paths));
     });
 
-    defmod(gc, lib, names::TIME, |gc, mut lib| {
-      defmod(gc, &mut lib, "mono", libtime::mono);
+    defmod(vm, lib, names::TIME, |vm, mut lib| {
+      defmod(vm, &mut lib, "mono", libtime::mono);
     });
 
-    defmod(gc, lib, names::STR, libstr::string);
+    defmod(vm, lib, names::STR, libstr::string);
 
-    defmod(gc, lib, names::CONSOLE, libconsole::console);
+    defmod(vm, lib, names::CONSOLE, libconsole::console);
 
-    defmod(gc, lib, names::PS, libps::ps);
+    defmod(vm, lib, names::PS, libps::ps);
 
-    defmod(gc, lib, names::MATH, |_, mut lib| {
+    defmod(vm, lib, names::MATH, |_, mut lib| {
       lib.define("rand_i32", Value::new::<NativeFn>(math_rand_i32));
       lib.define("abs", Value::new::<NativeFn>(math_abs));
     });
 
     let libval = lib.value();
-    lib.define(names::IO, libio::duck_type_autogen_create_module(gc, libval));
+    lib.define(names::IO, libio::duck_type_autogen_create_module(vm, libval));
+
+    defmod(vm, lib, names::VM, |gc, mut lib| {
+      defmod(gc, &mut lib, names::vm::GC, |_, mut lib| {
+        lib.define("total_cycles", Value::new::<NativeFn>(total_cycles));
+        lib.define("print_stats", Value::new::<NativeFn>(print_stats));
+      });
+    });
   })
 }
 
@@ -141,4 +157,28 @@ fn math_abs(arg: (Option<i32>, Option<f64>)) -> UsageResult {
 fn math_rand_i32() -> UsageResult<i32> {
   let val = rand::random();
   Ok(val)
+}
+
+#[native(with_vm)]
+fn total_cycles(vm: &mut Vm) -> UsageResult<i32> {
+  Ok(vm.gc.num_cycles as i32)
+}
+
+#[native(with_vm)]
+fn print_stats(vm: &mut Vm) -> UsageResult<()> {
+  println!(
+    "{}",
+    itertools::join(
+      [
+        "------ Gc Stats ------",
+        &format!("No. cycles ------------- {}", vm.gc.num_cycles),
+        &format!("No. allocations -------- {}", vm.gc.allocations.len()),
+        &format!("No. handles ------------ {}", vm.gc.native_handles.len()),
+        &format!("Memory in use ---------- {}", vm.gc.allocated_memory),
+        &format!("Limit till next cycle -- {}", vm.gc.limit),
+      ],
+      "\n"
+    )
+  );
+  Ok(())
 }

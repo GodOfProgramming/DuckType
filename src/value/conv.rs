@@ -303,7 +303,7 @@ where
   T1: MaybeFrom<Value>,
 {
   fn maybe_from(value: Value) -> Option<Self> {
-    let t0 = T0::maybe_from(value.clone());
+    let t0 = T0::maybe_from(value);
     let t1 = T1::maybe_from(value);
     if t0.is_none() && t1.is_none() || t0.is_some() && t1.is_some() {
       None

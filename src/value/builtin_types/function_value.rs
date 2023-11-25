@@ -11,10 +11,10 @@ pub struct FunctionValue {
 }
 
 impl FunctionValue {
-  pub fn from_constant(f: &FunctionConstant, env: Value) -> Self {
+  pub fn from_constant(f: FunctionConstant, env: Value) -> Self {
     Self {
       airity: f.airity,
-      ctx: f.ctx.clone(),
+      ctx: f.ctx,
       env,
     }
   }
@@ -28,7 +28,7 @@ impl FunctionValue {
   }
 
   pub fn invoke(&mut self, vm: &mut Vm, offset: usize) -> UsageResult {
-    let env = UsertypeHandle::new(vm.gc.handle_from(self.env.clone()));
+    let env = UsertypeHandle::new(vm.gc.handle_from(self.env));
     vm.run_fn(self.ctx.clone(), env, self.airity + offset)
       .map_err(UsageError::Preformated)
   }
