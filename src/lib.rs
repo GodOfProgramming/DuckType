@@ -197,6 +197,15 @@ impl Vm {
     self.execute(RunMode::Fn)
   }
 
+  pub fn eval(&mut self, source: impl AsRef<str>) -> Result<Value, Error> {
+    let opts = CompileOpts { optimize: self.opt };
+    let ctx = code::compile_string(&mut self.cache, source, opts)?;
+    let module = current_module!(self).clone();
+    self.modules.push(ModuleEntry::String(module));
+    self.new_frame(ctx, 0);
+    self.execute(RunMode::String)
+  }
+
   pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
     #[cfg(feature = "jtbl")]
     {

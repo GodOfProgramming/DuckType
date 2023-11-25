@@ -118,6 +118,7 @@ fn load_std(vm: &mut Vm, gmod: Value, args: Vec<String>) -> UsertypeHandle<Modul
     lib.define(names::IO, libio::duck_type_autogen_create_module(vm, libval));
 
     defmod(vm, lib, names::VM, |gc, mut lib| {
+      lib.define("eval", Value::new::<NativeFn>(vm_eval));
       defmod(gc, &mut lib, names::vm::GC, |_, mut lib| {
         lib.define("total_cycles", Value::new::<NativeFn>(total_cycles));
         lib.define("print_stats", Value::new::<NativeFn>(print_stats));
@@ -181,4 +182,9 @@ fn print_stats(vm: &mut Vm) -> UsageResult<()> {
     )
   );
   Ok(())
+}
+
+#[native(with_vm)]
+fn vm_eval(vm: &mut Vm, source: &StringValue) -> UsageResult {
+  vm.eval(source).map_err(UsageError::Preformated)
 }
