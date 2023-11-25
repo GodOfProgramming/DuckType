@@ -44,7 +44,7 @@ impl From<Memory> for usize {
   }
 }
 
-pub struct Gc<D = AsyncDisposal>
+pub struct Gc<D = SyncDisposal>
 where
   D: Disposal,
 {
@@ -491,7 +491,7 @@ impl Disposal for AsyncDisposal {
 }
 
 #[derive(Default)]
-struct SyncDisposal;
+pub struct SyncDisposal;
 
 impl Disposal for SyncDisposal {
   type Error = SystemError;
