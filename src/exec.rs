@@ -665,7 +665,12 @@ impl DerefMut for Stack {
 
 #[derive(Default)]
 pub struct StackFrame {
-  pub ip: Box<usize>,
+  #[cfg(feature = "jtbl")]
+  ip: Box<usize>,
+
+  #[cfg(not(feature = "jtbl"))]
+  ip: usize,
+
   pub sp: usize,
   pub ctx: SmartPtr<Context>,
   pub export: Option<Value>,
@@ -679,6 +684,47 @@ impl StackFrame {
       ctx,
       export: None,
     }
+  }
+
+  pub fn ip(&self) -> usize {
+    #[cfg(feature = "jtbl")]
+    {
+      *self.ip
+    }
+
+    #[cfg(not(feature = "jtbl"))]
+    {
+      self.ip
+    }
+  }
+
+  pub fn ip_inc(&mut self, offset: usize) {
+    #[cfg(feature = "jtbl")]
+    {
+      *self.ip += offset;
+    }
+
+    #[cfg(not(feature = "jtbl"))]
+    {
+      self.ip += offset;
+    }
+  }
+
+  pub fn ip_dec(&mut self, offset: usize) {
+    #[cfg(feature = "jtbl")]
+    {
+      *self.ip -= offset;
+    }
+
+    #[cfg(not(feature = "jtbl"))]
+    {
+      self.ip -= offset;
+    }
+  }
+
+  #[cfg(feature = "jtbl")]
+  pub fn ip_ptr(&mut self) -> *mut usize {
+    &mut *self.ip as *mut usize
   }
 }
 

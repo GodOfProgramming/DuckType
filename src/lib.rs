@@ -204,7 +204,7 @@ impl Vm {
         bindings::duck_type_execute(
           self as *mut Vm as *mut std::ffi::c_void,
           self.ctx().instructions.as_ptr() as *const u64,
-          &mut *self.stack_frame.ip as *mut usize,
+          self.stack_frame.ip_ptr(),
         )
       };
 
@@ -216,7 +216,7 @@ impl Vm {
     #[cfg(not(feature = "jtbl"))]
     {
       'fetch_cycle: loop {
-        let inst = self.stack_frame.ctx.fetch(*self.stack_frame.ip);
+        let inst = self.stack_frame.ctx.fetch(self.stack_frame.ip());
         self.exec_disasm(inst);
         match inst.opcode() {
           Opcode::Pop => self.exec_pop(),
@@ -293,7 +293,8 @@ impl Vm {
           Opcode::Unknown => self.exec_unknown(inst)?,
           Opcode::Breakpoint => self.exec_dbg()?,
         }
-        *self.stack_frame.ip += 1;
+
+        self.stack_frame.ip_inc(1);
       }
     }
 
@@ -362,7 +363,7 @@ impl Vm {
 
   #[cold]
   fn error(&self, e: UsageError) -> Error {
-    let instruction = self.stack_frame.ctx.instructions[*self.stack_frame.ip];
+    let instruction = self.stack_frame.ctx.instructions[self.stack_frame.ip()];
     Error::runtime_error(self.error_at(instruction, |opcode_ref| RuntimeError::new(e, &self.filemap, opcode_ref)))
   }
 
@@ -375,10 +376,10 @@ impl Vm {
       .stack_frame
       .ctx
       .meta
-      .reflect(inst, *self.stack_frame.ip)
+      .reflect(inst, self.stack_frame.ip())
       .map(f)
       .unwrap_or_else(|| RuntimeError {
-        msg: UsageError::IpOutOfBounds(*self.stack_frame.ip).to_string(),
+        msg: UsageError::IpOutOfBounds(self.stack_frame.ip()).to_string(),
         file: self.filemap.get(self.stack_frame.ctx.meta.file_id),
         line: 0,
         column: 0,
@@ -405,7 +406,7 @@ impl Vm {
             cache: &self.cache,
           },
           inst,
-          offset: *self.stack_frame.ip,
+          offset: self.stack_frame.ip(),
         }
       );
     }
@@ -671,7 +672,7 @@ impl Vm {
     let value = self.stack_pop();
 
     if value.truthy() {
-      *self.stack_frame.ip += 1;
+      self.stack_frame.ip_inc(1);
     } else {
       self.jump(offset);
     }
@@ -1294,11 +1295,11 @@ impl Vm {
   }
 
   fn jump(&mut self, offset: usize) {
-    *self.stack_frame.ip += offset;
+    self.stack_frame.ip_inc(offset);
   }
 
   fn jump_back(&mut self, offset: usize) {
-    *self.stack_frame.ip -= offset;
+    self.stack_frame.ip_dec(offset);
   }
 
   /// when f evaluates to true, short circuit
@@ -1308,7 +1309,7 @@ impl Vm {
       self.jump(offset);
     } else {
       self.stack_pop();
-      *self.stack_frame.ip += 1;
+      self.stack_frame.ip_inc(1);
     }
   }
 
@@ -1486,7 +1487,7 @@ impl Vm {
     println!("{}", self.stack);
     println!(
       "               | ip: {ip} sp: {sp}",
-      ip = self.stack_frame.ip,
+      ip = self.stack_frame.ip(),
       sp = self.stack_frame.sp
     );
   }
