@@ -51,6 +51,7 @@ where
   blacks: AllocationSet,
 
   pub(crate) limit: usize,
+  pub(crate) initial_limit: usize,
   pub(crate) allocated_memory: usize,
 
   pub(crate) deep_cleans: usize,
@@ -65,12 +66,14 @@ where
   D: Disposal,
 {
   pub fn new(initial_limit: Memory) -> Self {
+    let initial_limit = initial_limit.into();
     Self {
       disposer: D::default(),
       allocations: FastHashSet::with_capacity(512),
       blacks: Default::default(),
       grays: Default::default(),
-      limit: initial_limit.into(),
+      limit: initial_limit,
+      initial_limit,
       allocated_memory: 0,
       deep_cleans: 0,
       incremental_cleans: 0,
@@ -239,14 +242,12 @@ where
   }
 
   fn calc_new_limit(&mut self, released: usize) {
-    #[cfg(feature = "limit-reduction")]
     let previously_allocated = self.allocated_memory;
 
     self.allocated_memory = self.allocated_memory.saturating_sub(released);
 
     let prev_limit = self.limit;
     self.limit = {
-      #[cfg(feature = "limit-reduction")]
       {
         const REPEAT_LIM: usize = 7;
         const REDUCTION_PERCENT: f64 = 0.7;
@@ -255,16 +256,12 @@ where
         {
           self.num_limit_repeats = 0;
           // memory isn't being allocated rapidly, try to find a middle ground
-          (self.limit as f64 * REDUCTION_PERCENT) as usize
+
+          usize::max((self.limit as f64 * REDUCTION_PERCENT) as usize, self.initial_limit)
         } else {
           // memory is possibly being allocated rapidly, either increase the limit to account or restore the existing
           usize::max(self.allocated_memory.saturating_mul(2), self.limit)
         }
-      }
-
-      #[cfg(not(feature = "limit-reduction"))]
-      {
-        usize::max(self.allocated_memory.saturating_mul(2), self.limit)
       }
     };
 

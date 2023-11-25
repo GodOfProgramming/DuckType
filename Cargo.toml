@@ -79,7 +79,6 @@ print-precedence = []
 quit-after-disassemble = []
 jtbl = []
 check-opcodes = []
-limit-reduction = []
 
 [target.'cfg(unix)'.features]
 profile = []
