@@ -44,8 +44,11 @@ impl From<Memory> for usize {
   }
 }
 
-pub struct Gc {
-  disposer: AsyncDisposal,
+pub struct Gc<D = AsyncDisposal>
+where
+  D: Disposal,
+{
+  disposer: D,
 
   pub(crate) allocations: AllocationSet,
   pub(crate) native_handles: AllocationSet,
@@ -56,10 +59,13 @@ pub struct Gc {
   pub(crate) num_cycles: usize,
 }
 
-impl Gc {
+impl<D> Gc<D>
+where
+  D: Disposal,
+{
   pub fn new(initial_limit: Memory) -> Self {
     Self {
-      disposer: AsyncDisposal::new(),
+      disposer: D::default(),
       allocations: AllocationSet::with_capacity(1024),
       native_handles: AllocationSet::with_capacity(512),
       limit: initial_limit.into(),
@@ -107,7 +113,7 @@ impl Gc {
     }
 
     if cleaned > 0 {
-      self.disposer.dispose(unmarked_allocations)?;
+      self.disposer.dispose(unmarked_allocations).map_err(|e| e.into())?;
     }
 
     self.allocated_memory = self.allocated_memory.saturating_sub(released);
@@ -212,17 +218,6 @@ impl Gc {
     let new_allocation = self.allocations.insert(bits);
     debug_assert!(new_allocation);
     Value { bits }
-  }
-
-  pub(crate) fn consume<T: Usertype>(this: *mut T) {
-    let _ = unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) };
-  }
-
-  fn drop_value(mut value: Value) {
-    debug_assert!(value.is_ptr());
-    let pointer = value.pointer_mut();
-    let meta = value.meta();
-    (meta.vtable.dealloc)(pointer);
   }
 
   fn ref_check_native_handles(&mut self) {
@@ -443,20 +438,27 @@ impl From<Marker> for AllocationSet {
   }
 }
 
+pub trait Disposal: Default {
+  type Error: Into<SystemError>;
+  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), Self::Error>;
+
+  fn terminate(&mut self);
+}
+
 pub struct AsyncDisposal {
   chute: Option<mpsc::Sender<Vec<u64>>>,
   th: Option<JoinHandle<()>>,
 }
 
-impl AsyncDisposal {
-  pub fn new() -> Self {
+impl Default for AsyncDisposal {
+  fn default() -> Self {
     let (sender, receiver) = mpsc::channel();
 
     let th = thread::spawn(move || {
       while let Ok(allocations) = receiver.recv() {
         for alloc in allocations {
           let value = Value { bits: alloc };
-          Gc::drop_value(value);
+          drop_value(value);
         }
       }
     });
@@ -466,8 +468,12 @@ impl AsyncDisposal {
       th: Some(th),
     }
   }
+}
 
-  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), mpsc::SendError<Vec<u64>>> {
+impl Disposal for AsyncDisposal {
+  type Error = mpsc::SendError<Vec<u64>>;
+
+  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), Self::Error> {
     match &self.chute {
       Some(chute) => chute.send(allocations)?,
       None => Err(mpsc::SendError::<Vec<u64>>(allocations))?,
@@ -484,10 +490,32 @@ impl AsyncDisposal {
   }
 }
 
-impl Default for AsyncDisposal {
-  fn default() -> Self {
-    Self::new()
+#[derive(Default)]
+struct SyncDisposal;
+
+impl Disposal for SyncDisposal {
+  type Error = SystemError;
+
+  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), Self::Error> {
+    for alloc in allocations {
+      let value = Value { bits: alloc };
+      drop_value(value);
+    }
+    Ok(())
   }
+
+  fn terminate(&mut self) {}
+}
+
+pub(crate) fn consume<T: Usertype>(this: *mut T) {
+  let _ = unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) };
+}
+
+fn drop_value(mut value: Value) {
+  debug_assert!(value.is_ptr());
+  let pointer = value.pointer_mut();
+  let meta = value.meta();
+  (meta.vtable.dealloc)(pointer);
 }
 
 #[cfg(test)]

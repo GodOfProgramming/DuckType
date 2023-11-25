@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{memory, prelude::*};
 use ptr::MutPtr;
 use static_assertions::assert_eq_size;
 use std::{
@@ -731,7 +731,7 @@ impl VTable {
       debug_string: |this| <T as Operators>::__dbg__(Self::cast(this)),
 
       trace: |this, marks| <T as TraceableValue>::trace(Self::cast(this), Self::cast_mut(marks)),
-      dealloc: |this| Gc::consume(this as *mut T),
+      dealloc: |this| memory::consume(this as *mut T),
 
       type_id: || &<T as Usertype>::ID,
       type_name: || std::any::type_name::<T>().to_string(),
