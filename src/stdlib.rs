@@ -174,7 +174,7 @@ fn print_stats(vm: &mut Vm) -> UsageResult<()> {
         "------ Gc Stats ------",
         &format!("No. cycles ------------- {}", vm.gc.num_cycles),
         &format!("No. allocations -------- {}", vm.gc.allocations.len()),
-        &format!("No. handles ------------ {}", vm.gc.native_handles.len()),
+        &format!("No. handles ------------ {}", vm.cache.native_handles.len()),
         &format!("Memory in use ---------- {}", vm.gc.allocated_memory),
         &format!("Limit till next cycle -- {}", vm.gc.limit),
       ],

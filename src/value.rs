@@ -32,7 +32,7 @@ assert_eq_size!(usize, MutVoid);
 assert_eq_size!(usize, f64);
 assert_eq_size!(usize, u64);
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct Value {
   pub bits: u64,
@@ -47,6 +47,12 @@ impl Value {
     Self: From<T>,
   {
     Self::from(v)
+  }
+
+  pub fn new_pointer(ptr: ConstVoid) -> Self {
+    Self {
+      bits: ptr as u64 | POINTER_TAG,
+    }
   }
 
   pub fn tag(&self) -> Tag {
@@ -187,6 +193,52 @@ impl Value {
     (self.vtable().trace)(self.pointer(), marks as *mut Marker as MutVoid);
   }
 
+  pub fn equals(&self, other: Self) -> bool {
+    self.compare(other) == Some(Ordering::Equal)
+  }
+
+  pub fn not_equals(&self, other: Self) -> bool {
+    !self.equals(other)
+  }
+
+  pub fn less_than(&self, other: Self) -> bool {
+    self.compare(other) == Some(Ordering::Less)
+  }
+
+  pub fn less_equal(&self, other: Self) -> bool {
+    matches!(self.compare(other), Some(Ordering::Less) | Some(Ordering::Equal))
+  }
+
+  pub fn greater_than(&self, other: Self) -> bool {
+    self.compare(other) == Some(Ordering::Greater)
+  }
+
+  pub fn greater_equal(&self, other: Self) -> bool {
+    matches!(self.compare(other), Some(Ordering::Greater) | Some(Ordering::Equal))
+  }
+
+  fn compare(&self, other: Self) -> Option<Ordering> {
+    match (self.tag(), other.tag()) {
+      (Tag::F64, Tag::F64) => {
+        let a = self.reinterpret_cast_to::<f64>();
+        let b = other.reinterpret_cast_to::<f64>();
+        a.partial_cmp(&b)
+      }
+      (Tag::F64, Tag::I32) => {
+        let a = self.reinterpret_cast_to::<f64>();
+        let b = other.reinterpret_cast_to::<i32>() as f64;
+        a.partial_cmp(&b)
+      }
+      (Tag::I32, Tag::F64) => {
+        let a = self.reinterpret_cast_to::<i32>() as f64;
+        let b = other.reinterpret_cast_to::<f64>();
+        a.partial_cmp(&b)
+      }
+      (t1, t2) if t1 == t2 => self.bits.partial_cmp(&other.bits),
+      _ => None,
+    }
+  }
+
   // utility
 
   pub(crate) fn pointer(&self) -> ConstVoid {
@@ -203,6 +255,10 @@ impl Value {
 
   pub(crate) fn meta_mut(&mut self) -> &mut ValueMeta {
     unsafe { &mut *((self.pointer_mut() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
+  }
+
+  pub(crate) fn is_unreferenced(&self) -> bool {
+    self.meta().ref_count.load(std::sync::atomic::Ordering::Relaxed) == 0
   }
 
   pub(crate) fn vtable(&self) -> &VTable {
@@ -370,57 +426,6 @@ impl Debug for Value {
         width = PTR_DISPLAY_WIDTH,
       ),
       Tag::Nil => write!(f, "nil (0x{:x})", self.bits()),
-    }
-  }
-}
-
-impl PartialEq for Value {
-  fn eq(&self, other: &Self) -> bool {
-    // TODO need operators as part of vtable
-    if self.tag() == other.tag() {
-      self.bits == other.bits
-    } else {
-      match self.tag() {
-        Tag::I32 => {
-          let v = self.reinterpret_cast_to::<i32>();
-          match other.tag() {
-            Tag::F64 => v as f64 == other.reinterpret_cast_to::<f64>(),
-            _ => false,
-          }
-        }
-        Tag::F64 => {
-          let v = self.reinterpret_cast_to::<f64>();
-          match other.tag() {
-            Tag::I32 => v == other.reinterpret_cast_to::<i32>() as f64,
-            _ => false,
-          }
-        }
-        _ => false,
-      }
-    }
-  }
-}
-
-impl PartialOrd for Value {
-  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    match self.tag() {
-      Tag::F64 => {
-        let v = self.reinterpret_cast_to::<f64>();
-        match other.tag() {
-          Tag::F64 => v.partial_cmp(&other.reinterpret_cast_to::<f64>()),
-          Tag::I32 => v.partial_cmp(&(other.reinterpret_cast_to::<i32>() as f64)),
-          _ => None,
-        }
-      }
-      Tag::I32 => {
-        let v = self.reinterpret_cast_to::<i32>();
-        match other.tag() {
-          Tag::F64 => (v as f64).partial_cmp(&(other.reinterpret_cast_to::<f64>())),
-          Tag::I32 => v.partial_cmp(&other.reinterpret_cast_to::<i32>()),
-          _ => None,
-        }
-      }
-      _ => None,
     }
   }
 }

@@ -12,7 +12,7 @@ fn gc_can_allocate_and_clean() {
   gc.allocate(SomeType {});
 
   let cleaned = gc
-    .clean(
+    .deep_clean(
       &Default::default(),
       &Default::default(),
       &mut Default::default(),
@@ -30,7 +30,7 @@ fn gc_does_not_clean_more_than_it_needs_to() {
   gc.allocate(SomeType {});
 
   let cleaned = gc
-    .clean(
+    .deep_clean(
       &Default::default(),
       &Default::default(),
       &mut Default::default(),

@@ -348,7 +348,7 @@ impl Vm {
   }
 
   pub fn force_gc(&mut self) -> ExecResult<usize> {
-    let cleaned = self.gc.clean(
+    let cleaned = self.gc.deep_clean(
       &self.stack,
       &self.modules,
       &mut self.cache,
@@ -665,7 +665,7 @@ impl Vm {
   fn exec_check(&mut self) -> ExecResult {
     let b = self.stack_pop();
     let a = self.stack_peek();
-    self.wrap_err_mut(|this| this.do_binary_op(a, b, |vt| vt.eq, |a, b| Ok(Value::from(a == b))))
+    self.wrap_err_mut(|this| this.do_binary_op(a, b, |vt| vt.eq, |a, b| Ok(Value::from(a.equals(b)))))
   }
 
   fn exec_println(&mut self) {
@@ -1244,63 +1244,63 @@ impl Vm {
   }
 
   fn exec_equal_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.eq, |a, b| a == b)
+    self.bool_op(|vt| vt.eq, |a, b| a.equals(b))
   }
 
   fn exec_equal_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.eq, |a, b| a == b)
+    self.do_bool(av, bv, |vt| vt.eq, |a, b| a.equals(b))
   }
 
   fn exec_not_equal_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.neq, |a, b| a != b)
+    self.bool_op(|vt| vt.neq, |a, b| a.not_equals(b))
   }
 
   fn exec_not_equal_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.neq, |a, b| a != b)
+    self.do_bool(av, bv, |vt| vt.neq, |a, b| a.not_equals(b))
   }
 
   fn exec_greater_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.greater, |a, b| a > b)
+    self.bool_op(|vt| vt.greater, |a, b| a.greater_than(b))
   }
 
   fn exec_greater_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.greater, |a, b| a > b)
+    self.do_bool(av, bv, |vt| vt.greater, |a, b| a.greater_than(b))
   }
 
   fn exec_greater_equal_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.geq, |a, b| a >= b)
+    self.bool_op(|vt| vt.geq, |a, b| a.greater_equal(b))
   }
 
   fn exec_greater_equal_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.geq, |a, b| a >= b)
+    self.do_bool(av, bv, |vt| vt.geq, |a, b| a.greater_equal(b))
   }
 
   fn exec_less_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.less, |a, b| a < b)
+    self.bool_op(|vt| vt.less, |a, b| a.less_than(b))
   }
 
   fn exec_less_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.less, |a, b| a < b)
+    self.do_bool(av, bv, |vt| vt.less, |a, b| a.less_than(b))
   }
 
   fn exec_less_equal_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.leq, |a, b| a <= b)
+    self.bool_op(|vt| vt.leq, |a, b| a.less_equal(b))
   }
 
   fn exec_less_equal_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.leq, |a, b| a <= b)
+    self.do_bool(av, bv, |vt| vt.leq, |a, b| a.less_equal(b))
   }
 
   fn jump(&mut self, offset: usize) {
@@ -1338,16 +1338,19 @@ impl Vm {
     })
   }
 
-  pub fn make_handle(&mut self, value: Value) -> ValueHandle {
-    self.gc.handle_from(value)
-  }
-
   pub fn maybe_make_usertype_handle<T: Usertype>(&mut self, value: Value) -> Option<UsertypeHandle<T>> {
     value.is::<T>().then(|| UsertypeHandle::new(self.make_handle(value)))
   }
 
   pub fn make_usertype_handle_from<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
-    self.gc.allocate_typed_handle(item)
+    let value = self.gc.allocate_untracked(item);
+    let handle = self.cache.make_handle(value);
+    UsertypeHandle::new(handle)
+  }
+
+  fn make_handle(&mut self, value: Value) -> ValueHandle {
+    self.gc.forget(value);
+    self.cache.make_handle(value)
   }
 
   fn wrap_err<F, T>(&self, f: F) -> ExecResult<T>

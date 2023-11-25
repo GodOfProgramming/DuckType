@@ -183,7 +183,7 @@ impl ModuleBuilder {
       ModuleType::Child { name, parent } => ModuleValue::new_child(name, parent),
     };
 
-    let module = vm.gc.allocate_typed_handle(module);
+    let module = vm.make_usertype_handle_from(module);
 
     f(vm, module.clone());
 

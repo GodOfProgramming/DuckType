@@ -5,21 +5,16 @@ use crate::{
   FastHashSet,
 };
 use ahash::HashSetExt;
-use ptr::MutPtr;
 use std::{
   fmt::{self, Display, Formatter},
   mem,
-  ops::{Deref, DerefMut},
-  sync::{
-    atomic::{AtomicUsize, Ordering},
-    mpsc,
-  },
+  sync::{atomic::AtomicUsize, mpsc},
   thread::{self, JoinHandle},
 };
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
-type AllocationSet = FastHashSet<u64>;
+type AllocationSet = FastHashSet<Value>;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Memory {
@@ -50,8 +45,7 @@ where
 {
   disposer: D,
 
-  pub(crate) allocations: AllocationSet,
-  pub(crate) native_handles: AllocationSet,
+  pub(crate) allocations: FastHashSet<Value>,
 
   pub(crate) limit: usize,
   pub(crate) allocated_memory: usize,
@@ -68,13 +62,16 @@ where
   pub fn new(initial_limit: Memory) -> Self {
     Self {
       disposer: D::default(),
-      allocations: AllocationSet::with_capacity(512),
-      native_handles: AllocationSet::with_capacity(512),
+      allocations: FastHashSet::with_capacity(512),
       limit: initial_limit.into(),
       allocated_memory: 0,
       num_cycles: 0,
       num_limit_repeats: 0,
     }
+  }
+
+  pub fn terminate(&mut self) {
+    self.disposer.terminate()
   }
 
   pub(crate) fn poll(
@@ -86,12 +83,13 @@ where
     stack_frames: &[StackFrame],
   ) -> Result<(), SystemError> {
     if self.allocated_memory > self.limit {
-      self.clean(stack, envs, cache, stack_frame, stack_frames)?;
+      self.deep_clean(stack, envs, cache, stack_frame, stack_frames)?;
     }
+
     Ok(())
   }
 
-  pub(crate) fn clean(
+  pub(crate) fn deep_clean(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
@@ -99,34 +97,76 @@ where
     stack_frame: &StackFrame,
     stack_frames: &[StackFrame],
   ) -> Result<usize, SystemError> {
-    self.ref_check_native_handles();
+    self.ref_check_native_handles(cache);
 
-    let marked_allocations = self.trace(stack, envs, cache, stack_frame, stack_frames);
+    let marked_allocations = self.deep_trace_roots(stack, envs, cache, stack_frame, stack_frames);
 
-    let unmarked_allocations = self.find_unmarked(marked_allocations);
+    let unreferenced_allocations = self.find_unreferenced(marked_allocations);
 
-    let cleaned = unmarked_allocations.len();
+    let cleaned = unreferenced_allocations.len();
 
-    let mut released = 0;
-    for alloc in &unmarked_allocations {
-      released += Value { bits: *alloc }.meta().size;
-      let removed = self.allocations.remove(alloc);
-      debug_assert!(removed);
-      cache.forget(alloc);
+    let mut released_memory = 0;
+    for value in unreferenced_allocations {
+      released_memory += value.meta().size;
+      cache.forget(value);
+      self.purge(value).map_err(|e| e.into())?;
     }
 
-    if cleaned > 0 {
-      self.disposer.dispose(unmarked_allocations).map_err(|e| e.into())?;
-    }
-
-    self.calc_limit(released);
+    self.calc_new_limit(released_memory);
 
     self.num_cycles += 1;
 
     Ok(cleaned)
   }
 
-  fn calc_limit(&mut self, released: usize) {
+  fn deep_trace_roots(
+    &self,
+    stack: &Stack,
+    envs: &ModuleStack,
+    cache: &Cache,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
+  ) -> AllocationSet {
+    let mut marked_allocations = Marker::with_estimated_size(stack.len() + envs.len() + cache.len() + 1 + stack_frames.len());
+
+    for value in stack.iter() {
+      marked_allocations.trace(value)
+    }
+
+    cache.deep_trace(&mut marked_allocations);
+
+    for env in envs.iter() {
+      let handle = env.module();
+      let value = handle.value();
+      marked_allocations.trace(&value);
+    }
+
+    if let Some(value) = &stack_frame.export {
+      marked_allocations.trace(value);
+    }
+
+    for frame in stack_frames {
+      if let Some(value) = &frame.export {
+        marked_allocations.trace(value);
+      }
+    }
+
+    marked_allocations.into()
+  }
+
+  fn find_unreferenced(&self, marked_allocations: AllocationSet) -> Vec<Value> {
+    self
+      .allocations
+      .difference(&marked_allocations)
+      .filter(|value| {
+        debug_assert!(value.is_ptr());
+        value.is_unreferenced()
+      })
+      .cloned()
+      .collect()
+  }
+
+  fn calc_new_limit(&mut self, released: usize) {
     const REPEAT_LIM: usize = 7;
     const ALLOC_DENOMINATOR: usize = 2;
 
@@ -150,76 +190,7 @@ where
     }
   }
 
-  fn trace(
-    &self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) -> AllocationSet {
-    let mut marked_allocations = Marker::with_estimated_size(stack.len() + envs.len() + cache.len() + 1 + stack_frames.len());
-
-    for handle in &self.native_handles {
-      marked_allocations.trace(&Value { bits: *handle });
-    }
-
-    for value in stack.iter() {
-      marked_allocations.trace(value)
-    }
-
-    cache.trace(&mut marked_allocations);
-
-    for env in envs.iter() {
-      let handle = env.module();
-      let value = handle.value();
-      marked_allocations.trace(&value);
-    }
-
-    if let Some(value) = &stack_frame.export {
-      marked_allocations.trace(value);
-    }
-
-    for frame in stack_frames {
-      if let Some(value) = &frame.export {
-        marked_allocations.trace(value);
-      }
-    }
-
-    marked_allocations.into()
-  }
-
-  fn find_unmarked(&self, marked_allocations: AllocationSet) -> Vec<u64> {
-    self
-      .allocations
-      .difference(&marked_allocations)
-      .filter(|a| {
-        let value = Value { bits: **a };
-        debug_assert!(value.is_ptr());
-        value.meta().ref_count.load(Ordering::Relaxed) == 0
-      })
-      .cloned()
-      .collect()
-  }
-
-  pub fn handle_from(&mut self, value: Value) -> ValueHandle {
-    self.allocations.remove(&value.bits);
-    self.native_handles.insert(value.bits);
-
-    ValueHandle::new(value)
-  }
-
-  pub fn allocate_typed_handle<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
-    let value = self.allocate(item);
-    let handle = self.handle_from(value);
-    UsertypeHandle::new(handle)
-  }
-
-  pub fn terminate(&mut self) {
-    self.disposer.terminate()
-  }
-
-  pub fn allocate<T: Usertype>(&mut self, item: T) -> Value {
+  pub(crate) fn allocate_untracked<T: Usertype>(&mut self, item: T) -> Value {
     fn allocate_type<T>(item: T) -> *mut T {
       Box::into_raw(Box::new(item))
     }
@@ -240,24 +211,49 @@ where
     debug_assert_eq!(ptr as u64 & POINTER_TAG, 0);
 
     // return the pointer to the object, hiding the vtable & ref count behind the returned address
-    let bits = ptr as u64 | POINTER_TAG;
-    let new_allocation = self.allocations.insert(bits);
-    debug_assert!(new_allocation);
-    Value { bits }
+    Value::new_pointer(ptr)
   }
 
-  fn ref_check_native_handles(&mut self) {
-    let transferred = self
+  pub fn allocate<T: Usertype>(&mut self, item: T) -> Value {
+    let value = self.allocate_untracked(item);
+
+    #[cfg(debug_assertions)]
+    {
+      debug_assert!(self.allocations.iter().find(|v| v.bits == value.bits).is_none());
+    }
+
+    self.track(value);
+
+    value
+  }
+
+  fn ref_check_native_handles(&mut self, cache: &mut Cache) {
+    let transfers = cache
       .native_handles
       .iter()
-      .map(|alloc| Value { bits: *alloc })
-      .filter(|v| v.meta().ref_count.load(Ordering::Relaxed) == 0)
+      .filter(|v| v.is_unreferenced())
+      .cloned()
       .collect::<Vec<Value>>();
 
-    for transfer in transferred {
-      self.native_handles.remove(&transfer.bits);
-      self.allocations.insert(transfer.bits);
+    for transfer in transfers {
+      cache.native_handles.remove(&transfer);
+      self.track(transfer);
     }
+  }
+
+  fn track(&mut self, value: Value) {
+    debug_assert!(value.is_ptr());
+    let is_new = self.allocations.insert(value);
+    debug_assert!(is_new)
+  }
+
+  pub(crate) fn forget(&mut self, value: Value) {
+    self.allocations.remove(&value);
+  }
+
+  fn purge(&mut self, value: Value) -> Result<(), D::Error> {
+    self.forget(value);
+    self.disposer.dispose(value)
   }
 }
 
@@ -286,160 +282,6 @@ impl<T: Usertype> AllocatedObject<T> {
   }
 }
 
-pub struct UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  pub(crate) usertype: MutPtr<T>,
-  pub handle: ValueHandle,
-}
-
-impl<T> UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  pub fn new(mut handle: ValueHandle) -> Self {
-    Self {
-      usertype: MutPtr::new(handle.value.reinterpret_cast_to_mut::<T>()),
-      handle,
-    }
-  }
-
-  pub fn value(&self) -> Value {
-    self.handle.value
-  }
-}
-
-impl<T> Clone for UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  fn clone(&self) -> Self {
-    Self {
-      usertype: self.usertype,
-      handle: self.handle.clone(),
-    }
-  }
-}
-
-impl<T> From<UsertypeHandle<T>> for ValueHandle
-where
-  T: Usertype,
-{
-  fn from(utype: UsertypeHandle<T>) -> Self {
-    utype.handle
-  }
-}
-
-impl<T> MaybeFrom<ValueHandle> for UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  fn maybe_from(handle: ValueHandle) -> Option<Self> {
-    if handle.value.is::<T>() {
-      Some(UsertypeHandle::new(handle))
-    } else {
-      None
-    }
-  }
-}
-
-impl<T> Deref for UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  type Target = T;
-  fn deref(&self) -> &Self::Target {
-    &self.usertype
-  }
-}
-
-impl<T> DerefMut for UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.usertype
-  }
-}
-
-impl<T> Display for UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.handle)
-  }
-}
-
-pub struct ValueHandle {
-  pub value: Value,
-}
-
-impl ValueHandle {
-  pub fn new(mut value: Value) -> ValueHandle {
-    if value.is_ptr() {
-      value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
-    }
-    Self { value }
-  }
-}
-
-impl Deref for ValueHandle {
-  type Target = Value;
-  fn deref(&self) -> &Self::Target {
-    &self.value
-  }
-}
-
-impl DerefMut for ValueHandle {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.value
-  }
-}
-
-impl From<ValueHandle> for Value {
-  fn from(handle: ValueHandle) -> Self {
-    handle.value
-  }
-}
-
-impl Clone for ValueHandle {
-  fn clone(&self) -> Self {
-    if self.value.is_ptr() {
-      self.value.meta().ref_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    Self { value: self.value }
-  }
-}
-
-impl Display for ValueHandle {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.value)
-  }
-}
-
-impl Drop for ValueHandle {
-  fn drop(&mut self) {
-    if self.value.is_ptr() {
-      let meta = self.value.meta();
-
-      #[cfg(debug_assertions)]
-      let before = meta.ref_count.load(Ordering::Relaxed);
-
-      meta.ref_count.fetch_sub(1, Ordering::Relaxed);
-
-      #[cfg(debug_assertions)]
-      {
-        let after = meta.ref_count.load(Ordering::Relaxed);
-
-        debug_assert!(before > after);
-      }
-    }
-  }
-}
-
 pub struct Marker {
   marked_values: AllocationSet,
 }
@@ -451,8 +293,8 @@ impl Marker {
     }
   }
   pub fn trace(&mut self, value: &Value) {
-    if value.is_ptr() && !self.marked_values.contains(&value.bits) {
-      self.marked_values.insert(value.bits);
+    if value.is_ptr() && !self.marked_values.contains(value) {
+      self.marked_values.insert(*value);
       value.trace_vtable(self);
     }
   }
@@ -466,13 +308,13 @@ impl From<Marker> for AllocationSet {
 
 pub trait Disposal: Default {
   type Error: Into<SystemError>;
-  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), Self::Error>;
+  fn dispose(&mut self, value: Value) -> Result<(), Self::Error>;
 
   fn terminate(&mut self);
 }
 
 pub struct AsyncDisposal {
-  chute: Option<mpsc::Sender<Vec<u64>>>,
+  chute: Option<mpsc::Sender<Value>>,
   th: Option<JoinHandle<()>>,
 }
 
@@ -481,11 +323,8 @@ impl Default for AsyncDisposal {
     let (sender, receiver) = mpsc::channel();
 
     let th = thread::spawn(move || {
-      while let Ok(allocations) = receiver.recv() {
-        for alloc in allocations {
-          let value = Value { bits: alloc };
-          drop_value(value);
-        }
+      while let Ok(value) = receiver.recv() {
+        drop_value(value);
       }
     });
 
@@ -497,12 +336,12 @@ impl Default for AsyncDisposal {
 }
 
 impl Disposal for AsyncDisposal {
-  type Error = mpsc::SendError<Vec<u64>>;
+  type Error = mpsc::SendError<Value>;
 
-  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), Self::Error> {
+  fn dispose(&mut self, value: Value) -> Result<(), Self::Error> {
     match &self.chute {
-      Some(chute) => chute.send(allocations)?,
-      None => Err(mpsc::SendError::<Vec<u64>>(allocations))?,
+      Some(chute) => chute.send(value)?,
+      None => Err(mpsc::SendError::<Value>(value))?,
     };
     Ok(())
   }
@@ -522,11 +361,8 @@ pub struct SyncDisposal;
 impl Disposal for SyncDisposal {
   type Error = SystemError;
 
-  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), Self::Error> {
-    for alloc in allocations {
-      let value = Value { bits: alloc };
-      drop_value(value);
-    }
+  fn dispose(&mut self, value: Value) -> Result<(), Self::Error> {
+    drop_value(value);
     Ok(())
   }
 
