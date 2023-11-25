@@ -102,14 +102,16 @@ impl Cache {
     self.mods.entry(module).or_default().insert(key.into(), value);
   }
 
-  pub(crate) fn deep_trace(&self, marker: &mut Marker) {
+  pub(crate) fn deep_trace(&self, marker: &mut Tracer) {
     for value in self.globals.values().chain(self.libs.values()).chain(&self.native_handles) {
-      marker.trace(value);
+      marker.deep_trace(value);
     }
   }
 
-  pub(crate) fn len(&self) -> usize {
-    self.globals.len() + self.libs.len() + self.native_handles.len()
+  pub(crate) fn incremental_trace(&self, marker: &mut Tracer) {
+    for value in self.globals.values().chain(self.libs.values()).chain(&self.native_handles) {
+      marker.try_mark_gray(value);
+    }
   }
 
   pub(crate) fn make_handle(&mut self, value: Value) -> ValueHandle {

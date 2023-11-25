@@ -185,29 +185,49 @@ pub trait Operators {
 
 pub trait TraceableValue {
   #[allow(unused_variables)]
-  fn trace(&self, marks: &mut Marker);
+  fn deep_trace(&self, marks: &mut Tracer);
+
+  fn incremental_trace(&self, marks: &mut Tracer);
 }
 
 impl TraceableValue for Option<Value> {
-  fn trace(&self, marks: &mut Marker) {
+  fn deep_trace(&self, marks: &mut Tracer) {
     if let Some(value) = self {
-      marks.trace(value);
+      marks.deep_trace(value);
+    }
+  }
+
+  fn incremental_trace(&self, marks: &mut Tracer) {
+    if let Some(value) = self {
+      marks.try_mark_gray(value);
     }
   }
 }
 
 impl TraceableValue for Vec<Value> {
-  fn trace(&self, marks: &mut Marker) {
+  fn deep_trace(&self, marks: &mut Tracer) {
     for value in self {
-      marks.trace(value);
+      marks.deep_trace(value);
+    }
+  }
+
+  fn incremental_trace(&self, marks: &mut Tracer) {
+    for value in self {
+      marks.try_mark_gray(value);
     }
   }
 }
 
 impl<T, S> TraceableValue for HashMap<T, Value, S> {
-  fn trace(&self, marks: &mut Marker) {
+  fn deep_trace(&self, marks: &mut Tracer) {
     for value in self.values() {
-      marks.trace(value);
+      marks.deep_trace(value);
+    }
+  }
+
+  fn incremental_trace(&self, marks: &mut Tracer) {
+    for value in self.values() {
+      marks.try_mark_gray(value);
     }
   }
 }
@@ -216,17 +236,29 @@ impl<T, V, S> TraceableValue for HashMap<T, V, S>
 where
   V: TraceableValue,
 {
-  fn trace(&self, marks: &mut Marker) {
+  fn deep_trace(&self, marks: &mut Tracer) {
     for value in self.values() {
-      value.trace(marks);
+      value.deep_trace(marks);
+    }
+  }
+
+  fn incremental_trace(&self, marks: &mut Tracer) {
+    for value in self.values() {
+      value.incremental_trace(marks);
     }
   }
 }
 
 impl<T> TraceableValue for BTreeMap<T, Value> {
-  fn trace(&self, marks: &mut Marker) {
+  fn deep_trace(&self, marks: &mut Tracer) {
     for value in self.values() {
-      marks.trace(value);
+      marks.deep_trace(value);
+    }
+  }
+
+  fn incremental_trace(&self, marks: &mut Tracer) {
+    for value in self.values() {
+      marks.try_mark_gray(value);
     }
   }
 }
@@ -235,9 +267,15 @@ impl<T, V> TraceableValue for BTreeMap<T, V>
 where
   V: TraceableValue,
 {
-  fn trace(&self, marks: &mut Marker) {
+  fn deep_trace(&self, marks: &mut Tracer) {
     for value in self.values() {
-      value.trace(marks);
+      value.deep_trace(marks);
+    }
+  }
+
+  fn incremental_trace(&self, marks: &mut Tracer) {
+    for value in self.values() {
+      value.incremental_trace(marks);
     }
   }
 }

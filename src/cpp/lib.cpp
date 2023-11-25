@@ -241,12 +241,12 @@ execute(Vm vm, Instruction const* instructions, std::size_t* ip) {
     }
     CASE(CreateVec) {
         DISASM(vm, instructions, ip);
-        CHECK(exec_create_vec(vm, FETCH(instructions, ip)));
+        exec_create_vec(vm, FETCH(instructions, ip));
         INC_JMP(instructions, ip);
     }
     CASE(CreateSizedVec) {
         DISASM(vm, instructions, ip);
-        CHECK(exec_create_sized_vec(vm, FETCH(instructions, ip)));
+        exec_create_sized_vec(vm, FETCH(instructions, ip));
         INC_JMP(instructions, ip);
     }
     CASE(CreateDynamicVec) {

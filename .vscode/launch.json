@@ -23,7 +23,7 @@
       "program": "${workspaceFolder}/target/debug/duck",
       "args": [
         "--gc-mb",
-        "10",
+        "1",
         "-o",
         "run",
         "examples/benchmarks/benchmarks.dk"

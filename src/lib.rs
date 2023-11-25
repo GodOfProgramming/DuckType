@@ -265,8 +265,8 @@ impl Vm {
           Opcode::PeekMember => self.exec_peek_member(inst.data())?,
           Opcode::InitializeConstructor => self.exec_initialize_constructor()?,
           Opcode::InitializeMethod => self.exec_initialize_method(inst.data())?,
-          Opcode::CreateVec => self.exec_create_vec(inst.data())?,
-          Opcode::CreateSizedVec => self.exec_create_sized_vec(inst.data())?,
+          Opcode::CreateVec => self.exec_create_vec(inst.data()),
+          Opcode::CreateSizedVec => self.exec_create_sized_vec(inst.data()),
           Opcode::CreateDynamicVec => self.exec_create_dyn_vec()?,
           Opcode::CreateClosure => self.exec_create_closure()?,
           Opcode::CreateStruct => self.exec_create_struct(inst.data())?,
@@ -334,28 +334,35 @@ impl Vm {
     Ok(export.unwrap_or_default())
   }
 
-  pub fn check_gc(&mut self) -> ExecResult {
-    self
-      .gc
-      .poll(
-        &self.stack,
-        &self.modules,
-        &mut self.cache,
-        &self.stack_frame,
-        &self.stack_frames,
-      )
-      .map_err(|e| e.into())
-  }
-
-  pub fn force_gc(&mut self) -> ExecResult<usize> {
-    let cleaned = self.gc.deep_clean(
+  pub fn check_gc(&mut self) {
+    self.check_gc_inc();
+    self.gc.poll_deep(
       &self.stack,
       &self.modules,
       &mut self.cache,
       &self.stack_frame,
       &self.stack_frames,
-    )?;
-    Ok(cleaned)
+    );
+  }
+
+  pub fn check_gc_inc(&mut self) {
+    self.gc.poll_inc(
+      &self.stack,
+      &self.modules,
+      &mut self.cache,
+      &self.stack_frame,
+      &self.stack_frames,
+    );
+  }
+
+  pub fn force_gc(&mut self) -> usize {
+    self.gc.deep_clean(
+      &self.stack,
+      &self.modules,
+      &mut self.cache,
+      &self.stack_frame,
+      &self.stack_frames,
+    )
   }
 
   pub fn get_global(&self, name: &str) -> Option<Value> {
@@ -433,6 +440,7 @@ impl Vm {
     let c = self.cache.const_at(index).clone();
     let value = self.make_value_from(c);
     self.stack_push(value);
+    self.check_gc_inc();
   }
 
   fn exec_store(&mut self, (storage, addr): (Storage, LongAddr)) -> ExecResult {
@@ -441,6 +449,7 @@ impl Vm {
       Storage::Local => self.exec_store_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_store_global(addr))?,
     }
+    self.check_gc_inc();
     Ok(())
   }
 
@@ -450,6 +459,7 @@ impl Vm {
       Storage::Local => self.exec_load_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_load_global(addr))?,
     }
+    self.check_gc_inc();
     Ok(())
   }
 
@@ -540,7 +550,8 @@ impl Vm {
     let mut obj = self.stack_peek();
     let class = self.wrap_err_mut(|_| obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment))?;
     class.set_constructor(value);
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_initialize_method(&mut self, loc: usize) -> ExecResult {
@@ -560,22 +571,23 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
-  fn exec_create_vec(&mut self, num_items: usize) -> ExecResult {
+  fn exec_create_vec(&mut self, num_items: usize) {
     let list = self.stack_drain_from(num_items);
     let list = self.make_value_from(list);
     self.stack_push(list);
-    self.check_gc()
+    self.check_gc();
   }
 
-  fn exec_create_sized_vec(&mut self, repeats: usize) -> ExecResult {
+  fn exec_create_sized_vec(&mut self, repeats: usize) {
     let item = self.stack_pop();
     let vec = vec![item; repeats];
     let vec = self.make_value_from(vec);
     self.stack_push(vec);
-    self.check_gc()
+    self.check_gc();
   }
 
   fn exec_create_dyn_vec(&mut self) -> ExecResult {
@@ -585,7 +597,8 @@ impl Vm {
     let vec = vec![item; repeats as usize];
     let vec = self.make_value_from(vec);
     self.stack_push(vec);
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_create_closure(&mut self) -> ExecResult {
@@ -601,7 +614,8 @@ impl Vm {
       Ok(())
     })?;
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_create_struct(&mut self, nmem: usize) -> ExecResult {
@@ -630,7 +644,8 @@ impl Vm {
       Ok(())
     })?;
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_create_class(&mut self, loc: usize) -> ExecResult {
@@ -644,7 +659,8 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_create_module(&mut self, loc: usize) -> ExecResult {
@@ -659,7 +675,8 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_check(&mut self) -> ExecResult {
@@ -694,7 +711,8 @@ impl Vm {
   fn exec_call(&mut self, airity: usize) -> ExecResult {
     let callable = self.stack_load_rev(airity);
     self.wrap_err_mut(|this| this.call_value(callable, airity))?;
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_req(&mut self) -> ExecResult {
@@ -800,7 +818,8 @@ impl Vm {
       }
     }
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_dbg(&mut self) -> ExecResult {

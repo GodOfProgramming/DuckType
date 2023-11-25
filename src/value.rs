@@ -162,6 +162,7 @@ impl Value {
   }
 
   pub fn set_member(&mut self, vm: &mut Vm, name: Field, value: Value) -> UsageResult<()> {
+    vm.gc.invalidate(self);
     (self.vtable().set_member)(self.pointer_mut(), MutPtr::new(vm), name, value)
   }
 
@@ -185,12 +186,20 @@ impl Value {
     (self.vtable().debug_string)(self.pointer())
   }
 
-  pub fn trace(&self, marks: &mut Marker) {
-    marks.trace(self);
+  pub fn deep_trace(&self, marks: &mut Tracer) {
+    marks.deep_trace(self);
   }
 
-  pub fn trace_vtable(&self, marks: &mut Marker) {
-    (self.vtable().trace)(self.pointer(), marks as *mut Marker as MutVoid);
+  pub fn incremental_trace(&self, marks: &mut Tracer) {
+    marks.try_mark_gray(self);
+  }
+
+  pub fn deep_trace_children(&self, marks: &mut Tracer) {
+    (self.vtable().deep_trace)(self.pointer(), MutPtr::new(marks));
+  }
+
+  pub fn incremental_trace_children(&self, marks: &mut Tracer) {
+    (self.vtable().incremental_trace)(self.pointer(), MutPtr::new(marks));
   }
 
   pub fn equals(&self, other: Self) -> bool {
@@ -690,7 +699,8 @@ pub struct VTable {
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
 
-  trace: fn(ConstVoid, MutVoid),
+  deep_trace: fn(ConstVoid, MutPtr<Tracer>),
+  incremental_trace: fn(ConstVoid, MutPtr<Tracer>),
   pub(crate) dealloc: fn(MutVoid),
 
   type_id: fn() -> &'static Uuid,
@@ -700,29 +710,27 @@ pub struct VTable {
 impl VTable {
   pub const fn new<T: Usertype>() -> Self {
     Self {
-      get_member: |this, vm, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::typed_cast_mut(vm.raw()), this, name),
-      set_member: |this, vm, name, value| {
-        <T as Usertype>::set(Self::cast_mut(this), Self::typed_cast_mut(vm.raw()), name, value)
-      },
-      neg: |vm, value| <T as Operators>::__neg__(Self::typed_cast_mut(vm.raw()), value),
-      not: |vm, value| <T as Operators>::__not__(Self::typed_cast_mut(vm.raw()), value),
-      add: |vm, left, right| <T as Operators>::__add__(Self::typed_cast_mut(vm.raw()), left, right),
-      sub: |vm, left, right| <T as Operators>::__sub__(Self::typed_cast_mut(vm.raw()), left, right),
-      mul: |vm, left, right| <T as Operators>::__mul__(Self::typed_cast_mut(vm.raw()), left, right),
-      div: |vm, left, right| <T as Operators>::__div__(Self::typed_cast_mut(vm.raw()), left, right),
-      rem: |vm, left, right| <T as Operators>::__rem__(Self::typed_cast_mut(vm.raw()), left, right),
-      eq: |vm, left, right| <T as Operators>::__eq__(Self::typed_cast_mut(vm.raw()), left, right),
-      neq: |vm, left, right| <T as Operators>::__neq__(Self::typed_cast_mut(vm.raw()), left, right),
-      less: |vm, left, right| <T as Operators>::__less__(Self::typed_cast_mut(vm.raw()), left, right),
-      leq: |vm, left, right| <T as Operators>::__leq__(Self::typed_cast_mut(vm.raw()), left, right),
-      greater: |vm, left, right| <T as Operators>::__greater__(Self::typed_cast_mut(vm.raw()), left, right),
-      geq: |vm, left, right| <T as Operators>::__geq__(Self::typed_cast_mut(vm.raw()), left, right),
+      get_member: |this, vm, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::typed_cast_mut(vm), this, name),
+      set_member: |this, vm, name, value| <T as Usertype>::set(Self::cast_mut(this), Self::typed_cast_mut(vm), name, value),
+      neg: |vm, value| <T as Operators>::__neg__(Self::typed_cast_mut(vm), value),
+      not: |vm, value| <T as Operators>::__not__(Self::typed_cast_mut(vm), value),
+      add: |vm, left, right| <T as Operators>::__add__(Self::typed_cast_mut(vm), left, right),
+      sub: |vm, left, right| <T as Operators>::__sub__(Self::typed_cast_mut(vm), left, right),
+      mul: |vm, left, right| <T as Operators>::__mul__(Self::typed_cast_mut(vm), left, right),
+      div: |vm, left, right| <T as Operators>::__div__(Self::typed_cast_mut(vm), left, right),
+      rem: |vm, left, right| <T as Operators>::__rem__(Self::typed_cast_mut(vm), left, right),
+      eq: |vm, left, right| <T as Operators>::__eq__(Self::typed_cast_mut(vm), left, right),
+      neq: |vm, left, right| <T as Operators>::__neq__(Self::typed_cast_mut(vm), left, right),
+      less: |vm, left, right| <T as Operators>::__less__(Self::typed_cast_mut(vm), left, right),
+      leq: |vm, left, right| <T as Operators>::__leq__(Self::typed_cast_mut(vm), left, right),
+      greater: |vm, left, right| <T as Operators>::__greater__(Self::typed_cast_mut(vm), left, right),
+      geq: |vm, left, right| <T as Operators>::__geq__(Self::typed_cast_mut(vm), left, right),
 
-      index: |vm, left, right| <T as Operators>::__index__(Self::typed_cast_mut(vm.raw()), left, right),
-      assign_index: |vm, left, mid, right| <T as Operators>::__idxeq__(Self::typed_cast_mut(vm.raw()), left, mid, right),
+      index: |vm, left, right| <T as Operators>::__index__(Self::typed_cast_mut(vm), left, right),
+      assign_index: |vm, left, mid, right| <T as Operators>::__idxeq__(Self::typed_cast_mut(vm), left, mid, right),
 
       invoke: |this, vm, this_value, airity| {
-        <T as Operators>::__ivk__(Self::cast_mut(this), Self::typed_cast_mut(vm.raw()), this_value, airity)
+        <T as Operators>::__ivk__(Self::cast_mut(this), Self::typed_cast_mut(vm), this_value, airity)
       },
 
       define: |this, name, value| <T as Operators>::__def__(Self::cast_mut(this), name, value),
@@ -735,7 +743,9 @@ impl VTable {
 
       debug_string: |this| <T as Operators>::__dbg__(Self::cast(this)),
 
-      trace: |this, marks| <T as TraceableValue>::trace(Self::cast(this), Self::cast_mut(marks)),
+      deep_trace: |this, marks| <T as TraceableValue>::deep_trace(Self::cast(this), Self::typed_cast_mut(marks)),
+      incremental_trace: |this, marks| <T as TraceableValue>::incremental_trace(Self::cast(this), Self::typed_cast_mut(marks)),
+
       dealloc: |this| memory::consume(this as *mut T),
 
       type_id: || &<T as Usertype>::ID,
@@ -751,19 +761,9 @@ impl VTable {
     unsafe { &mut *(ptr as *mut T) }
   }
 
-  fn typed_cast_mut<T>(ptr: *mut T) -> &'static mut T {
-    unsafe { &mut *ptr }
+  fn typed_cast_mut<T>(ptr: MutPtr<T>) -> &'static mut T {
+    unsafe { &mut *ptr.raw() }
   }
-}
-
-#[derive(Default)]
-pub(crate) enum Mark {
-  #[default]
-  White,
-  #[allow(unused)]
-  Gray,
-  #[allow(unused)]
-  Black,
 }
 
 pub(crate) struct ValueMeta {
@@ -774,9 +774,6 @@ pub(crate) struct ValueMeta {
 
   /// The size of the allocated item and the meta
   pub(crate) size: usize,
-
-  #[allow(unused)]
-  pub(crate) mark: Mark,
 }
 
 pub trait IsType<T>: private::Sealed {

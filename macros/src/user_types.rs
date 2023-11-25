@@ -29,15 +29,23 @@ pub(crate) fn derive_usertype(struct_def: ItemStruct, uuid_value: Option<Literal
   let traceable_impl = if !traceables.is_empty() {
     quote! {
       impl TraceableValue for #name {
-        fn trace(&self, marks: &mut Marker) {
-          #(self.#traceables.trace(marks);)*
+        fn deep_trace(&self, tracer: &mut Tracer) {
+          #(self.#traceables.deep_trace(tracer);)*
+        }
+
+        fn incremental_trace(&self, tracer: &mut Tracer) {
+          #(self.#traceables.incremental_trace(tracer);)*
         }
       }
     }
   } else {
     quote! {
       impl TraceableValue for #name {
-        fn trace(&self, _marks: &mut Marker) {
+        fn deep_trace(&self, _: &mut Tracer) {
+          // do nothing
+        }
+
+        fn incremental_trace(&self, _: &mut Tracer) {
           // do nothing
         }
       }

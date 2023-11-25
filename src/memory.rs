@@ -1,15 +1,15 @@
 use super::{ModuleStack, Stack, StackFrame};
 use crate::{
   prelude::*,
-  value::{tags::*, Mark, MutVoid, ValueMeta},
+  value::{tags::*, MutVoid, ValueMeta},
   FastHashSet,
 };
 use ahash::HashSetExt;
+use ptr::MutPtr;
 use std::{
   fmt::{self, Display, Formatter},
   mem,
-  sync::{atomic::AtomicUsize, mpsc},
-  thread::{self, JoinHandle},
+  sync::atomic::AtomicUsize,
 };
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
@@ -45,12 +45,17 @@ where
 {
   disposer: D,
 
-  pub(crate) allocations: FastHashSet<Value>,
+  pub(crate) allocations: AllocationSet,
+
+  grays: AllocationSet,
+  blacks: AllocationSet,
 
   pub(crate) limit: usize,
   pub(crate) allocated_memory: usize,
 
-  pub(crate) num_cycles: usize,
+  pub(crate) deep_cleans: usize,
+  pub(crate) incremental_cleans: usize,
+  pub(crate) increments: usize,
 
   num_limit_repeats: usize,
 }
@@ -63,30 +68,42 @@ where
     Self {
       disposer: D::default(),
       allocations: FastHashSet::with_capacity(512),
+      blacks: Default::default(),
+      grays: Default::default(),
       limit: initial_limit.into(),
       allocated_memory: 0,
-      num_cycles: 0,
+      deep_cleans: 0,
+      incremental_cleans: 0,
+      increments: 0,
       num_limit_repeats: 0,
     }
   }
 
-  pub fn terminate(&mut self) {
-    self.disposer.terminate()
-  }
-
-  pub(crate) fn poll(
+  pub(crate) fn poll_deep(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
     cache: &mut Cache,
     stack_frame: &StackFrame,
     stack_frames: &[StackFrame],
-  ) -> Result<(), SystemError> {
+  ) {
     if self.allocated_memory > self.limit {
-      self.deep_clean(stack, envs, cache, stack_frame, stack_frames)?;
+      self.deep_clean(stack, envs, cache, stack_frame, stack_frames);
     }
+  }
 
-    Ok(())
+  pub(crate) fn poll_inc(
+    &mut self,
+    stack: &Stack,
+    envs: &ModuleStack,
+    cache: &mut Cache,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
+  ) {
+    if self.allocated_memory > self.limit / 2 {
+      self.increments += 1;
+      self.incremental(stack, envs, cache, stack_frame, stack_frames);
+    }
   }
 
   pub(crate) fn deep_clean(
@@ -96,68 +113,123 @@ where
     cache: &mut Cache,
     stack_frame: &StackFrame,
     stack_frames: &[StackFrame],
-  ) -> Result<usize, SystemError> {
+  ) -> usize {
+    self.grays.clear();
+    self.blacks.clear();
     self.ref_check_native_handles(cache);
+    self.deep_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+    self.deep_cleans += 1;
+    self.clean(cache, self.find_unreferenced())
+  }
 
-    let marked_allocations = self.deep_trace_roots(stack, envs, cache, stack_frame, stack_frames);
-
-    let unreferenced_allocations = self.find_unreferenced(marked_allocations);
-
-    let cleaned = unreferenced_allocations.len();
-
-    let mut released_memory = 0;
-    for value in unreferenced_allocations {
-      released_memory += value.meta().size;
-      cache.forget(value);
-      self.purge(value).map_err(|e| e.into())?;
+  pub(crate) fn incremental(
+    &mut self,
+    stack: &Stack,
+    envs: &ModuleStack,
+    cache: &mut Cache,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
+  ) {
+    self.ref_check_native_handles(cache);
+    self.incremental_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+    if self.grays.is_empty() {
+      self.incremental_cleans += 1;
+      self.clean(cache, self.find_unreferenced());
+      self.blacks.clear();
     }
-
-    self.calc_new_limit(released_memory);
-
-    self.num_cycles += 1;
-
-    Ok(cleaned)
   }
 
   fn deep_trace_roots(
-    &self,
+    &mut self,
     stack: &Stack,
     envs: &ModuleStack,
     cache: &Cache,
     stack_frame: &StackFrame,
     stack_frames: &[StackFrame],
-  ) -> AllocationSet {
-    let mut marked_allocations = Marker::with_estimated_size(stack.len() + envs.len() + cache.len() + 1 + stack_frames.len());
+  ) {
+    let mut tracer = Tracer::new(&mut self.blacks);
 
     for value in stack.iter() {
-      marked_allocations.trace(value)
+      tracer.deep_trace(value)
     }
 
-    cache.deep_trace(&mut marked_allocations);
+    cache.deep_trace(&mut tracer);
 
     for env in envs.iter() {
       let handle = env.module();
       let value = handle.value();
-      marked_allocations.trace(&value);
+      tracer.deep_trace(&value);
     }
 
     if let Some(value) = &stack_frame.export {
-      marked_allocations.trace(value);
+      tracer.deep_trace(value);
     }
 
     for frame in stack_frames {
       if let Some(value) = &frame.export {
-        marked_allocations.trace(value);
+        tracer.deep_trace(value);
+      }
+    }
+  }
+
+  fn incremental_trace_roots(
+    &mut self,
+    stack: &Stack,
+    envs: &ModuleStack,
+    cache: &Cache,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
+  ) {
+    let mut tracer = Tracer::new(&mut self.blacks);
+
+    for value in self.grays.drain() {
+      tracer.trace_gray(&value);
+    }
+
+    for value in stack.iter() {
+      tracer.try_mark_gray(value)
+    }
+
+    cache.incremental_trace(&mut tracer);
+
+    for env in envs.iter() {
+      let value = env.module().value();
+      tracer.try_mark_gray(&value);
+    }
+
+    if let Some(value) = &stack_frame.export {
+      tracer.try_mark_gray(value);
+    }
+
+    for frame in stack_frames {
+      if let Some(value) = &frame.export {
+        tracer.try_mark_gray(value);
       }
     }
 
-    marked_allocations.into()
+    self.grays = tracer.grays;
   }
 
-  fn find_unreferenced(&self, marked_allocations: AllocationSet) -> Vec<Value> {
+  fn clean(&mut self, cache: &mut Cache, unreferenced: Vec<Value>) -> usize {
+    let cleaned = unreferenced.len();
+
+    let mut released_memory = 0;
+    for value in unreferenced {
+      released_memory += value.meta().size;
+      cache.forget(value);
+      self.purge(value);
+    }
+
+    self.calc_new_limit(released_memory);
+
+    cleaned
+  }
+
+  #[must_use]
+  fn find_unreferenced(&self) -> Vec<Value> {
     self
       .allocations
-      .difference(&marked_allocations)
+      .difference(&self.blacks)
       .filter(|value| {
         debug_assert!(value.is_ptr());
         value.is_unreferenced()
@@ -167,20 +239,31 @@ where
   }
 
   fn calc_new_limit(&mut self, released: usize) {
-    const REPEAT_LIM: usize = 7;
-    const ALLOC_DENOMINATOR: usize = 2;
-
+    #[cfg(feature = "limit-reduction")]
     let previously_allocated = self.allocated_memory;
+
     self.allocated_memory = self.allocated_memory.saturating_sub(released);
 
     let prev_limit = self.limit;
     self.limit = {
-      if self.num_limit_repeats > REPEAT_LIM && previously_allocated / ALLOC_DENOMINATOR > self.allocated_memory {
-        self.num_limit_repeats = 0;
-        // memory isn't being allocated rapidly, try to find a middle ground
-        self.limit / ALLOC_DENOMINATOR
-      } else {
-        // memory is possibly being allocated rapidly, either increase the limit to account or restore the existing
+      #[cfg(feature = "limit-reduction")]
+      {
+        const REPEAT_LIM: usize = 7;
+        const REDUCTION_PERCENT: f64 = 0.7;
+        if self.num_limit_repeats > REPEAT_LIM
+          && previously_allocated as f64 * REDUCTION_PERCENT > (2.0 - REDUCTION_PERCENT) * self.allocated_memory as f64
+        {
+          self.num_limit_repeats = 0;
+          // memory isn't being allocated rapidly, try to find a middle ground
+          (self.limit as f64 * REDUCTION_PERCENT) as usize
+        } else {
+          // memory is possibly being allocated rapidly, either increase the limit to account or restore the existing
+          usize::max(self.allocated_memory.saturating_mul(2), self.limit)
+        }
+      }
+
+      #[cfg(not(feature = "limit-reduction"))]
+      {
         usize::max(self.allocated_memory.saturating_mul(2), self.limit)
       }
     };
@@ -251,9 +334,14 @@ where
     self.allocations.remove(&value);
   }
 
-  fn purge(&mut self, value: Value) -> Result<(), D::Error> {
+  fn purge(&mut self, value: Value) {
     self.forget(value);
     self.disposer.dispose(value)
+  }
+
+  pub(crate) fn invalidate(&mut self, value: &Value) {
+    self.grays.remove(&value);
+    self.blacks.remove(&value);
   }
 }
 
@@ -276,43 +364,72 @@ impl<T: Usertype> AllocatedObject<T> {
       vtable: &T::VTABLE,
       ref_count: AtomicUsize::new(0),
       size: mem::size_of::<Self>(),
-      mark: Mark::default(),
     };
     Self { obj, meta }
   }
 }
 
-pub struct Marker {
-  marked_values: AllocationSet,
+pub struct Tracer {
+  grays: AllocationSet,
+  blacks: MutPtr<AllocationSet>,
 }
 
-impl Marker {
-  fn with_estimated_size(num_items: usize) -> Self {
+impl Tracer {
+  fn new(blacks: &mut AllocationSet) -> Self {
     Self {
-      marked_values: AllocationSet::with_capacity(num_items),
+      grays: AllocationSet::default(),
+      blacks: MutPtr::new(blacks),
     }
   }
-  pub fn trace(&mut self, value: &Value) {
-    if value.is_ptr() && !self.marked_values.contains(value) {
-      self.marked_values.insert(*value);
-      value.trace_vtable(self);
-    }
-  }
-}
 
-impl From<Marker> for AllocationSet {
-  fn from(value: Marker) -> Self {
-    value.marked_values
+  pub fn deep_trace(&mut self, value: &Value) {
+    if value.is_ptr() && !self.blacks.contains(value) {
+      self.blacks.insert(*value);
+      value.deep_trace_children(self);
+    }
+  }
+
+  pub fn try_mark_gray(&mut self, value: &Value) {
+    if value.is_ptr() && !self.grays.contains(value) && !self.blacks.contains(value) {
+      self.grays.insert(*value);
+    }
+  }
+
+  pub fn trace_gray(&mut self, value: &Value) {
+    self.grays.remove(value);
+    self.blacks.insert(*value);
+    value.incremental_trace_children(self);
   }
 }
 
 pub trait Disposal: Default {
-  type Error: Into<SystemError>;
-  fn dispose(&mut self, value: Value) -> Result<(), Self::Error>;
-
-  fn terminate(&mut self);
+  fn dispose(&mut self, value: Value);
 }
 
+#[derive(Default)]
+pub struct SyncDisposal;
+
+impl Disposal for SyncDisposal {
+  fn dispose(&mut self, value: Value) {
+    drop_value(value);
+  }
+}
+
+pub(crate) fn consume<T: Usertype>(this: *mut T) {
+  let _ = unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) };
+}
+
+fn drop_value(mut value: Value) {
+  debug_assert!(value.is_ptr());
+  let pointer = value.pointer_mut();
+  let meta = value.meta();
+  (meta.vtable.dealloc)(pointer);
+}
+
+#[cfg(test)]
+mod tests;
+
+/* Async Disposal impl
 pub struct AsyncDisposal {
   chute: Option<mpsc::Sender<Value>>,
   th: Option<JoinHandle<()>>,
@@ -354,31 +471,4 @@ impl Disposal for AsyncDisposal {
     }
   }
 }
-
-#[derive(Default)]
-pub struct SyncDisposal;
-
-impl Disposal for SyncDisposal {
-  type Error = SystemError;
-
-  fn dispose(&mut self, value: Value) -> Result<(), Self::Error> {
-    drop_value(value);
-    Ok(())
-  }
-
-  fn terminate(&mut self) {}
-}
-
-pub(crate) fn consume<T: Usertype>(this: *mut T) {
-  let _ = unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) };
-}
-
-fn drop_value(mut value: Value) {
-  debug_assert!(value.is_ptr());
-  let pointer = value.pointer_mut();
-  let meta = value.meta();
-  (meta.vtable.dealloc)(pointer);
-}
-
-#[cfg(test)]
-mod tests;
+*/

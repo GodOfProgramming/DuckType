@@ -4,7 +4,7 @@ use crate::prelude::*;
 #[uuid("988a6bd1-4a54-416f-aad5-0d1cc8ce652e")]
 pub struct InstanceValue {
   #[trace]
-  pub data: Value,
+  data: Value,
   #[trace]
   pub class: Value,
 }

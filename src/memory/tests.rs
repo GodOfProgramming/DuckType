@@ -11,15 +11,13 @@ fn gc_can_allocate_and_clean() {
 
   gc.allocate(SomeType {});
 
-  let cleaned = gc
-    .deep_clean(
-      &Default::default(),
-      &Default::default(),
-      &mut Default::default(),
-      &Default::default(),
-      &[],
-    )
-    .unwrap();
+  let cleaned = gc.deep_clean(
+    &Default::default(),
+    &Default::default(),
+    &mut Default::default(),
+    &Default::default(),
+    &[],
+  );
   assert_eq!(cleaned, 1);
 }
 
@@ -29,15 +27,13 @@ fn gc_does_not_clean_more_than_it_needs_to() {
 
   gc.allocate(SomeType {});
 
-  let cleaned = gc
-    .deep_clean(
-      &Default::default(),
-      &Default::default(),
-      &mut Default::default(),
-      &Default::default(),
-      &[],
-    )
-    .unwrap();
+  let cleaned = gc.deep_clean(
+    &Default::default(),
+    &Default::default(),
+    &mut Default::default(),
+    &Default::default(),
+    &[],
+  );
 
   assert_eq!(cleaned, 1);
 }
@@ -53,10 +49,10 @@ fn gc_does_not_clean_open_handles() {
 
   {
     let _handle = vm.make_usertype_handle_from(struct_value);
-    let cleaned = vm.force_gc().unwrap();
+    let cleaned = vm.force_gc();
     assert_eq!(cleaned, 0);
   }
 
-  let cleaned = vm.force_gc().unwrap();
+  let cleaned = vm.force_gc();
   assert_eq!(cleaned, 2);
 }

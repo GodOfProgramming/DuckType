@@ -134,9 +134,9 @@ DECL_RET(bool, exec_initialize_constructor, Vm);
 
 DECL_RET(bool, exec_initialize_method, Vm, Instruction);
 
-DECL_RET(bool, exec_create_vec, Vm, Instruction);
+DECL(exec_create_vec, Vm, Instruction);
 
-DECL_RET(bool, exec_create_sized_vec, Vm, Instruction);
+DECL(exec_create_sized_vec, Vm, Instruction);
 
 DECL_RET(bool, exec_create_dyn_vec, Vm);
 

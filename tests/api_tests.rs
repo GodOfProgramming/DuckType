@@ -77,9 +77,7 @@ mod tests {
 
     assert!(unsafe { !B });
 
-    t.vm.force_gc().unwrap();
-
-    t.vm.gc.terminate();
+    t.vm.force_gc();
 
     assert!(unsafe { B });
   }
