@@ -6,7 +6,7 @@ edition = "2021"
 default-run = "duck"
 
 [workspace]
-members = [".", "macros"]
+members = [".", "workspace/macros"]
 
 [[bin]]
 name = "duck"
@@ -47,7 +47,7 @@ interpolator = "0.5"
 
 ptr = { git = "https://github.com/GodOfProgramming/ptr.git" }
 tfix = { git = "https://github.com/GodOfProgramming/tfix" }
-macros = { path = "macros" }
+macros = { path = "workspace/macros" }
 
 [dev-dependencies]
 pretty_assertions = "1.4"
