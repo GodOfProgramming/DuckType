@@ -45,8 +45,8 @@ pprof = { version = "0.13", features = ["flamegraph"] }
 tokio = { version = "1.33", features = ["full"] }
 interpolator = "0.5"
 
-ptr = { path = "lib/ptr" }
-tfix = { path = "lib/tfix" }
+ptr = { git = "https://github.com/GodOfProgramming/ptr.git" }
+tfix = { git = "https://github.com/GodOfProgramming/tfix" }
 macros = { path = "macros" }
 
 [dev-dependencies]
