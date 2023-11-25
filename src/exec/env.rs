@@ -1,7 +1,11 @@
 use std::{
   collections::BTreeMap,
   fmt::{self, Display, Formatter},
+  ops::{Deref, DerefMut},
+  sync::atomic::Ordering,
 };
+
+use ptr::MutPtr;
 
 #[cfg(test)]
 use crate::code::gen::{CAPTURE_OPS, GENERATED_OPS};
@@ -9,16 +13,15 @@ use crate::{
   code::{ConstantValue, Reflection},
   prelude::*,
   util::FileIdType,
-  FastHashMap,
+  FastHashMap, FastHashSet,
 };
 
 use super::Stack;
 pub mod prelude {
-  pub use super::{Cache, Context};
+  pub use super::{Cache, Context, UsertypeHandle, ValueHandle};
 }
 
 type ConstIndex = usize;
-type ValueBits = u64;
 
 #[derive(Default)]
 pub struct Cache {
@@ -29,7 +32,9 @@ pub struct Cache {
   libs: BTreeMap<FileIdType, Value>,
 
   // Can be cleared from gc cleaning
-  mods: FastHashMap<ValueBits, FastHashMap<ConstIndex, Value>>,
+  mods: FastHashMap<Value, FastHashMap<ConstIndex, Value>>,
+
+  pub(crate) native_handles: FastHashSet<Value>,
 }
 
 impl Cache {
@@ -75,14 +80,14 @@ impl Cache {
     let key = key.into();
     self
       .mods
-      .get(&env.value().bits)
+      .get(&env.value())
       .and_then(|m| m.get(&key))
       .or_else(|| self.globals.get(&key))
       .cloned()
   }
 
   pub(crate) fn resolve_mod(&self, value: Value, key: impl Into<ConstIndex>) -> Option<Value> {
-    self.mods.get(&value.bits).and_then(|m| m.get(&key.into())).cloned()
+    self.mods.get(&value).and_then(|m| m.get(&key.into())).cloned()
   }
 
   pub(crate) fn add_lib(&mut self, id: FileIdType, value: Value) {
@@ -94,21 +99,182 @@ impl Cache {
   }
 
   pub(crate) fn add_to_mod(&mut self, module: Value, key: impl Into<ConstIndex>, value: Value) {
-    self.mods.entry(module.bits).or_default().insert(key.into(), value);
+    self.mods.entry(module).or_default().insert(key.into(), value);
   }
 
-  pub(crate) fn trace(&self, marker: &mut Marker) {
-    for value in self.globals.values().chain(self.libs.values()) {
-      marker.trace(value);
+  pub(crate) fn deep_trace(&self, marker: &mut Tracer) {
+    for value in self.globals.values().chain(self.libs.values()).chain(&self.native_handles) {
+      marker.deep_trace(value);
     }
   }
 
-  pub(crate) fn len(&self) -> usize {
-    self.globals.len() + self.libs.len()
+  pub(crate) fn incremental_trace(&self, marker: &mut Tracer) {
+    for value in self.globals.values().chain(self.libs.values()).chain(&self.native_handles) {
+      marker.try_mark_gray(value);
+    }
   }
 
-  pub(crate) fn forget(&mut self, addr: &u64) {
-    self.mods.remove(addr);
+  pub(crate) fn make_handle(&mut self, value: Value) -> ValueHandle {
+    self.native_handles.insert(value);
+    ValueHandle::new(value)
+  }
+
+  pub(crate) fn forget(&mut self, value: Value) {
+    self.mods.remove(&value);
+  }
+}
+
+pub struct UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  pub(crate) usertype: MutPtr<T>,
+  pub handle: ValueHandle,
+}
+
+impl<T> UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  pub fn new(mut handle: ValueHandle) -> Self {
+    Self {
+      usertype: MutPtr::new(handle.value.reinterpret_cast_to_mut::<T>()),
+      handle,
+    }
+  }
+
+  pub fn value(&self) -> Value {
+    self.handle.value
+  }
+}
+
+impl<T> Clone for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn clone(&self) -> Self {
+    Self {
+      usertype: self.usertype,
+      handle: self.handle.clone(),
+    }
+  }
+}
+
+impl<T> From<UsertypeHandle<T>> for ValueHandle
+where
+  T: Usertype,
+{
+  fn from(utype: UsertypeHandle<T>) -> Self {
+    utype.handle
+  }
+}
+
+impl<T> MaybeFrom<ValueHandle> for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn maybe_from(handle: ValueHandle) -> Option<Self> {
+    if handle.value.is::<T>() {
+      Some(UsertypeHandle::new(handle))
+    } else {
+      None
+    }
+  }
+}
+
+impl<T> Deref for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  type Target = T;
+  fn deref(&self) -> &Self::Target {
+    &self.usertype
+  }
+}
+
+impl<T> DerefMut for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.usertype
+  }
+}
+
+impl<T> Display for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.handle)
+  }
+}
+
+pub struct ValueHandle {
+  pub value: Value,
+}
+
+impl ValueHandle {
+  pub fn new(mut value: Value) -> ValueHandle {
+    if value.is_ptr() {
+      value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
+    }
+    Self { value }
+  }
+}
+
+impl Deref for ValueHandle {
+  type Target = Value;
+  fn deref(&self) -> &Self::Target {
+    &self.value
+  }
+}
+
+impl DerefMut for ValueHandle {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.value
+  }
+}
+
+impl From<ValueHandle> for Value {
+  fn from(handle: ValueHandle) -> Self {
+    handle.value
+  }
+}
+
+impl Clone for ValueHandle {
+  fn clone(&self) -> Self {
+    if self.value.is_ptr() {
+      self.value.meta().ref_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    Self { value: self.value }
+  }
+}
+
+impl Display for ValueHandle {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.value)
+  }
+}
+
+impl Drop for ValueHandle {
+  fn drop(&mut self) {
+    if self.value.is_ptr() {
+      let meta = self.value.meta();
+
+      #[cfg(debug_assertions)]
+      let before = meta.ref_count.load(Ordering::Relaxed);
+
+      meta.ref_count.fetch_sub(1, Ordering::Relaxed);
+
+      #[cfg(debug_assertions)]
+      {
+        let after = meta.ref_count.load(Ordering::Relaxed);
+
+        debug_assert!(before > after);
+      }
+    }
   }
 }
 

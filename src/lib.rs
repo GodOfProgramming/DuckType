@@ -197,6 +197,15 @@ impl Vm {
     self.execute(RunMode::Fn)
   }
 
+  pub fn eval(&mut self, source: impl AsRef<str>) -> Result<Value, Error> {
+    let opts = CompileOpts { optimize: self.opt };
+    let ctx = code::compile_string(&mut self.cache, source, opts)?;
+    let module = current_module!(self).clone();
+    self.modules.push(ModuleEntry::String(module));
+    self.new_frame(ctx, 0);
+    self.execute(RunMode::String)
+  }
+
   pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
     #[cfg(feature = "jtbl")]
     {
@@ -204,7 +213,7 @@ impl Vm {
         bindings::duck_type_execute(
           self as *mut Vm as *mut std::ffi::c_void,
           self.ctx().instructions.as_ptr() as *const u64,
-          &mut *self.stack_frame.ip as *mut usize,
+          self.stack_frame.ip_ptr(),
         )
       };
 
@@ -216,7 +225,7 @@ impl Vm {
     #[cfg(not(feature = "jtbl"))]
     {
       'fetch_cycle: loop {
-        let inst = self.stack_frame.ctx.fetch(*self.stack_frame.ip);
+        let inst = self.stack_frame.ctx.fetch(self.stack_frame.ip());
         self.exec_disasm(inst);
         match inst.opcode() {
           Opcode::Pop => self.exec_pop(),
@@ -256,8 +265,8 @@ impl Vm {
           Opcode::PeekMember => self.exec_peek_member(inst.data())?,
           Opcode::InitializeConstructor => self.exec_initialize_constructor()?,
           Opcode::InitializeMethod => self.exec_initialize_method(inst.data())?,
-          Opcode::CreateVec => self.exec_create_vec(inst.data())?,
-          Opcode::CreateSizedVec => self.exec_create_sized_vec(inst.data())?,
+          Opcode::CreateVec => self.exec_create_vec(inst.data()),
+          Opcode::CreateSizedVec => self.exec_create_sized_vec(inst.data()),
           Opcode::CreateDynamicVec => self.exec_create_dyn_vec()?,
           Opcode::CreateClosure => self.exec_create_closure()?,
           Opcode::CreateStruct => self.exec_create_struct(inst.data())?,
@@ -293,7 +302,8 @@ impl Vm {
           Opcode::Unknown => self.exec_unknown(inst)?,
           Opcode::Breakpoint => self.exec_dbg()?,
         }
-        *self.stack_frame.ip += 1;
+
+        self.stack_frame.ip_inc(1);
       }
     }
 
@@ -324,28 +334,35 @@ impl Vm {
     Ok(export.unwrap_or_default())
   }
 
-  pub fn check_gc(&mut self) -> ExecResult {
-    self
-      .gc
-      .poll(
-        &self.stack,
-        &self.modules,
-        &mut self.cache,
-        &self.stack_frame,
-        &self.stack_frames,
-      )
-      .map_err(|e| e.into())
-  }
-
-  pub fn force_gc(&mut self) -> ExecResult<usize> {
-    let cleaned = self.gc.clean(
+  pub fn check_gc(&mut self) {
+    self.check_gc_inc();
+    self.gc.poll_deep(
       &self.stack,
       &self.modules,
       &mut self.cache,
       &self.stack_frame,
       &self.stack_frames,
-    )?;
-    Ok(cleaned)
+    );
+  }
+
+  pub fn check_gc_inc(&mut self) {
+    self.gc.poll_inc(
+      &self.stack,
+      &self.modules,
+      &mut self.cache,
+      &self.stack_frame,
+      &self.stack_frames,
+    );
+  }
+
+  pub fn force_gc(&mut self) -> usize {
+    self.gc.deep_clean(
+      &self.stack,
+      &self.modules,
+      &mut self.cache,
+      &self.stack_frame,
+      &self.stack_frames,
+    )
   }
 
   pub fn get_global(&self, name: &str) -> Option<Value> {
@@ -362,7 +379,7 @@ impl Vm {
 
   #[cold]
   fn error(&self, e: UsageError) -> Error {
-    let instruction = self.stack_frame.ctx.instructions[*self.stack_frame.ip];
+    let instruction = self.stack_frame.ctx.instructions[self.stack_frame.ip()];
     Error::runtime_error(self.error_at(instruction, |opcode_ref| RuntimeError::new(e, &self.filemap, opcode_ref)))
   }
 
@@ -375,10 +392,10 @@ impl Vm {
       .stack_frame
       .ctx
       .meta
-      .reflect(inst, *self.stack_frame.ip)
+      .reflect(inst, self.stack_frame.ip())
       .map(f)
       .unwrap_or_else(|| RuntimeError {
-        msg: UsageError::IpOutOfBounds(*self.stack_frame.ip).to_string(),
+        msg: UsageError::IpOutOfBounds(self.stack_frame.ip()).to_string(),
         file: self.filemap.get(self.stack_frame.ctx.meta.file_id),
         line: 0,
         column: 0,
@@ -405,7 +422,7 @@ impl Vm {
             cache: &self.cache,
           },
           inst,
-          offset: *self.stack_frame.ip,
+          offset: self.stack_frame.ip(),
         }
       );
     }
@@ -423,6 +440,7 @@ impl Vm {
     let c = self.cache.const_at(index).clone();
     let value = self.make_value_from(c);
     self.stack_push(value);
+    self.check_gc_inc();
   }
 
   fn exec_store(&mut self, (storage, addr): (Storage, LongAddr)) -> ExecResult {
@@ -431,6 +449,7 @@ impl Vm {
       Storage::Local => self.exec_store_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_store_global(addr))?,
     }
+    self.check_gc_inc();
     Ok(())
   }
 
@@ -440,6 +459,7 @@ impl Vm {
       Storage::Local => self.exec_load_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_load_global(addr))?,
     }
+    self.check_gc_inc();
     Ok(())
   }
 
@@ -530,7 +550,8 @@ impl Vm {
     let mut obj = self.stack_peek();
     let class = self.wrap_err_mut(|_| obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment))?;
     class.set_constructor(value);
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_initialize_method(&mut self, loc: usize) -> ExecResult {
@@ -550,22 +571,23 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
-  fn exec_create_vec(&mut self, num_items: usize) -> ExecResult {
+  fn exec_create_vec(&mut self, num_items: usize) {
     let list = self.stack_drain_from(num_items);
     let list = self.make_value_from(list);
     self.stack_push(list);
-    self.check_gc()
+    self.check_gc();
   }
 
-  fn exec_create_sized_vec(&mut self, repeats: usize) -> ExecResult {
+  fn exec_create_sized_vec(&mut self, repeats: usize) {
     let item = self.stack_pop();
     let vec = vec![item; repeats];
     let vec = self.make_value_from(vec);
     self.stack_push(vec);
-    self.check_gc()
+    self.check_gc();
   }
 
   fn exec_create_dyn_vec(&mut self) -> ExecResult {
@@ -575,7 +597,8 @@ impl Vm {
     let vec = vec![item; repeats as usize];
     let vec = self.make_value_from(vec);
     self.stack_push(vec);
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_create_closure(&mut self) -> ExecResult {
@@ -591,7 +614,8 @@ impl Vm {
       Ok(())
     })?;
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_create_struct(&mut self, nmem: usize) -> ExecResult {
@@ -620,7 +644,8 @@ impl Vm {
       Ok(())
     })?;
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_create_class(&mut self, loc: usize) -> ExecResult {
@@ -634,7 +659,8 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_create_module(&mut self, loc: usize) -> ExecResult {
@@ -649,13 +675,14 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_check(&mut self) -> ExecResult {
     let b = self.stack_pop();
     let a = self.stack_peek();
-    self.wrap_err_mut(|this| this.do_binary_op(a, b, |vt| vt.eq, |a, b| Ok(Value::from(a == b))))
+    self.wrap_err_mut(|this| this.do_binary_op(a, b, |vt| vt.eq, |a, b| Ok(Value::from(a.equals(b)))))
   }
 
   fn exec_println(&mut self) {
@@ -671,7 +698,7 @@ impl Vm {
     let value = self.stack_pop();
 
     if value.truthy() {
-      *self.stack_frame.ip += 1;
+      self.stack_frame.ip_inc(1);
     } else {
       self.jump(offset);
     }
@@ -684,7 +711,8 @@ impl Vm {
   fn exec_call(&mut self, airity: usize) -> ExecResult {
     let callable = self.stack_load_rev(airity);
     self.wrap_err_mut(|this| this.call_value(callable, airity))?;
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_req(&mut self) -> ExecResult {
@@ -790,7 +818,8 @@ impl Vm {
       }
     }
 
-    self.check_gc()
+    self.check_gc();
+    Ok(())
   }
 
   fn exec_dbg(&mut self) -> ExecResult {
@@ -1234,71 +1263,71 @@ impl Vm {
   }
 
   fn exec_equal_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.eq, |a, b| a == b)
+    self.bool_op(|vt| vt.eq, |a, b| a.equals(b))
   }
 
   fn exec_equal_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.eq, |a, b| a == b)
+    self.do_bool(av, bv, |vt| vt.eq, |a, b| a.equals(b))
   }
 
   fn exec_not_equal_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.neq, |a, b| a != b)
+    self.bool_op(|vt| vt.neq, |a, b| a.not_equals(b))
   }
 
   fn exec_not_equal_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.neq, |a, b| a != b)
+    self.do_bool(av, bv, |vt| vt.neq, |a, b| a.not_equals(b))
   }
 
   fn exec_greater_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.greater, |a, b| a > b)
+    self.bool_op(|vt| vt.greater, |a, b| a.greater_than(b))
   }
 
   fn exec_greater_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.greater, |a, b| a > b)
+    self.do_bool(av, bv, |vt| vt.greater, |a, b| a.greater_than(b))
   }
 
   fn exec_greater_equal_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.geq, |a, b| a >= b)
+    self.bool_op(|vt| vt.geq, |a, b| a.greater_equal(b))
   }
 
   fn exec_greater_equal_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.geq, |a, b| a >= b)
+    self.do_bool(av, bv, |vt| vt.geq, |a, b| a.greater_equal(b))
   }
 
   fn exec_less_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.less, |a, b| a < b)
+    self.bool_op(|vt| vt.less, |a, b| a.less_than(b))
   }
 
   fn exec_less_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.less, |a, b| a < b)
+    self.do_bool(av, bv, |vt| vt.less, |a, b| a.less_than(b))
   }
 
   fn exec_less_equal_slow(&mut self) -> OpResult {
-    self.bool_op(|vt| vt.leq, |a, b| a <= b)
+    self.bool_op(|vt| vt.leq, |a, b| a.less_equal(b))
   }
 
   fn exec_less_equal_fast(&mut self, (st_a, addr_a, st_b, addr_b): (Storage, ShortAddr, Storage, ShortAddr)) -> OpResult {
     let av = self.load_from_storage(st_a, addr_a)?;
     let bv = self.load_from_storage(st_b, addr_b)?;
-    self.do_bool(av, bv, |vt| vt.leq, |a, b| a <= b)
+    self.do_bool(av, bv, |vt| vt.leq, |a, b| a.less_equal(b))
   }
 
   fn jump(&mut self, offset: usize) {
-    *self.stack_frame.ip += offset;
+    self.stack_frame.ip_inc(offset);
   }
 
   fn jump_back(&mut self, offset: usize) {
-    *self.stack_frame.ip -= offset;
+    self.stack_frame.ip_dec(offset);
   }
 
   /// when f evaluates to true, short circuit
@@ -1308,7 +1337,7 @@ impl Vm {
       self.jump(offset);
     } else {
       self.stack_pop();
-      *self.stack_frame.ip += 1;
+      self.stack_frame.ip_inc(1);
     }
   }
 
@@ -1328,16 +1357,19 @@ impl Vm {
     })
   }
 
-  pub fn make_handle(&mut self, value: Value) -> ValueHandle {
-    self.gc.handle_from(value)
-  }
-
   pub fn maybe_make_usertype_handle<T: Usertype>(&mut self, value: Value) -> Option<UsertypeHandle<T>> {
     value.is::<T>().then(|| UsertypeHandle::new(self.make_handle(value)))
   }
 
   pub fn make_usertype_handle_from<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
-    self.gc.allocate_typed_handle(item)
+    let value = self.gc.allocate_untracked(item);
+    let handle = self.cache.make_handle(value);
+    UsertypeHandle::new(handle)
+  }
+
+  fn make_handle(&mut self, value: Value) -> ValueHandle {
+    self.gc.forget(value);
+    self.cache.make_handle(value)
   }
 
   fn wrap_err<F, T>(&self, f: F) -> ExecResult<T>
@@ -1486,7 +1518,7 @@ impl Vm {
     println!("{}", self.stack);
     println!(
       "               | ip: {ip} sp: {sp}",
-      ip = self.stack_frame.ip,
+      ip = self.stack_frame.ip(),
       sp = self.stack_frame.sp
     );
   }

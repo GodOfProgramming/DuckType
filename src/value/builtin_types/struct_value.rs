@@ -43,8 +43,8 @@ impl Ord for StructMember {
 #[uuid("1215f7a4-1b67-4387-bf00-f950bbc63743")]
 pub struct StructValue {
   #[trace]
-  pub members: Vec<StructMember>,
-  pub string_ids: BiHashMap<String, usize, RandomState, RandomState>,
+  members: Vec<StructMember>,
+  string_ids: BiHashMap<String, usize, RandomState, RandomState>,
 }
 
 impl StructValue {
@@ -146,15 +146,25 @@ impl Display for StructValue {
 }
 
 impl TraceableValue for StructMember {
-  fn trace(&self, marks: &mut Marker) {
-    marks.trace(&self.value);
+  fn deep_trace(&self, marks: &mut Tracer) {
+    marks.deep_trace(&self.value);
+  }
+
+  fn incremental_trace(&self, marks: &mut Tracer) {
+    marks.try_mark_gray(&self.value);
   }
 }
 
 impl TraceableValue for Vec<StructMember> {
-  fn trace(&self, marks: &mut Marker) {
+  fn deep_trace(&self, marks: &mut Tracer) {
     for member in self {
-      member.trace(marks);
+      member.deep_trace(marks);
+    }
+  }
+
+  fn incremental_trace(&self, marks: &mut Tracer) {
+    for member in self {
+      member.incremental_trace(marks);
     }
   }
 }

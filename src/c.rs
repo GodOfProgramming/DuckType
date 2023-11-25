@@ -187,15 +187,13 @@ pub extern "C" fn exec_initialize_method(vm: &mut Vm, inst: Instruction) -> bool
 }
 
 #[no_mangle]
-pub extern "C" fn exec_create_vec(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_create_vec(inst.data());
-  vm.last_error.is_ok()
+pub extern "C" fn exec_create_vec(vm: &mut Vm, inst: Instruction) {
+  vm.exec_create_vec(inst.data());
 }
 
 #[no_mangle]
-pub extern "C" fn exec_create_sized_vec(vm: &mut Vm, inst: Instruction) -> bool {
-  vm.last_error = vm.exec_create_sized_vec(inst.data());
-  vm.last_error.is_ok()
+pub extern "C" fn exec_create_sized_vec(vm: &mut Vm, inst: Instruction) {
+  vm.exec_create_sized_vec(inst.data());
 }
 
 #[no_mangle]

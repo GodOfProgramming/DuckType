@@ -1,9 +1,7 @@
-let foo = class Foo {
-  self as nil
-
-  fn bar() {
-    ret Foo();
-  }
-};
-
-println foo.bar();
+let source = std::str::concat(
+  'fn foo() {',
+    'ret "hello world";',
+  '}',
+  'export foo;'
+);
+println std::vm::eval(source)();

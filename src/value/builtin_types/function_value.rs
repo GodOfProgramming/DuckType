@@ -28,8 +28,11 @@ impl FunctionValue {
   }
 
   pub fn invoke(&mut self, vm: &mut Vm, offset: usize) -> UsageResult {
-    let env = UsertypeHandle::new(vm.gc.handle_from(self.env));
-    vm.run_fn(self.ctx.clone(), env, self.airity + offset)
+    let module = vm
+      .maybe_make_usertype_handle(self.env)
+      .expect("all function environments must be modules");
+
+    vm.run_fn(self.ctx.clone(), module, self.airity + offset)
       .map_err(UsageError::Preformated)
   }
 

@@ -1,4 +1,4 @@
-use crate::{prelude::*, value::prelude::module_value::ModuleType};
+use crate::prelude::*;
 use ptr::SmartPtr;
 use std::path::Path;
 use tfix::{fixture, TestFixture};

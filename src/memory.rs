@@ -1,7 +1,7 @@
 use super::{ModuleStack, Stack, StackFrame};
 use crate::{
   prelude::*,
-  value::{tags::*, Mark, MutVoid, ValueMeta},
+  value::{tags::*, MutVoid, ValueMeta},
   FastHashSet,
 };
 use ahash::HashSetExt;
@@ -9,17 +9,12 @@ use ptr::MutPtr;
 use std::{
   fmt::{self, Display, Formatter},
   mem,
-  ops::{Deref, DerefMut},
-  sync::{
-    atomic::{AtomicUsize, Ordering},
-    mpsc,
-  },
-  thread::{self, JoinHandle},
+  sync::atomic::AtomicUsize,
 };
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
-type AllocationSet = FastHashSet<u64>;
+type AllocationSet = FastHashSet<Value>;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Memory {
@@ -51,12 +46,17 @@ where
   disposer: D,
 
   pub(crate) allocations: AllocationSet,
-  pub(crate) native_handles: AllocationSet,
+
+  grays: AllocationSet,
+  blacks: AllocationSet,
 
   pub(crate) limit: usize,
+  pub(crate) initial_limit: usize,
   pub(crate) allocated_memory: usize,
 
-  pub(crate) num_cycles: usize,
+  pub(crate) deep_cleans: usize,
+  pub(crate) incremental_cleans: usize,
+  pub(crate) increments: usize,
 
   num_limit_repeats: usize,
 }
@@ -66,82 +66,202 @@ where
   D: Disposal,
 {
   pub fn new(initial_limit: Memory) -> Self {
+    let initial_limit = initial_limit.into();
     Self {
       disposer: D::default(),
-      allocations: AllocationSet::with_capacity(512),
-      native_handles: AllocationSet::with_capacity(512),
-      limit: initial_limit.into(),
+      allocations: FastHashSet::with_capacity(512),
+      blacks: Default::default(),
+      grays: Default::default(),
+      limit: initial_limit,
+      initial_limit,
       allocated_memory: 0,
-      num_cycles: 0,
+      deep_cleans: 0,
+      incremental_cleans: 0,
+      increments: 0,
       num_limit_repeats: 0,
     }
   }
 
-  pub(crate) fn poll(
+  pub(crate) fn poll_deep(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
     cache: &mut Cache,
     stack_frame: &StackFrame,
     stack_frames: &[StackFrame],
-  ) -> Result<(), SystemError> {
+  ) {
     if self.allocated_memory > self.limit {
-      self.clean(stack, envs, cache, stack_frame, stack_frames)?;
+      self.deep_clean(stack, envs, cache, stack_frame, stack_frames);
     }
-    Ok(())
   }
 
-  pub(crate) fn clean(
+  pub(crate) fn poll_inc(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
     cache: &mut Cache,
     stack_frame: &StackFrame,
     stack_frames: &[StackFrame],
-  ) -> Result<usize, SystemError> {
-    self.ref_check_native_handles();
-
-    let marked_allocations = self.trace(stack, envs, cache, stack_frame, stack_frames);
-
-    let unmarked_allocations = self.find_unmarked(marked_allocations);
-
-    let cleaned = unmarked_allocations.len();
-
-    let mut released = 0;
-    for alloc in &unmarked_allocations {
-      released += Value { bits: *alloc }.meta().size;
-      let removed = self.allocations.remove(alloc);
-      debug_assert!(removed);
-      cache.forget(alloc);
+  ) {
+    if self.allocated_memory > self.limit / 2 {
+      self.increments += 1;
+      self.incremental(stack, envs, cache, stack_frame, stack_frames);
     }
-
-    if cleaned > 0 {
-      self.disposer.dispose(unmarked_allocations).map_err(|e| e.into())?;
-    }
-
-    self.calc_limit(released);
-
-    self.num_cycles += 1;
-
-    Ok(cleaned)
   }
 
-  fn calc_limit(&mut self, released: usize) {
-    const REPEAT_LIM: usize = 7;
-    const ALLOC_DENOMINATOR: usize = 2;
+  pub(crate) fn deep_clean(
+    &mut self,
+    stack: &Stack,
+    envs: &ModuleStack,
+    cache: &mut Cache,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
+  ) -> usize {
+    self.grays.clear();
+    self.blacks.clear();
+    self.ref_check_native_handles(cache);
+    self.deep_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+    self.deep_cleans += 1;
+    self.clean(cache, self.find_unreferenced())
+  }
 
+  pub(crate) fn incremental(
+    &mut self,
+    stack: &Stack,
+    envs: &ModuleStack,
+    cache: &mut Cache,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
+  ) {
+    self.ref_check_native_handles(cache);
+    self.incremental_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+    if self.grays.is_empty() {
+      self.incremental_cleans += 1;
+      self.clean(cache, self.find_unreferenced());
+      self.blacks.clear();
+    }
+  }
+
+  fn deep_trace_roots(
+    &mut self,
+    stack: &Stack,
+    envs: &ModuleStack,
+    cache: &Cache,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
+  ) {
+    let mut tracer = Tracer::new(&mut self.blacks);
+
+    for value in stack.iter() {
+      tracer.deep_trace(value)
+    }
+
+    cache.deep_trace(&mut tracer);
+
+    for env in envs.iter() {
+      let handle = env.module();
+      let value = handle.value();
+      tracer.deep_trace(&value);
+    }
+
+    if let Some(value) = &stack_frame.export {
+      tracer.deep_trace(value);
+    }
+
+    for frame in stack_frames {
+      if let Some(value) = &frame.export {
+        tracer.deep_trace(value);
+      }
+    }
+  }
+
+  fn incremental_trace_roots(
+    &mut self,
+    stack: &Stack,
+    envs: &ModuleStack,
+    cache: &Cache,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
+  ) {
+    let mut tracer = Tracer::new(&mut self.blacks);
+
+    for value in self.grays.drain() {
+      tracer.trace_gray(&value);
+    }
+
+    for value in stack.iter() {
+      tracer.try_mark_gray(value)
+    }
+
+    cache.incremental_trace(&mut tracer);
+
+    for env in envs.iter() {
+      let value = env.module().value();
+      tracer.try_mark_gray(&value);
+    }
+
+    if let Some(value) = &stack_frame.export {
+      tracer.try_mark_gray(value);
+    }
+
+    for frame in stack_frames {
+      if let Some(value) = &frame.export {
+        tracer.try_mark_gray(value);
+      }
+    }
+
+    self.grays = tracer.grays;
+  }
+
+  fn clean(&mut self, cache: &mut Cache, unreferenced: Vec<Value>) -> usize {
+    let cleaned = unreferenced.len();
+
+    let mut released_memory = 0;
+    for value in unreferenced {
+      released_memory += value.meta().size;
+      cache.forget(value);
+      self.purge(value);
+    }
+
+    self.calc_new_limit(released_memory);
+
+    cleaned
+  }
+
+  #[must_use]
+  fn find_unreferenced(&self) -> Vec<Value> {
+    self
+      .allocations
+      .difference(&self.blacks)
+      .filter(|value| {
+        debug_assert!(value.is_ptr());
+        value.is_unreferenced()
+      })
+      .cloned()
+      .collect()
+  }
+
+  fn calc_new_limit(&mut self, released: usize) {
     let previously_allocated = self.allocated_memory;
+
     self.allocated_memory = self.allocated_memory.saturating_sub(released);
 
     let prev_limit = self.limit;
     self.limit = {
-      if self.num_limit_repeats > REPEAT_LIM && previously_allocated / ALLOC_DENOMINATOR > self.allocated_memory {
-        self.num_limit_repeats = 0;
-        // memory isn't being allocated rapidly, try to find a middle ground
-        self.limit / ALLOC_DENOMINATOR
-      } else {
-        // memory is possibly being allocated rapidly, either increase the limit to account or restore the existing
-        usize::max(self.allocated_memory.saturating_mul(2), self.limit)
+      {
+        const REPEAT_LIM: usize = 7;
+        const REDUCTION_PERCENT: f64 = 0.7;
+        if self.num_limit_repeats > REPEAT_LIM
+          && previously_allocated as f64 * REDUCTION_PERCENT > (2.0 - REDUCTION_PERCENT) * self.allocated_memory as f64
+        {
+          self.num_limit_repeats = 0;
+          // memory isn't being allocated rapidly, try to find a middle ground
+
+          usize::max((self.limit as f64 * REDUCTION_PERCENT) as usize, self.initial_limit)
+        } else {
+          // memory is possibly being allocated rapidly, either increase the limit to account or restore the existing
+          usize::max(self.allocated_memory.saturating_mul(2), self.limit)
+        }
       }
     };
 
@@ -150,76 +270,7 @@ where
     }
   }
 
-  fn trace(
-    &self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) -> AllocationSet {
-    let mut marked_allocations = Marker::with_estimated_size(stack.len() + envs.len() + cache.len() + 1 + stack_frames.len());
-
-    for handle in &self.native_handles {
-      marked_allocations.trace(&Value { bits: *handle });
-    }
-
-    for value in stack.iter() {
-      marked_allocations.trace(value)
-    }
-
-    cache.trace(&mut marked_allocations);
-
-    for env in envs.iter() {
-      let handle = env.module();
-      let value = handle.value();
-      marked_allocations.trace(&value);
-    }
-
-    if let Some(value) = &stack_frame.export {
-      marked_allocations.trace(value);
-    }
-
-    for frame in stack_frames {
-      if let Some(value) = &frame.export {
-        marked_allocations.trace(value);
-      }
-    }
-
-    marked_allocations.into()
-  }
-
-  fn find_unmarked(&self, marked_allocations: AllocationSet) -> Vec<u64> {
-    self
-      .allocations
-      .difference(&marked_allocations)
-      .filter(|a| {
-        let value = Value { bits: **a };
-        debug_assert!(value.is_ptr());
-        value.meta().ref_count.load(Ordering::Relaxed) == 0
-      })
-      .cloned()
-      .collect()
-  }
-
-  pub fn handle_from(&mut self, value: Value) -> ValueHandle {
-    self.allocations.remove(&value.bits);
-    self.native_handles.insert(value.bits);
-
-    ValueHandle::new(value)
-  }
-
-  pub fn allocate_typed_handle<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
-    let value = self.allocate(item);
-    let handle = self.handle_from(value);
-    UsertypeHandle::new(handle)
-  }
-
-  pub fn terminate(&mut self) {
-    self.disposer.terminate()
-  }
-
-  pub fn allocate<T: Usertype>(&mut self, item: T) -> Value {
+  pub(crate) fn allocate_untracked<T: Usertype>(&mut self, item: T) -> Value {
     fn allocate_type<T>(item: T) -> *mut T {
       Box::into_raw(Box::new(item))
     }
@@ -240,24 +291,54 @@ where
     debug_assert_eq!(ptr as u64 & POINTER_TAG, 0);
 
     // return the pointer to the object, hiding the vtable & ref count behind the returned address
-    let bits = ptr as u64 | POINTER_TAG;
-    let new_allocation = self.allocations.insert(bits);
-    debug_assert!(new_allocation);
-    Value { bits }
+    Value::new_pointer(ptr)
   }
 
-  fn ref_check_native_handles(&mut self) {
-    let transferred = self
+  pub fn allocate<T: Usertype>(&mut self, item: T) -> Value {
+    let value = self.allocate_untracked(item);
+
+    #[cfg(debug_assertions)]
+    {
+      debug_assert!(self.allocations.iter().find(|v| v.bits == value.bits).is_none());
+    }
+
+    self.track(value);
+
+    value
+  }
+
+  fn ref_check_native_handles(&mut self, cache: &mut Cache) {
+    let transfers = cache
       .native_handles
       .iter()
-      .map(|alloc| Value { bits: *alloc })
-      .filter(|v| v.meta().ref_count.load(Ordering::Relaxed) == 0)
+      .filter(|v| v.is_unreferenced())
+      .cloned()
       .collect::<Vec<Value>>();
 
-    for transfer in transferred {
-      self.native_handles.remove(&transfer.bits);
-      self.allocations.insert(transfer.bits);
+    for transfer in transfers {
+      cache.native_handles.remove(&transfer);
+      self.track(transfer);
     }
+  }
+
+  fn track(&mut self, value: Value) {
+    debug_assert!(value.is_ptr());
+    let is_new = self.allocations.insert(value);
+    debug_assert!(is_new)
+  }
+
+  pub(crate) fn forget(&mut self, value: Value) {
+    self.allocations.remove(&value);
+  }
+
+  fn purge(&mut self, value: Value) {
+    self.forget(value);
+    self.disposer.dispose(value)
+  }
+
+  pub(crate) fn invalidate(&mut self, value: &Value) {
+    self.grays.remove(&value);
+    self.blacks.remove(&value);
   }
 }
 
@@ -280,257 +361,55 @@ impl<T: Usertype> AllocatedObject<T> {
       vtable: &T::VTABLE,
       ref_count: AtomicUsize::new(0),
       size: mem::size_of::<Self>(),
-      mark: Mark::default(),
     };
     Self { obj, meta }
   }
 }
 
-pub struct UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  pub(crate) usertype: MutPtr<T>,
-  pub handle: ValueHandle,
+pub struct Tracer {
+  grays: AllocationSet,
+  blacks: MutPtr<AllocationSet>,
 }
 
-impl<T> UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  pub fn new(mut handle: ValueHandle) -> Self {
+impl Tracer {
+  fn new(blacks: &mut AllocationSet) -> Self {
     Self {
-      usertype: MutPtr::new(handle.value.reinterpret_cast_to_mut::<T>()),
-      handle,
+      grays: AllocationSet::default(),
+      blacks: MutPtr::new(blacks),
     }
   }
 
-  pub fn value(&self) -> Value {
-    self.handle.value
-  }
-}
-
-impl<T> Clone for UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  fn clone(&self) -> Self {
-    Self {
-      usertype: self.usertype,
-      handle: self.handle.clone(),
+  pub fn deep_trace(&mut self, value: &Value) {
+    if value.is_ptr() && !self.blacks.contains(value) {
+      self.blacks.insert(*value);
+      value.deep_trace_children(self);
     }
   }
-}
 
-impl<T> From<UsertypeHandle<T>> for ValueHandle
-where
-  T: Usertype,
-{
-  fn from(utype: UsertypeHandle<T>) -> Self {
-    utype.handle
-  }
-}
-
-impl<T> MaybeFrom<ValueHandle> for UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  fn maybe_from(handle: ValueHandle) -> Option<Self> {
-    if handle.value.is::<T>() {
-      Some(UsertypeHandle::new(handle))
-    } else {
-      None
+  pub fn try_mark_gray(&mut self, value: &Value) {
+    if value.is_ptr() && !self.grays.contains(value) && !self.blacks.contains(value) {
+      self.grays.insert(*value);
     }
   }
-}
 
-impl<T> Deref for UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  type Target = T;
-  fn deref(&self) -> &Self::Target {
-    &self.usertype
-  }
-}
-
-impl<T> DerefMut for UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.usertype
-  }
-}
-
-impl<T> Display for UsertypeHandle<T>
-where
-  T: Usertype,
-{
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.handle)
-  }
-}
-
-pub struct ValueHandle {
-  pub value: Value,
-}
-
-impl ValueHandle {
-  pub fn new(mut value: Value) -> ValueHandle {
-    if value.is_ptr() {
-      value.meta_mut().ref_count.fetch_add(1, Ordering::Relaxed);
-    }
-    Self { value }
-  }
-}
-
-impl Deref for ValueHandle {
-  type Target = Value;
-  fn deref(&self) -> &Self::Target {
-    &self.value
-  }
-}
-
-impl DerefMut for ValueHandle {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.value
-  }
-}
-
-impl From<ValueHandle> for Value {
-  fn from(handle: ValueHandle) -> Self {
-    handle.value
-  }
-}
-
-impl Clone for ValueHandle {
-  fn clone(&self) -> Self {
-    if self.value.is_ptr() {
-      self.value.meta().ref_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    Self { value: self.value }
-  }
-}
-
-impl Display for ValueHandle {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.value)
-  }
-}
-
-impl Drop for ValueHandle {
-  fn drop(&mut self) {
-    if self.value.is_ptr() {
-      let meta = self.value.meta();
-
-      #[cfg(debug_assertions)]
-      let before = meta.ref_count.load(Ordering::Relaxed);
-
-      meta.ref_count.fetch_sub(1, Ordering::Relaxed);
-
-      #[cfg(debug_assertions)]
-      {
-        let after = meta.ref_count.load(Ordering::Relaxed);
-
-        debug_assert!(before > after);
-      }
-    }
-  }
-}
-
-pub struct Marker {
-  marked_values: AllocationSet,
-}
-
-impl Marker {
-  fn with_estimated_size(num_items: usize) -> Self {
-    Self {
-      marked_values: AllocationSet::with_capacity(num_items),
-    }
-  }
-  pub fn trace(&mut self, value: &Value) {
-    if value.is_ptr() && !self.marked_values.contains(&value.bits) {
-      self.marked_values.insert(value.bits);
-      value.trace_vtable(self);
-    }
-  }
-}
-
-impl From<Marker> for AllocationSet {
-  fn from(value: Marker) -> Self {
-    value.marked_values
+  pub fn trace_gray(&mut self, value: &Value) {
+    self.grays.remove(value);
+    self.blacks.insert(*value);
+    value.incremental_trace_children(self);
   }
 }
 
 pub trait Disposal: Default {
-  type Error: Into<SystemError>;
-  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), Self::Error>;
-
-  fn terminate(&mut self);
-}
-
-pub struct AsyncDisposal {
-  chute: Option<mpsc::Sender<Vec<u64>>>,
-  th: Option<JoinHandle<()>>,
-}
-
-impl Default for AsyncDisposal {
-  fn default() -> Self {
-    let (sender, receiver) = mpsc::channel();
-
-    let th = thread::spawn(move || {
-      while let Ok(allocations) = receiver.recv() {
-        for alloc in allocations {
-          let value = Value { bits: alloc };
-          drop_value(value);
-        }
-      }
-    });
-
-    Self {
-      chute: Some(sender),
-      th: Some(th),
-    }
-  }
-}
-
-impl Disposal for AsyncDisposal {
-  type Error = mpsc::SendError<Vec<u64>>;
-
-  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), Self::Error> {
-    match &self.chute {
-      Some(chute) => chute.send(allocations)?,
-      None => Err(mpsc::SendError::<Vec<u64>>(allocations))?,
-    };
-    Ok(())
-  }
-
-  fn terminate(&mut self) {
-    self.chute = None;
-
-    if let Some(th) = self.th.take() {
-      let _ = th.join();
-    }
-  }
+  fn dispose(&mut self, value: Value);
 }
 
 #[derive(Default)]
 pub struct SyncDisposal;
 
 impl Disposal for SyncDisposal {
-  type Error = SystemError;
-
-  fn dispose(&mut self, allocations: Vec<u64>) -> Result<(), Self::Error> {
-    for alloc in allocations {
-      let value = Value { bits: alloc };
-      drop_value(value);
-    }
-    Ok(())
+  fn dispose(&mut self, value: Value) {
+    drop_value(value);
   }
-
-  fn terminate(&mut self) {}
 }
 
 pub(crate) fn consume<T: Usertype>(this: *mut T) {
@@ -546,3 +425,47 @@ fn drop_value(mut value: Value) {
 
 #[cfg(test)]
 mod tests;
+
+/* Async Disposal impl
+pub struct AsyncDisposal {
+  chute: Option<mpsc::Sender<Value>>,
+  th: Option<JoinHandle<()>>,
+}
+
+impl Default for AsyncDisposal {
+  fn default() -> Self {
+    let (sender, receiver) = mpsc::channel();
+
+    let th = thread::spawn(move || {
+      while let Ok(value) = receiver.recv() {
+        drop_value(value);
+      }
+    });
+
+    Self {
+      chute: Some(sender),
+      th: Some(th),
+    }
+  }
+}
+
+impl Disposal for AsyncDisposal {
+  type Error = mpsc::SendError<Value>;
+
+  fn dispose(&mut self, value: Value) -> Result<(), Self::Error> {
+    match &self.chute {
+      Some(chute) => chute.send(value)?,
+      None => Err(mpsc::SendError::<Value>(value))?,
+    };
+    Ok(())
+  }
+
+  fn terminate(&mut self) {
+    self.chute = None;
+
+    if let Some(th) = self.th.take() {
+      let _ = th.join();
+    }
+  }
+}
+*/

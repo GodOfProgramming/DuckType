@@ -32,7 +32,7 @@ assert_eq_size!(usize, MutVoid);
 assert_eq_size!(usize, f64);
 assert_eq_size!(usize, u64);
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct Value {
   pub bits: u64,
@@ -47,6 +47,12 @@ impl Value {
     Self: From<T>,
   {
     Self::from(v)
+  }
+
+  pub fn new_pointer(ptr: ConstVoid) -> Self {
+    Self {
+      bits: ptr as u64 | POINTER_TAG,
+    }
   }
 
   pub fn tag(&self) -> Tag {
@@ -156,6 +162,7 @@ impl Value {
   }
 
   pub fn set_member(&mut self, vm: &mut Vm, name: Field, value: Value) -> UsageResult<()> {
+    vm.gc.invalidate(self);
     (self.vtable().set_member)(self.pointer_mut(), MutPtr::new(vm), name, value)
   }
 
@@ -179,12 +186,66 @@ impl Value {
     (self.vtable().debug_string)(self.pointer())
   }
 
-  pub fn trace(&self, marks: &mut Marker) {
-    marks.trace(self);
+  pub fn deep_trace(&self, marks: &mut Tracer) {
+    marks.deep_trace(self);
   }
 
-  pub fn trace_vtable(&self, marks: &mut Marker) {
-    (self.vtable().trace)(self.pointer(), marks as *mut Marker as MutVoid);
+  pub fn incremental_trace(&self, marks: &mut Tracer) {
+    marks.try_mark_gray(self);
+  }
+
+  pub fn deep_trace_children(&self, marks: &mut Tracer) {
+    (self.vtable().deep_trace)(self.pointer(), MutPtr::new(marks));
+  }
+
+  pub fn incremental_trace_children(&self, marks: &mut Tracer) {
+    (self.vtable().incremental_trace)(self.pointer(), MutPtr::new(marks));
+  }
+
+  pub fn equals(&self, other: Self) -> bool {
+    self.compare(other) == Some(Ordering::Equal)
+  }
+
+  pub fn not_equals(&self, other: Self) -> bool {
+    !self.equals(other)
+  }
+
+  pub fn less_than(&self, other: Self) -> bool {
+    self.compare(other) == Some(Ordering::Less)
+  }
+
+  pub fn less_equal(&self, other: Self) -> bool {
+    matches!(self.compare(other), Some(Ordering::Less) | Some(Ordering::Equal))
+  }
+
+  pub fn greater_than(&self, other: Self) -> bool {
+    self.compare(other) == Some(Ordering::Greater)
+  }
+
+  pub fn greater_equal(&self, other: Self) -> bool {
+    matches!(self.compare(other), Some(Ordering::Greater) | Some(Ordering::Equal))
+  }
+
+  fn compare(&self, other: Self) -> Option<Ordering> {
+    match (self.tag(), other.tag()) {
+      (Tag::F64, Tag::F64) => {
+        let a = self.reinterpret_cast_to::<f64>();
+        let b = other.reinterpret_cast_to::<f64>();
+        a.partial_cmp(&b)
+      }
+      (Tag::F64, Tag::I32) => {
+        let a = self.reinterpret_cast_to::<f64>();
+        let b = other.reinterpret_cast_to::<i32>() as f64;
+        a.partial_cmp(&b)
+      }
+      (Tag::I32, Tag::F64) => {
+        let a = self.reinterpret_cast_to::<i32>() as f64;
+        let b = other.reinterpret_cast_to::<f64>();
+        a.partial_cmp(&b)
+      }
+      (t1, t2) if t1 == t2 => self.bits.partial_cmp(&other.bits),
+      _ => None,
+    }
   }
 
   // utility
@@ -203,6 +264,10 @@ impl Value {
 
   pub(crate) fn meta_mut(&mut self) -> &mut ValueMeta {
     unsafe { &mut *((self.pointer_mut() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
+  }
+
+  pub(crate) fn is_unreferenced(&self) -> bool {
+    self.meta().ref_count.load(std::sync::atomic::Ordering::Relaxed) == 0
   }
 
   pub(crate) fn vtable(&self) -> &VTable {
@@ -370,57 +435,6 @@ impl Debug for Value {
         width = PTR_DISPLAY_WIDTH,
       ),
       Tag::Nil => write!(f, "nil (0x{:x})", self.bits()),
-    }
-  }
-}
-
-impl PartialEq for Value {
-  fn eq(&self, other: &Self) -> bool {
-    // TODO need operators as part of vtable
-    if self.tag() == other.tag() {
-      self.bits == other.bits
-    } else {
-      match self.tag() {
-        Tag::I32 => {
-          let v = self.reinterpret_cast_to::<i32>();
-          match other.tag() {
-            Tag::F64 => v as f64 == other.reinterpret_cast_to::<f64>(),
-            _ => false,
-          }
-        }
-        Tag::F64 => {
-          let v = self.reinterpret_cast_to::<f64>();
-          match other.tag() {
-            Tag::I32 => v == other.reinterpret_cast_to::<i32>() as f64,
-            _ => false,
-          }
-        }
-        _ => false,
-      }
-    }
-  }
-}
-
-impl PartialOrd for Value {
-  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    match self.tag() {
-      Tag::F64 => {
-        let v = self.reinterpret_cast_to::<f64>();
-        match other.tag() {
-          Tag::F64 => v.partial_cmp(&other.reinterpret_cast_to::<f64>()),
-          Tag::I32 => v.partial_cmp(&(other.reinterpret_cast_to::<i32>() as f64)),
-          _ => None,
-        }
-      }
-      Tag::I32 => {
-        let v = self.reinterpret_cast_to::<i32>();
-        match other.tag() {
-          Tag::F64 => (v as f64).partial_cmp(&(other.reinterpret_cast_to::<f64>())),
-          Tag::I32 => v.partial_cmp(&other.reinterpret_cast_to::<i32>()),
-          _ => None,
-        }
-      }
-      _ => None,
     }
   }
 }
@@ -685,7 +699,8 @@ pub struct VTable {
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
 
-  trace: fn(ConstVoid, MutVoid),
+  deep_trace: fn(ConstVoid, MutPtr<Tracer>),
+  incremental_trace: fn(ConstVoid, MutPtr<Tracer>),
   pub(crate) dealloc: fn(MutVoid),
 
   type_id: fn() -> &'static Uuid,
@@ -695,29 +710,27 @@ pub struct VTable {
 impl VTable {
   pub const fn new<T: Usertype>() -> Self {
     Self {
-      get_member: |this, vm, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::typed_cast_mut(vm.raw()), this, name),
-      set_member: |this, vm, name, value| {
-        <T as Usertype>::set(Self::cast_mut(this), Self::typed_cast_mut(vm.raw()), name, value)
-      },
-      neg: |vm, value| <T as Operators>::__neg__(Self::typed_cast_mut(vm.raw()), value),
-      not: |vm, value| <T as Operators>::__not__(Self::typed_cast_mut(vm.raw()), value),
-      add: |vm, left, right| <T as Operators>::__add__(Self::typed_cast_mut(vm.raw()), left, right),
-      sub: |vm, left, right| <T as Operators>::__sub__(Self::typed_cast_mut(vm.raw()), left, right),
-      mul: |vm, left, right| <T as Operators>::__mul__(Self::typed_cast_mut(vm.raw()), left, right),
-      div: |vm, left, right| <T as Operators>::__div__(Self::typed_cast_mut(vm.raw()), left, right),
-      rem: |vm, left, right| <T as Operators>::__rem__(Self::typed_cast_mut(vm.raw()), left, right),
-      eq: |vm, left, right| <T as Operators>::__eq__(Self::typed_cast_mut(vm.raw()), left, right),
-      neq: |vm, left, right| <T as Operators>::__neq__(Self::typed_cast_mut(vm.raw()), left, right),
-      less: |vm, left, right| <T as Operators>::__less__(Self::typed_cast_mut(vm.raw()), left, right),
-      leq: |vm, left, right| <T as Operators>::__leq__(Self::typed_cast_mut(vm.raw()), left, right),
-      greater: |vm, left, right| <T as Operators>::__greater__(Self::typed_cast_mut(vm.raw()), left, right),
-      geq: |vm, left, right| <T as Operators>::__geq__(Self::typed_cast_mut(vm.raw()), left, right),
+      get_member: |this, vm, name| <T as Usertype>::get(Self::cast(this.pointer()), Self::typed_cast_mut(vm), this, name),
+      set_member: |this, vm, name, value| <T as Usertype>::set(Self::cast_mut(this), Self::typed_cast_mut(vm), name, value),
+      neg: |vm, value| <T as Operators>::__neg__(Self::typed_cast_mut(vm), value),
+      not: |vm, value| <T as Operators>::__not__(Self::typed_cast_mut(vm), value),
+      add: |vm, left, right| <T as Operators>::__add__(Self::typed_cast_mut(vm), left, right),
+      sub: |vm, left, right| <T as Operators>::__sub__(Self::typed_cast_mut(vm), left, right),
+      mul: |vm, left, right| <T as Operators>::__mul__(Self::typed_cast_mut(vm), left, right),
+      div: |vm, left, right| <T as Operators>::__div__(Self::typed_cast_mut(vm), left, right),
+      rem: |vm, left, right| <T as Operators>::__rem__(Self::typed_cast_mut(vm), left, right),
+      eq: |vm, left, right| <T as Operators>::__eq__(Self::typed_cast_mut(vm), left, right),
+      neq: |vm, left, right| <T as Operators>::__neq__(Self::typed_cast_mut(vm), left, right),
+      less: |vm, left, right| <T as Operators>::__less__(Self::typed_cast_mut(vm), left, right),
+      leq: |vm, left, right| <T as Operators>::__leq__(Self::typed_cast_mut(vm), left, right),
+      greater: |vm, left, right| <T as Operators>::__greater__(Self::typed_cast_mut(vm), left, right),
+      geq: |vm, left, right| <T as Operators>::__geq__(Self::typed_cast_mut(vm), left, right),
 
-      index: |vm, left, right| <T as Operators>::__index__(Self::typed_cast_mut(vm.raw()), left, right),
-      assign_index: |vm, left, mid, right| <T as Operators>::__idxeq__(Self::typed_cast_mut(vm.raw()), left, mid, right),
+      index: |vm, left, right| <T as Operators>::__index__(Self::typed_cast_mut(vm), left, right),
+      assign_index: |vm, left, mid, right| <T as Operators>::__idxeq__(Self::typed_cast_mut(vm), left, mid, right),
 
       invoke: |this, vm, this_value, airity| {
-        <T as Operators>::__ivk__(Self::cast_mut(this), Self::typed_cast_mut(vm.raw()), this_value, airity)
+        <T as Operators>::__ivk__(Self::cast_mut(this), Self::typed_cast_mut(vm), this_value, airity)
       },
 
       define: |this, name, value| <T as Operators>::__def__(Self::cast_mut(this), name, value),
@@ -730,7 +743,9 @@ impl VTable {
 
       debug_string: |this| <T as Operators>::__dbg__(Self::cast(this)),
 
-      trace: |this, marks| <T as TraceableValue>::trace(Self::cast(this), Self::cast_mut(marks)),
+      deep_trace: |this, marks| <T as TraceableValue>::deep_trace(Self::cast(this), Self::typed_cast_mut(marks)),
+      incremental_trace: |this, marks| <T as TraceableValue>::incremental_trace(Self::cast(this), Self::typed_cast_mut(marks)),
+
       dealloc: |this| memory::consume(this as *mut T),
 
       type_id: || &<T as Usertype>::ID,
@@ -746,19 +761,9 @@ impl VTable {
     unsafe { &mut *(ptr as *mut T) }
   }
 
-  fn typed_cast_mut<T>(ptr: *mut T) -> &'static mut T {
-    unsafe { &mut *ptr }
+  fn typed_cast_mut<T>(ptr: MutPtr<T>) -> &'static mut T {
+    unsafe { &mut *ptr.raw() }
   }
-}
-
-#[derive(Default)]
-pub(crate) enum Mark {
-  #[default]
-  White,
-  #[allow(unused)]
-  Gray,
-  #[allow(unused)]
-  Black,
 }
 
 pub(crate) struct ValueMeta {
@@ -769,9 +774,6 @@ pub(crate) struct ValueMeta {
 
   /// The size of the allocated item and the meta
   pub(crate) size: usize,
-
-  #[allow(unused)]
-  pub(crate) mark: Mark,
 }
 
 pub trait IsType<T>: private::Sealed {

@@ -117,6 +117,12 @@ impl From<&str> for StringValue {
   }
 }
 
+impl AsRef<str> for StringValue {
+  fn as_ref(&self) -> &str {
+    self.as_str()
+  }
+}
+
 impl Deref for StringValue {
   type Target = String;
 
