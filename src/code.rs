@@ -1,21 +1,16 @@
-use crate::{error::CompiletimeErrors, prelude::*, util::FileIdType};
-use ast::Ast;
-use gen::BytecodeGenerator;
-use lex::Scanner;
+use crate::{prelude::*, util::FileIdType};
 use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
-  convert::TryFrom,
-  fmt::{self, Debug, Display, Formatter, Result as FmtResult},
+  fmt::{Debug, Display, Formatter, Result as FmtResult},
   path::PathBuf,
   rc::Rc,
   str,
 };
 
 pub mod ast;
-pub mod gen;
+pub mod bytecode;
 pub mod lex;
-pub mod opt;
 
 pub(crate) struct CompileOpts {
   pub(crate) optimize: bool,
@@ -26,7 +21,7 @@ pub(crate) fn compile_file(
   file_id: FileIdType,
   source: impl AsRef<str>,
   opts: CompileOpts,
-) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+) -> Result<SmartPtr<Context>, CompilerError> {
   compile(cache, Some(file_id), source, opts)
 }
 
@@ -34,7 +29,7 @@ pub(crate) fn compile_string(
   cache: &mut Cache,
   source: impl AsRef<str>,
   opts: CompileOpts,
-) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+) -> Result<SmartPtr<Context>, CompilerError> {
   compile(cache, None, source, opts)
 }
 
@@ -43,20 +38,20 @@ pub(crate) fn compile(
   file_id: Option<FileIdType>,
   source: impl AsRef<str>,
   opts: CompileOpts,
-) -> Result<SmartPtr<Context>, CompiletimeErrors> {
-  let (tokens, token_locations) = Scanner::new(file_id, source.as_ref()).into_tokens()?;
+) -> Result<SmartPtr<Context>, CompilerError> {
+  let (tokens, token_locations) = lex::tokenize(file_id, source.as_ref())?;
 
-  let mut ast = Ast::try_from(file_id, tokens, token_locations)?;
+  let mut ast = ast::generate(file_id, tokens, token_locations)?;
 
   if opts.optimize {
-    ast = opt::optimize(ast);
+    ast = ast::optimize(ast);
   }
 
   let source = Rc::new(source.as_ref().to_string());
   let reflection = Reflection::new(Some("<main>"), file_id, Rc::clone(&source));
   let ctx = SmartPtr::new(Context::new(0, reflection));
 
-  BytecodeGenerator::new(cache, file_id, ctx).generate(ast)
+  bytecode::generate(cache, file_id, ctx, ast)
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]

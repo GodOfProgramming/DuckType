@@ -21,14 +21,21 @@ impl TestFixture for ApiTest {
 mod tests {
   use super::*;
 
-  #[derive(Usertype, Fields, NoMethods, NoOperators)]
+  #[derive(Usertype, Fields, NoOperators)]
   #[uuid("8d77f7e3-ccad-4214-a7d1-98f283b7a624")]
   struct Leaker {
     b: &'static mut bool,
 
-    #[field]
     #[trace]
     this: Value,
+  }
+
+  #[methods]
+  impl Leaker {
+    fn set_this(&mut self, other: Value) -> UsageResult<()> {
+      self.this = other;
+      Ok(())
+    }
   }
 
   impl Drop for Leaker {
@@ -59,7 +66,7 @@ mod tests {
   fn memory_leak_test(t: &mut ApiTest) {
     static mut B: bool = false;
 
-    const SCRIPT: &str = "{ let leaker = make_leaker(); leaker.this = leaker; }";
+    const SCRIPT: &str = "{ let leaker = make_leaker(); leaker.set_this(leaker); }";
 
     #[native]
     fn make_leaker() -> UsageResult<Leaker> {

@@ -1,8 +1,4 @@
-use super::{AstGenerator, AstStatement, Expression, ExpressionStatement, Statement};
-use crate::{
-  code::{lex::Token, SourceLocation},
-  util::UnwrapAnd,
-};
+use crate::{code::ast::*, error::AstGenerationErrorMsg, util::UnwrapAnd};
 
 #[derive(Debug)]
 pub struct BlockStatement {
@@ -18,7 +14,7 @@ impl BlockStatement {
 
 impl AstStatement for BlockStatement {
   fn stmt(ast: &mut AstGenerator) {
-    ast.meta_at::<1>().unwrap_and(|block_loc| {
+    ast.token_location::<1>().unwrap_and(|block_loc| {
       ast.normal_block(block_loc).unwrap_and(|block| ast.add(block));
     });
   }
@@ -38,15 +34,15 @@ impl BreakStatement {
 impl AstStatement for BreakStatement {
   fn stmt(ast: &mut AstGenerator) {
     if !ast.in_loop {
-      ast.error::<1>(String::from("break statements can only be used within loops"));
+      ast.error::<1>(AstGenerationErrorMsg::InvalidBreakStatement);
       return;
     }
 
-    if !ast.consume(Token::Semicolon, "expect ';' after statement") {
+    if !ast.consume(Token::Semicolon) {
       return;
     }
 
-    ast.meta_at::<2>().unwrap_and(|loc| ast.add(Self::new(loc)));
+    ast.token_location::<2>().unwrap_and(|loc| ast.add(Self::new(loc)));
   }
 }
 
@@ -64,15 +60,15 @@ impl ContStatement {
 impl AstStatement for ContStatement {
   fn stmt(ast: &mut AstGenerator) {
     if !ast.in_loop {
-      ast.error::<1>(String::from("cont statements can only be used within loops"));
+      ast.error::<1>(AstGenerationErrorMsg::InvalidContStatement);
       return;
     }
 
-    if !ast.consume(Token::Semicolon, "expect ';' after statement") {
+    if !ast.consume(Token::Semicolon) {
       return;
     }
 
-    ast.meta_at::<2>().unwrap_and(|loc| ast.add(Self::new(loc)));
+    ast.token_location::<2>().unwrap_and(|loc| ast.add(Self::new(loc)));
   }
 }
 
@@ -106,8 +102,8 @@ impl ForStatement {
 
 impl AstStatement for ForStatement {
   fn stmt(ast: &mut AstGenerator) {
-    ast.meta_at::<1>().unwrap_and(|for_loc| {
-      ast.meta_at::<0>().unwrap_and(|initializer_loc| {
+    ast.token_location::<1>().unwrap_and(|for_loc| {
+      ast.token_location::<0>().unwrap_and(|initializer_loc| {
         let initializer = if ast.advance_if_matches(Token::Let) {
           if let Some(declaration) = ast.declaration() {
             Statement::from(declaration)
@@ -120,20 +116,20 @@ impl AstStatement for ForStatement {
           return;
         };
 
-        if !ast.consume(Token::Semicolon, "expected ';' after expression") {
+        if !ast.consume(Token::Semicolon) {
           return;
         }
 
         if let Some(comparison) = ast.expression() {
-          if !ast.consume(Token::Semicolon, "expected ';' after comparison") {
+          if !ast.consume(Token::Semicolon) {
             return;
           }
 
           if let Some(increment) = ast.expression() {
-            if ast.consume(Token::LeftBrace, "expected '\x7b' after increment") {
+            if ast.consume(Token::LeftBrace) {
               let prev = ast.in_loop;
               ast.in_loop = true;
-              ast.meta_at::<1>().unwrap_and(|block_loc| {
+              ast.token_location::<1>().unwrap_and(|block_loc| {
                 if let Some(block) = ast.normal_block(block_loc) {
                   ast.add(Self::new(initializer, comparison, increment, block, for_loc));
                 }
@@ -141,10 +137,10 @@ impl AstStatement for ForStatement {
               ast.in_loop = prev;
             }
           } else {
-            ast.error::<0>(String::from("expected increment after comparison"));
+            ast.error::<0>(AstGenerationErrorMsg::MissingExpression);
           }
         } else {
-          ast.error::<0>(String::from("expected comparison after initializer"));
+          ast.error::<0>(AstGenerationErrorMsg::MissingExpression);
         }
       });
     });
@@ -171,14 +167,14 @@ impl IfStatement {
 
   fn branch(ast: &mut AstGenerator) -> Option<Self> {
     let expr = ast.expression()?;
-    if !ast.consume(Token::LeftBrace, "expected '\x7b' after condition") {
+    if !ast.consume(Token::LeftBrace) {
       return None;
     }
 
-    let block_loc = ast.meta_at::<1>()?;
+    let block_loc = ast.token_location::<1>()?;
     let block = ast.normal_block(block_loc)?;
     let else_block = if ast.advance_if_matches(Token::Else) {
-      let else_meta = ast.meta_at::<1>()?;
+      let else_meta = ast.token_location::<1>()?;
       let token = ast.current()?;
       match token {
         Token::LeftBrace => {
@@ -189,8 +185,8 @@ impl IfStatement {
           ast.advance();
           Some(Statement::from(Self::branch(ast)?))
         }
-        _ => {
-          ast.error::<0>(String::from("unexpected token after 'else'"));
+        t => {
+          ast.error::<0>(AstGenerationErrorMsg::UnexpectedToken(t));
           return None;
         }
       }
@@ -225,21 +221,18 @@ impl LoopStatement {
 
 impl AstStatement for LoopStatement {
   fn stmt(ast: &mut AstGenerator) {
-    if !ast.consume(Token::LeftBrace, "expect '\x7b' after loop") {
+    if !ast.consume(Token::LeftBrace) {
       return;
     }
 
     let prev = ast.in_loop;
     ast.in_loop = true;
 
-    if let Some(loc) = ast.meta_at::<1>() {
+    ast.token_location::<1>().unwrap_and(|loc| {
       if let Some(block) = ast.normal_block(loc) {
         ast.add(LoopStatement::new(Statement::from(block), loc))
       }
-    } else {
-      // sanity check
-      ast.error::<0>(String::from("could not find original token"));
-    }
+    });
 
     ast.in_loop = prev;
   }
@@ -271,9 +264,9 @@ impl MatchStatement {
 
 impl AstStatement for MatchStatement {
   fn stmt(ast: &mut AstGenerator) {
-    if let Some(loc) = ast.meta_at::<1>() {
+    if let Some(loc) = ast.token_location::<1>() {
       if let Some(expr) = ast.expression() {
-        if !ast.consume(Token::LeftBrace, "expected '\x7b' after expression") {
+        if !ast.consume(Token::LeftBrace) {
           return;
         }
 
@@ -285,20 +278,20 @@ impl AstStatement for MatchStatement {
           }
 
           if let Some(condition) = ast.expression() {
-            if !ast.consume(Token::Arrow, "expected => after expression") {
+            if !ast.consume(Token::Arrow) {
               break;
             }
 
-            if let Some(eval_loc) = ast.meta_at::<0>() {
+            if let Some(eval_loc) = ast.token_location::<0>() {
               let stmt = if ast.advance_if_matches(Token::LeftBrace) {
                 if let Some(block) = ast.normal_block(eval_loc) {
                   Statement::from(block)
                 } else {
                   break;
                 }
-              } else if let Some(eval_loc) = ast.meta_at::<0>() {
+              } else if let Some(eval_loc) = ast.token_location::<0>() {
                 if let Some(eval) = ast.expression() {
-                  if !ast.consume(Token::Comma, "expected ',' after expression") {
+                  if !ast.consume(Token::Comma) {
                     break;
                   }
                   Statement::from(ExpressionStatement::new(eval, eval_loc))
@@ -313,24 +306,17 @@ impl AstStatement for MatchStatement {
             } else {
               break; // error but need to restore statements
             }
-          } else {
-            // sanity check
-            ast.error::<0>(String::from("could not find original token"));
           }
         }
 
-        if !ast.consume(Token::RightBrace, "expected '\x7d' after match") {
+        if !ast.consume(Token::RightBrace) {
           return;
         }
 
         let default = if ast.advance_if_matches(Token::Else) && ast.advance_if_matches(Token::LeftBrace) {
-          if let Some(else_loc) = ast.meta_at::<2>() {
-            ast.normal_block(else_loc).map(Statement::from)
-          } else {
-            // sanity check
-            ast.error::<0>(String::from("could not find original token"));
-            None
-          }
+          ast
+            .token_location::<2>()
+            .and_then(|else_loc| ast.normal_block(else_loc).map(Statement::from))
         } else {
           None
         };
@@ -356,9 +342,9 @@ impl RetStatement {
 impl AstStatement for RetStatement {
   fn stmt(ast: &mut AstGenerator) {
     if !ast.returnable {
-      ast.error::<1>("cannot return from this scope");
+      ast.error::<1>(AstGenerationErrorMsg::InvalidRetStatement);
     }
-    ast.meta_at::<1>().unwrap_and(|loc| {
+    ast.token_location::<1>().unwrap_and(|loc| {
       if let Some(current) = ast.current() {
         let expr = if current == Token::Semicolon {
           None
@@ -368,7 +354,7 @@ impl AstStatement for RetStatement {
           return;
         };
 
-        if !ast.consume(Token::Semicolon, "expected ';' after value") {
+        if !ast.consume(Token::Semicolon) {
           return;
         }
 
@@ -398,14 +384,14 @@ impl WhileStatement {
 impl AstStatement for WhileStatement {
   fn stmt(ast: &mut AstGenerator) {
     ast.expression().unwrap_and(|expr| {
-      if !ast.consume(Token::LeftBrace, "expected '\x7b' after expression") {
+      if !ast.consume(Token::LeftBrace) {
         return;
       }
 
       let prev = ast.in_loop;
       ast.in_loop = true;
 
-      ast.meta_at::<1>().unwrap_and(|loc| {
+      ast.token_location::<1>().unwrap_and(|loc| {
         if let Some(block) = ast.normal_block(loc) {
           ast
             .statements

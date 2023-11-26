@@ -8,7 +8,7 @@ use std::{
 use ptr::MutPtr;
 
 #[cfg(test)]
-use crate::code::gen::{CAPTURE_OPS, GENERATED_OPS};
+use crate::code::bytecode::{CAPTURE_OPS, GENERATED_OPS};
 use crate::{
   code::{ConstantValue, Reflection},
   prelude::*,

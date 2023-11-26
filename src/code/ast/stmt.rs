@@ -255,9 +255,9 @@ impl ExpressionStatement {
 
 impl AstStatement for ExpressionStatement {
   fn stmt(ast: &mut AstGenerator) {
-    if let Some(loc) = ast.meta_at::<0>() {
+    if let Some(loc) = ast.token_location::<0>() {
       if let Some(expr) = ast.expression() {
-        if !ast.consume(Token::Semicolon, "expected ';' after value") {
+        if !ast.consume(Token::Semicolon) {
           return;
         }
         ast.statements.push(Statement::from(ExpressionStatement::new(expr, loc)));

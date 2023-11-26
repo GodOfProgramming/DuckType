@@ -71,7 +71,7 @@ fn main() -> Result<(), Error> {
       let mut vm = Vm::new(gc, args.optimize, runargs.clone());
       let gmod = vm.generate_stdlib("*main*");
       let mut input = String::new();
-      std::io::stdin().read_to_string(&mut input).map_err(SystemError::IoError)?;
+      std::io::stdin().read_to_string(&mut input).map_err(Error::from)?;
       let value = vm.run_string(input, gmod)?;
       println!("=> {value}");
     }

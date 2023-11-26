@@ -2,13 +2,13 @@ use super::*;
 use std::f64::consts::PI;
 use tfix::{fixture, TestFixture};
 
-const ALL_TOKENS: &str = include_str!("all_tokens.dk");
+const ALL_TOKENS: &str = include_str!("test_scripts/all_tokens.dk");
 
-const CONSECUTIVE_TOKENS: &str = include_str!("consecutive_tokens.dk");
+const CONSECUTIVE_TOKENS: &str = include_str!("test_scripts/consecutive_tokens.dk");
 
-const SCANNING_ERRORS: &str = include_str!("scanning_errors.dk");
+const SCANNING_ERRORS: &str = include_str!("test_scripts/scanning_errors.dk");
 
-const TOKEN_META_TEST: &str = include_str!("token_meta_test.dk");
+const TOKEN_META_TEST: &str = include_str!("test_scripts/token_meta_test.dk");
 
 #[derive(Default)]
 struct ScannerTest {
@@ -23,16 +23,14 @@ impl ScannerTest {
   fn test_scan<F: FnOnce(Vec<Token>, Vec<SourceLocation>)>(&self, f: F) {
     match self.scanner().into_tokens() {
       Ok((actual, meta)) => f(actual, meta),
-      Err(errors) => {
-        for error in errors.into_iter() {
-          println!("{}", error);
-        }
+      Err(error) => {
+        println!("{error}");
         panic!("failed to scan");
       }
     }
   }
 
-  fn test_failure<F: FnOnce(CompiletimeErrors)>(&self, f: F) {
+  fn test_failure<F: FnOnce(CompilerError)>(&self, f: F) {
     match self.scanner().into_tokens() {
       Ok((_actual, _meta)) => panic!("should not have succeeded"),
       Err(errors) => f(errors),
@@ -222,39 +220,28 @@ mod tests {
   #[test]
   fn returns_errors_at_right_location_when_detected(t: &mut ScannerTest) {
     let expected = vec![
-      CompiletimeError {
-        msg: String::from("invalid character: '^'"),
-        file_display: None,
-        line: 6,
-        column: 8,
-      },
-      CompiletimeError {
-        msg: String::from("invalid character: '?'"),
-        file_display: None,
-        line: 7,
-        column: 9,
-      },
-      CompiletimeError {
-        msg: String::from("invalid character: '`'"),
-        file_display: None,
-        line: 7,
-        column: 10,
-      },
+      LexicalError::new(LexicalErrorMsg::InvalidCharacter('^'), None, 6, 8),
+      LexicalError::new(LexicalErrorMsg::InvalidCharacter('?'), None, 7, 9),
+      LexicalError::new(LexicalErrorMsg::InvalidCharacter('`'), None, 7, 10),
     ];
 
     t.tokens = SCANNING_ERRORS.to_string();
 
-    t.test_failure(|actual| {
-      assert_eq!(
-        actual.len(),
-        expected.len(),
-        "actual len = {}, expected len = {}",
-        actual.len(),
-        expected.len(),
-      );
+    t.test_failure(|error| {
+      if let CompilerError::Lexical(actual) = error {
+        assert_eq!(
+          actual.len(),
+          expected.len(),
+          "actual len = {}, expected len = {}",
+          actual.len(),
+          expected.len(),
+        );
 
-      for (a, e) in actual.into_iter().zip(expected.into_iter()) {
-        assert_eq!(a, e, "actual = {:?}, expected = {:?}", a, e);
+        for (a, e) in actual.into_iter().zip(expected.into_iter()) {
+          assert_eq!(a, e, "actual = {:?}, expected = {:?}", a, e);
+        }
+      } else {
+        panic!("invalid error type for lexical analysis");
       }
     });
   }

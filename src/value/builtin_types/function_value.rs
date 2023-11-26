@@ -33,7 +33,7 @@ impl FunctionValue {
       .expect("all function environments must be modules");
 
     vm.run_fn(self.ctx.clone(), module, self.airity + offset)
-      .map_err(UsageError::Preformated)
+      .map_err(UsageError::Preformatted)
   }
 
   pub fn context_ptr(&self) -> &SmartPtr<Context> {

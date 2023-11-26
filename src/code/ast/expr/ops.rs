@@ -1,11 +1,4 @@
-use enum_map::Enum;
-
-use super::Expression;
-use crate::code::{
-  ast::{AstExpression, AstGenerator, Ident, Precedence, SELF_IDENT},
-  lex::Token,
-  SourceLocation,
-};
+use crate::{code::ast::*, error::AstGenerationErrorMsg};
 
 #[derive(Debug)]
 pub enum AssignOperator {
@@ -40,11 +33,11 @@ impl AstExpression for AndExpression {
     let rule = AstGenerator::rule_for(&Token::And);
 
     if let Some(next_precedence) = rule.precedence.next() {
-      let op_meta = ast.meta_at::<1>()?;
+      let op_meta = ast.token_location::<1>()?;
       let expr = ast.parse_precedence(next_precedence)?;
       Some(Expression::from(Self::new(left, expr, op_meta)))
     } else {
-      ast.error::<1>(String::from("unable to retrieve precedence for and expr")); // this may not be an error?
+      ast.error::<1>(AstGenerationErrorMsg::MaxPrecedence);
       None
     }
   }
@@ -58,13 +51,13 @@ pub enum LValue {
 }
 
 impl TryFrom<Expression> for LValue {
-  type Error = &'static str;
+  type Error = AstGenerationErrorMsg;
   fn try_from(value: Expression) -> Result<Self, Self::Error> {
     match value {
       Expression::Ident(expr) => Ok(Self::Ident(expr.ident)),
       Expression::Index(expr) => Ok(Self::Index(expr)),
       Expression::MemberAccess(expr) => Ok(Self::Member(expr)),
-      _ => Err("invalid lvalue for assignment"),
+      _ => Err(AstGenerationErrorMsg::InvalidLValue),
     }
   }
 }
@@ -93,12 +86,12 @@ impl AstExpression for AssignExpression {
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
     if let Expression::Ident(expr) = &left {
       if expr.ident.name == SELF_IDENT {
-        ast.error::<0>(String::from("cannot change the value of self"));
+        ast.error::<0>(AstGenerationErrorMsg::ImmutableSelf);
       }
     }
 
     let op = ast.previous()?;
-    let op_meta = ast.meta_at::<1>()?;
+    let op_meta = ast.token_location::<1>()?;
     let value = ast.expression()?;
 
     let op = match op {
@@ -109,7 +102,7 @@ impl AstExpression for AssignExpression {
       Token::SlashEqual => AssignOperator::Div,
       Token::PercentEqual => AssignOperator::Rem,
       t => {
-        ast.error::<1>(format!("invalid token {}", t));
+        ast.error::<1>(AstGenerationErrorMsg::InvalidToken(t));
         return None;
       }
     };
@@ -124,7 +117,7 @@ impl AstExpression for AssignExpression {
   }
 }
 
-#[derive(Debug, Clone, Copy, Enum)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinaryOperator {
   Equal,
   NotEq,
@@ -167,7 +160,7 @@ impl BinaryExpression {
 impl AstExpression for BinaryExpression {
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
     if let Some(operator_token) = ast.previous() {
-      let op_meta = ast.meta_at::<1>()?;
+      let op_meta = ast.token_location::<1>()?;
       let op = match operator_token {
         Token::EqualEqual => BinaryOperator::Equal,
         Token::BangEqual => BinaryOperator::NotEq,
@@ -180,8 +173,8 @@ impl AstExpression for BinaryExpression {
         Token::Asterisk => BinaryOperator::Mul,
         Token::Slash => BinaryOperator::Div,
         Token::Percent => BinaryOperator::Mod,
-        _ => {
-          ast.error::<1>(String::from("invalid binary operator"));
+        t => {
+          ast.error::<1>(AstGenerationErrorMsg::UnexpectedToken(t));
           return None;
         }
       };
@@ -192,11 +185,11 @@ impl AstExpression for BinaryExpression {
         let expr = ast.parse_precedence(next_precedence)?;
         Some(Expression::from(Self::new(left, op, expr, op_meta)))
       } else {
-        ast.error::<1>(String::from(""));
+        ast.error::<1>(AstGenerationErrorMsg::MaxPrecedence);
         None
       }
     } else {
-      ast.error::<2>(String::from("unexpected end of token stream"));
+      ast.error::<2>(AstGenerationErrorMsg::UnexpectedEof);
       None
     }
   }
@@ -253,7 +246,7 @@ impl CallExpression {
 
 impl AstExpression for CallExpression {
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
-    let meta = ast.meta_at::<1>()?;
+    let meta = ast.token_location::<1>()?;
     let mut args = Vec::default();
 
     if let Some(token) = ast.current() {
@@ -270,7 +263,7 @@ impl AstExpression for CallExpression {
       }
     }
 
-    if ast.consume(Token::RightParen, "expect ')' after arguments") {
+    if ast.consume(Token::RightParen) {
       Some(Expression::from(CallExpression::new(left, args, meta)))
     } else {
       None
@@ -298,11 +291,11 @@ impl IndexExpression {
 
 impl AstExpression for IndexExpression {
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
-    let bracket_meta = ast.meta_at::<1>()?;
+    let bracket_meta = ast.token_location::<1>()?;
 
     let index = ast.expression()?;
 
-    if ast.consume(Token::RightBracket, "expected ']' after expression") {
+    if ast.consume(Token::RightBracket) {
       Some(Expression::from(IndexExpression::new(left, index, bracket_meta)))
     } else {
       None
@@ -330,7 +323,7 @@ impl IsExpression {
 
 impl AstExpression for IsExpression {
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
-    let loc = ast.meta_at::<0>()?;
+    let loc = ast.token_location::<0>()?;
     let right = ast.expression()?;
     Some(Expression::from(IsExpression::new(left, right, loc)))
   }
@@ -357,17 +350,17 @@ impl AstExpression for MemberAccessExpression {
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
     if let Some(token) = ast.current() {
       if let Token::Identifier(member) = token {
-        let ident_meta = ast.meta_at::<0>()?;
+        let ident_meta = ast.token_location::<0>()?;
 
         ast.advance();
 
         Some(Expression::from(Self::new(left, Ident::new(member), ident_meta)))
       } else {
-        ast.error::<1>(String::from("expected identifier"));
+        ast.error::<1>(AstGenerationErrorMsg::MissingIdentifier);
         None
       }
     } else {
-      ast.error::<1>(String::from("unexpected end of file"));
+      ast.error::<1>(AstGenerationErrorMsg::UnexpectedEof);
       None
     }
   }
@@ -395,11 +388,11 @@ impl AstExpression for OrExpression {
     let rule = AstGenerator::rule_for(&Token::Or);
 
     if let Some(next_precedence) = rule.precedence.next() {
-      let op_meta = ast.meta_at::<1>()?;
+      let op_meta = ast.token_location::<1>()?;
       let expr = ast.parse_precedence(next_precedence)?;
       Some(Expression::from(Self::new(left, expr, op_meta)))
     } else {
-      ast.error::<1>(String::from("unable to retrieve precedence for or expr")); // this may not be an error?
+      ast.error::<1>(AstGenerationErrorMsg::MaxPrecedence);
       None
     }
   }
@@ -422,7 +415,7 @@ impl ReqExpression {
 
 impl AstExpression for ReqExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    let loc = ast.meta_at::<1>()?;
+    let loc = ast.token_location::<1>()?;
     let expr = ast.expression()?;
     Some(Expression::from(Self::new(expr, loc)))
   }
@@ -447,12 +440,12 @@ impl ScopeResolutionExpression {
 
 impl AstExpression for ScopeResolutionExpression {
   fn infix(ast: &mut AstGenerator, left: Expression) -> Option<Expression> {
-    let ident_meta = ast.meta_at::<0>()?;
+    let ident_meta = ast.token_location::<0>()?;
     if let Token::Identifier(member) = ast.expect_current()? {
       ast.advance();
       Some(Expression::from(Self::new(left, Ident::new(member), ident_meta)))
     } else {
-      ast.error::<1>(String::from("expected identifier after scope"));
+      ast.error::<1>(AstGenerationErrorMsg::MissingIdentifier);
       None
     }
   }
@@ -485,12 +478,12 @@ impl UnaryExpression {
 impl AstExpression for UnaryExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     if let Some(operator_token) = ast.previous() {
-      let op_meta = ast.meta_at::<1>()?;
+      let op_meta = ast.token_location::<1>()?;
       let op = match operator_token {
         Token::Bang => UnaryOperator::Not,
         Token::Minus => UnaryOperator::Negate,
-        _ => {
-          ast.error::<1>(String::from("invalid unary operator"));
+        t => {
+          ast.error::<1>(AstGenerationErrorMsg::UnexpectedToken(t));
           return None;
         }
       };
@@ -498,7 +491,7 @@ impl AstExpression for UnaryExpression {
       let expr = ast.parse_precedence(Precedence::Unary)?;
       Some(Expression::from(Self::new(op, expr, op_meta)))
     } else {
-      ast.error::<1>(String::from("tried to make unary expression without operator"));
+      ast.error::<1>(AstGenerationErrorMsg::UnexpectedEof);
       None
     }
   }
