@@ -10,34 +10,6 @@ pub(crate) mod string_value;
 pub(crate) mod struct_value;
 pub(crate) mod vec_value;
 
-macro_rules! opstr {
-  ($op:ident) => {
-    concat!("__", stringify!($op), "__")
-  };
-}
-pub mod ops {
-  pub const NOT: &str = opstr!(not);
-  pub const NEG: &str = opstr!(neg);
-
-  pub const ADD: &str = opstr!(add);
-  pub const SUB: &str = opstr!(sub);
-  pub const MUL: &str = opstr!(mul);
-  pub const DIV: &str = opstr!(div);
-  pub const REM: &str = opstr!(rem);
-
-  pub const EQUALITY: &str = opstr!(eq);
-  pub const NOT_EQUAL: &str = opstr!(neq);
-  pub const LESS: &str = opstr!(less);
-  pub const LESS_EQUAL: &str = opstr!(leq);
-  pub const GREATER: &str = opstr!(greater);
-  pub const GREATER_EQUAL: &str = opstr!(geq);
-
-  pub const INDEX: &str = opstr!(index);
-  pub const INDEX_ASSIGN: &str = opstr!(idxeq);
-
-  pub const CALL: &str = opstr!(call);
-}
-
 use super::{VTable, Value};
 use crate::prelude::*;
 pub use class_value::ClassValue;

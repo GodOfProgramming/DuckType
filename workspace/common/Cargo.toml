@@ -1,0 +1,21 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lazy-regex = "3.0"
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.48", features = [
+  "Win32_Storage_FileSystem",
+  "Win32_Foundation",
+  "Win32_Security",
+] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.27", features = ["fs"] }

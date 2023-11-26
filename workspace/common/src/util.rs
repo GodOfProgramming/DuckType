@@ -25,7 +25,7 @@ pub trait FileMetadata {
   fn id_of(path: &Path) -> Result<FileIdType>;
 }
 
-pub(crate) trait UnwrapAnd<T> {
+pub trait UnwrapAnd<T> {
   fn unwrap_and(self, f: impl FnOnce(T));
 }
 

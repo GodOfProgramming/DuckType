@@ -1,11 +1,5 @@
-use crate::{
-  code::{
-    ast::{AstExpression, AstGenerator, AstStatement, ClassExpression, Expression, Ident, ModExpression},
-    lex::Token,
-    SourceLocation,
-  },
-  util::UnwrapAnd,
-};
+use crate::{AstExpression, AstGenerator, AstStatement, ClassExpression, Expression, Ident, ModExpression};
+use common::{errors::AstGenerationErrorMsg, util::UnwrapAnd, SourceLocation, Token};
 
 use super::Statement;
 
@@ -24,7 +18,7 @@ impl ClassStatement {
 
 impl AstStatement for ClassStatement {
   fn stmt(ast: &mut AstGenerator) {
-    ast.meta_at::<0>().unwrap_and(|class_loc| {
+    ast.token_location::<0>().unwrap_and(|class_loc| {
       if let Some(Token::Identifier(class_name)) = ast.current() {
         let ident = Ident::new_global(class_name);
         ClassExpression::prefix(ast).unwrap_and(|expr| {
@@ -33,7 +27,7 @@ impl AstStatement for ClassStatement {
             .push(Statement::from(ClassStatement::new(ident, expr, class_loc)));
         });
       } else {
-        ast.error::<0>(String::from("expected an identifier"));
+        ast.error::<0>(AstGenerationErrorMsg::MissingIdentifier);
       }
     });
   }
@@ -83,7 +77,7 @@ impl LetStatement {
 impl AstStatement for LetStatement {
   fn stmt(ast: &mut AstGenerator) {
     if let Some(declaration) = ast.declaration() {
-      if !ast.consume(Token::Semicolon, "expected ';' after expression") {
+      if !ast.consume(Token::Semicolon) {
         return;
       }
 
@@ -107,14 +101,14 @@ impl ModStatement {
 
 impl AstStatement for ModStatement {
   fn stmt(ast: &mut AstGenerator) {
-    ast.meta_at::<0>().unwrap_and(|mod_loc| {
+    ast.token_location::<0>().unwrap_and(|mod_loc| {
       if let Some(Token::Identifier(mod_name)) = ast.current() {
         let ident = Ident::new_global(mod_name);
         ModExpression::prefix(ast).unwrap_and(|expr| {
           ast.statements.push(Statement::from(Self::new(ident, expr, mod_loc)));
         });
       } else {
-        ast.error::<1>("expected ident after mod");
+        ast.error::<1>(AstGenerationErrorMsg::MissingIdentifier);
       }
     });
   }
@@ -134,11 +128,11 @@ impl UseStatement {
 
 impl AstStatement for UseStatement {
   fn stmt(ast: &mut AstGenerator) {
-    ast.meta_at::<0>().unwrap_and(|loc| {
+    ast.token_location::<0>().unwrap_and(|loc| {
       let path = ast.resolve();
       if path.is_empty() {
-        ast.error::<1>(String::from("use must have a type following it"));
-      } else if ast.consume(Token::Semicolon, "expected ';' after use") {
+        ast.error::<1>(AstGenerationErrorMsg::MissingIdentifier);
+      } else if ast.consume(Token::Semicolon) {
         ast.statements.push(Statement::from(UseStatement::new(path, loc)));
       }
     });

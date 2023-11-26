@@ -1,11 +1,5 @@
-use crate::{
-  code::{
-    ast::{AstExpression, AstGenerator, AstStatement, Expression, Ident, ReqExpression},
-    lex::Token,
-    SourceLocation,
-  },
-  util::UnwrapAnd,
-};
+use crate::{AstExpression, AstGenerator, AstStatement, Expression, Ident, ReqExpression};
+use common::{errors::AstGenerationErrorMsg, util::UnwrapAnd, SourceLocation, Token};
 
 use super::Statement;
 
@@ -24,15 +18,13 @@ impl ExportStatement {
 impl AstStatement for ExportStatement {
   fn stmt(ast: &mut AstGenerator) {
     if ast.export_found {
-      ast.error::<1>("can only export once per file");
+      ast.error::<1>(AstGenerationErrorMsg::MultipleExports);
     }
     ast.export_found = true;
-    ast.meta_at::<1>().unwrap_and(|loc| {
+    ast.token_location::<1>().unwrap_and(|loc| {
       if let Some(current) = ast.current() {
         if let Some(expr) = ast.expression() {
-          if !matches!(current, Token::Mod | Token::Class | Token::Fn)
-            && !ast.consume(Token::Semicolon, "expected ';' after expression")
-          {
+          if !matches!(current, Token::Mod | Token::Class | Token::Fn) && !ast.consume(Token::Semicolon) {
             return;
           }
 
@@ -57,9 +49,9 @@ impl PrintlnStatement {
 
 impl AstStatement for PrintlnStatement {
   fn stmt(ast: &mut AstGenerator) {
-    ast.meta_at::<1>().unwrap_and(|loc| {
+    ast.token_location::<1>().unwrap_and(|loc| {
       if let Some(expr) = ast.expression() {
-        if ast.consume(Token::Semicolon, "expected ';' after value") {
+        if ast.consume(Token::Semicolon) {
           ast.statements.push(Statement::from(Self::new(expr, loc)));
         }
       }
@@ -81,9 +73,9 @@ impl QuackStatement {
 
 impl AstStatement for QuackStatement {
   fn stmt(ast: &mut AstGenerator) {
-    ast.meta_at::<0>().unwrap_and(|loc| {
+    ast.token_location::<0>().unwrap_and(|loc| {
       ast.expression().unwrap_and(|expr| {
-        if ast.consume(Token::Semicolon, "expected ';' after quack") {
+        if ast.consume(Token::Semicolon) {
           ast.statements.push(Statement::from(Self::new(expr, loc)));
         }
       });
@@ -106,12 +98,12 @@ impl ReqStatement {
 
 impl AstStatement for ReqStatement {
   fn stmt(ast: &mut AstGenerator) {
-    ast.meta_at::<1>().unwrap_and(|loc| {
+    ast.token_location::<1>().unwrap_and(|loc| {
       ReqExpression::prefix(ast).unwrap_and(|expr| {
-        if ast.consume(Token::As, "expected as after req") {
+        if ast.consume(Token::As) {
           if let Some(Token::Identifier(ident)) = ast.current() {
             ast.advance();
-            if ast.consume(Token::Semicolon, "expected ';' after ident") {
+            if ast.consume(Token::Semicolon) {
               ast.statements.push(Statement::from(Self::new(expr, Ident::new(ident), loc)));
             }
           }

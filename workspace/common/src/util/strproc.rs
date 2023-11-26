@@ -1,7 +1,7 @@
 use lazy_regex::regex;
 use regex::Replacer;
 
-pub fn escape(input: &str) -> anyhow::Result<String> {
+pub fn escape(input: &str) -> String {
   // bfnrt
   let output = input
     .replace("\\\"", "\"")
@@ -17,7 +17,7 @@ pub fn escape(input: &str) -> anyhow::Result<String> {
   let uni_re = regex!(r#"\\u([0-9a-fA-F]{4})"#);
   let output = uni_re.replace_all(&output, HexReplacer);
 
-  Ok(output.into())
+  output.into()
 }
 
 struct HexReplacer;

@@ -1,10 +1,13 @@
-use crate::{
-  error::CompiletimeError,
+use common::{
+  errors::{CompilerError, Error, LexicalError, LexicalErrorMsg},
   util::{self, FileIdType},
+  NumberToken, SourceLocation, Token,
 };
 
-use super::*;
-use std::{ops::RangeInclusive, str};
+use std::{
+  ops::RangeInclusive,
+  str::{self},
+};
 
 #[cfg(test)]
 mod test;
@@ -24,155 +27,8 @@ macro_rules! collect_digits {
   };
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum NumberToken {
-  I32(i32),
-  F64(f64),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Token {
-  // Single-character tokens.
-  LeftParen,
-  RightParen,
-  LeftBrace,
-  RightBrace,
-  LeftBracket,
-  RightBracket,
-  Comma,
-  Dot,
-  Semicolon,
-  At,
-  Pipe,
-
-  // One or two character tokens.
-  Bang,
-  BangEqual,
-  Equal,
-  EqualEqual,
-  Greater,
-  GreaterEqual,
-  Less,
-  LessEqual,
-  Arrow,
-  BackArrow,
-  Plus,
-  PlusEqual,
-  Minus,
-  MinusEqual,
-  Asterisk,
-  AsteriskEqual,
-  Slash,
-  SlashEqual,
-  Percent,
-  PercentEqual,
-  Colon,
-  ColonColon,
-
-  // Literals.
-  Identifier(String),
-  String(String),
-  Number(NumberToken),
-
-  // Keywords.
-  And,
-  As,
-  Break,
-  Class,
-  Cont,
-  Else,
-  Export,
-  False,
-  For,
-  Fn,
-  If,
-  Is,
-  Let,
-  Loop,
-  Match,
-  Mod,
-  New,
-  Nil,
-  Or,
-  Println,
-  Quack,
-  Req,
-  Ret,
-  Struct,
-  True,
-  Use,
-  While,
-
-  // Special
-  Breakpoint,
-}
-
-impl Display for Token {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Identifier(i) => write!(f, "Identifier ({})", i),
-      Self::String(s) => write!(f, "String ({})", s),
-      Self::Number(n) => write!(
-        f,
-        "Number ({})",
-        match n {
-          NumberToken::I32(i) => i.to_string(),
-          NumberToken::F64(f) => f.to_string(),
-        }
-      ),
-      _ => write!(f, "{:?}", self),
-    }
-  }
-}
-
-impl From<f64> for Token {
-  fn from(v: f64) -> Self {
-    Self::Number(NumberToken::F64(v))
-  }
-}
-
-impl From<i32> for Token {
-  fn from(v: i32) -> Self {
-    Self::Number(NumberToken::I32(v))
-  }
-}
-
-impl TryFrom<&[u8]> for Token {
-  type Error = Box<dyn std::error::Error>;
-
-  fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-    Ok(match str::from_utf8(bytes)? {
-      "and" => Self::And,
-      "as" => Self::As,
-      "break" => Self::Break,
-      "class" => Self::Class,
-      "cont" => Self::Cont,
-      "else" => Self::Else,
-      "export" => Self::Export,
-      "false" => Self::False,
-      "fn" => Self::Fn,
-      "for" => Self::For,
-      "if" => Self::If,
-      "is" => Self::Is,
-      "let" => Self::Let,
-      "loop" => Self::Loop,
-      "match" => Self::Match,
-      "mod" => Self::Mod,
-      "new" => Self::New,
-      "nil" => Self::Nil,
-      "or" => Self::Or,
-      "println" => Self::Println,
-      "quack" => Self::Quack,
-      "req" => Self::Req,
-      "ret" => Self::Ret,
-      "struct" => Self::Struct,
-      "true" => Self::True,
-      "use" => Self::Use,
-      "while" => Self::While,
-      "__breakpoint__" => Self::Breakpoint,
-      word => Self::Identifier(String::from(word)),
-    })
-  }
+pub fn tokenize(file_id: Option<FileIdType>, source: &str) -> Result<(Vec<Token>, Vec<SourceLocation>), Error> {
+  Scanner::new(file_id, source).into_tokens()
 }
 
 pub struct Scanner<'src> {
@@ -182,7 +38,7 @@ pub struct Scanner<'src> {
   pos: usize,
   line: usize,
   column: usize,
-  errors: CompiletimeErrors,
+  errors: Vec<LexicalError>,
 }
 
 impl<'src> Scanner<'src> {
@@ -198,7 +54,7 @@ impl<'src> Scanner<'src> {
     }
   }
 
-  pub fn into_tokens(mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), CompiletimeErrors> {
+  pub fn into_tokens(mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), Error> {
     let mut tokens = Vec::new();
     let mut meta = Vec::new();
 
@@ -345,7 +201,7 @@ impl<'src> Scanner<'src> {
             }
           }
           c => {
-            self.error(format!("invalid character: '{}'", c));
+            self.error(LexicalErrorMsg::InvalidCharacter(c));
             self.advance();
             continue;
           }
@@ -368,17 +224,14 @@ impl<'src> Scanner<'src> {
     if self.errors.is_empty() {
       Ok((tokens, meta))
     } else {
-      Err(self.errors)
+      Err(Error::Compiler(CompilerError::Lexical(self.errors)))
     }
   }
 
-  fn error(&mut self, msg: impl ToString) {
-    self.errors.add(CompiletimeError {
-      msg: msg.to_string(),
-      file_display: self.file_id.map(FileDisplay::Id),
-      line: self.line + 1,
-      column: self.column + 1,
-    });
+  fn error(&mut self, msg: LexicalErrorMsg) {
+    self
+      .errors
+      .push(LexicalError::new(msg, self.file_id, self.line + 1, self.column + 1));
   }
 
   /// supports the following numbers
@@ -416,7 +269,7 @@ impl<'src> Scanner<'src> {
         Some(Token::Number(NumberToken::I32(int)))
       }
       Err(e) => {
-        self.error(e);
+        self.error(LexicalErrorMsg::ParseError(e));
         None
       }
     }
@@ -437,7 +290,7 @@ impl<'src> Scanner<'src> {
         Some(Token::Number(NumberToken::I32(int)))
       }
       Err(e) => {
-        self.error(e);
+        self.error(LexicalErrorMsg::ParseError(e));
         None
       }
     }
@@ -491,7 +344,7 @@ impl<'src> Scanner<'src> {
               number *= EVAL.powf(exp as f64);
             }
             Err(e) => {
-              self.error(e);
+              self.error(LexicalErrorMsg::ParseError(e));
               return None;
             }
           }
@@ -535,7 +388,7 @@ impl<'src> Scanner<'src> {
                   return Some(Token::Number(NumberToken::F64(fint)));
                 }
                 Err(e) => {
-                  self.error(e);
+                  self.error(LexicalErrorMsg::ParseError(e));
                   return None;
                 }
               }
@@ -549,7 +402,7 @@ impl<'src> Scanner<'src> {
           Some(Token::Number(NumberToken::I32(int)))
         }
         Err(e) => {
-          self.error(e);
+          self.error(LexicalErrorMsg::ParseError(e));
           None
         }
       }
@@ -562,7 +415,7 @@ impl<'src> Scanner<'src> {
     while let Some(c) = self.peek() {
       match c {
         '\n' => {
-          self.error(String::from("multiline strings are unsupported"));
+          self.error(LexicalErrorMsg::MultilineString);
           error_detected = true;
           self.advance();
           self.line += 1;
@@ -584,26 +437,20 @@ impl<'src> Scanner<'src> {
     }
 
     if self.at_end() {
-      self.error(String::from("unterminated string"));
+      self.error(LexicalErrorMsg::UnterminatedString);
       return None;
     }
 
     match str::from_utf8(&self.src[self.start_pos + 1..self.pos]) {
       Ok(string) => {
         if C == '"' {
-          match util::strproc::escape(string) {
-            Ok(string) => Some(Token::String(string)),
-            Err(e) => {
-              self.error(format!("{}", e));
-              None
-            }
-          }
+          Some(Token::String(util::strproc::escape(string)))
         } else {
           Some(Token::String(string.to_string()))
         }
       }
       Err(e) => {
-        self.error(format!("{}", e));
+        self.error(LexicalErrorMsg::InvalidUtf8(e));
         None
       }
     }
@@ -625,7 +472,7 @@ impl<'src> Scanner<'src> {
     match Token::try_from(self.current_word()) {
       Ok(t) => Some(t),
       Err(e) => {
-        self.error(e.to_string());
+        self.error(LexicalErrorMsg::InvalidUtf8(e));
         None
       }
     }

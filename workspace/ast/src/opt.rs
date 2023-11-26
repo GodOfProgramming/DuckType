@@ -1,14 +1,11 @@
-use super::{
-  ast::{
-    AndExpression, AssignExpression, BinaryExpression, BinaryOperator, BinaryRegisterExpression, BlockStatement,
-    CallExpression, ClassExpression, ClassStatement, ClosureExpression, DynVecExpression, ExportStatement, Expression,
-    ExpressionStatement, FnStatement, ForStatement, Ident, IfStatement, IndexExpression, IsExpression, LambdaExpression,
-    LetStatement, LiteralExpression, LiteralValue, LoopStatement, MatchStatement, MemberAccessExpression, MethodExpression,
-    ModExpression, ModStatement, OrExpression, PrintlnStatement, QuackStatement, ReqExpression, ReqStatement, RetStatement,
-    ScopeResolutionExpression, SizedVecExpression, Statement, StructExpression, UnaryExpression, VarStorage, VecExpression,
-    WhileStatement,
-  },
-  Ast,
+use crate::{
+  AndExpression, AssignExpression, Ast, BinaryExpression, BinaryOperator, BinaryRegisterExpression, BlockStatement,
+  CallExpression, ClassExpression, ClassStatement, ClosureExpression, DynVecExpression, ExportStatement, Expression,
+  ExpressionStatement, FnStatement, ForStatement, Ident, IfStatement, IndexExpression, IsExpression, LambdaExpression,
+  LetStatement, LiteralExpression, LiteralValue, LoopStatement, MatchStatement, MemberAccessExpression, MethodExpression,
+  ModExpression, ModStatement, OrExpression, PrintlnStatement, QuackStatement, ReqExpression, ReqStatement, RetStatement,
+  ScopeResolutionExpression, SizedVecExpression, Statement, StructExpression, UnaryExpression, VarStorage, VecExpression,
+  WhileStatement,
 };
 
 pub fn optimize(ast: Ast) -> Ast {

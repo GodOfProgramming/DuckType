@@ -9,8 +9,8 @@ pub mod error;
 pub(crate) mod exec;
 mod memory;
 pub mod stdlib;
-mod util;
 pub(crate) mod value;
+use common::util::*;
 
 pub mod prelude {
   pub use super::error::*;
@@ -168,7 +168,8 @@ impl Vm {
 
     let source = fs::read_to_string(&file).map_err(Error::other_system_err)?;
     let opts = CompileOpts { optimize: self.opt };
-    let ctx = code::compile_file(&mut self.cache, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
+    let ctx =
+      code::compile_file(&mut self.cache, file_id, source, opts).map_err(|e| Error::from_common(e, &self.filemap, &source))?;
 
     self.stack_frame = StackFrame::new(ctx, self.stack_size());
     self.stack_frames = Default::default();

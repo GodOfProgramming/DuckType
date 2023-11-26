@@ -1,11 +1,14 @@
 mod expr;
+mod opt;
 mod stmt;
 
-use super::{lex::Token, SourceLocation};
-use crate::{
-  prelude::*,
+use common::{
+  errors::{AstGenerationError, AstGenerationErrorMsg, CompilerError, Error},
+  ops,
   util::{FileIdType, UnwrapAnd},
+  SourceLocation, Token,
 };
+
 pub use expr::*;
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
@@ -38,19 +41,17 @@ trait AstExpression {
   }
 }
 
+pub fn generate(file_id: Option<FileIdType>, tokens: Vec<Token>, meta: Vec<SourceLocation>) -> Result<Ast, Error> {
+  AstGenerator::new(file_id, tokens, meta).generate()
+}
+
+pub use opt::optimize;
+
 pub struct Ast {
   pub statements: Vec<Statement>,
 }
 
 impl Ast {
-  pub fn try_from(
-    file_id: Option<FileIdType>,
-    tokens: Vec<Token>,
-    meta: Vec<SourceLocation>,
-  ) -> Result<Ast, CompiletimeErrors> {
-    AstGenerator::new(file_id, tokens, meta).generate()
-  }
-
   #[cfg(feature = "visit-ast")]
   #[allow(dead_code)]
   pub fn dump(&self, file: &Path) {
@@ -80,10 +81,10 @@ impl Ast {
 pub(crate) struct AstGenerator {
   file_id: Option<FileIdType>,
   tokens: Vec<Token>,
-  meta: Vec<SourceLocation>,
+  token_locations: Vec<SourceLocation>,
 
   statements: Vec<Statement>,
-  errors: CompiletimeErrors,
+  errors: Vec<AstGenerationError>,
 
   index: usize,
 
@@ -98,7 +99,7 @@ impl AstGenerator {
     Self {
       file_id,
       tokens,
-      meta,
+      token_locations: meta,
       statements: Default::default(),
       errors: Default::default(),
       index: Default::default(),
@@ -109,7 +110,7 @@ impl AstGenerator {
     }
   }
 
-  fn generate(mut self) -> Result<Ast, CompiletimeErrors> {
+  fn generate(mut self) -> Result<Ast, Error> {
     while let Some(current) = self.current() {
       self.statement(current);
     }
@@ -121,7 +122,7 @@ impl AstGenerator {
     if self.errors.is_empty() {
       Ok(ast)
     } else {
-      Err(self.errors)
+      Err(Error::Compiler(CompilerError::AstGeneration(self.errors)))
     }
   }
 
@@ -210,9 +211,9 @@ impl AstGenerator {
   /* Statements */
 
   fn breakpoint_stmt(&mut self) {
-    if self.consume(Token::Semicolon, "expected ';' after value") {
+    if self.consume(Token::Semicolon) {
       self
-        .meta_at::<1>()
+        .token_location::<1>()
         .unwrap_and(|meta| self.statements.push(Statement::Breakpoint(meta)));
     }
   }
@@ -231,18 +232,13 @@ impl AstGenerator {
       self.expression()?;
     }
 
-    if !self.consume(Token::LeftBrace, "expected '\x7b' after paren") {
+    if !self.consume(Token::LeftBrace) {
       return None;
     }
 
-    if let Some(block_loc) = self.meta_at::<1>() {
-      let body = self.block(can_return, block_loc)?;
-      f(self, params, body)
-    } else {
-      // sanity check
-      self.error::<0>(String::from("could not find original token"));
-      None
-    }
+    let block_loc = self.token_location::<1>()?;
+    let body = self.block(can_return, block_loc)?;
+    f(self, params, body)
   }
 
   /* Utility functions */
@@ -258,7 +254,7 @@ impl AstGenerator {
   fn expect_current(&mut self) -> Option<Token> {
     let current = self.current();
     if current.is_none() {
-      self.error::<0>("unexpected end of file");
+      self.error::<0>(AstGenerationErrorMsg::UnexpectedEof);
     }
     current
   }
@@ -301,7 +297,7 @@ impl AstGenerator {
     false
   }
 
-  fn consume<E: ToString>(&mut self, expected: Token, err: E) -> bool {
+  fn consume(&mut self, expected: Token) -> bool {
     if let Some(curr) = self.current() {
       if curr == expected {
         self.advance();
@@ -309,22 +305,22 @@ impl AstGenerator {
       }
     }
 
-    self.error::<0>(err.to_string());
+    self.error::<0>(AstGenerationErrorMsg::FailedConsumption(expected));
     false
   }
 
   fn parse_fn(&mut self) -> Option<Statement> {
-    let loc = self.meta_at::<0>()?;
+    let loc = self.token_location::<0>()?;
 
     let validator = self.fn_ident_validator()?;
 
-    if !self.consume(Token::LeftParen, "expect '(' after function name") {
+    if !self.consume(Token::LeftParen) {
       return None;
     }
 
     let params = self.parse_parameters(Token::RightParen)?;
     if params.found_self {
-      self.error::<0>(String::from("found 'self' in invalid context"));
+      self.error::<0>(AstGenerationErrorMsg::SelfNotAllowed);
       return None;
     }
 
@@ -332,11 +328,11 @@ impl AstGenerator {
       self.expression()?;
     }
 
-    if !self.consume(Token::LeftBrace, "expected '\x7b' after paren") {
+    if !self.consume(Token::LeftBrace) {
       return None;
     }
 
-    let block_loc = self.meta_at::<1>()?;
+    let block_loc = self.token_location::<1>()?;
     let ident = validator(self, &params)?;
     self
       .block(true, block_loc)
@@ -358,24 +354,21 @@ impl AstGenerator {
     parts
   }
 
-  fn meta_at<const OFFSET: usize>(&mut self) -> Option<SourceLocation> {
-    self.meta.get(self.index - OFFSET).cloned()
+  fn token_location<const OFFSET: usize>(&mut self) -> Option<SourceLocation> {
+    self.token_locations.get(self.index - OFFSET).cloned()
   }
 
-  fn add_error(&mut self, loc: SourceLocation, msg: impl ToString) {
-    self.errors.add(CompiletimeError {
-      msg: msg.to_string(),
-      file_display: self.file_id.map(FileDisplay::Id),
-      line: loc.line,
-      column: loc.column,
-    });
+  fn add_error(&mut self, msg: AstGenerationErrorMsg, loc: SourceLocation) {
+    self
+      .errors
+      .push(AstGenerationError::new(msg, self.file_id, loc.line, loc.column));
   }
 
-  fn error<const I: usize>(&mut self, msg: impl AsRef<str> + ToString) {
+  fn error<const I: usize>(&mut self, msg: AstGenerationErrorMsg) {
     let mut index = I;
     'bt: loop {
-      if let Some(meta) = self.meta.get(index).cloned() {
-        self.add_error(meta, msg);
+      if let Some(loc) = self.token_locations.get(index).cloned() {
+        self.add_error(msg, loc);
         break 'bt;
       }
 
@@ -383,8 +376,8 @@ impl AstGenerator {
         Some(i) => index = i,
         None => {
           self.add_error(
+            AstGenerationErrorMsg::NoLocationForError(Box::new(msg)),
             SourceLocation { line: 0, column: 0 },
-            format!("could not desperately find a location of token for msg '{}'", msg.as_ref()),
           );
           break 'bt;
         }
@@ -450,7 +443,7 @@ impl AstGenerator {
 
     match self.scope_depth.checked_sub(1) {
       Some(v) => self.scope_depth = v,
-      None => self.error::<0>("unclosed scope detected, probably missing a '\x7b' somewhere"),
+      None => self.error::<0>(AstGenerationErrorMsg::UnclosedScope),
     }
 
     statements
@@ -469,7 +462,7 @@ impl AstGenerator {
     });
     self.returnable = prev_returnable;
 
-    if self.consume(Token::RightBrace, "expected '\x7d' after block") {
+    if self.consume(Token::RightBrace) {
       Some(BlockStatement::new(statements, loc))
     } else {
       None
@@ -492,40 +485,42 @@ impl AstGenerator {
 
       self.advance();
 
-      if let Token::Identifier(ident) = token {
-        if params.contains(&ident) {
-          self.error::<0>(format!("duplicate identifier '{}' found in parameter list", ident));
-          return None;
-        }
-
-        if ident == SELF_IDENT {
-          if first_token {
-            if found_self {
-              self.error::<0>(String::from("self found twice in parameter list"));
-              return None;
-            } else {
-              found_self = true;
-            }
-          } else {
-            self.error::<0>("self must be the first parameter");
+      match token {
+        Token::Identifier(ident) => {
+          if params.contains(&ident) {
+            self.error::<0>(AstGenerationErrorMsg::DuplicateIdentifier);
             return None;
           }
-        } else {
-          params.push(ident);
-          if self.advance_if_matches(Token::Colon) {
-            self.expression()?;
+
+          if ident == SELF_IDENT {
+            if first_token {
+              if found_self {
+                self.error::<0>(AstGenerationErrorMsg::DuplicateIdentifier);
+                return None;
+              } else {
+                found_self = true;
+              }
+            } else {
+              self.error::<0>(AstGenerationErrorMsg::InvalidSelfPosition);
+              return None;
+            }
+          } else {
+            params.push(ident);
+            if self.advance_if_matches(Token::Colon) {
+              self.expression()?;
+            }
           }
+
+          first_token = false;
         }
 
-        first_token = false;
-      } else {
-        self.error::<0>("invalid token in parameter list");
+        t => self.error::<0>(AstGenerationErrorMsg::InvalidParameter(t)),
       }
 
       self.advance_if_matches(Token::Comma);
     }
 
-    if self.consume(terminator, "expected terminator after parameters") {
+    if self.consume(terminator) {
       Some(Params::from((found_self, params.into_iter().map(Ident::new).collect())))
     } else {
       None
@@ -533,8 +528,8 @@ impl AstGenerator {
   }
 
   fn declaration(&mut self) -> Option<LetStatement> {
-    self.meta_at::<1>().and_then(|let_loc| {
-      if let Some(Token::Identifier(ident)) = self.current() {
+    self.token_location::<1>().and_then(|let_loc| match self.current() {
+      Some(Token::Identifier(ident)) => {
         let ident = Ident::new(ident);
         self.advance();
 
@@ -545,8 +540,13 @@ impl AstGenerator {
         };
 
         Some(LetStatement::new(ident, value, let_loc))
-      } else {
-        self.error::<0>(String::from("expected variable name"));
+      }
+      Some(t) => {
+        self.error::<0>(AstGenerationErrorMsg::InvalidIdentifier(t));
+        None
+      }
+      None => {
+        self.error::<0>(AstGenerationErrorMsg::UnexpectedEof);
         None
       }
     })
@@ -560,28 +560,21 @@ impl AstGenerator {
       let prev_token_rule = Self::rule_for(&prev);
 
       let prefix_rule = prev_token_rule.prefix.or_else(|| {
-        self.error::<1>(String::from("expected an expression"));
+        self.error::<1>(AstGenerationErrorMsg::InvalidExpression);
         None
       })?;
 
-      expr = prefix_rule(self).or_else(|| {
-        self.error::<1>(format!("no prefix rule for {}", prev));
-        None
-      })?;
+      expr = prefix_rule(self)?;
 
       while let Some(curr) = self.current() {
         let current_token_rule = Self::rule_for(&curr);
         if root_token_precedence <= current_token_rule.precedence {
-          match current_token_rule.infix {
-            Some(infix) => {
-              self.advance();
-              expr = infix(self, expr)?;
-            }
-            None => {
-              self.error::<0>(format!("no infix rule for {:?}", curr));
-              return None;
-            }
-          }
+          let infix_rule = current_token_rule.infix.or_else(|| {
+            self.error::<0>(AstGenerationErrorMsg::InvalidExpression);
+            None
+          })?;
+          self.advance();
+          expr = infix_rule(self, expr)?;
         } else {
           break;
         }
@@ -589,7 +582,7 @@ impl AstGenerator {
 
       Some(expr)
     } else {
-      self.error::<2>(String::from("unexpected end of token stream (parse_precedence 3)"));
+      self.error::<2>(AstGenerationErrorMsg::UnexpectedEof);
       None
     }
   }
@@ -666,38 +659,41 @@ impl AstGenerator {
   /// Produces a validator function to test if an operator overload is valid with the paramters
   fn fn_ident_validator(&mut self) -> Option<Box<Validator>> {
     macro_rules! check_missing_self {
-      ($this:ident, $p:ident, $op:literal) => {
+      ($this:ident, $p:ident) => {
         if !$p.found_self {
-          $this.error::<0>(format!("must have self in '{}' overload", $op));
+          $this.error::<0>(AstGenerationErrorMsg::SelfParameterUndefined);
           None?
         }
       };
     }
 
-    macro_rules! check_not_ternary {
-      ($this:ident, $p:ident, $op:literal) => {
-        if $p.list.len() != 3 {
-          $this.error::<0>(format!("invalid number of arguments in '{}' overload", $op));
+    macro_rules! check_nargs {
+      ($this:ident, $p:ident, $expargs:literal) => {{
+        let nargs = $p.list.len();
+        if nargs != $expargs {
+          $this.error::<0>(AstGenerationErrorMsg::OperatorOverloadInvalidNumberOfParameters(
+            nargs, $expargs,
+          ));
           None?
         }
+      }};
+    }
+
+    macro_rules! check_not_ternary {
+      ($this:ident, $p:ident) => {
+        check_nargs!($this, $p, 3);
       };
     }
 
     macro_rules! check_not_binary {
-      ($this:ident, $p:ident, $op:literal) => {
-        if $p.list.len() != 2 {
-          $this.error::<0>(format!("invalid number of arguments in '{}' overload", $op));
-          None?
-        }
+      ($this:ident, $p:ident) => {
+        check_nargs!($this, $p, 2);
       };
     }
 
     macro_rules! check_not_unary {
-      ($this:ident, $p:ident, $op:literal) => {
-        if $p.list.len() != 1 {
-          $this.error::<0>(format!("cannot have arguments in '{}' overload", $op));
-          None?
-        }
+      ($this:ident, $p:ident) => {
+        check_nargs!($this, $p, 1);
       };
     }
 
@@ -713,84 +709,84 @@ impl AstGenerator {
       Token::Identifier(fn_name) => validator!(|_, _| Some(Ident::new(fn_name))),
       other => match other {
         Token::Bang => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "not");
-          check_not_unary!(this, params, "not");
+          check_missing_self!(this, params);
+          check_not_unary!(this, params);
           Some(ops::NOT.into())
         }),
         Token::Plus => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "add");
-          check_not_binary!(this, params, "add");
+          check_missing_self!(this, params);
+          check_not_binary!(this, params);
           Some(ops::ADD.into())
         }),
         Token::Minus => validator!(|this, params: &Params| {
           if params.list.is_empty() {
-            check_missing_self!(this, params, "negate");
+            check_missing_self!(this, params);
             Some(ops::NEG.into())
           } else {
-            check_missing_self!(this, params, "sub");
-            check_not_binary!(this, params, "sub");
+            check_missing_self!(this, params);
+            check_not_binary!(this, params);
             Some(ops::SUB.into())
           }
         }),
         Token::Asterisk => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "mul");
-          check_not_binary!(this, params, "mul");
+          check_missing_self!(this, params);
+          check_not_binary!(this, params);
           Some(ops::MUL.into())
         }),
         Token::Slash => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "div");
-          check_not_binary!(this, params, "div");
+          check_missing_self!(this, params);
+          check_not_binary!(this, params);
           Some(ops::DIV.into())
         }),
         Token::Percent => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "rem");
-          check_not_binary!(this, params, "rem");
+          check_missing_self!(this, params);
+          check_not_binary!(this, params);
           Some(ops::REM.into())
         }),
         Token::EqualEqual => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "eq");
-          check_not_binary!(this, params, "eq");
+          check_missing_self!(this, params);
+          check_not_binary!(this, params);
           Some(ops::EQUALITY.into())
         }),
         Token::BangEqual => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "neq");
-          check_not_binary!(this, params, "neq");
+          check_missing_self!(this, params);
+          check_not_binary!(this, params);
           Some(ops::NOT_EQUAL.into())
         }),
         Token::Less => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "less");
-          check_not_binary!(this, params, "less");
+          check_missing_self!(this, params);
+          check_not_binary!(this, params);
           Some(ops::LESS.into())
         }),
         Token::LessEqual => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "leq");
-          check_not_binary!(this, params, "leq");
+          check_missing_self!(this, params);
+          check_not_binary!(this, params);
           Some(ops::LESS_EQUAL.into())
         }),
         Token::Greater => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "greater");
-          check_not_binary!(this, params, "greater");
+          check_missing_self!(this, params);
+          check_not_binary!(this, params);
           Some(ops::GREATER.into())
         }),
         Token::GreaterEqual => validator!(|this, params: &Params| {
-          check_missing_self!(this, params, "geq");
-          check_not_binary!(this, params, "geq");
+          check_missing_self!(this, params);
+          check_not_binary!(this, params);
           Some(ops::GREATER_EQUAL.into())
         }),
         Token::LeftBracket => {
           auto_advance = false;
           self.advance();
-          if self.consume(Token::RightBracket, "expected ']' after '[' in op overload") {
+          if self.consume(Token::RightBracket) {
             if self.advance_if_matches(Token::Equal) {
               validator!(|this, params: &Params| {
-                check_missing_self!(this, params, "index");
-                check_not_ternary!(this, params, "index");
+                check_missing_self!(this, params);
+                check_not_ternary!(this, params);
                 Some(ops::INDEX_ASSIGN.into())
               })
             } else {
               validator!(|this, params: &Params| {
-                check_missing_self!(this, params, "index");
-                check_not_binary!(this, params, "index");
+                check_missing_self!(this, params);
+                check_not_binary!(this, params);
                 Some(ops::INDEX.into())
               })
             }
@@ -799,7 +795,7 @@ impl AstGenerator {
           }
         }
         t => {
-          self.error::<0>(format!("invalid fn name {}", t));
+          self.error::<0>(AstGenerationErrorMsg::InvalidFnIdentifier(t));
           None?
         }
       },
@@ -814,7 +810,7 @@ impl AstGenerator {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum IdentScope {
+pub enum IdentScope {
   Module,
   Global,
 }

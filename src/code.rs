@@ -1,21 +1,17 @@
-use crate::{error::CompiletimeErrors, prelude::*, util::FileIdType};
-use ast::Ast;
+use crate::prelude::*;
+use common::errors::Error;
+use common::util::FileIdType;
 use gen::BytecodeGenerator;
-use lex::Scanner;
 use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
-  convert::TryFrom,
-  fmt::{self, Debug, Display, Formatter, Result as FmtResult},
+  fmt::{Debug, Display, Formatter, Result as FmtResult},
   path::PathBuf,
   rc::Rc,
   str,
 };
 
-pub mod ast;
 pub mod gen;
-pub mod lex;
-pub mod opt;
 
 pub(crate) struct CompileOpts {
   pub(crate) optimize: bool,
@@ -26,7 +22,7 @@ pub(crate) fn compile_file(
   file_id: FileIdType,
   source: impl AsRef<str>,
   opts: CompileOpts,
-) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+) -> Result<SmartPtr<Context>, Error> {
   compile(cache, Some(file_id), source, opts)
 }
 
@@ -34,7 +30,7 @@ pub(crate) fn compile_string(
   cache: &mut Cache,
   source: impl AsRef<str>,
   opts: CompileOpts,
-) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+) -> Result<SmartPtr<Context>, Error> {
   compile(cache, None, source, opts)
 }
 
@@ -43,13 +39,13 @@ pub(crate) fn compile(
   file_id: Option<FileIdType>,
   source: impl AsRef<str>,
   opts: CompileOpts,
-) -> Result<SmartPtr<Context>, CompiletimeErrors> {
-  let (tokens, token_locations) = Scanner::new(file_id, source.as_ref()).into_tokens()?;
+) -> Result<SmartPtr<Context>, Error> {
+  let (tokens, token_locations) = lex::tokenize(file_id, source.as_ref())?;
 
-  let mut ast = Ast::try_from(file_id, tokens, token_locations)?;
+  let mut ast = ast::generate(file_id, tokens, token_locations)?;
 
   if opts.optimize {
-    ast = opt::optimize(ast);
+    ast = ast::optimize(ast);
   }
 
   let source = Rc::new(source.as_ref().to_string());

@@ -1,11 +1,8 @@
-use crate::code::{
-  ast::{
-    AstExpression, AstGenerator, BlockStatement, Expression, ExpressionStatement, Ident, LetStatement, Params, RetStatement,
-    SelfRules, Statement, SELF_IDENT,
-  },
-  lex::{NumberToken, Token},
-  SourceLocation,
+use crate::{
+  AstExpression, AstGenerator, BlockStatement, Expression, ExpressionStatement, Ident, LetStatement, Params, RetStatement,
+  SelfRules, Statement, SELF_IDENT,
 };
+use common::{errors::AstGenerationErrorMsg, NumberToken, SourceLocation, Token};
 use std::{collections::BTreeSet, fmt::Display};
 
 #[derive(Debug)]
@@ -14,7 +11,7 @@ pub struct GroupExpression;
 impl AstExpression for GroupExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
     let expr = ast.expression()?;
-    if ast.consume(Token::RightParen, "expected ')' after expression") {
+    if ast.consume(Token::RightParen) {
       Some(expr)
     } else {
       None
@@ -37,19 +34,19 @@ impl IdentExpression {
 
 impl AstExpression for IdentExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    if let Some(ident_token) = ast.previous() {
-      if let Token::Identifier(ident_name) = ident_token {
-        Some(Expression::from(IdentExpression::new(
-          Ident::new(ident_name),
-          ast.meta_at::<1>()?,
-        )))
-      } else {
-        ast.error::<2>(String::from("variable name is not an identifier"));
+    match ast.previous() {
+      Some(Token::Identifier(ident_name)) => Some(Expression::from(IdentExpression::new(
+        Ident::new(ident_name),
+        ast.token_location::<1>()?,
+      ))),
+      Some(t) => {
+        ast.error::<2>(AstGenerationErrorMsg::InvalidIdentifier(t));
         None
       }
-    } else {
-      ast.error::<2>(String::from("unexpected end of token stream"));
-      None
+      None => {
+        ast.error::<2>(AstGenerationErrorMsg::UnexpectedEof);
+        None
+      }
     }
   }
 }
@@ -89,17 +86,17 @@ impl ClassExpression {
 
 impl AstExpression for ClassExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    let class_loc = ast.meta_at::<0>()?;
+    let class_loc = ast.token_location::<0>()?;
 
     let name = if let Some(Token::Identifier(name)) = ast.current() {
       ast.advance();
       Ident::new(name)
     } else {
-      ast.error::<0>("expected ident after class");
+      ast.error::<0>(AstGenerationErrorMsg::MissingIdentifier);
       return None;
     };
 
-    if !ast.consume(Token::LeftBrace, "expected '\x7b' to begin class body") {
+    if !ast.consume(Token::LeftBrace) {
       return None;
     }
 
@@ -109,11 +106,11 @@ impl AstExpression for ClassExpression {
     let mut declared_functions = BTreeSet::default();
 
     while let Some(token) = ast.current() {
-      let member_loc = ast.meta_at::<0>()?;
+      let member_loc = ast.token_location::<0>()?;
       match token {
         Token::Identifier(ident) if ident == SELF_IDENT => {
           ast.advance();
-          ast.consume(Token::As, "expected 'as' keyword after self");
+          ast.consume(Token::As);
           let initializer = ast.expression()?;
           if creator.is_none() {
             creator = Some(Expression::from(LambdaExpression::new(
@@ -122,13 +119,13 @@ impl AstExpression for ClassExpression {
               member_loc,
             )));
           } else {
-            ast.error::<0>("self is already defined");
+            ast.error::<0>(AstGenerationErrorMsg::ClassReprRedefinition);
           }
         }
         Token::New => {
           ast.advance();
           if initializer.is_none() {
-            if ast.consume(Token::LeftParen, "expected '(' after 'new'") {
+            if ast.consume(Token::LeftParen) {
               initializer = LambdaExpression::expr(
                 ast,
                 false,
@@ -148,13 +145,13 @@ impl AstExpression for ClassExpression {
               );
             }
           } else {
-            ast.error::<0>(String::from("duplicate initializer found"));
+            ast.error::<0>(AstGenerationErrorMsg::DuplicateClassFunction);
           }
         }
         Token::Fn => {
           ast.advance();
           if let Some(validator) = ast.fn_ident_validator() {
-            if ast.consume(Token::LeftParen, "expected '(' after identifier") {
+            if ast.consume(Token::LeftParen) {
               if let Some(params) = ast.parse_parameters(Token::RightParen) {
                 if let Some(ident) = validator(ast, &params) {
                   if !declared_functions.contains(&ident.name) {
@@ -178,7 +175,7 @@ impl AstExpression for ClassExpression {
                       class_members.push((ident, function));
                     }
                   } else {
-                    ast.error::<0>("duplicate method definition");
+                    ast.error::<0>(AstGenerationErrorMsg::DuplicateClassFunction);
                   }
                 }
               }
@@ -186,11 +183,11 @@ impl AstExpression for ClassExpression {
           }
         }
         Token::RightBrace => break,
-        t => ast.error::<0>(format!("unexpected token in class {t}")),
+        t => ast.error::<0>(AstGenerationErrorMsg::InvalidToken(t)),
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '\x7d' after class body") {
+    if !ast.consume(Token::RightBrace) {
       return None;
     }
 
@@ -203,7 +200,7 @@ impl AstExpression for ClassExpression {
         class_loc,
       )))
     } else {
-      ast.error::<0>("self must be defined in classes");
+      ast.error::<0>(AstGenerationErrorMsg::ClassReprUndefined);
       None
     }
   }
@@ -230,14 +227,14 @@ impl ClosureExpression {
 
 impl ClosureExpression {
   fn expr(ast: &mut AstGenerator, param_term: Token, captures: VecExpression) -> Option<Expression> {
-    let loc = ast.meta_at::<0>()?;
+    let loc = ast.token_location::<0>()?;
 
     let mut vetted_captures = Vec::new();
     for capture in captures.items {
       match capture {
         Expression::Ident(expr) => vetted_captures.push(expr),
         _ => {
-          ast.error::<0>("invalid lambda capture");
+          ast.error::<0>(AstGenerationErrorMsg::InvalidCapture);
           return None;
         }
       }
@@ -278,11 +275,11 @@ impl LambdaExpression {
 
     match (self_rules, params.found_self) {
       (SelfRules::Disallow, true) => {
-        ast.error::<0>(String::from("found 'self' in invalid context"));
+        ast.error::<0>(AstGenerationErrorMsg::SelfNotAllowed);
         None
       }
       (SelfRules::Require, false) => {
-        ast.error::<0>(String::from("missing 'self' in function"));
+        ast.error::<0>(AstGenerationErrorMsg::SelfParameterUndefined);
         None
       }
       _ => ast.parse_lambda(can_return, params, f),
@@ -302,7 +299,7 @@ impl From<ClosureExpression> for LambdaExpression {
 
 impl AstExpression for LambdaExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    let loc = ast.meta_at::<0>()?;
+    let loc = ast.token_location::<0>()?;
     LambdaExpression::expr(ast, true, SelfRules::Disallow, Token::Pipe, |_this, params, body| {
       Some(Expression::from(LambdaExpression::new(
         params.list,
@@ -379,38 +376,33 @@ impl LiteralExpression {
 
 impl AstExpression for LiteralExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<super::Expression> {
-    let mut expr = None;
-
-    if let Some(prev) = ast.previous() {
-      match prev {
-        Token::Nil => {
-          expr = Some(Expression::from(Self::new(LiteralValue::Nil, ast.meta_at::<1>()?)));
-        }
-        Token::True => {
-          expr = Some(Expression::from(Self::new(LiteralValue::Bool(true), ast.meta_at::<1>()?)));
-        }
-        Token::False => {
-          expr = Some(Expression::from(Self::new(LiteralValue::Bool(false), ast.meta_at::<1>()?)));
-        }
-        Token::String(s) => expr = Some(Expression::from(Self::new(LiteralValue::String(s), ast.meta_at::<1>()?))),
-        Token::Number(n) => {
-          expr = Some(Expression::from(Self::new(
-            match n {
-              NumberToken::I32(i) => LiteralValue::I32(i),
-              NumberToken::F64(f) => LiteralValue::F64(f),
-            },
-            ast.meta_at::<1>()?,
-          )))
-        }
-        _ => {
-          ast.error::<1>(String::from("sanity check, invalid literal, very bad logic error"));
-        }
+    let prev = ast.previous()?;
+    match prev {
+      Token::Nil => Some(Expression::from(Self::new(LiteralValue::Nil, ast.token_location::<1>()?))),
+      Token::True => Some(Expression::from(Self::new(
+        LiteralValue::Bool(true),
+        ast.token_location::<1>()?,
+      ))),
+      Token::False => Some(Expression::from(Self::new(
+        LiteralValue::Bool(false),
+        ast.token_location::<1>()?,
+      ))),
+      Token::String(s) => Some(Expression::from(Self::new(
+        LiteralValue::String(s),
+        ast.token_location::<1>()?,
+      ))),
+      Token::Number(n) => Some(Expression::from(Self::new(
+        match n {
+          NumberToken::I32(i) => LiteralValue::I32(i),
+          NumberToken::F64(f) => LiteralValue::F64(f),
+        },
+        ast.token_location::<1>()?,
+      ))),
+      _ => {
+        // would need to screw up parse rules to hit this
+        unreachable!();
       }
-    } else {
-      ast.error::<1>(String::from("sanity check, no previous token, very bad logic error"));
     }
-
-    expr
   }
 }
 
@@ -471,11 +463,11 @@ impl ModExpression {
 
       module_items.push(Statement::from(LetStatement::new(member, Some(value), loc)));
     } else {
-      ast.error::<0>("duplicate identifier found");
+      ast.error::<0>(AstGenerationErrorMsg::DuplicateIdentifier);
       return None;
     }
 
-    if !matches!(ast.current(), Some(Token::RightBrace)) && !ast.consume(Token::Comma, "expected ',' after expression") {
+    if !matches!(ast.current(), Some(Token::RightBrace)) && !ast.consume(Token::Comma) {
       return None;
     }
 
@@ -489,21 +481,23 @@ impl ModExpression {
     loc: SourceLocation,
   ) -> Option<()> {
     ast.advance();
-    if let Token::Identifier(ident) = ast.current()? {
-      if !declared_items.contains(&ident) {
-        declared_items.insert(ident);
-        let module = Self::prefix(ast)?;
-        module_items.push(Statement::from(ExpressionStatement::new(module, loc)));
-      } else {
-        ast.error::<0>("duplicate identifier found");
-        return None;
+    match ast.current()? {
+      Token::Identifier(ident) => {
+        if !declared_items.contains(&ident) {
+          declared_items.insert(ident);
+          let module = Self::prefix(ast)?;
+          module_items.push(Statement::from(ExpressionStatement::new(module, loc)));
+          Some(())
+        } else {
+          ast.error::<0>(AstGenerationErrorMsg::DuplicateIdentifier);
+          None
+        }
       }
-    } else {
-      ast.error::<0>("mod name is invalid");
-      return None;
+      t => {
+        ast.error::<0>(AstGenerationErrorMsg::InvalidIdentifier(t));
+        None
+      }
     }
-
-    Some(())
   }
 
   fn class(
@@ -513,54 +507,60 @@ impl ModExpression {
     loc: SourceLocation,
   ) -> Option<()> {
     ast.advance();
-    if let Token::Identifier(ident) = ast.current()? {
-      if !declared_items.contains(&ident) {
-        declared_items.insert(ident);
-        let class = ClassExpression::prefix(ast)?;
-        module_items.push(Statement::from(ExpressionStatement::new(class, loc)));
-      } else {
-        ast.error::<0>("duplicate identifier found");
-        return None;
+    match ast.current()? {
+      Token::Identifier(ident) => {
+        if !declared_items.contains(&ident) {
+          declared_items.insert(ident);
+          let class = ClassExpression::prefix(ast)?;
+          module_items.push(Statement::from(ExpressionStatement::new(class, loc)));
+          Some(())
+        } else {
+          ast.error::<0>(AstGenerationErrorMsg::DuplicateIdentifier);
+          None
+        }
       }
-    } else {
-      ast.error::<0>("class name is invalid");
-      return None;
+      t => {
+        ast.error::<0>(AstGenerationErrorMsg::InvalidIdentifier(t));
+        None
+      }
     }
-    Some(())
   }
 
   fn function(ast: &mut AstGenerator, declared_items: &mut BTreeSet<String>, module_items: &mut Vec<Statement>) -> Option<()> {
     ast.advance();
-    if let Token::Identifier(ident) = ast.current()? {
-      if !declared_items.contains(&ident) {
-        declared_items.insert(ident);
-        let function = ast.parse_fn()?;
-        module_items.push(function);
-      } else {
-        ast.error::<0>("duplicate method definition");
-        return None;
+    match ast.current()? {
+      Token::Identifier(ident) => {
+        if !declared_items.contains(&ident) {
+          declared_items.insert(ident);
+          let function = ast.parse_fn()?;
+          module_items.push(function);
+          Some(())
+        } else {
+          ast.error::<0>(AstGenerationErrorMsg::DuplicateIdentifier);
+          None
+        }
       }
-    } else {
-      ast.error::<0>("function name is invalid");
-      return None;
+      t => {
+        ast.error::<0>(AstGenerationErrorMsg::InvalidIdentifier(t));
+        None
+      }
     }
-    Some(())
   }
 }
 
 impl AstExpression for ModExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    let mod_loc = ast.meta_at::<0>()?;
+    let mod_loc = ast.token_location::<0>()?;
 
     let name = if let Some(Token::Identifier(name)) = ast.current() {
       ast.advance();
       Ident::new(name)
     } else {
-      ast.error::<0>("expected ident after mod");
+      ast.error::<0>(AstGenerationErrorMsg::MissingIdentifier);
       return None;
     };
 
-    if !ast.consume(Token::LeftBrace, "expected '\x7b' after mod name") {
+    if !ast.consume(Token::LeftBrace) {
       return None;
     }
 
@@ -568,18 +568,18 @@ impl AstExpression for ModExpression {
     let mut module_items = Vec::default();
 
     while let Some(token) = ast.current() {
-      let member_loc = ast.meta_at::<0>()?;
+      let member_loc = ast.token_location::<0>()?;
       match token {
         Token::Identifier(ident) => Self::named_expr(ast, ident, &mut declared_items, &mut module_items, member_loc)?,
         Token::Mod => Self::inner_module(ast, &mut declared_items, &mut module_items, member_loc)?,
         Token::Class => Self::class(ast, &mut declared_items, &mut module_items, member_loc)?,
         Token::Fn => Self::function(ast, &mut declared_items, &mut module_items)?,
         Token::RightBrace => break,
-        t => ast.error::<0>(format!("unexpected token in module {t}")),
+        t => ast.error::<0>(AstGenerationErrorMsg::InvalidToken(t)),
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '\x7d' after module body") {
+    if !ast.consume(Token::RightBrace) {
       return None;
     }
 
@@ -601,9 +601,9 @@ impl StructExpression {
 
 impl AstExpression for StructExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    let struct_meta = ast.meta_at::<1>()?;
+    let struct_meta = ast.token_location::<1>()?;
     // needed here because infix advances to left brace after seeing "struct"
-    if !ast.consume(Token::LeftBrace, "expected '\x7b' to begin struct body") {
+    if !ast.consume(Token::LeftBrace) {
       return None;
     }
 
@@ -621,7 +621,7 @@ impl AstExpression for StructExpression {
             Ident::new(ident.clone()),
             Expression::from(IdentExpression::new(Ident::new(ident), struct_meta)),
           ))
-        } else if ast.consume(Token::Colon, "expected ':' after identifier") {
+        } else if ast.consume(Token::Colon) {
           let value = ast.expression()?;
           members.push((Ident::new(ident), value));
           ast.advance_if_matches(Token::Comma);
@@ -629,12 +629,12 @@ impl AstExpression for StructExpression {
           return None;
         }
       } else {
-        ast.error::<0>("expected identifier");
+        ast.error::<0>(AstGenerationErrorMsg::MissingIdentifier);
         return None;
       }
     }
 
-    if !ast.consume(Token::RightBrace, "expected '\x7d' after struct") {
+    if !ast.consume(Token::RightBrace) {
       return None;
     }
 
@@ -656,7 +656,7 @@ impl VecExpression {
 
 impl AstExpression for VecExpression {
   fn prefix(ast: &mut AstGenerator) -> Option<Expression> {
-    let bracket_meta = ast.meta_at::<1>()?;
+    let bracket_meta = ast.token_location::<1>()?;
     let mut items = Vec::default();
 
     'items: while let Some(token) = ast.current() {
@@ -681,7 +681,7 @@ impl AstExpression for VecExpression {
       }
     }
 
-    if ast.consume(Token::RightBracket, "expect ']' after arguments") {
+    if ast.consume(Token::RightBracket) {
       if let Some(size) = size {
         Some(DynVecExpression::new(items.swap_remove(0), size, bracket_meta).into())
       } else {
