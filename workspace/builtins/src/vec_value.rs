@@ -103,3 +103,15 @@ impl DerefMut for VecValue {
     &mut self.buffer
   }
 }
+
+impl MaybeFrom<Value> for &'static Vec<Value> {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.cast_to::<VecValue>().map(|a| &**a)
+  }
+}
+
+impl MaybeFrom<Value> for &[Value] {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.cast_to::<VecValue>().map(|a| &***a)
+  }
+}

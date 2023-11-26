@@ -1,8 +1,9 @@
+use crate::UsertypeHandle;
+
 use super::{
-  Cast, CastMut, IsType, ReinterpretCast, ReinterpretCastMut, BOOL_TAG, CHAR_TAG, F64_MAX, I32_TAG, NATIVE_FN_TAG, NIL_TAG,
-  TAG_BITMASK, VALUE_BITMASK,
+  types::Usertype, Cast, CastMut, IsType, ReinterpretCast, ReinterpretCastMut, Value, BOOL_TAG, CHAR_TAG, F64_MAX, I32_TAG,
+  NATIVE_FN_TAG, NIL_TAG, TAG_BITMASK, VALUE_BITMASK,
 };
-use crate::prelude::*;
 use std::mem;
 
 // f64
@@ -258,24 +259,6 @@ impl MaybeFrom<Value> for i32 {
 impl MaybeFrom<Value> for f64 {
   fn maybe_from(value: Value) -> Option<Self> {
     value.cast_to::<f64>()
-  }
-}
-
-impl MaybeFrom<Value> for &'static String {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.cast_to::<StringValue>().map(|s| &**s)
-  }
-}
-
-impl MaybeFrom<Value> for &'static Vec<Value> {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.cast_to::<VecValue>().map(|a| &**a)
-  }
-}
-
-impl MaybeFrom<Value> for &[Value] {
-  fn maybe_from(value: Value) -> Option<Self> {
-    value.cast_to::<VecValue>().map(|a| &***a)
   }
 }
 

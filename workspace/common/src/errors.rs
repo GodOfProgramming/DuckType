@@ -1,4 +1,4 @@
-use crate::{util::FileIdType, Token};
+use crate::{util::FileIdType, Opcode, Token};
 use std::{
   fmt::{self, Display, Formatter},
   num::ParseIntError,
@@ -20,7 +20,7 @@ impl Display for Error {
 pub enum CompilerError {
   Lexical(Vec<LexicalError>),
   AstGeneration(Vec<AstGenerationError>),
-  BytecodeGeneration,
+  BytecodeGeneration(Vec<BytecodeGenerationError>),
 }
 
 impl Display for CompilerError {
@@ -36,31 +36,48 @@ impl Display for CompilerError {
           writeln!(f, "{error}")?;
         }
       }
-      CompilerError::BytecodeGeneration => todo!(),
+      CompilerError::BytecodeGeneration(errors) => {
+        for error in errors.iter() {
+          writeln!(f, "{error}")?;
+        }
+      }
     }
     Ok(())
   }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct LexicalError {
-  pub msg: LexicalErrorMsg,
+pub struct CompileError<M>
+where
+  M: Display + fmt::Debug,
+{
+  pub msg: M,
   pub file: Option<FileIdType>,
   pub line: usize,
   pub column: usize,
 }
 
-impl LexicalError {
-  pub fn new(msg: LexicalErrorMsg, file: Option<FileIdType>, line: usize, column: usize) -> Self {
+impl<M> CompileError<M>
+where
+  M: Display + fmt::Debug,
+{
+  pub fn new(msg: M, file: Option<FileIdType>, line: usize, column: usize) -> Self {
     Self { msg, file, line, column }
   }
 }
 
-impl Display for LexicalError {
+impl<M> Display for CompileError<M>
+where
+  M: Display + fmt::Debug,
+{
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     write!(f, "{:?} ({}, {}): {}", self.file, self.line, self.column, self.msg)
   }
 }
+
+pub type LexicalError = CompileError<LexicalErrorMsg>;
+pub type AstGenerationError = CompileError<AstGenerationErrorMsg>;
+pub type BytecodeGenerationError = CompileError<BytecodeGenerationErrorMsg>;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum LexicalErrorMsg {
@@ -78,25 +95,6 @@ pub enum LexicalErrorMsg {
 
   #[error("Invalid UTF-8 detected: {0}")]
   InvalidUtf8(Utf8Error),
-}
-
-pub struct AstGenerationError {
-  msg: AstGenerationErrorMsg,
-  file: Option<FileIdType>,
-  line: usize,
-  column: usize,
-}
-
-impl AstGenerationError {
-  pub fn new(msg: AstGenerationErrorMsg, file: Option<FileIdType>, line: usize, column: usize) -> Self {
-    Self { msg, file, line, column }
-  }
-}
-
-impl Display for AstGenerationError {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{:?} ({}, {}): {}", self.file, self.line, self.column, self.msg)
-  }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -188,4 +186,29 @@ pub enum AstGenerationErrorMsg {
 
   #[error("Unexpected end of file")]
   UnexpectedEof,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum BytecodeGenerationErrorMsg {
+  #[error("Exports can only be made at the surface scope")]
+  InvalidExport,
+
+  #[error("Returns can only be made within functions")]
+  InvalidRet,
+
+  /* Below this are errors triggered by broken bytecode generation logic */
+  #[error("Instruction generation failure for opcode {0}")]
+  InstructionGeneration(Opcode),
+
+  #[error("Class functions should only be statics or methods")]
+  InvalidClassFunction,
+
+  #[error("'new' should be a static class function, not method")]
+  MethodAsInitializer,
+
+  #[error("Undeclared local variable '{0}'")]
+  UndeclaredLocal(String),
+
+  #[error("sanity check, should never happen")]
+  SanityCheck,
 }

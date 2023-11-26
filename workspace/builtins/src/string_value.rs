@@ -137,6 +137,12 @@ impl DerefMut for StringValue {
   }
 }
 
+impl MaybeFrom<Value> for &'static String {
+  fn maybe_from(value: Value) -> Option<Self> {
+    value.cast_to::<StringValue>().map(|s| &**s)
+  }
+}
+
 #[cfg(test)]
 mod test {
   use super::*;

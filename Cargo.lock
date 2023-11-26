@@ -11,6 +11,7 @@ dependencies = [
  "ast",
  "bimap",
  "bindgen",
+ "bytecode",
  "cc",
  "clap",
  "common",
@@ -217,8 +218,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4682ae6287fcf752ecaabbfcc7b6f9b72aa33933dc23a554d853aea8eea8635"
 
 [[package]]
+name = "builtins"
+version = "0.1.0"
+
+[[package]]
 name = "bytecode"
 version = "0.1.0"
+dependencies = [
+ "ast",
+ "common",
+ "ptr",
+]
 
 [[package]]
 name = "bytemuck"
@@ -328,10 +338,18 @@ checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 name = "common"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "anyhow",
+ "bimap",
  "lazy-regex",
+ "macros",
  "nix 0.27.1",
+ "ptr",
+ "static_assertions",
+ "strum",
+ "strum_macros",
  "thiserror",
+ "uuid",
  "windows-sys",
 ]
 

@@ -6,9 +6,17 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lazy-regex = "3.0"
+macros = { path = "../macros" }
+ahash = { workspace = true }
+bimap = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+static_assertions = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+lazy-regex = "3.0"
+ptr = { workspace = true }
+uuid = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.48", features = [

@@ -2,8 +2,6 @@ use super::Args;
 use crate::prelude::*;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-pub type NativeFn = for<'a> fn(&mut Vm, Args) -> UsageResult;
-
 pub(crate) trait Addr {
   fn addr(&self) -> *const ();
 }

@@ -1,7 +1,8 @@
-use crate::{code::FileMap, exec::prelude::Instruction, prelude::Storage, value::Value};
-use common::errors::CompilerError;
+use crate::{code::FileMap, value::Value};
+use common::{errors::CompilerError, Instruction, Storage};
 use std::{
   fmt::{self, Debug, Display, Formatter},
+  io,
   path::PathBuf,
 };
 
@@ -10,31 +11,48 @@ pub type UsageResult<T = Value> = Result<T, UsageError>;
 pub enum Error {
   Single(FormattedError),
   Multiple(Vec<FormattedError>),
+  Plain(String),
 }
 
 impl Error {
+  pub(crate) fn single(file: impl ToString, line: usize, column: usize, msg: impl ToString, source: &str) -> Self {
+    Self::Single(FormattedError::from_parts(
+      file,
+      line,
+      column,
+      msg,
+      Self::source_line(source, line),
+      Self::indicator(column),
+    ))
+  }
+
   pub(crate) fn from_common(error: common::Error, file_map: &FileMap, source: &str) -> Self {
     match error {
       common::Error::Compiler(compiler) => match compiler {
-        CompilerError::Lexical(errors) => Self::Multiple(
-          errors
-            .into_iter()
-            .map(|error| {
-              FormattedError::from_parts(
-                file_map.get(error.file).display(),
-                error.line,
-                error.column,
-                error.msg,
-                Self::source_line(source, error.line),
-                Self::indicator(error.column),
-              )
-            })
-            .collect(),
-        ),
-        CompilerError::AstGeneration(_) => todo!(),
-        CompilerError::BytecodeGeneration => todo!(),
+        CompilerError::Lexical(errors) => Self::Multiple(Self::many_common(errors, file_map, source)),
+        CompilerError::AstGeneration(errors) => Self::Multiple(Self::many_common(errors, file_map, source)),
+        CompilerError::BytecodeGeneration(errors) => Self::Multiple(Self::many_common(errors, file_map, source)),
       },
     }
+  }
+
+  fn many_common<M>(errors: Vec<common::errors::CompileError<M>>, file_map: &FileMap, source: &str) -> Vec<FormattedError>
+  where
+    M: Display + fmt::Debug,
+  {
+    errors
+      .into_iter()
+      .map(|error| {
+        FormattedError::from_parts(
+          file_map.get(error.file).display(),
+          error.line,
+          error.column,
+          error.msg,
+          Self::source_line(source, error.line),
+          Self::indicator(error.column),
+        )
+      })
+      .collect()
   }
 
   fn source_line(source: &str, line: usize) -> String {
@@ -82,6 +100,12 @@ impl Display for FormattedError {
       "{} ({}, {}): {}\n{}\n{}",
       self.file, self.line, self.column, self.msg, self.line_text, self.indicator
     )
+  }
+}
+
+impl From<io::Error> for Error {
+  fn from(error: io::Error) -> Self {
+    Self::Plain(error.to_string())
   }
 }
 

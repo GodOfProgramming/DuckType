@@ -1,4 +1,12 @@
-use crate::{memory, prelude::*};
+mod conv;
+mod tags;
+mod types;
+
+use self::{
+  conv::MaybeFrom,
+  types::{Args, Field},
+};
+use crate::{BasicVm, Error};
 use ptr::MutPtr;
 use static_assertions::assert_eq_size;
 use std::{
@@ -12,19 +20,16 @@ use std::{
 pub use tags::*;
 use uuid::Uuid;
 
-pub(crate) mod builtin_types;
-pub(crate) mod tags;
-
-pub mod conv;
-#[cfg(test)]
-mod test;
-
 pub mod prelude {
-  pub use super::{builtin_types::*, conv::*, Tag, Value};
+  pub use super::{conv::*, Tag, Value};
 }
 
 pub(crate) type ConstVoid = *const ();
 pub(crate) type MutVoid = *mut ();
+
+pub type NativeFn = for<'a> fn(&mut dyn BasicVm, Args) -> Error;
+
+type Vm = dyn BasicVm;
 
 // ensuring 64 bit platforms, redundancy is just sanity checks
 assert_eq_size!(usize, ConstVoid);
@@ -128,7 +133,7 @@ impl Value {
   pub fn native_closure<N, F>(vm: &mut Vm, name: N, f: F) -> Self
   where
     N: ToString,
-    F: FnMut(&mut Vm, Args) -> UsageResult + 'static,
+    F: FnMut(&mut Vm, Args) -> Result<Value, Error> + 'static,
   {
     vm.make_value_from(NativeClosureValue::new(name, f))
   }
@@ -147,7 +152,7 @@ impl Value {
 
   // value methods
 
-  pub fn call(&mut self, vm: &mut Vm, airity: usize) -> UsageResult {
+  pub fn call(&mut self, vm: &mut Vm, airity: usize) -> Result<Self, Error> {
     if let Some(f) = self.cast_to::<NativeFn>() {
       let args = vm.stack_drain_from(airity);
       let output = f(vm, Args::new(args))?;
@@ -157,24 +162,24 @@ impl Value {
     }
   }
 
-  pub fn get_member(&self, vm: &mut Vm, name: Field) -> UsageResult<Option<Value>> {
+  pub fn get_member(&self, vm: &mut Vm, name: Field) -> Result<Option<Value>, Error> {
     (self.vtable().get_member)(*self, MutPtr::new(vm), name)
   }
 
-  pub fn set_member(&mut self, vm: &mut Vm, name: Field, value: Value) -> UsageResult<()> {
+  pub fn set_member(&mut self, vm: &mut Vm, name: Field, value: Value) -> Result<(), Error> {
     vm.gc.invalidate(self);
     (self.vtable().set_member)(self.pointer_mut(), MutPtr::new(vm), name, value)
   }
 
-  pub fn define(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> UsageResult<bool> {
+  pub fn define(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> Result<bool, Error> {
     (self.vtable().define)(self.pointer_mut(), name.as_ref(), value.into())
   }
 
-  pub fn assign(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> UsageResult<bool> {
+  pub fn assign(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> Result<bool, Error> {
     (self.vtable().assign)(self.pointer_mut(), name.as_ref(), value.into())
   }
 
-  pub fn resolve(&self, name: impl AsRef<str>) -> UsageResult {
+  pub fn resolve(&self, name: impl AsRef<str>) -> Result<bool, Error> {
     (self.vtable().resolve)(self.pointer(), name.as_ref())
   }
 
@@ -803,3 +808,6 @@ mod private {
 }
 
 impl private::Sealed for Value {}
+
+#[cfg(test)]
+mod test;
