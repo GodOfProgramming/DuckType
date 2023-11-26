@@ -13,7 +13,7 @@ use crate::{
   code::{ConstantValue, Reflection},
   prelude::*,
   util::FileIdType,
-  FastHashMap, FastHashSet,
+  RapidHashMap, RapidHashSet,
 };
 
 use super::Stack;
@@ -28,13 +28,13 @@ pub struct Cache {
   // Static
   pub(crate) consts: Vec<ConstantValue>,
   pub(crate) strings: bimap::BiBTreeMap<ConstIndex, String>,
-  globals: FastHashMap<ConstIndex, Value>,
+  globals: RapidHashMap<ConstIndex, Value>,
   libs: BTreeMap<FileIdType, Value>,
 
   // Can be cleared from gc cleaning
-  mods: FastHashMap<Value, FastHashMap<ConstIndex, Value>>,
+  mods: RapidHashMap<Value, RapidHashMap<ConstIndex, Value>>,
 
-  pub(crate) native_handles: FastHashSet<Value>,
+  pub(crate) native_handles: RapidHashSet<Value>,
 }
 
 impl Cache {

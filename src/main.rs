@@ -8,11 +8,8 @@ struct Args {
   #[arg(short, long)]
   optimize: bool,
 
-  #[arg(short, long, default_value_t = 100)]
+  #[arg(short, long, default_value_t = 1)]
   gc_mb: usize,
-
-  #[arg(long, default_value_t = 16)]
-  gc_frequency: u64,
 
   #[command(subcommand)]
   command: Command,

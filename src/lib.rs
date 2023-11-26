@@ -44,6 +44,7 @@ use code::CompileOpts;
 use dlopen2::wrapper::Container;
 use dlopen2::wrapper::WrapperApi;
 use memory::Gc;
+use nohash_hasher::BuildNoHashHasher;
 use prelude::module_value::ModuleType;
 use ptr::{MutPtr, SmartPtr};
 use rustyline::{error::ReadlineError, DefaultEditor};
@@ -56,6 +57,9 @@ use value::{NativeBinaryOp, NativeUnaryOp, VTable};
 
 type FastHashSet<T> = HashSet<T, RandomState>;
 type FastHashMap<K, V> = HashMap<K, V, RandomState>;
+
+type RapidHashMap<K, V> = HashMap<K, V, BuildNoHashHasher<K>>;
+type RapidHashSet<T> = HashSet<T, BuildNoHashHasher<T>>;
 
 pub const EXTENSION: &str = "dk";
 
@@ -1358,7 +1362,8 @@ impl Vm {
     let args = self.args.clone();
     ModuleBuilder::initialize(self, ModuleType::new_global(global_mod_name), |vm, mut lib| {
       let libval = lib.value();
-      lib.env.extend(stdlib::make_stdlib(vm, libval, args));
+      let (name, value) = stdlib::make_stdlib(vm, libval, args);
+      lib.env.insert(name, value);
     })
   }
 

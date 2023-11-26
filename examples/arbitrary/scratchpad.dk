@@ -1,7 +1,1 @@
-let source = std::str::concat(
-  'fn foo() {',
-    'ret "hello world";',
-  '}',
-  'export foo;'
-);
-println std::vm::eval(source)();
+x = 1;

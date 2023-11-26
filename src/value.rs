@@ -1,4 +1,5 @@
 use crate::{memory, prelude::*};
+use nohash_hasher::IsEnabled;
 use ptr::MutPtr;
 use static_assertions::assert_eq_size;
 use std::{
@@ -304,12 +305,6 @@ impl Default for Value {
   }
 }
 
-impl Hash for Value {
-  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-    self.bits.hash(state);
-  }
-}
-
 impl TryFrom<Value> for i32 {
   type Error = UsageError;
 
@@ -375,7 +370,14 @@ impl From<NativeFn> for Value {
 impl Display for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     match self.tag() {
-      Tag::F64 => write!(f, "{}", self.reinterpret_cast_to::<f64>()),
+      Tag::F64 => {
+        let fv = self.reinterpret_cast_to::<f64>();
+        if fv < 0.0001 {
+          write!(f, "{:e}", fv)
+        } else {
+          write!(f, "{}", fv)
+        }
+      }
       Tag::I32 => write!(f, "{}", self.reinterpret_cast_to::<i32>()),
       Tag::Bool => write!(f, "{}", self.reinterpret_cast_to::<bool>()),
       Tag::Char => write!(f, "{}", self.reinterpret_cast_to::<char>()),
@@ -765,6 +767,14 @@ impl VTable {
     unsafe { &mut *ptr.raw() }
   }
 }
+
+impl Hash for Value {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    self.bits.hash(state);
+  }
+}
+
+impl IsEnabled for Value {}
 
 pub(crate) struct ValueMeta {
   pub(crate) vtable: &'static VTable,
