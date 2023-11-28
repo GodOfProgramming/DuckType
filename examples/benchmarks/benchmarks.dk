@@ -6,35 +6,51 @@ let REPS = 10_000_000;
 
 let x = 0;
 
-std::vm::gc::print_stats();
+# std::vm::gc::print_stats();
 
-benchmark("simple math", REPS, [x] |timer: Timer, i| {
+benchmark(bench::DISABLED_PREFIX + "simple math", REPS, [x] |timer: Timer, i| {
   timer.start();
   i += 1;
   x += i + i * i / i % i;
   timer.stop();
 });
 
-std::vm::gc::print_stats();
+# std::vm::gc::print_stats();
 
 fn simple_function() {}
 
-benchmark("function calls", REPS, |timer: Timer, _i| {
+benchmark(bench::DISABLED_PREFIX + "function calls", REPS, |timer: Timer, _i| {
   timer.start();
   simple_function();
   timer.stop();
 });
 
-std::vm::gc::print_stats();
+# std::vm::gc::print_stats();
 
 let $OBJ = struct {
   foobarbaz: "foobarbaz"
 };
 
 # global & member access took 9.154016394 seconds
-benchmark("global & member access", REPS, |timer: Timer, _| {
+benchmark(bench::DISABLED_PREFIX + "global & member access", REPS, |timer: Timer, _| {
   timer.start();
   $OBJ.foobarbaz;
+  timer.stop();
+});
+
+# std::vm::gc::print_stats();
+
+fn fib(n) {
+  if n <= 1 {
+    ret n;
+  } else {
+    ret fib(n - 2) + fib(n - 1);
+  }
+}
+
+benchmark("fib", 1, |timer: Timer, _| {
+  timer.start();
+  fib(39);
   timer.stop();
 });
 

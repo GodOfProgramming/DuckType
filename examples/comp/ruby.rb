@@ -1,8 +1,9 @@
-def bnmk(timer, i)
-  # timer.start
-  i += 1
-  x += i + i * i / i % i
-  # timer.stop
+def fib n
+  if n <= 1
+    n
+  else
+    fib(n - 2) + fib(n - 1)
+  end
 end
 
-puts RubyVM::InstructionSequence.disasm(method(:bnmk))
+puts RubyVM::InstructionSequence.disasm(method(:fib))
