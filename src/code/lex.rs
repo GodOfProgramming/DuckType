@@ -1,10 +1,15 @@
 use crate::{
-  error::CompiletimeError,
-  util::{self, FileIdType},
+  error::{CompilerError, LexicalError, LexicalErrorMsg},
+  util::{strproc, FileIdType},
 };
 
-use super::*;
-use std::{ops::RangeInclusive, str};
+use std::{
+  fmt::{self, Display, Formatter},
+  ops::RangeInclusive,
+  str::{self, Utf8Error},
+};
+
+use super::SourceLocation;
 
 #[cfg(test)]
 mod test;
@@ -24,10 +29,8 @@ macro_rules! collect_digits {
   };
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum NumberToken {
-  I32(i32),
-  F64(f64),
+pub fn tokenize(file_id: Option<FileIdType>, source: &str) -> Result<(Vec<Token>, Vec<SourceLocation>), CompilerError> {
+  Scanner::new(file_id, source).into_tokens()
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -107,6 +110,19 @@ pub enum Token {
   Breakpoint,
 }
 
+impl Token {
+  /// Gets the char repr of a single character token
+  ///
+  /// Returns None if not a single char token
+  pub fn chr(&self) -> Option<char> {
+    match self {
+      Self::RightParen => Some('('),
+      Self::Pipe => Some('|'),
+      _ => None,
+    }
+  }
+}
+
 impl Display for Token {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
@@ -138,10 +154,10 @@ impl From<i32> for Token {
 }
 
 impl TryFrom<&[u8]> for Token {
-  type Error = Box<dyn std::error::Error>;
+  type Error = Utf8Error;
 
   fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-    Ok(match str::from_utf8(bytes)? {
+    Ok(match std::str::from_utf8(bytes)? {
       "and" => Self::And,
       "as" => Self::As,
       "break" => Self::Break,
@@ -175,6 +191,12 @@ impl TryFrom<&[u8]> for Token {
   }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum NumberToken {
+  I32(i32),
+  F64(f64),
+}
+
 pub struct Scanner<'src> {
   file_id: Option<FileIdType>,
   src: &'src [u8],
@@ -182,11 +204,11 @@ pub struct Scanner<'src> {
   pos: usize,
   line: usize,
   column: usize,
-  errors: CompiletimeErrors,
+  errors: Vec<LexicalError>,
 }
 
 impl<'src> Scanner<'src> {
-  pub fn new(file_id: Option<FileIdType>, source: &'src str) -> Self {
+  fn new(file_id: Option<FileIdType>, source: &'src str) -> Self {
     Scanner {
       file_id,
       src: source.as_bytes(),
@@ -198,7 +220,7 @@ impl<'src> Scanner<'src> {
     }
   }
 
-  pub fn into_tokens(mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), CompiletimeErrors> {
+  fn into_tokens(mut self) -> Result<(Vec<Token>, Vec<SourceLocation>), CompilerError> {
     let mut tokens = Vec::new();
     let mut meta = Vec::new();
 
@@ -345,7 +367,7 @@ impl<'src> Scanner<'src> {
             }
           }
           c => {
-            self.error(format!("invalid character: '{}'", c));
+            self.error(LexicalErrorMsg::InvalidCharacter(c));
             self.advance();
             continue;
           }
@@ -368,17 +390,14 @@ impl<'src> Scanner<'src> {
     if self.errors.is_empty() {
       Ok((tokens, meta))
     } else {
-      Err(self.errors)
+      Err(CompilerError::Lexical(self.errors))
     }
   }
 
-  fn error(&mut self, msg: impl ToString) {
-    self.errors.add(CompiletimeError {
-      msg: msg.to_string(),
-      file_display: self.file_id.map(FileDisplay::Id),
-      line: self.line + 1,
-      column: self.column + 1,
-    });
+  fn error(&mut self, msg: LexicalErrorMsg) {
+    self
+      .errors
+      .push(LexicalError::new(msg, self.file_id, self.line + 1, self.column + 1));
   }
 
   /// supports the following numbers
@@ -416,7 +435,7 @@ impl<'src> Scanner<'src> {
         Some(Token::Number(NumberToken::I32(int)))
       }
       Err(e) => {
-        self.error(e);
+        self.error(LexicalErrorMsg::ParseError(e));
         None
       }
     }
@@ -437,7 +456,7 @@ impl<'src> Scanner<'src> {
         Some(Token::Number(NumberToken::I32(int)))
       }
       Err(e) => {
-        self.error(e);
+        self.error(LexicalErrorMsg::ParseError(e));
         None
       }
     }
@@ -491,7 +510,7 @@ impl<'src> Scanner<'src> {
               number *= EVAL.powf(exp as f64);
             }
             Err(e) => {
-              self.error(e);
+              self.error(LexicalErrorMsg::ParseError(e));
               return None;
             }
           }
@@ -535,7 +554,7 @@ impl<'src> Scanner<'src> {
                   return Some(Token::Number(NumberToken::F64(fint)));
                 }
                 Err(e) => {
-                  self.error(e);
+                  self.error(LexicalErrorMsg::ParseError(e));
                   return None;
                 }
               }
@@ -549,7 +568,7 @@ impl<'src> Scanner<'src> {
           Some(Token::Number(NumberToken::I32(int)))
         }
         Err(e) => {
-          self.error(e);
+          self.error(LexicalErrorMsg::ParseError(e));
           None
         }
       }
@@ -562,7 +581,7 @@ impl<'src> Scanner<'src> {
     while let Some(c) = self.peek() {
       match c {
         '\n' => {
-          self.error(String::from("multiline strings are unsupported"));
+          self.error(LexicalErrorMsg::MultilineString);
           error_detected = true;
           self.advance();
           self.line += 1;
@@ -584,26 +603,20 @@ impl<'src> Scanner<'src> {
     }
 
     if self.at_end() {
-      self.error(String::from("unterminated string"));
+      self.error(LexicalErrorMsg::UnterminatedString);
       return None;
     }
 
     match str::from_utf8(&self.src[self.start_pos + 1..self.pos]) {
       Ok(string) => {
         if C == '"' {
-          match util::strproc::escape(string) {
-            Ok(string) => Some(Token::String(string)),
-            Err(e) => {
-              self.error(format!("{}", e));
-              None
-            }
-          }
+          Some(Token::String(strproc::escape(string)))
         } else {
           Some(Token::String(string.to_string()))
         }
       }
       Err(e) => {
-        self.error(format!("{}", e));
+        self.error(LexicalErrorMsg::InvalidUtf8(e));
         None
       }
     }
@@ -625,7 +638,7 @@ impl<'src> Scanner<'src> {
     match Token::try_from(self.current_word()) {
       Ok(t) => Some(t),
       Err(e) => {
-        self.error(e.to_string());
+        self.error(LexicalErrorMsg::InvalidUtf8(e));
         None
       }
     }

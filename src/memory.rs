@@ -69,7 +69,7 @@ where
     let initial_limit = initial_limit.into();
     Self {
       disposer: D::default(),
-      allocations: FastHashSet::with_capacity(512),
+      allocations: AllocationSet::with_capacity(512),
       blacks: Default::default(),
       grays: Default::default(),
       limit: initial_limit,

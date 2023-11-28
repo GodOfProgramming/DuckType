@@ -7,9 +7,8 @@ mod libtime;
 use crate::{
   prelude::*,
   value::{prelude::module_value::ModuleType, NATIVE_FN_TAG},
-  FastHashMap,
 };
-use std::{collections::BTreeMap, env};
+use std::env;
 
 pub(crate) mod names {
   pub const STD: &str = "std";
@@ -46,24 +45,8 @@ pub(crate) mod names {
   }
 }
 
-pub fn make_stdlib(vm: &mut Vm, gmod: Value, args: impl Into<Vec<String>>) -> FastHashMap<String, Value> {
-  let mut loaded_libs = BTreeMap::default();
-
-  loaded_libs.insert(names::STD, load_std(vm, gmod, args.into()));
-
-  loaded_libs.into_iter().map(|(k, v)| (k.into(), v.into())).collect()
-}
-
-fn defmod<F>(vm: &mut Vm, lib: &mut UsertypeHandle<ModuleValue>, name: &str, init: F)
-where
-  F: FnOnce(&mut Vm, UsertypeHandle<ModuleValue>),
-{
-  let libval = lib.value();
-  lib.define(name, ModuleBuilder::initialize(vm, ModuleType::new_child(name, libval), init));
-}
-
-fn load_std(vm: &mut Vm, gmod: Value, args: Vec<String>) -> UsertypeHandle<ModuleValue> {
-  ModuleBuilder::initialize(vm, ModuleType::new_child(names::STD, gmod), |vm, mut lib| {
+pub fn make_stdlib(vm: &mut Vm, gmod: Value, args: impl Into<Vec<String>>) -> (String, Value) {
+  let stdlib = ModuleBuilder::initialize(vm, ModuleType::new_child(names::STD, gmod), |vm, mut lib| {
     let lib = &mut lib;
 
     defmod(vm, lib, names::TYPES, |gc, mut lib| {
@@ -82,7 +65,11 @@ fn load_std(vm: &mut Vm, gmod: Value, args: Vec<String>) -> UsertypeHandle<Modul
     });
 
     defmod(vm, lib, names::ENV, |vm, mut lib| {
-      let args = args.iter().map(|arg| vm.make_value_from(arg.clone())).collect::<Vec<Value>>();
+      let args = args
+        .into()
+        .iter()
+        .map(|arg| vm.make_value_from(arg.clone()))
+        .collect::<Vec<Value>>();
       let args = vm.make_value_from(args);
       lib.define(names::env::ARGV, args);
 
@@ -124,7 +111,17 @@ fn load_std(vm: &mut Vm, gmod: Value, args: Vec<String>) -> UsertypeHandle<Modul
         lib.define("print_stats", Value::new::<NativeFn>(print_stats));
       });
     });
-  })
+  });
+
+  (names::STD.into(), stdlib.into())
+}
+
+fn defmod<F>(vm: &mut Vm, lib: &mut UsertypeHandle<ModuleValue>, name: &str, init: F)
+where
+  F: FnOnce(&mut Vm, UsertypeHandle<ModuleValue>),
+{
+  let libval = lib.value();
+  lib.define(name, ModuleBuilder::initialize(vm, ModuleType::new_child(name, libval), init));
 }
 
 #[native]
@@ -192,5 +189,5 @@ fn print_stats(vm: &mut Vm) -> UsageResult<()> {
 
 #[native(with_vm)]
 fn vm_eval(vm: &mut Vm, source: &StringValue) -> UsageResult {
-  vm.eval(source).map_err(UsageError::Preformated)
+  vm.eval(source).map_err(UsageError::Preformatted)
 }

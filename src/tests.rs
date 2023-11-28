@@ -52,7 +52,7 @@ mod integration_tests {
         assert_eq!("foo", **res.cast_to::<StringValue>().expect("value is not a string"));
       }
 
-      Err(err) => panic!("{:#?}", err),
+      Err(err) => panic!("{err}"),
     };
   }
 
@@ -73,7 +73,7 @@ mod integration_tests {
 
     match test.vm.run_string(&test.script, test.libstd.clone()) {
       Ok(res) => assert_eq!(Value::from(3f64), res),
-      Err(err) => panic!("{:#?}", err),
+      Err(err) => panic!("{err}"),
     };
   }
 
@@ -248,7 +248,7 @@ mod script_tests {
   fn run_test_scripts(t: &mut ScriptTest) {
     #[cfg(feature = "check-opcodes")]
     use {
-      crate::code::gen::{CAPTURE_OPS, GENERATED_OPS},
+      crate::code::bytecode::{CAPTURE_OPS, GENERATED_OPS},
       strum::IntoEnumIterator,
     };
 

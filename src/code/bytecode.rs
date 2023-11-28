@@ -1,23 +1,30 @@
+use super::{ast::*, SourceLocation};
 use super::{ConstantValue, FunctionConstant};
-use crate::code::{ast::*, Reflection, SourceLocation};
-use crate::error::CompiletimeErrors;
-use crate::prelude::*;
-use crate::util::FileIdType;
+use crate::prelude::{Cache, Context};
+use crate::{
+  code::Reflection,
+  error::{BytecodeGenerationError, BytecodeGenerationErrorMsg, CompilerError},
+  util::FileIdType,
+  InstructionData, LongAddr, Opcode, ShortAddr, Storage, TryIntoInstruction,
+};
 use ptr::SmartPtr;
 use std::fmt::Debug;
+
 #[cfg(test)]
 use std::{cell::RefCell, collections::HashSet};
-
-macro_rules! sanity_check {
-  () => {
-    format!("{} ({}): sanity check", file!(), line!())
-  };
-}
-
 #[cfg(test)]
 thread_local! {
   pub static CAPTURE_OPS: RefCell<bool> = RefCell::new(false);
   pub static GENERATED_OPS: RefCell<HashSet<Opcode>> = RefCell::new(Default::default());
+}
+
+pub fn generate(
+  cache: &mut Cache,
+  file_id: Option<FileIdType>,
+  ctx: SmartPtr<Context>,
+  ast: Ast,
+) -> Result<SmartPtr<Context>, CompilerError> {
+  BytecodeGenerator::new(cache, file_id, ctx).generate(ast)
 }
 
 struct Local {
@@ -49,11 +56,11 @@ pub struct BytecodeGenerator<'p> {
   breaks: Vec<usize>,
   continues: Vec<usize>,
 
-  errors: CompiletimeErrors,
+  errors: Vec<BytecodeGenerationError>,
 }
 
 impl<'p> BytecodeGenerator<'p> {
-  pub fn new(cache: &'p mut Cache, file_id: Option<FileIdType>, ctx: SmartPtr<Context>) -> Self {
+  fn new(cache: &'p mut Cache, file_id: Option<FileIdType>, ctx: SmartPtr<Context>) -> Self {
     Self {
       cache,
       file_id,
@@ -75,7 +82,7 @@ impl<'p> BytecodeGenerator<'p> {
     }
   }
 
-  pub fn generate(mut self, ast: Ast) -> Result<SmartPtr<Context>, CompiletimeErrors> {
+  fn generate(mut self, ast: Ast) -> Result<SmartPtr<Context>, CompilerError> {
     for stmt in ast.statements {
       self.emit_stmt(stmt);
     }
@@ -85,7 +92,7 @@ impl<'p> BytecodeGenerator<'p> {
     if self.errors.is_empty() {
       Ok(self.ctx)
     } else {
-      Err(self.errors)
+      Err(CompilerError::BytecodeGeneration(self.errors))
     }
   }
 
@@ -123,7 +130,7 @@ impl<'p> BytecodeGenerator<'p> {
       self.emit_expr(stmt.expr);
       self.emit(Opcode::Export, stmt.loc);
     } else {
-      self.error(stmt.loc, "exports can only be made at the surface scope");
+      self.error(BytecodeGenerationErrorMsg::InvalidExport, stmt.loc);
     }
   }
 
@@ -249,7 +256,7 @@ impl<'p> BytecodeGenerator<'p> {
 
   fn ret_stmt(&mut self, stmt: RetStatement) {
     if self.fn_depth == 0 {
-      self.error(stmt.loc, "ret can only be used within functions");
+      self.error(BytecodeGenerationErrorMsg::InvalidRet, stmt.loc);
       return;
     }
 
@@ -282,8 +289,6 @@ impl<'p> BytecodeGenerator<'p> {
 
       self.define_scope(var_idx, stmt.loc);
       self.emit(Opcode::Pop, stmt.loc);
-    } else {
-      self.error(stmt.loc, "could not declare final name in use path");
     }
   }
 
@@ -622,10 +627,10 @@ impl<'p> BytecodeGenerator<'p> {
           self.emit_const(function, expr.loc);
           self.emit(Opcode::InitializeConstructor, expr.loc);
         } else {
-          self.error(expr.loc, "method was used as initializer somehow (logic error)");
+          self.error(BytecodeGenerationErrorMsg::MethodAsInitializer, expr.loc);
         }
       } else {
-        self.error(expr.loc, "unable to create initializer function for class");
+        self.error(BytecodeGenerationErrorMsg::InvalidClassFunction, expr.loc);
       }
     }
 
@@ -639,7 +644,7 @@ impl<'p> BytecodeGenerator<'p> {
           self.emit((Opcode::InitializeMethod, ident), expr.loc);
         }
       } else {
-        self.error(expr.loc, format!("unable to create method {}", method_name.name));
+        self.error(BytecodeGenerationErrorMsg::InvalidClassFunction, expr.loc);
       }
     }
   }
@@ -717,7 +722,7 @@ impl<'p> BytecodeGenerator<'p> {
       Ok(inst) => {
         self.current_ctx().write(inst, loc.line, loc.column);
       }
-      Err(opcode) => self.error(loc, format!("failed to create instruction: {opcode:?}")),
+      Err(opcode) => self.error(BytecodeGenerationErrorMsg::InstructionGeneration(opcode), loc),
     }
   }
 
@@ -918,7 +923,6 @@ impl<'p> BytecodeGenerator<'p> {
     } else if self.declare_local(ident, loc) {
       Some(None)
     } else {
-      self.error(loc, "tried to declare existing variable");
       None
     }
   }
@@ -944,7 +948,7 @@ impl<'p> BytecodeGenerator<'p> {
       }
 
       if ident.name == local.name {
-        self.error(loc, "variable with the same name already declared");
+        self.error(BytecodeGenerationErrorMsg::DuplicateDeclaration, loc);
         return false;
       }
     }
@@ -994,12 +998,12 @@ impl<'p> BytecodeGenerator<'p> {
         if self.define_local() {
           true
         } else {
-          self.error(loc, "could not define variable");
+          self.error(BytecodeGenerationErrorMsg::UndeclaredLocal(ident.name.clone()), loc);
           false
         }
       }
       _ => {
-        self.error(loc, "invalid parameter combination for var definition");
+        self.error(BytecodeGenerationErrorMsg::InvalidVariableDefinition, loc);
         false
       }
     }
@@ -1016,7 +1020,7 @@ impl<'p> BytecodeGenerator<'p> {
 
         if ident.name == local.name {
           if !local.initialized {
-            self.error(loc, "tried to use an undeclared identifier");
+            self.error(BytecodeGenerationErrorMsg::UndeclaredLocal(ident.name.clone()), loc);
             return None;
           } else {
             return Some(Lookup::Local(index));
@@ -1093,7 +1097,7 @@ impl<'p> BytecodeGenerator<'p> {
       this.new_scope(|this| {
         for arg in args {
           if arg.has_global_name() {
-            this.error(loc, "parameter cannot be a global variable");
+            this.error(BytecodeGenerationErrorMsg::GlobalParameter, loc);
             continue;
           }
 
@@ -1102,7 +1106,7 @@ impl<'p> BytecodeGenerator<'p> {
           }
 
           if !this.define_local() {
-            this.error(loc, sanity_check!())
+            this.error(BytecodeGenerationErrorMsg::SanityCheck, loc);
           }
         }
 
@@ -1124,16 +1128,9 @@ impl<'p> BytecodeGenerator<'p> {
     })
   }
 
-  fn error(&mut self, loc: SourceLocation, msg: impl ToString) {
-    let msg = msg.to_string();
-    self.errors.add(CompiletimeError {
-      msg,
-      file_display: self.file_id.map(FileDisplay::Id),
-      line: loc.line,
-      column: loc.column,
-    });
+  fn error(&mut self, msg: BytecodeGenerationErrorMsg, loc: SourceLocation) {
+    self
+      .errors
+      .push(BytecodeGenerationError::new(msg, self.file_id, loc.line, loc.column));
   }
 }
-
-#[cfg(test)]
-mod test;

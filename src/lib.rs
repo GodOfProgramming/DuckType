@@ -44,6 +44,7 @@ use code::CompileOpts;
 use dlopen2::wrapper::Container;
 use dlopen2::wrapper::WrapperApi;
 use memory::Gc;
+use nohash_hasher::BuildNoHashHasher;
 use prelude::module_value::ModuleType;
 use ptr::{MutPtr, SmartPtr};
 use rustyline::{error::ReadlineError, DefaultEditor};
@@ -56,6 +57,9 @@ use value::{NativeBinaryOp, NativeUnaryOp, VTable};
 
 type FastHashSet<T> = HashSet<T, RandomState>;
 type FastHashMap<K, V> = HashMap<K, V, RandomState>;
+
+type RapidHashMap<K, V> = HashMap<K, V, BuildNoHashHasher<K>>;
+type RapidHashSet<T> = HashSet<T, BuildNoHashHasher<T>>;
 
 pub const EXTENSION: &str = "dk";
 
@@ -166,9 +170,10 @@ impl Vm {
     self.filemap.add(file_id, &file);
     self.opened_files = vec![FileInfo::new(&file, file_id)];
 
-    let source = fs::read_to_string(&file).map_err(Error::other_system_err)?;
+    let source = fs::read_to_string(&file).map_err(Error::from)?;
     let opts = CompileOpts { optimize: self.opt };
-    let ctx = code::compile_file(&mut self.cache, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
+    let ctx = code::compile_file(&mut self.cache, file_id, &source, opts)
+      .map_err(|error| Error::from_compiler_error(error, &self.filemap, &source))?;
 
     self.stack_frame = StackFrame::new(ctx, self.stack_size());
     self.stack_frames = Default::default();
@@ -181,7 +186,8 @@ impl Vm {
     self.opened_files = vec![];
 
     let opts = CompileOpts { optimize: self.opt };
-    let ctx = code::compile_string(&mut self.cache, source, opts)?;
+    let ctx = code::compile_string(&mut self.cache, &source, opts)
+      .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
 
     self.stack_frame = StackFrame::new(ctx, self.stack_size());
     self.stack_frames = Default::default();
@@ -199,7 +205,8 @@ impl Vm {
 
   pub fn eval(&mut self, source: impl AsRef<str>) -> Result<Value, Error> {
     let opts = CompileOpts { optimize: self.opt };
-    let ctx = code::compile_string(&mut self.cache, source, opts)?;
+    let ctx = code::compile_string(&mut self.cache, source.as_ref(), opts)
+      .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
     let module = current_module!(self).clone();
     self.modules.push(ModuleEntry::String(module));
     self.new_frame(ctx, 0);
@@ -378,15 +385,23 @@ impl Vm {
   }
 
   #[cold]
-  fn error(&self, e: UsageError) -> Error {
+  fn error(&self, error: impl ToString) -> Error {
     let instruction = self.stack_frame.ctx.instructions[self.stack_frame.ip()];
-    Error::runtime_error(self.error_at(instruction, |opcode_ref| RuntimeError::new(e, &self.filemap, opcode_ref)))
+    self.error_with_reflection(instruction, |reflection| {
+      Error::single(
+        self.filemap.get(reflection.file_id).display(),
+        reflection.line,
+        reflection.column,
+        error,
+        reflection.source,
+      )
+    })
   }
 
   #[cold]
-  fn error_at<F>(&self, inst: Instruction, f: F) -> RuntimeError
+  fn error_with_reflection<F>(&self, inst: Instruction, f: F) -> Error
   where
-    F: FnOnce(InstructionReflection) -> RuntimeError,
+    F: FnOnce(InstructionReflection) -> Error,
   {
     self
       .stack_frame
@@ -394,13 +409,7 @@ impl Vm {
       .meta
       .reflect(inst, self.stack_frame.ip())
       .map(f)
-      .unwrap_or_else(|| RuntimeError {
-        msg: UsageError::IpOutOfBounds(self.stack_frame.ip()).to_string(),
-        file: self.filemap.get(self.stack_frame.ctx.meta.file_id),
-        line: 0,
-        column: 0,
-        nested: false,
-      })
+      .unwrap_or_else(|| Error::Plain(String::from("no reflection for instruction pointer")))
   }
 }
 
@@ -756,7 +765,7 @@ impl Vm {
 
     // then try to find from cwd
     if found_file.is_none() {
-      let this_dir = std::env::current_dir().map_err(Error::other_system_err)?;
+      let this_dir = std::env::current_dir().map_err(|e| self.error(e))?;
       found_file = try_to_find_file(&this_dir, &required_file, &mut attempts);
     }
 
@@ -780,7 +789,7 @@ impl Vm {
 
     let found_file = found_file.ok_or_else(|| self.error(UsageError::BadReq(attempts)))?;
 
-    let file_id = PlatformMetadata::id_of(&found_file).map_err(Error::other_system_err)?;
+    let file_id = PlatformMetadata::id_of(&found_file).map_err(|e| self.error(e))?;
 
     match found_file.extension().and_then(|s| s.to_str()) {
       Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
@@ -797,7 +806,7 @@ impl Vm {
         self.stack_push(value);
       }
       _ => {
-        let source = fs::read_to_string(&found_file).map_err(Error::other_system_err)?;
+        let source = fs::read_to_string(&found_file).map_err(|e| self.error(e))?;
 
         if let Some(value) = self.cache.get_lib(file_id) {
           self.stack_push(value);
@@ -805,8 +814,8 @@ impl Vm {
           self.filemap.add(file_id, &found_file);
 
           let opts = CompileOpts { optimize: self.opt };
-          let new_ctx =
-            code::compile_file(&mut self.cache, file_id, source, opts).map_err(|e| e.with_filename(&self.filemap))?;
+          let new_ctx = code::compile_file(&mut self.cache, file_id, &source, opts)
+            .map_err(|error| Error::from_compiler_error(error, &self.filemap, &source))?;
           let gmod = self.generate_stdlib(format!("<file export {}>", found_file.display()));
 
           self.new_frame(new_ctx, 0);
@@ -1353,7 +1362,8 @@ impl Vm {
     let args = self.args.clone();
     ModuleBuilder::initialize(self, ModuleType::new_global(global_mod_name), |vm, mut lib| {
       let libval = lib.value();
-      lib.env.extend(stdlib::make_stdlib(vm, libval, args));
+      let (name, value) = stdlib::make_stdlib(vm, libval, args);
+      lib.env.insert(name, value);
     })
   }
 
@@ -1387,7 +1397,7 @@ impl Vm {
   }
 
   pub fn dbg(&mut self) -> Result<(), Error> {
-    let mut rl = DefaultEditor::new().map_err(Error::other_system_err)?;
+    let mut rl = DefaultEditor::new().map_err(|e| self.error(e))?;
     loop {
       match rl.readline("dbg> ") {
         Ok(line) => match shellwords::split(&format!("dbg {}", line)) {
@@ -1409,7 +1419,7 @@ impl Vm {
         Err(ReadlineError::Interrupted) => {
           println!("Use repl.quit instead of CTRL-C");
         }
-        Err(e) => Err(Error::other_system_err(e))?,
+        Err(e) => Err(self.error(e))?,
       }
     }
   }

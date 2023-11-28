@@ -1,6 +1,6 @@
 [package]
 name = "DuckType"
-version = "0.54.0"
+version = "0.55.0"
 authors = ["Jonathan Dickert <jonathan.dickert@protonmail.com>"]
 edition = "2021"
 default-run = "duck"
@@ -19,6 +19,7 @@ name = "ducktype"
 uuid = { version = "1.4", features = ["v4", "macro-diagnostics"] }
 
 [dependencies]
+nohash-hasher = "0.2.0"
 ahash = "0.8"
 anyhow = "1.0"
 bimap = "0.6"
@@ -45,8 +46,13 @@ pprof = { version = "0.13", features = ["flamegraph"] }
 tokio = { version = "1.33", features = ["full"] }
 interpolator = "0.5"
 
-ptr = { path = "lib/ptr" }
-tfix = { path = "lib/tfix" }
+# Git
+
+ptr = { git = "https://github.com/GodOfProgramming/ptr.git" }
+tfix = { git = "https://github.com/GodOfProgramming/tfix" }
+
+# Local
+
 macros = { path = "macros" }
 
 [dev-dependencies]

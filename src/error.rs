@@ -1,239 +1,132 @@
+use crate::{code::lex::Token, util::FileIdType, Opcode};
 use crate::{
-  code::{FileMap, InstructionReflection},
-  exec::prelude::Instruction,
-  prelude::Storage,
-  util::FileIdType,
+  code::FileMap,
+  prelude::{Instruction, Storage},
   value::Value,
 };
 use std::{
-  convert::Infallible,
-  fmt::{self, Debug, Display},
+  fmt::{self, Debug, Display, Formatter},
   io,
   path::PathBuf,
-  sync::mpsc,
 };
+use std::{num::ParseIntError, str::Utf8Error};
 
 pub type UsageResult<T = Value> = Result<T, UsageError>;
 
 pub enum Error {
-  CompiletimeErrors(CompiletimeErrors),
-  RuntimeError(RuntimeError),
-  SystemError(SystemError),
+  Single(FormattedError),
+  Multiple(Vec<FormattedError>),
+  Plain(String),
 }
 
 impl Error {
-  pub(crate) fn runtime_error(e: RuntimeError) -> Self {
-    Self::RuntimeError(e)
+  pub(crate) fn single(file: impl ToString, line: usize, column: usize, msg: impl ToString, source: &str) -> Self {
+    Self::Single(FormattedError::from_parts(
+      file,
+      line,
+      column,
+      msg,
+      Self::source_line(source, line),
+      Self::indicator(column),
+    ))
   }
 
-  pub fn other_system_err(e: impl ToString) -> Self {
-    Self::SystemError(SystemError::other(e))
-  }
-
-  fn into_runtime(self, filemap: &FileMap) -> RuntimeError {
-    match self {
-      Error::CompiletimeErrors(errs) => RuntimeError {
-        msg: itertools::join(
-          errs.into_iter().map(|e| {
-            let e = e.with_filename(filemap);
-            format!(
-              "{file} ({line}, {column}): {msg}",
-              file = e.file_display.unwrap_or_default(),
-              line = e.line,
-              column = e.column,
-              msg = e.msg
-            )
-          }),
-          "\n",
-        ),
-        file: filemap.get(None),
-        line: 0,
-        column: 0,
-        nested: true,
-      },
-      Error::RuntimeError(err) => err,
-      Error::SystemError(err) => RuntimeError {
-        msg: err.to_string(),
-        file: filemap.get(None),
-        line: 0,
-        column: 0,
-        nested: true,
-      },
+  pub(crate) fn from_compiler_error(error: CompilerError, file_map: &FileMap, source: &str) -> Self {
+    match error {
+      CompilerError::Lexical(errors) => Self::Multiple(Self::from_compile_errors(errors, file_map, source)),
+      CompilerError::AstGeneration(errors) => Self::Multiple(Self::from_compile_errors(errors, file_map, source)),
+      CompilerError::BytecodeGeneration(errors) => Self::Multiple(Self::from_compile_errors(errors, file_map, source)),
     }
+  }
+
+  fn from_compile_errors<M>(errors: Vec<CompileError<M>>, file_map: &FileMap, source: &str) -> Vec<FormattedError>
+  where
+    M: Display + fmt::Debug,
+  {
+    errors
+      .into_iter()
+      .map(|error| {
+        FormattedError::from_parts(
+          file_map.get(error.file).display(),
+          error.line,
+          error.column,
+          error.msg,
+          Self::source_line(source, error.line),
+          Self::indicator(error.column),
+        )
+      })
+      .collect()
+  }
+
+  fn source_line(source: &str, line: usize) -> String {
+    source.lines().nth(line - 1).map(|line| line.to_string()).unwrap_or_default()
+  }
+
+  fn indicator(column: usize) -> String {
+    format!("{}^", " ".repeat(column - 1),)
   }
 }
 
 impl Display for Error {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
-      Error::CompiletimeErrors(errs) => {
-        let output = itertools::join(errs.0.iter(), "\n");
-        write!(f, "{output}")
+      Error::Single(error) => write!(f, "{error}"),
+      Error::Multiple(errors) => {
+        write!(f, "{}", itertools::join(errors, "\n"))
       }
-      Error::RuntimeError(e) => write!(f, "{e}"),
-      Error::SystemError(e) => write!(f, "{e}"),
+      Error::Plain(error) => write!(f, "{error}"),
     }
   }
 }
 
 impl Debug for Error {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{self}")
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    <Self as Display>::fmt(self, f)
   }
 }
 
-/// A list of errors produced at compiletime
-#[derive(Default, Debug)]
-pub struct CompiletimeErrors(Vec<CompiletimeError>);
-
-impl CompiletimeErrors {
-  pub fn add(&mut self, err: CompiletimeError) {
-    self.0.push(err)
-  }
-
-  pub fn len(&self) -> usize {
-    self.0.len()
-  }
-
-  pub fn is_empty(&self) -> bool {
-    self.len() == 0
-  }
-
-  pub fn with_filename(self, filemap: &FileMap) -> Self {
-    Self(self.0.into_iter().map(|e| e.with_filename(filemap)).collect())
-  }
+pub struct FormattedError {
+  file: String,
+  line: usize,
+  column: usize,
+  msg: String,
+  line_text: String,
+  indicator: String,
 }
 
-impl IntoIterator for CompiletimeErrors {
-  type Item = CompiletimeError;
-  type IntoIter = std::vec::IntoIter<Self::Item>;
-  fn into_iter(self) -> Self::IntoIter {
-    self.0.into_iter()
-  }
-}
-
-#[derive(Default, PartialEq, Eq)]
-pub enum FileDisplay {
-  #[default]
-  None,
-  Id(FileIdType),
-  Path(PathBuf),
-}
-
-impl Display for FileDisplay {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      FileDisplay::None => write!(f, "<anonymous>"),
-      FileDisplay::Id(id) => write!(f, "{id}"),
-      FileDisplay::Path(path) => write!(f, "{}", path.display()),
-    }
-  }
-}
-
-impl Debug for FileDisplay {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{self}")
-  }
-}
-
-#[derive(PartialEq, Eq)]
-pub struct CompiletimeError {
-  pub msg: String,
-  pub file_display: Option<FileDisplay>,
-  pub line: usize,
-  pub column: usize,
-}
-
-impl CompiletimeError {
-  fn with_filename(self, filemap: &FileMap) -> Self {
+impl FormattedError {
+  fn from_parts(
+    file: impl ToString,
+    line: usize,
+    column: usize,
+    msg: impl ToString,
+    line_text: impl ToString,
+    indicator: impl ToString,
+  ) -> Self {
     Self {
-      msg: self.msg,
-      file_display: if let Some(FileDisplay::Id(id)) = self.file_display {
-        Some(FileDisplay::Path(filemap.get(Some(id))))
-      } else {
-        self.file_display
-      },
-      line: self.line,
-      column: self.column,
+      file: file.to_string(),
+      line,
+      column,
+      msg: msg.to_string(),
+      line_text: line_text.to_string(),
+      indicator: indicator.to_string(),
     }
   }
 }
 
-impl Display for CompiletimeError {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(
+impl Display for FormattedError {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    writeln!(
       f,
-      "{file} ({line}, {column}): {msg}",
-      file = self.file_display.as_ref().unwrap_or(&FileDisplay::None),
-      line = self.line,
-      column = self.column,
-      msg = self.msg
+      "{} ({}, {}): {}\n{}\n{}",
+      self.file, self.line, self.column, self.msg, self.line_text, self.indicator
     )
   }
 }
 
-impl Debug for CompiletimeError {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{self}")
-  }
-}
-
-/// Error at runtime, only one of these should exist when erroring out
-#[derive(Debug)]
-pub struct RuntimeError {
-  pub msg: String,
-  pub file: PathBuf,
-  pub line: usize,
-  pub column: usize,
-  pub nested: bool,
-}
-
-impl RuntimeError {
-  pub fn new(err: UsageError, filemap: &FileMap, opcode_ref: InstructionReflection) -> Self {
-    match err {
-      UsageError::Preformated(err) => err.into_runtime(filemap),
-      err => Self {
-        msg: Self::format_src(&opcode_ref, err),
-        file: filemap.get(opcode_ref.file_id),
-        line: opcode_ref.line,
-        column: opcode_ref.column,
-        nested: false,
-      },
-    }
-  }
-
-  pub fn format_src(opcode_ref: &InstructionReflection, msg: impl ToString) -> String {
-    opcode_ref
-      .source
-      .lines()
-      .nth(opcode_ref.line - 1)
-      .map(|line| {
-        format!(
-          "{msg}\n{src_line}\n{space}^\nOpcode: {opcode:?}",
-          msg = msg.to_string(),
-          src_line = line,
-          space = " ".repeat(opcode_ref.column - 1),
-          opcode = opcode_ref.inst.opcode()
-        )
-      })
-      .unwrap_or_else(|| format!("invalid line at {}", opcode_ref.line))
-  }
-}
-
-impl Display for RuntimeError {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    if self.nested {
-      write!(f, "{msg}", msg = self.msg)
-    } else {
-      write!(
-        f,
-        "{file} ({line}, {column}): {msg}",
-        file = self.file.display(),
-        line = self.line,
-        column = self.column,
-        msg = self.msg
-      )
-    }
+impl From<io::Error> for Error {
+  fn from(error: io::Error) -> Self {
+    Self::Plain(error.to_string())
   }
 }
 
@@ -377,7 +270,7 @@ pub enum UsageError {
   InvalidStorageOperation(Storage),
 
   #[error("{0}")]
-  Preformated(Error),
+  Preformatted(Error),
 
   #[error("Infallible")]
   Infallible,
@@ -389,58 +282,207 @@ impl UsageError {
   }
 }
 
+pub enum CompilerError {
+  Lexical(Vec<LexicalError>),
+  AstGeneration(Vec<AstGenerationError>),
+  BytecodeGeneration(Vec<BytecodeGenerationError>),
+}
+
+impl Display for CompilerError {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+      CompilerError::Lexical(errors) => {
+        for error in errors.iter() {
+          writeln!(f, "{error}")?;
+        }
+      }
+      CompilerError::AstGeneration(errors) => {
+        for error in errors.iter() {
+          writeln!(f, "{error}")?;
+        }
+      }
+      CompilerError::BytecodeGeneration(errors) => {
+        for error in errors.iter() {
+          writeln!(f, "{error}")?;
+        }
+      }
+    }
+    Ok(())
+  }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct CompileError<M>
+where
+  M: Display + fmt::Debug,
+{
+  pub msg: M,
+  pub file: Option<FileIdType>,
+  pub line: usize,
+  pub column: usize,
+}
+
+impl<M> CompileError<M>
+where
+  M: Display + fmt::Debug,
+{
+  pub fn new(msg: M, file: Option<FileIdType>, line: usize, column: usize) -> Self {
+    Self { msg, file, line, column }
+  }
+}
+
+impl<M> Display for CompileError<M>
+where
+  M: Display + fmt::Debug,
+{
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{:?} ({}, {}): {}", self.file, self.line, self.column, self.msg)
+  }
+}
+
+pub type LexicalError = CompileError<LexicalErrorMsg>;
+pub type AstGenerationError = CompileError<AstGenerationErrorMsg>;
+pub type BytecodeGenerationError = CompileError<BytecodeGenerationErrorMsg>;
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum LexicalErrorMsg {
+  #[error("Invalid character '{0}'")]
+  InvalidCharacter(char),
+
+  #[error("{0}")]
+  ParseError(ParseIntError),
+
+  #[error("Multiline strings are unsupported")]
+  MultilineString,
+
+  #[error("Unterminated string detected")]
+  UnterminatedString,
+
+  #[error("Invalid UTF-8 detected: {0}")]
+  InvalidUtf8(Utf8Error),
+}
+
 #[derive(Debug, thiserror::Error)]
-pub enum SystemError {
-  #[error("gc failure: {0}")]
-  GcError(String),
+pub enum AstGenerationErrorMsg {
+  #[error("Expected {0}")]
+  FailedConsumption(Token),
 
-  #[error("io failure: {0}")]
-  IoError(std::io::Error),
+  #[error("Expected an expression")]
+  MissingExpression,
 
-  #[error("other: {0}")]
-  Other(String),
+  #[error("Unexpected token {0}")]
+  UnexpectedToken(Token),
+
+  #[error("Found 'self' in an invalid context")]
+  SelfNotAllowed,
+
+  #[error("Unclosed scope detected")]
+  UnclosedScope,
+
+  #[error("Duplicate identifier detected")]
+  DuplicateIdentifier,
+
+  #[error("Duplicate class function detected")]
+  DuplicateClassFunction,
+
+  #[error("'self' must be the first parameter")]
+  InvalidSelfPosition,
+
+  #[error("Invalid identifier {0}")]
+  InvalidIdentifier(Token),
+
+  #[error("Invalid fn identifier {0}")]
+  InvalidFnIdentifier(Token),
+
+  #[error("Invalid parameter {0}")]
+  InvalidParameter(Token),
+
+  #[error("Invalid token detected in body: {0}")]
+  InvalidToken(Token),
+
+  #[error("'self' must be declared in class body")]
+  ClassReprUndefined,
+
+  #[error("Closure captures can only be identifiers")]
+  InvalidCapture,
+
+  #[error("Invalid expression")]
+  InvalidExpression,
+
+  #[error("Expected identifier")]
+  MissingIdentifier,
+
+  #[error("'self' is already defined in class")]
+  ClassReprRedefinition,
+
+  #[error("Class method must contain 'self'")]
+  SelfParameterUndefined,
+
+  #[error("Invalid number of parameters in overload, found {0} but expected {1}")]
+  OperatorOverloadInvalidNumberOfParameters(usize, usize),
+
+  #[error("'break' can only be used within loops")]
+  InvalidBreakStatement,
+
+  #[error("'cont' can only be used within loops")]
+  InvalidContStatement,
+
+  #[error("'ret' can only be used within functions")]
+  InvalidRetStatement,
+
+  #[error("Reached max precedence")]
+  MaxPrecedence,
+
+  #[error("'self' cannot be assigned to")]
+  ImmutableSelf,
+
+  #[error("Invalid LValue")]
+  InvalidLValue,
+
+  #[error("Multiple exports aren't allowed")]
+  MultipleExports,
+
+  /* Below this are errors triggered by broken ast generation logic */
+  #[error("Could not find location of token at index {0}")]
+  MissingTokenLocation(usize),
+
+  #[error("Unable to find suitable location of token in backtrace. Original Err: {0}")]
+  NoLocationForError(Box<Self>),
+
+  #[error("Unexpected end of file")]
+  UnexpectedEof,
 }
 
-impl SystemError {
-  pub(crate) fn other(e: impl ToString) -> Self {
-    Self::Other(e.to_string())
-  }
-}
+#[derive(Debug, thiserror::Error)]
+pub enum BytecodeGenerationErrorMsg {
+  #[error("Exports can only be made at the surface scope")]
+  InvalidExport,
 
-// TODO fill out this error
+  #[error("Returns can only be made within functions")]
+  InvalidRet,
 
-impl From<CompiletimeErrors> for Error {
-  fn from(value: CompiletimeErrors) -> Self {
-    Self::CompiletimeErrors(value)
-  }
-}
+  #[error("Parameter cannot be named like a global")]
+  GlobalParameter,
 
-impl From<RuntimeError> for Error {
-  fn from(value: RuntimeError) -> Self {
-    Self::RuntimeError(value)
-  }
-}
+  #[error("Variable already declared earlier")]
+  DuplicateDeclaration,
 
-impl From<SystemError> for Error {
-  fn from(value: SystemError) -> Self {
-    Self::SystemError(value)
-  }
-}
+  /* Below this are errors triggered by broken bytecode generation logic */
+  #[error("Instruction generation failure for opcode {0}")]
+  InstructionGeneration(Opcode),
 
-impl From<Infallible> for UsageError {
-  fn from(_: Infallible) -> Self {
-    Self::Infallible
-  }
-}
+  #[error("Invalid variable definition")]
+  InvalidVariableDefinition,
 
-impl<T> From<mpsc::SendError<T>> for SystemError {
-  fn from(value: mpsc::SendError<T>) -> Self {
-    Self::GcError(value.to_string())
-  }
-}
+  #[error("Class functions should only be statics or methods")]
+  InvalidClassFunction,
 
-impl From<io::Error> for SystemError {
-  fn from(value: io::Error) -> Self {
-    Self::IoError(value)
-  }
+  #[error("'new' should be a static class function, not method")]
+  MethodAsInitializer,
+
+  #[error("Undeclared local variable '{0}'")]
+  UndeclaredLocal(String),
+
+  #[error("sanity check, should never happen")]
+  SanityCheck,
 }
