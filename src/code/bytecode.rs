@@ -87,6 +87,8 @@ impl<'p> BytecodeGenerator<'p> {
       self.emit_stmt(stmt);
     }
 
+    self.emit((Opcode::PopN, self.locals.len()), SourceLocation { line: 0, column: 0 });
+
     self.emit(Opcode::Ret, SourceLocation { line: 0, column: 0 });
 
     if self.errors.is_empty() {

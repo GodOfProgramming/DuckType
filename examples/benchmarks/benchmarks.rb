@@ -45,7 +45,7 @@ REPS = 10_000_000
 
 x = 0
 
-benchmark(DISABLED_PREFIX + 'simple math', REPS) do |timer, i|
+benchmark('simple math', REPS) do |timer, i|
   timer.start
   i += 1
   x += i + i * i / i % i
@@ -55,7 +55,7 @@ end
 def simple_function
 end
 
-benchmark(DISABLED_PREFIX + 'function calls', REPS) do |timer, _i|
+benchmark('function calls', REPS) do |timer, _i|
   timer.start
   simple_function()
   timer.stop
@@ -63,7 +63,7 @@ end
 
 $OBJ = OpenStruct.new(foobarbaz: "foobarbaz")
 
-benchmark(DISABLED_PREFIX + 'global & member access', REPS) do |timer, _|
+benchmark('global & member access', REPS) do |timer, _|
   timer.start
   $OBJ.foobarbaz
   timer.stop

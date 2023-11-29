@@ -1,0 +1,7 @@
+let foo = "some string";
+
+mod bar {
+  foo,
+}
+
+println bar::foo;
