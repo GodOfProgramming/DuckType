@@ -1,0 +1,5 @@
+let some_local = "some string";
+
+export mod req_test {
+  some_local
+}

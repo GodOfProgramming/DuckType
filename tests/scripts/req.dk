@@ -1,0 +1,10 @@
+req "lib/brood/brood" as brood;
+
+use brood::suite;
+
+suite("req", |s| {
+  s.describe("requiring a file with a local var", |t| {
+    req "tests/util/req_test.dk" as req_test_mod;
+    t.expect(req_test_mod::some_local).to_be("some string");
+  });
+});
