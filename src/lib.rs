@@ -342,18 +342,7 @@ impl Vm {
   }
 
   pub fn check_gc(&mut self) {
-    self.check_gc_inc();
-    self.gc.poll_deep(
-      &self.stack,
-      &self.modules,
-      &mut self.cache,
-      &self.stack_frame,
-      &self.stack_frames,
-    );
-  }
-
-  pub fn check_gc_inc(&mut self) {
-    self.gc.poll_inc(
+    self.gc.poll(
       &self.stack,
       &self.modules,
       &mut self.cache,
@@ -449,7 +438,7 @@ impl Vm {
     let c = self.cache.const_at(index).clone();
     let value = self.make_value_from(c);
     self.stack_push(value);
-    self.check_gc_inc();
+    self.check_gc();
   }
 
   fn exec_store(&mut self, (storage, addr): (Storage, LongAddr)) -> ExecResult {
@@ -458,7 +447,7 @@ impl Vm {
       Storage::Local => self.exec_store_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_store_global(addr))?,
     }
-    self.check_gc_inc();
+    self.check_gc();
     Ok(())
   }
 
@@ -468,7 +457,7 @@ impl Vm {
       Storage::Local => self.exec_load_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_load_global(addr))?,
     }
-    self.check_gc_inc();
+    self.check_gc();
     Ok(())
   }
 

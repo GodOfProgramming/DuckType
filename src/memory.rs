@@ -16,33 +16,12 @@ pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
 type AllocationSet = FastHashSet<Value>;
 
-#[derive(Clone, Copy, Debug)]
-pub enum Memory {
-  Kb(usize),
-  Mb(usize),
-  Gb(usize),
-}
-
-impl Display for Memory {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{self:?}")
-  }
-}
-
-impl From<Memory> for usize {
-  fn from(memory: Memory) -> Self {
-    match memory {
-      Memory::Kb(kb) => kb * 1024,
-      Memory::Mb(mb) => Memory::Kb(mb * 1024).into(),
-      Memory::Gb(gb) => Memory::Mb(gb * 1024).into(),
-    }
-  }
-}
-
 pub struct Gc<D = SyncDisposal>
 where
   D: Disposal,
 {
+  mode: GcMode,
+
   disposer: D,
 
   pub(crate) allocations: AllocationSet,
@@ -68,6 +47,7 @@ where
   pub fn new(initial_limit: Memory) -> Self {
     let initial_limit = initial_limit.into();
     Self {
+      mode: GcMode::Standard,
       disposer: D::default(),
       allocations: AllocationSet::with_capacity(512),
       blacks: Default::default(),
@@ -79,6 +59,28 @@ where
       incremental_cleans: 0,
       increments: 0,
       num_limit_repeats: 0,
+    }
+  }
+
+  pub fn set_mode(&mut self, mode: GcMode) {
+    self.mode = mode;
+  }
+
+  pub(crate) fn poll(
+    &mut self,
+    stack: &Stack,
+    envs: &ModuleStack,
+    cache: &mut Cache,
+    stack_frame: &StackFrame,
+    stack_frames: &[StackFrame],
+  ) {
+    match self.mode {
+      GcMode::Standard => {
+        self.poll_deep(stack, envs, cache, stack_frame, stack_frames);
+        self.poll_inc(stack, envs, cache, stack_frame, stack_frames);
+      }
+      GcMode::Incremental => self.poll_inc(stack, envs, cache, stack_frame, stack_frames),
+      GcMode::Deep => self.poll_deep(stack, envs, cache, stack_frame, stack_frames),
     }
   }
 
@@ -421,6 +423,35 @@ fn drop_value(mut value: Value) {
   let pointer = value.pointer_mut();
   let meta = value.meta();
   (meta.vtable.dealloc)(pointer);
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Memory {
+  Kb(usize),
+  Mb(usize),
+  Gb(usize),
+}
+
+impl Display for Memory {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{self:?}")
+  }
+}
+
+impl From<Memory> for usize {
+  fn from(memory: Memory) -> Self {
+    match memory {
+      Memory::Kb(kb) => kb * 1024,
+      Memory::Mb(mb) => Memory::Kb(mb * 1024).into(),
+      Memory::Gb(gb) => Memory::Mb(gb * 1024).into(),
+    }
+  }
+}
+
+pub enum GcMode {
+  Standard,
+  Incremental,
+  Deep,
 }
 
 #[cfg(test)]

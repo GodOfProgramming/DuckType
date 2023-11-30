@@ -188,6 +188,24 @@ fn print_stats(vm: &mut Vm) -> UsageResult<()> {
 }
 
 #[native(with_vm)]
+fn gc_set_mode_standard(vm: &mut Vm) -> UsageResult<()> {
+  vm.gc.set_mode(GcMode::Deep);
+  Ok(())
+}
+
+#[native(with_vm)]
+fn gc_set_mode_incremental(vm: &mut Vm) -> UsageResult<()> {
+  vm.gc.set_mode(GcMode::Deep);
+  Ok(())
+}
+
+#[native(with_vm)]
+fn gc_set_mode_deep(vm: &mut Vm) -> UsageResult<()> {
+  vm.gc.set_mode(GcMode::Deep);
+  Ok(())
+}
+
+#[native(with_vm)]
 fn vm_eval(vm: &mut Vm, source: &StringValue) -> UsageResult {
   vm.eval(source).map_err(UsageError::Preformatted)
 }
