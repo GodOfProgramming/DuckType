@@ -70,7 +70,7 @@ impl Operators for VecValue {
     let internal_value = left
       .buffer
       .get_mut(index as usize)
-      .ok_or_else(|| UsageError::InvalidIndex(index, value))?;
+      .ok_or(UsageError::InvalidIndex(index, value))?;
     *internal_value = value;
     Ok(value)
   }

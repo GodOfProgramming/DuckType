@@ -347,7 +347,7 @@ where
 
     #[cfg(debug_assertions)]
     {
-      debug_assert!(self.allocations.iter().find(|v| v.bits == value.bits).is_none());
+      debug_assert!(!self.allocations.iter().any(|v| v.bits == value.bits));
     }
 
     self.track(value);
@@ -409,25 +409,33 @@ where
       self.stats.total_incremental_traces as f64 / self.stats.total_incremental_root_traces as f64;
 
     format!(
-      "{}",
-      itertools::join(
-        [
-          "------ Gc Stats ------",
-          &format!("Memory in use ---------- {}", self.allocated_memory),
-          &format!("Limit till next cycle -- {}", self.limit),
-          &format!("No. allocations -------- {}", self.allocations.len()),
-          &format!("No. handles ------------ {}", self.native_handles.len()),
-          &format!("No. deep cleans -------- {}", self.stats.total_deep_cleans),
-          &format!("No. inc cleans --------- {}", self.stats.total_incremental_cleans),
-          &format!("No. increments --------- {}", self.stats.total_increments),
-          &format!("No. inc root traces ---- {}", self.stats.total_incremental_root_traces),
-          &format!("No. inc traces --------- {}", self.stats.total_incremental_traces),
-          &format!("Inc. trace/root scan --- {}", incremental_traces_per_root_scan),
-          &format!("Inc. ratio ------------- {}", inc_ratio),
-          &format!("Deep/Inc ratio --------- {}", inc_per_deep_ratio),
-        ],
-        "\n"
-      )
+      concat!(
+        "------------------ Gc Stats ------------------\n",
+        "Memory in use ---------- {allocated_memory}\n",
+        "Limit till next cycle -- {limit}\n",
+        "No. allocations -------- {no_allocations}\n",
+        "No. handles ------------ {no_handles}\n",
+        "No. deep cleans -------- {no_deep_cleans}\n",
+        "No. inc cleans --------- {no_inc_cleans}\n",
+        "No. increments --------- {no_increments}\n",
+        "No. inc root traces ---- {no_inc_root_traces}\n",
+        "No. inc traces --------- {no_traces}\n",
+        "Inc. trace/root scan --- {incremental_traces_per_root_scan}\n",
+        "Inc. ratio ------------- {inc_ratio}\n",
+        "Deep/Inc ratio --------- {inc_per_deep_ratio}",
+      ),
+      allocated_memory = self.allocated_memory,
+      limit = self.limit,
+      no_allocations = self.allocations.len(),
+      no_handles = self.native_handles.len(),
+      no_deep_cleans = self.stats.total_deep_cleans,
+      no_inc_cleans = self.stats.total_incremental_cleans,
+      no_increments = self.stats.total_increments,
+      no_inc_root_traces = self.stats.total_incremental_root_traces,
+      no_traces = self.stats.total_incremental_traces,
+      incremental_traces_per_root_scan = incremental_traces_per_root_scan,
+      inc_ratio = inc_ratio,
+      inc_per_deep_ratio = inc_per_deep_ratio,
     )
   }
 }

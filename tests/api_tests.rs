@@ -9,7 +9,7 @@ struct ApiTest {
 
 impl TestFixture for ApiTest {
   fn set_up() -> Self {
-    let gc = SmartPtr::new(Gc::new(Memory::Mb(100)));
+    let gc = Gc::new(Memory::Mb(100));
     let mut vm = Vm::new(gc, false, []);
     let stdlib = vm.generate_stdlib("*test*");
 

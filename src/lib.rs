@@ -31,29 +31,30 @@ pub mod macro_requirements {
   pub use uuid;
 }
 
-use crate::{
-  code::{ConstantValue, FileMap, InstructionReflection},
-  dbg::Cli,
-  exec::*,
-  prelude::*,
-  util::{FileIdType, FileMetadata, PlatformMetadata, UnwrapAnd},
+use {
+  crate::{
+    code::{ConstantValue, FileMap, InstructionReflection},
+    dbg::Cli,
+    exec::*,
+    prelude::*,
+    util::{FileIdType, FileMetadata, PlatformMetadata, UnwrapAnd},
+  },
+  ahash::RandomState,
+  clap::Parser,
+  code::CompileOpts,
+  dlopen2::wrapper::{Container, WrapperApi},
+  memory::Gc,
+  nohash_hasher::BuildNoHashHasher,
+  prelude::module_value::ModuleType,
+  ptr::{MutPtr, SmartPtr},
+  rustyline::{error::ReadlineError, DefaultEditor},
+  std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    fs, mem,
+    path::{Path, PathBuf},
+  },
+  value::{NativeBinaryOp, NativeUnaryOp, VTable},
 };
-use ahash::RandomState;
-use clap::Parser;
-use code::CompileOpts;
-use dlopen2::wrapper::Container;
-use dlopen2::wrapper::WrapperApi;
-use memory::Gc;
-use nohash_hasher::BuildNoHashHasher;
-use prelude::module_value::ModuleType;
-use ptr::{MutPtr, SmartPtr};
-use rustyline::{error::ReadlineError, DefaultEditor};
-use std::{
-  collections::{BTreeMap, HashMap, HashSet},
-  fs, mem,
-  path::{Path, PathBuf},
-};
-use value::{NativeBinaryOp, NativeUnaryOp, VTable};
 
 type FastHashSet<T> = HashSet<T, RandomState>;
 type FastHashMap<K, V> = HashMap<K, V, RandomState>;
@@ -69,38 +70,45 @@ type ExecResult<T = ()> = Result<T, Error>;
 
 type OpResult<T = ()> = Result<T, UsageError>;
 
+/// For internal use, the mode in which the vm last executed on
 pub(crate) enum RunMode {
   String,
   File,
   Fn,
 }
 
+/// Helper macro to acquire the current module without causing the borrow
+/// checker to worry about immutable references with a mutable reference
 macro_rules! current_module {
   ($this:ident) => {
     $this.modules.last()
   };
 }
 
+/// Helper macro to acquire the current module without causing the borrow
+/// checker to worry about multiple mutable references
 macro_rules! current_module_mut {
   ($this:ident) => {
     $this.modules.last_mut()
   };
 }
 
-#[cfg(feature = "runtime-disassembly")]
+/// Helper macro to print if the cache was hit on a relevant operation
 macro_rules! cache_hit {
   () => {
-    println!("{:>28}", "| [cache hit]");
+    #[cfg(feature = "runtime-disassembly")]
+    {
+      println!("{:>28}", "| [cache hit]");
+    }
   };
 }
 
-#[cfg(not(feature = "runtime-disassembly"))]
-macro_rules! cache_hit {
-  () => {};
-}
-
+/// File information for use with req statements
 struct FileInfo {
+  /// The absolute or relative path to the file from the previous
   path: PathBuf,
+
+  /// The underlying OS file id of the file
   id: FileIdType,
 }
 
@@ -115,28 +123,45 @@ pub(crate) struct NativeApi {
   duck_type_load_module: fn(vm: &mut Vm) -> UsertypeHandle<ModuleValue>,
 }
 
-#[cfg(test)]
-mod tests;
-
 pub struct Vm {
+  /// The vm's stack
   pub(crate) stack: Stack,
+
+  /// The current stack frame in use
   pub(crate) stack_frame: StackFrame,
+
+  /// The remaining frames on the callstack
   pub(crate) stack_frames: Vec<StackFrame>,
 
+  /// A pointer to the garbage collector
+  ///
+  /// Uses this implementation instead of a Rc for performance reasons (no runtime borrow checking)
   pub gc: SmartPtr<Gc>,
 
+  /// A cache of various things to speed up execution
   cache: Cache,
+
+  /// The current stack of modules, the most recent being the one that becomes the parent of future scopes
   pub(crate) modules: ModuleStack,
 
+  /// Whether to compilations or not
   opt: bool,
+
+  /// Runtime arguments
   args: Vec<String>,
 
+  /// A map of file ids to names
   filemap: FileMap,
 
-  // usize for what frame to pop on, string for file path
+  /// A stack of opened files, for relative pathing with req statements
   opened_files: Vec<FileInfo>,
+
+  /// A map to keep track of and keep open native libs so they aren't unloaded when the container's lifetime ends
   opened_native_libs: BTreeMap<PathBuf, Container<NativeApi>>,
 
+  /// Functions similar to errno. The last error triggered within rust after jumping through C
+  ///
+  /// Only available with the "jtbl" (Jump Table) feature
   #[cfg(feature = "jtbl")]
   last_error: ExecResult,
 }
@@ -144,12 +169,22 @@ pub struct Vm {
 /* core functionality */
 
 impl Vm {
-  pub fn new(gc: SmartPtr<Gc>, opt: bool, args: impl Into<Vec<String>>) -> Self {
+  /// Create a new Virtual Machine instance
+  ///
+  /// The garbage collector passed in becomes owned by this VM instance and
+  /// should not in any way be shared between others
+  ///
+  /// # Arguments
+  ///
+  /// * `gc` - The [garbage collector][memory::Gc] to associate with this VM instance
+  /// * `opt` - indicates if the optimizer should be run
+  /// * `args` - the runtime arguments the scripts should have access to
+  pub fn new(gc: Gc, opt: bool, args: impl Into<Vec<String>>) -> Self {
     Self {
       stack_frame: Default::default(),
       stack_frames: Default::default(),
       stack: Stack::with_capacity(INITIAL_STACK_CAPACITY),
-      gc,
+      gc: SmartPtr::new(gc),
       cache: Default::default(),
       modules: Default::default(),
       opt,
@@ -163,6 +198,10 @@ impl Vm {
     }
   }
 
+  /// Execute a file
+  ///
+  /// * `file`
+  /// * `module`
   pub fn run_file(&mut self, file: impl Into<PathBuf>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     let file = file.into();
     let file_id = PlatformMetadata::id_of(&file).unwrap_or(0);
@@ -1648,3 +1687,6 @@ where
     self.gc.allocate(VecValue::new_from_vec(list))
   }
 }
+
+#[cfg(test)]
+mod tests;
