@@ -166,31 +166,27 @@ impl Vm {
   pub fn run_file(&mut self, file: impl Into<PathBuf>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     let file = file.into();
     let file_id = PlatformMetadata::id_of(&file).unwrap_or(0);
+    let source = fs::read_to_string(&file).map_err(Error::from)?;
 
     self.filemap.add(file_id, &file);
-    self.opened_files = vec![FileInfo::new(&file, file_id)];
+    self.opened_files.push(FileInfo::new(file, file_id));
 
-    let source = fs::read_to_string(&file).map_err(Error::from)?;
     let opts = CompileOpts { optimize: self.opt };
     let ctx = code::compile_file(&mut self.cache, file_id, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, &source))?;
 
-    self.stack_frame = StackFrame::new(ctx, self.stack_size());
-    self.stack_frames = Default::default();
+    self.new_frame(ctx, 0);
     self.modules.push(ModuleEntry::File(module));
 
     self.execute(RunMode::File)
   }
 
   pub fn run_string(&mut self, source: impl AsRef<str>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
-    self.opened_files = vec![];
-
     let opts = CompileOpts { optimize: self.opt };
     let ctx = code::compile_string(&mut self.cache, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
 
-    self.stack_frame = StackFrame::new(ctx, self.stack_size());
-    self.stack_frames = Default::default();
+    self.new_frame(ctx, 0);
     self.modules.push(ModuleEntry::String(module));
 
     self.execute(RunMode::String)
@@ -204,13 +200,8 @@ impl Vm {
   }
 
   pub fn eval(&mut self, source: impl AsRef<str>) -> Result<Value, Error> {
-    let opts = CompileOpts { optimize: self.opt };
-    let ctx = code::compile_string(&mut self.cache, source.as_ref(), opts)
-      .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
     let module = current_module!(self).clone();
-    self.modules.push(ModuleEntry::String(module));
-    self.new_frame(ctx, 0);
-    self.execute(RunMode::String)
+    self.run_string(source, module)
   }
 
   pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
@@ -795,22 +786,11 @@ impl Vm {
         self.stack_push(value);
       }
       _ => {
-        let source = fs::read_to_string(&found_file).map_err(|e| self.error(e))?;
-
         if let Some(value) = self.cache.get_lib(file_id) {
           self.stack_push(value);
         } else {
-          self.filemap.add(file_id, &found_file);
-
-          let opts = CompileOpts { optimize: self.opt };
-          let new_ctx = code::compile_file(&mut self.cache, file_id, &source, opts)
-            .map_err(|error| Error::from_compiler_error(error, &self.filemap, &source))?;
           let gmod = self.generate_stdlib(format!("<file export {}>", found_file.display()));
-
-          self.new_frame(new_ctx, 0);
-          self.modules.push(ModuleEntry::File(gmod));
-          self.opened_files.push(FileInfo::new(found_file, file_id));
-          let output = self.execute(RunMode::File)?;
+          let output = self.run_file(found_file, gmod)?;
           self.stack_push(output);
         }
       }
