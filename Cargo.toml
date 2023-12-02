@@ -1,6 +1,6 @@
 [package]
 name = "DuckType"
-version = "0.55.1"
+version = "0.56.0"
 authors = ["Jonathan Dickert <jonathan.dickert@protonmail.com>"]
 edition = "2021"
 default-run = "duck"
