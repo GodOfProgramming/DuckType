@@ -16,6 +16,7 @@ benchmark("simple math", REPS, [x] |timer: Timer, i| {
 });
 
 std::vm::gc::print_stats();
+std::vm::gc::reset_stats();
 
 fn simple_function() {}
 
@@ -26,6 +27,7 @@ benchmark("function calls", REPS, |timer: Timer, _i| {
 });
 
 std::vm::gc::print_stats();
+std::vm::gc::reset_stats();
 
 let $OBJ = struct {
   foobarbaz: "foobarbaz"
@@ -38,6 +40,7 @@ benchmark("global & member access", REPS, |timer: Timer, _| {
 });
 
 std::vm::gc::print_stats();
+std::vm::gc::reset_stats();
 
 fn fib(n) {
   if n <= 1 {

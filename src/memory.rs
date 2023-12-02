@@ -2,14 +2,15 @@ use super::{ModuleStack, Stack, StackFrame};
 use crate::{
   prelude::*,
   value::{tags::*, MutVoid, ValueMeta},
-  FastHashSet,
+  FastHashSet, RapidHashSet,
 };
 use ahash::HashSetExt;
 use ptr::MutPtr;
 use std::{
   fmt::{self, Display, Formatter},
   mem,
-  sync::atomic::AtomicUsize,
+  ops::{Deref, DerefMut},
+  sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
@@ -38,6 +39,9 @@ where
   /// Allocations that do not point to unmarked allocations
   blacks: AllocationSet,
 
+  /// Set of values that are used in native code
+  pub(crate) native_handles: RapidHashSet<Value>,
+
   /// The maximum amount of bytes allowed to be allocated before a deep clean
   pub(crate) limit: usize,
 
@@ -65,6 +69,7 @@ where
       disposer: D::default(),
       allocations: AllocationSet::with_capacity(512),
       protected_allocations: AllocationSet::new(),
+      native_handles: RapidHashSet::default(),
       blacks: Default::default(),
       grays: Default::default(),
       limit: initial_limit,
@@ -132,11 +137,17 @@ where
     stack_frame: &StackFrame,
     stack_frames: &[StackFrame],
   ) -> usize {
+    self.ref_check_native_handles();
+
+    self.allocations.extend(self.protected_allocations.drain());
+
     self.grays.clear();
     self.blacks.clear();
-    self.ref_check_native_handles(cache);
+
     self.deep_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+
     self.stats.total_deep_cleans += 1;
+
     self.clean(cache, self.find_unreferenced())
   }
 
@@ -148,11 +159,22 @@ where
     stack_frame: &StackFrame,
     stack_frames: &[StackFrame],
   ) {
-    self.ref_check_native_handles(cache);
-    self.incremental_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+    self.ref_check_native_handles();
+
+    if self.grays.is_empty() {
+      self.stats.total_incremental_root_traces += 1;
+      self.incremental_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+    } else {
+      self.stats.total_incremental_traces += 1;
+      self.incremental_trace();
+    }
+
     if self.grays.is_empty() {
       self.stats.total_incremental_cleans += 1;
       self.clean(cache, self.find_unreferenced());
+      self
+        .allocations
+        .extend(self.protected_allocations.drain().map(Value::unprotect));
       self.blacks.clear();
     }
   }
@@ -167,8 +189,12 @@ where
   ) {
     let mut tracer = Tracer::new(&mut self.blacks);
 
+    for value in self.native_handles.iter() {
+      tracer.deep_trace(value);
+    }
+
     for value in stack.iter() {
-      tracer.deep_trace(value)
+      tracer.deep_trace(value);
     }
 
     cache.deep_trace(&mut tracer);
@@ -200,8 +226,8 @@ where
   ) {
     let mut tracer = Tracer::new(&mut self.blacks);
 
-    for value in self.grays.drain() {
-      tracer.trace_gray(&value);
+    for value in self.native_handles.iter() {
+      tracer.try_mark_gray(value);
     }
 
     for value in stack.iter() {
@@ -228,6 +254,16 @@ where
     self.grays = tracer.grays;
   }
 
+  fn incremental_trace(&mut self) {
+    let mut tracer = Tracer::new(&mut self.blacks);
+
+    for value in self.grays.drain() {
+      tracer.trace_gray(&value);
+    }
+
+    self.grays = tracer.grays;
+  }
+
   fn clean(&mut self, cache: &mut Cache, unreferenced: Vec<Value>) -> usize {
     let cleaned = unreferenced.len();
 
@@ -248,11 +284,8 @@ where
     self
       .allocations
       .difference(&self.blacks)
-      .filter(|value| {
-        debug_assert!(value.is_ptr());
-        value.is_unreferenced()
-      })
       .cloned()
+      .filter(can_be_garbage)
       .collect()
   }
 
@@ -290,7 +323,7 @@ where
       Box::into_raw(Box::new(item))
     }
 
-    let allocated = unsafe { &mut *allocate_type(AllocatedObject::new(item)) };
+    let allocated = unsafe { &mut *allocate_type(AllocatedObject::new(item, self.is_cleaning())) };
     self.allocated_memory += allocated.meta.size;
 
     let ptr = &mut allocated.obj as *mut T as MutVoid;
@@ -322,38 +355,80 @@ where
     value
   }
 
-  fn ref_check_native_handles(&mut self, cache: &mut Cache) {
-    let transfers = cache
+  pub(crate) fn make_handle(&mut self, value: Value) -> ValueHandle {
+    self.native_handles.insert(value);
+    ValueHandle::new(value)
+  }
+
+  fn ref_check_native_handles(&mut self) {
+    let transfers = self
       .native_handles
       .iter()
-      .filter(|v| v.is_unreferenced())
       .cloned()
+      .filter(Value::is_unreferenced)
       .collect::<Vec<Value>>();
 
-    for transfer in transfers {
-      cache.native_handles.remove(&transfer);
-      self.track(transfer);
+    for value in transfers {
+      self.native_handles.remove(&value);
+      self.track(value);
     }
   }
 
   fn track(&mut self, value: Value) {
     debug_assert!(value.is_ptr());
-    let is_new = self.allocations.insert(value);
+
+    let is_new = if self.is_cleaning() {
+      self.protected_allocations.insert(value)
+    } else {
+      self.allocations.insert(value)
+    };
+
     debug_assert!(is_new)
   }
 
   pub(crate) fn forget(&mut self, value: Value) {
     self.allocations.remove(&value);
+    self.protected_allocations.remove(&value);
   }
 
   fn purge(&mut self, value: Value) {
+    debug_assert!(!self.protected_allocations.contains(&value));
+
     self.forget(value);
     self.disposer.dispose(value)
   }
 
-  pub(crate) fn invalidate(&mut self, value: &Value) {
-    self.grays.remove(&value);
-    self.blacks.remove(&value);
+  fn is_cleaning(&self) -> bool {
+    !self.grays.is_empty()
+  }
+
+  pub fn stats_string(&self) -> String {
+    let inc_ratio = self.stats.total_increments as f64 / self.stats.total_incremental_cleans as f64;
+    let inc_per_deep_ratio = self.stats.total_deep_cleans as f64 / self.stats.total_incremental_cleans as f64;
+    let incremental_traces_per_root_scan =
+      self.stats.total_incremental_traces as f64 / self.stats.total_incremental_root_traces as f64;
+
+    format!(
+      "{}",
+      itertools::join(
+        [
+          "------ Gc Stats ------",
+          &format!("Memory in use ---------- {}", self.allocated_memory),
+          &format!("Limit till next cycle -- {}", self.limit),
+          &format!("No. allocations -------- {}", self.allocations.len()),
+          &format!("No. handles ------------ {}", self.native_handles.len()),
+          &format!("No. deep cleans -------- {}", self.stats.total_deep_cleans),
+          &format!("No. inc cleans --------- {}", self.stats.total_incremental_cleans),
+          &format!("No. increments --------- {}", self.stats.total_increments),
+          &format!("No. inc root traces ---- {}", self.stats.total_incremental_root_traces),
+          &format!("No. inc traces --------- {}", self.stats.total_incremental_traces),
+          &format!("Inc. trace/root scan --- {}", incremental_traces_per_root_scan),
+          &format!("Inc. ratio ------------- {}", inc_ratio),
+          &format!("Deep/Inc ratio --------- {}", inc_per_deep_ratio),
+        ],
+        "\n"
+      )
+    )
   }
 }
 
@@ -371,10 +446,11 @@ struct AllocatedObject<T: Usertype> {
 }
 
 impl<T: Usertype> AllocatedObject<T> {
-  fn new(obj: T) -> Self {
+  fn new(obj: T, protected: bool) -> Self {
     let meta = ValueMeta {
       vtable: &T::VTABLE,
-      ref_count: AtomicUsize::new(0),
+      references: AtomicUsize::new(0),
+      protected: AtomicBool::new(protected),
       size: mem::size_of::<Self>(),
     };
     Self { obj, meta }
@@ -423,6 +499,8 @@ pub struct SyncDisposal;
 
 impl Disposal for SyncDisposal {
   fn dispose(&mut self, value: Value) {
+    debug_assert!(value.is_unprotected());
+    debug_assert!(value.is_unreferenced());
     drop_value(value);
   }
 }
@@ -474,9 +552,175 @@ pub enum GcMode {
 
 #[derive(Default)]
 pub struct GcStats {
-  pub(crate) total_deep_cleans: usize,
-  pub(crate) total_incremental_cleans: usize,
-  pub(crate) total_increments: usize,
+  total_deep_cleans: usize,
+  total_incremental_cleans: usize,
+  total_increments: usize,
+  total_incremental_root_traces: usize,
+  total_incremental_traces: usize,
+}
+
+impl GcStats {
+  pub fn reset(&mut self) {
+    *self = Self::default();
+  }
+}
+
+pub struct UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  pub(crate) usertype: MutPtr<T>,
+  pub handle: ValueHandle,
+}
+
+impl<T> UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  pub fn new(mut handle: ValueHandle) -> Self {
+    Self {
+      usertype: MutPtr::new(handle.value.reinterpret_cast_to_mut::<T>()),
+      handle,
+    }
+  }
+
+  pub fn value(&self) -> Value {
+    self.handle.value
+  }
+}
+
+impl<T> Clone for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn clone(&self) -> Self {
+    Self {
+      usertype: self.usertype,
+      handle: self.handle.clone(),
+    }
+  }
+}
+
+impl<T> From<UsertypeHandle<T>> for ValueHandle
+where
+  T: Usertype,
+{
+  fn from(utype: UsertypeHandle<T>) -> Self {
+    utype.handle
+  }
+}
+
+impl<T> MaybeFrom<ValueHandle> for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn maybe_from(handle: ValueHandle) -> Option<Self> {
+    if handle.value.is::<T>() {
+      Some(UsertypeHandle::new(handle))
+    } else {
+      None
+    }
+  }
+}
+
+impl<T> Deref for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  type Target = T;
+  fn deref(&self) -> &Self::Target {
+    &self.usertype
+  }
+}
+
+impl<T> DerefMut for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.usertype
+  }
+}
+
+impl<T> Display for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.handle)
+  }
+}
+
+pub struct ValueHandle {
+  pub value: Value,
+}
+
+impl ValueHandle {
+  pub fn new(value: Value) -> ValueHandle {
+    if value.is_ptr() {
+      value.meta().references.fetch_add(1, Ordering::Relaxed);
+    }
+    Self { value }
+  }
+}
+
+impl Deref for ValueHandle {
+  type Target = Value;
+  fn deref(&self) -> &Self::Target {
+    &self.value
+  }
+}
+
+impl DerefMut for ValueHandle {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.value
+  }
+}
+
+impl From<ValueHandle> for Value {
+  fn from(handle: ValueHandle) -> Self {
+    handle.value
+  }
+}
+
+impl Clone for ValueHandle {
+  fn clone(&self) -> Self {
+    if self.value.is_ptr() {
+      self.value.meta().references.fetch_add(1, Ordering::Relaxed);
+    }
+
+    Self { value: self.value }
+  }
+}
+
+impl Display for ValueHandle {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.value)
+  }
+}
+
+impl Drop for ValueHandle {
+  fn drop(&mut self) {
+    if self.value.is_ptr() {
+      let meta = self.value.meta();
+
+      #[cfg(debug_assertions)]
+      let before = meta.references.load(Ordering::Relaxed);
+
+      meta.references.fetch_sub(1, Ordering::Relaxed);
+
+      #[cfg(debug_assertions)]
+      {
+        let after = meta.references.load(Ordering::Relaxed);
+
+        debug_assert!(before > after);
+      }
+    }
+  }
+}
+
+fn can_be_garbage(value: &Value) -> bool {
+  value.is_unreferenced() && value.is_unprotected()
 }
 
 #[cfg(test)]

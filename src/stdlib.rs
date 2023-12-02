@@ -107,8 +107,8 @@ pub fn make_stdlib(vm: &mut Vm, gmod: Value, args: impl Into<Vec<String>>) -> (S
     defmod(vm, lib, names::VM, |gc, mut lib| {
       lib.define("eval", Value::new::<NativeFn>(vm_eval));
       defmod(gc, &mut lib, names::vm::GC, |_, mut lib| {
-        lib.define("total_cycles", Value::new::<NativeFn>(total_cycles));
         lib.define("print_stats", Value::new::<NativeFn>(print_stats));
+        lib.define("reset_stats", Value::new::<NativeFn>(reset_stats));
       });
     });
   });
@@ -158,32 +158,14 @@ fn math_rand_i32() -> UsageResult<i32> {
 }
 
 #[native(with_vm)]
-fn total_cycles(vm: &mut Vm) -> UsageResult<i32> {
-  Ok(vm.gc.stats.total_deep_cleans as i32)
+fn print_stats(vm: &mut Vm) -> UsageResult<()> {
+  println!("{}", vm.gc.stats_string());
+  Ok(())
 }
 
 #[native(with_vm)]
-fn print_stats(vm: &mut Vm) -> UsageResult<()> {
-  let inc_ratio = vm.gc.stats.total_increments as f64 / vm.gc.stats.total_incremental_cleans as f64;
-  let inc_per_deep_ratio = vm.gc.stats.total_deep_cleans as f64 / vm.gc.stats.total_incremental_cleans as f64;
-  println!(
-    "{}",
-    itertools::join(
-      [
-        "------ Gc Stats ------",
-        &format!("No. allocations -------- {}", vm.gc.allocations.len()),
-        &format!("No. handles ------------ {}", vm.cache.native_handles.len()),
-        &format!("No. deep cleans -------- {}", vm.gc.stats.total_deep_cleans),
-        &format!("No. inc cleans --------- {}", vm.gc.stats.total_incremental_cleans),
-        &format!("No. increments --------- {}", vm.gc.stats.total_increments),
-        &format!("Increment ratio -------- {}", inc_ratio),
-        &format!("Deep/Inc ratio --------- {}", inc_per_deep_ratio),
-        &format!("Memory in use ---------- {}", vm.gc.allocated_memory),
-        &format!("Limit till next cycle -- {}", vm.gc.limit),
-      ],
-      "\n"
-    )
-  );
+fn reset_stats(vm: &mut Vm) -> UsageResult<()> {
+  vm.gc.stats.reset();
   Ok(())
 }
 

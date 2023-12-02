@@ -63,7 +63,7 @@ type RapidHashSet<T> = HashSet<T, BuildNoHashHasher<T>>;
 
 pub const EXTENSION: &str = "dk";
 
-const INITIAL_STACK_SIZE: usize = 400;
+const INITIAL_STACK_CAPACITY: usize = 2usize.pow(20);
 
 type ExecResult<T = ()> = Result<T, Error>;
 
@@ -148,7 +148,7 @@ impl Vm {
     Self {
       stack_frame: Default::default(),
       stack_frames: Default::default(),
-      stack: Stack::with_capacity(INITIAL_STACK_SIZE),
+      stack: Stack::with_capacity(INITIAL_STACK_CAPACITY),
       gc,
       cache: Default::default(),
       modules: Default::default(),
@@ -1347,13 +1347,13 @@ impl Vm {
 
   pub fn make_usertype_handle_from<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
     let value = self.gc.allocate_untracked(item);
-    let handle = self.cache.make_handle(value);
+    let handle = self.gc.make_handle(value);
     UsertypeHandle::new(handle)
   }
 
   fn make_handle(&mut self, value: Value) -> ValueHandle {
     self.gc.forget(value);
-    self.cache.make_handle(value)
+    self.gc.make_handle(value)
   }
 
   fn wrap_err<F, T>(&self, f: F) -> ExecResult<T>
