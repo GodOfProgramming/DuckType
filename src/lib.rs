@@ -192,7 +192,12 @@ impl Vm {
     self.execute(RunMode::String)
   }
 
-  pub fn run_fn(&mut self, ctx: SmartPtr<Context>, module: UsertypeHandle<ModuleValue>, airity: usize) -> ExecResult<Value> {
+  pub(crate) fn run_fn(
+    &mut self,
+    ctx: SmartPtr<Context>,
+    module: UsertypeHandle<ModuleValue>,
+    airity: usize,
+  ) -> ExecResult<Value> {
     self.new_frame(ctx, airity);
     self.modules.push(ModuleEntry::Fn(module));
 
@@ -1149,7 +1154,7 @@ impl Vm {
     let addr = addr.into();
     match st {
       Storage::Stack => Ok(self.stack_pop()),
-      Storage::Local => Ok(self.stack_load(self.stack_frame.sp + addr)),
+      Storage::Local => Ok(self.stack_load(self.stack_frame.bp + addr)),
       Storage::Global => self.value_of_ident(addr),
     }
   }
@@ -1159,7 +1164,7 @@ impl Vm {
   }
 
   fn exec_load_local(&mut self, loc: LongAddr) {
-    self.stack_push(self.stack_load(self.stack_frame.sp + loc.0));
+    self.stack_push(self.stack_load(self.stack_frame.bp + loc.0));
   }
 
   fn exec_load_global(&mut self, loc: LongAddr) -> OpResult {
@@ -1175,7 +1180,7 @@ impl Vm {
 
   fn exec_store_local(&mut self, loc: LongAddr) {
     let value = self.stack_peek();
-    self.stack_store(self.stack_frame.sp + loc.0, value);
+    self.stack_store(self.stack_frame.bp + loc.0, value);
   }
 
   fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
@@ -1496,9 +1501,9 @@ impl Vm {
   pub fn stack_display(&self) {
     println!("{}", self.stack);
     println!(
-      "               | ip: {ip} sp: {sp}",
+      "               | ip: {ip} bp: {bp}",
       ip = self.stack_frame.ip(),
-      sp = self.stack_frame.sp
+      bp = self.stack_frame.bp
     );
   }
 }

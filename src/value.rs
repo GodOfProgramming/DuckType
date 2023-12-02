@@ -393,34 +393,10 @@ impl Debug for Value {
     const PTR_WIDTH: usize = mem::size_of::<usize>() * 2;
     const PTR_DISPLAY_WIDTH: usize = PTR_WIDTH + 2;
     match self.tag() {
-      Tag::F64 => write!(
-        f,
-        "{:?} {} (0x{:x})",
-        self.tag(),
-        self.reinterpret_cast_to::<f64>(),
-        self.bits()
-      ),
-      Tag::I32 => write!(
-        f,
-        "{:?} {} (0x{:x})",
-        self.tag(),
-        self.reinterpret_cast_to::<i32>(),
-        self.bits()
-      ),
-      Tag::Bool => write!(
-        f,
-        "{:?} {} (0x{:x})",
-        self.tag(),
-        self.reinterpret_cast_to::<bool>(),
-        self.bits()
-      ),
-      Tag::Char => write!(
-        f,
-        "{:?} {} (0x{:x})",
-        self.tag(),
-        self.reinterpret_cast_to::<char>(),
-        self.bits()
-      ),
+      Tag::F64 => write!(f, "f64 {} (0x{:x})", self.reinterpret_cast_to::<f64>(), self.bits()),
+      Tag::I32 => write!(f, "i32 {} (0x{:x})", self.reinterpret_cast_to::<i32>(), self.bits()),
+      Tag::Bool => write!(f, "bool {} (0x{:x})", self.reinterpret_cast_to::<bool>(), self.bits()),
+      Tag::Char => write!(f, "char {} (0x{:x})", self.reinterpret_cast_to::<char>(), self.bits()),
       Tag::NativeFn => write!(
         f,
         "<@{addr:<width$} {:?}>",
