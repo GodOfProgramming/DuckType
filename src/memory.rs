@@ -20,21 +20,37 @@ pub struct Gc<D = SyncDisposal>
 where
   D: Disposal,
 {
+  /// The current mode the GC is running in
   mode: GcMode,
 
+  /// The method of disposal of allocations
   disposer: D,
 
+  /// Addresses allocated by the GC and available for collection
   pub(crate) allocations: AllocationSet,
 
+  /// Addresses allocated by the GC while it is in the process of incremental collection
+  pub(crate) protected_allocations: AllocationSet,
+
+  /// Allocations that point to unmarked allocations
   grays: AllocationSet,
+
+  /// Allocations that do not point to unmarked allocations
   blacks: AllocationSet,
 
+  /// The maximum amount of bytes allowed to be allocated before a deep clean
   pub(crate) limit: usize,
+
+  /// The initial limit that the GC was started with
   pub(crate) initial_limit: usize,
+
+  /// The current number of bytes allocated by the GC, both regular allocations and protected
   pub(crate) allocated_memory: usize,
 
+  /// Statistics of the GC
   pub(crate) stats: GcStats,
 
+  /// The max number of repeated limits in a row before decreasing the limit closer to the initial value
   num_limit_repeats: usize,
 }
 
@@ -48,6 +64,7 @@ where
       mode: GcMode::Standard,
       disposer: D::default(),
       allocations: AllocationSet::with_capacity(512),
+      protected_allocations: AllocationSet::new(),
       blacks: Default::default(),
       grays: Default::default(),
       limit: initial_limit,
@@ -102,7 +119,7 @@ where
     stack_frames: &[StackFrame],
   ) {
     if self.allocated_memory > self.limit / 2 {
-      self.stats.increments += 1;
+      self.stats.total_increments += 1;
       self.incremental(stack, envs, cache, stack_frame, stack_frames);
     }
   }
@@ -119,7 +136,7 @@ where
     self.blacks.clear();
     self.ref_check_native_handles(cache);
     self.deep_trace_roots(stack, envs, cache, stack_frame, stack_frames);
-    self.stats.deep_cleans += 1;
+    self.stats.total_deep_cleans += 1;
     self.clean(cache, self.find_unreferenced())
   }
 
@@ -134,7 +151,7 @@ where
     self.ref_check_native_handles(cache);
     self.incremental_trace_roots(stack, envs, cache, stack_frame, stack_frames);
     if self.grays.is_empty() {
-      self.stats.incremental_cleans += 1;
+      self.stats.total_incremental_cleans += 1;
       self.clean(cache, self.find_unreferenced());
       self.blacks.clear();
     }
@@ -445,16 +462,21 @@ impl From<Memory> for usize {
 }
 
 pub enum GcMode {
+  /// Check for a deep clean first, then incremental
   Standard,
+
+  /// Only perform incremental cleans
   Incremental,
+
+  /// Only perform deep cleans
   Deep,
 }
 
 #[derive(Default)]
 pub struct GcStats {
-  pub(crate) deep_cleans: usize,
-  pub(crate) incremental_cleans: usize,
-  pub(crate) increments: usize,
+  pub(crate) total_deep_cleans: usize,
+  pub(crate) total_incremental_cleans: usize,
+  pub(crate) total_increments: usize,
 }
 
 #[cfg(test)]

@@ -159,13 +159,13 @@ fn math_rand_i32() -> UsageResult<i32> {
 
 #[native(with_vm)]
 fn total_cycles(vm: &mut Vm) -> UsageResult<i32> {
-  Ok(vm.gc.stats.deep_cleans as i32)
+  Ok(vm.gc.stats.total_deep_cleans as i32)
 }
 
 #[native(with_vm)]
 fn print_stats(vm: &mut Vm) -> UsageResult<()> {
-  let inc_ratio = vm.gc.stats.increments as f64 / vm.gc.stats.incremental_cleans as f64;
-  let inc_per_deep_ratio = vm.gc.stats.deep_cleans as f64 / vm.gc.stats.incremental_cleans as f64;
+  let inc_ratio = vm.gc.stats.total_increments as f64 / vm.gc.stats.total_incremental_cleans as f64;
+  let inc_per_deep_ratio = vm.gc.stats.total_deep_cleans as f64 / vm.gc.stats.total_incremental_cleans as f64;
   println!(
     "{}",
     itertools::join(
@@ -173,9 +173,9 @@ fn print_stats(vm: &mut Vm) -> UsageResult<()> {
         "------ Gc Stats ------",
         &format!("No. allocations -------- {}", vm.gc.allocations.len()),
         &format!("No. handles ------------ {}", vm.cache.native_handles.len()),
-        &format!("No. deep cleans -------- {}", vm.gc.stats.deep_cleans),
-        &format!("No. inc cleans --------- {}", vm.gc.stats.incremental_cleans),
-        &format!("No. increments --------- {}", vm.gc.stats.increments),
+        &format!("No. deep cleans -------- {}", vm.gc.stats.total_deep_cleans),
+        &format!("No. inc cleans --------- {}", vm.gc.stats.total_incremental_cleans),
+        &format!("No. increments --------- {}", vm.gc.stats.total_increments),
         &format!("Increment ratio -------- {}", inc_ratio),
         &format!("Deep/Inc ratio --------- {}", inc_per_deep_ratio),
         &format!("Memory in use ---------- {}", vm.gc.allocated_memory),
