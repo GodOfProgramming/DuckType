@@ -33,9 +33,7 @@ where
   pub(crate) initial_limit: usize,
   pub(crate) allocated_memory: usize,
 
-  pub(crate) deep_cleans: usize,
-  pub(crate) incremental_cleans: usize,
-  pub(crate) increments: usize,
+  pub(crate) stats: GcStats,
 
   num_limit_repeats: usize,
 }
@@ -55,9 +53,7 @@ where
       limit: initial_limit,
       initial_limit,
       allocated_memory: 0,
-      deep_cleans: 0,
-      incremental_cleans: 0,
-      increments: 0,
+      stats: GcStats::default(),
       num_limit_repeats: 0,
     }
   }
@@ -106,7 +102,7 @@ where
     stack_frames: &[StackFrame],
   ) {
     if self.allocated_memory > self.limit / 2 {
-      self.increments += 1;
+      self.stats.increments += 1;
       self.incremental(stack, envs, cache, stack_frame, stack_frames);
     }
   }
@@ -123,7 +119,7 @@ where
     self.blacks.clear();
     self.ref_check_native_handles(cache);
     self.deep_trace_roots(stack, envs, cache, stack_frame, stack_frames);
-    self.deep_cleans += 1;
+    self.stats.deep_cleans += 1;
     self.clean(cache, self.find_unreferenced())
   }
 
@@ -138,7 +134,7 @@ where
     self.ref_check_native_handles(cache);
     self.incremental_trace_roots(stack, envs, cache, stack_frame, stack_frames);
     if self.grays.is_empty() {
-      self.incremental_cleans += 1;
+      self.stats.incremental_cleans += 1;
       self.clean(cache, self.find_unreferenced());
       self.blacks.clear();
     }
@@ -454,49 +450,12 @@ pub enum GcMode {
   Deep,
 }
 
+#[derive(Default)]
+pub struct GcStats {
+  pub(crate) deep_cleans: usize,
+  pub(crate) incremental_cleans: usize,
+  pub(crate) increments: usize,
+}
+
 #[cfg(test)]
 mod tests;
-
-/* Async Disposal impl
-pub struct AsyncDisposal {
-  chute: Option<mpsc::Sender<Value>>,
-  th: Option<JoinHandle<()>>,
-}
-
-impl Default for AsyncDisposal {
-  fn default() -> Self {
-    let (sender, receiver) = mpsc::channel();
-
-    let th = thread::spawn(move || {
-      while let Ok(value) = receiver.recv() {
-        drop_value(value);
-      }
-    });
-
-    Self {
-      chute: Some(sender),
-      th: Some(th),
-    }
-  }
-}
-
-impl Disposal for AsyncDisposal {
-  type Error = mpsc::SendError<Value>;
-
-  fn dispose(&mut self, value: Value) -> Result<(), Self::Error> {
-    match &self.chute {
-      Some(chute) => chute.send(value)?,
-      None => Err(mpsc::SendError::<Value>(value))?,
-    };
-    Ok(())
-  }
-
-  fn terminate(&mut self) {
-    self.chute = None;
-
-    if let Some(th) = self.th.take() {
-      let _ = th.join();
-    }
-  }
-}
-*/
