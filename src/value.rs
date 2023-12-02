@@ -8,7 +8,7 @@ use std::{
   hash::Hash,
   mem,
   ops::{Add, Div, Mul, Neg, Not, Rem, Sub},
-  sync::atomic::AtomicUsize,
+  sync::atomic::{self, AtomicBool, AtomicUsize},
 };
 pub use tags::*;
 use uuid::Uuid;
@@ -163,7 +163,6 @@ impl Value {
   }
 
   pub fn set_member(&mut self, vm: &mut Vm, name: Field, value: Value) -> UsageResult<()> {
-    vm.gc.invalidate(self);
     (self.vtable().set_member)(self.pointer_mut(), MutPtr::new(vm), name, value)
   }
 
@@ -263,12 +262,17 @@ impl Value {
     unsafe { &*((self.pointer() as *const u8).offset(META_OFFSET) as *const ValueMeta) }
   }
 
-  pub(crate) fn meta_mut(&mut self) -> &mut ValueMeta {
-    unsafe { &mut *((self.pointer_mut() as *mut u8).offset(META_OFFSET) as *mut ValueMeta) }
+  pub(crate) fn is_unreferenced(&self) -> bool {
+    self.meta().references.load(atomic::Ordering::Relaxed) == 0
   }
 
-  pub(crate) fn is_unreferenced(&self) -> bool {
-    self.meta().ref_count.load(std::sync::atomic::Ordering::Relaxed) == 0
+  pub(crate) fn is_unprotected(&self) -> bool {
+    !self.meta().protected.load(atomic::Ordering::Relaxed)
+  }
+
+  pub(crate) fn unprotect(self) -> Self {
+    self.meta().protected.store(false, atomic::Ordering::Relaxed);
+    self
   }
 
   pub(crate) fn vtable(&self) -> &VTable {
@@ -393,34 +397,10 @@ impl Debug for Value {
     const PTR_WIDTH: usize = mem::size_of::<usize>() * 2;
     const PTR_DISPLAY_WIDTH: usize = PTR_WIDTH + 2;
     match self.tag() {
-      Tag::F64 => write!(
-        f,
-        "{:?} {} (0x{:x})",
-        self.tag(),
-        self.reinterpret_cast_to::<f64>(),
-        self.bits()
-      ),
-      Tag::I32 => write!(
-        f,
-        "{:?} {} (0x{:x})",
-        self.tag(),
-        self.reinterpret_cast_to::<i32>(),
-        self.bits()
-      ),
-      Tag::Bool => write!(
-        f,
-        "{:?} {} (0x{:x})",
-        self.tag(),
-        self.reinterpret_cast_to::<bool>(),
-        self.bits()
-      ),
-      Tag::Char => write!(
-        f,
-        "{:?} {} (0x{:x})",
-        self.tag(),
-        self.reinterpret_cast_to::<char>(),
-        self.bits()
-      ),
+      Tag::F64 => write!(f, "f64 {} (0x{:x})", self.reinterpret_cast_to::<f64>(), self.bits()),
+      Tag::I32 => write!(f, "i32 {} (0x{:x})", self.reinterpret_cast_to::<i32>(), self.bits()),
+      Tag::Bool => write!(f, "bool {} (0x{:x})", self.reinterpret_cast_to::<bool>(), self.bits()),
+      Tag::Char => write!(f, "char {} (0x{:x})", self.reinterpret_cast_to::<char>(), self.bits()),
       Tag::NativeFn => write!(
         f,
         "<@{addr:<width$} {:?}>",
@@ -780,7 +760,9 @@ pub(crate) struct ValueMeta {
   pub(crate) vtable: &'static VTable,
 
   /// Reference count to values that exist in native code and can't be traced
-  pub(crate) ref_count: AtomicUsize,
+  pub(crate) references: AtomicUsize,
+
+  pub(crate) protected: AtomicBool,
 
   /// The size of the allocated item and the meta
   pub(crate) size: usize,

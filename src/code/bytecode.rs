@@ -87,7 +87,9 @@ impl<'p> BytecodeGenerator<'p> {
       self.emit_stmt(stmt);
     }
 
-    self.emit((Opcode::PopN, self.locals.len()), SourceLocation { line: 0, column: 0 });
+    if !self.locals.is_empty() {
+      self.emit((Opcode::PopN, self.locals.len()), SourceLocation { line: 0, column: 0 });
+    }
 
     self.emit(Opcode::Ret, SourceLocation { line: 0, column: 0 });
 
@@ -268,7 +270,9 @@ impl<'p> BytecodeGenerator<'p> {
     }
 
     let locals = self.num_locals_in_exclusive_depth(self.fn_depth);
-    self.emit((Opcode::PopN, locals), stmt.loc);
+    if locals > 0 {
+      self.emit((Opcode::PopN, locals), stmt.loc);
+    }
     self.emit(Opcode::Ret, stmt.loc);
   }
 
@@ -617,14 +621,14 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn class_expr(&mut self, expr: ClassExpression) {
-    let ident = self.add_const_ident(expr.name);
+    let ident = self.declare_nonlocal(expr.name);
 
     self.emit_expr(*expr.self_type);
     self.emit((Opcode::CreateClass, ident), expr.loc);
     self.emit((Opcode::DefineScope, ident), expr.loc);
 
     if let Some(initializer) = expr.initializer {
-      if let Some((function, is_static)) = self.create_class_fn(Ident::new("<constructor>"), *initializer) {
+      if let Some((function, is_static)) = self.create_class_fn(Ident::new("<new>"), *initializer) {
         if is_static {
           self.emit_const(function, expr.loc);
           self.emit(Opcode::InitializeConstructor, expr.loc);
@@ -652,7 +656,7 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn mod_expr(&mut self, expr: ModExpression) {
-    let ident = self.add_const_ident(expr.name);
+    let ident = self.declare_nonlocal(expr.name);
     self.emit((Opcode::CreateModule, ident), expr.loc);
     self.emit((Opcode::DefineScope, ident), expr.loc);
     self.emit(Opcode::EnableModule, expr.loc);

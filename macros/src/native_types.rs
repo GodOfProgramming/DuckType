@@ -4,6 +4,7 @@ use quote::{quote, TokenStreamExt};
 use syn::{FnArg, Item, ItemFn, ItemMod, ItemStruct};
 
 pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
+  let vis = &item.vis;
   let ident = &item.sig.ident;
   let name_str = ident.to_string();
   let nargs = common::count_args!(item) - if with_vm { 1 } else { 0 };
@@ -21,7 +22,7 @@ pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
   };
 
   quote! {
-    fn #ident(vm: &mut Vm, mut args: Args) -> UsageResult {
+    #vis fn #ident(vm: &mut Vm, mut args: Args) -> UsageResult {
       #item
 
       if args.list.len() == #nargs {

@@ -63,7 +63,7 @@ type RapidHashSet<T> = HashSet<T, BuildNoHashHasher<T>>;
 
 pub const EXTENSION: &str = "dk";
 
-const INITIAL_STACK_SIZE: usize = 400;
+const INITIAL_STACK_CAPACITY: usize = 2usize.pow(20);
 
 type ExecResult<T = ()> = Result<T, Error>;
 
@@ -148,7 +148,7 @@ impl Vm {
     Self {
       stack_frame: Default::default(),
       stack_frames: Default::default(),
-      stack: Stack::with_capacity(INITIAL_STACK_SIZE),
+      stack: Stack::with_capacity(INITIAL_STACK_CAPACITY),
       gc,
       cache: Default::default(),
       modules: Default::default(),
@@ -166,37 +166,38 @@ impl Vm {
   pub fn run_file(&mut self, file: impl Into<PathBuf>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     let file = file.into();
     let file_id = PlatformMetadata::id_of(&file).unwrap_or(0);
+    let source = fs::read_to_string(&file).map_err(Error::from)?;
 
     self.filemap.add(file_id, &file);
-    self.opened_files = vec![FileInfo::new(&file, file_id)];
+    self.opened_files.push(FileInfo::new(file, file_id));
 
-    let source = fs::read_to_string(&file).map_err(Error::from)?;
     let opts = CompileOpts { optimize: self.opt };
     let ctx = code::compile_file(&mut self.cache, file_id, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, &source))?;
 
-    self.stack_frame = StackFrame::new(ctx, self.stack_size());
-    self.stack_frames = Default::default();
+    self.new_frame(ctx, 0);
     self.modules.push(ModuleEntry::File(module));
 
     self.execute(RunMode::File)
   }
 
   pub fn run_string(&mut self, source: impl AsRef<str>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
-    self.opened_files = vec![];
-
     let opts = CompileOpts { optimize: self.opt };
     let ctx = code::compile_string(&mut self.cache, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
 
-    self.stack_frame = StackFrame::new(ctx, self.stack_size());
-    self.stack_frames = Default::default();
+    self.new_frame(ctx, 0);
     self.modules.push(ModuleEntry::String(module));
 
     self.execute(RunMode::String)
   }
 
-  pub fn run_fn(&mut self, ctx: SmartPtr<Context>, module: UsertypeHandle<ModuleValue>, airity: usize) -> ExecResult<Value> {
+  pub(crate) fn run_fn(
+    &mut self,
+    ctx: SmartPtr<Context>,
+    module: UsertypeHandle<ModuleValue>,
+    airity: usize,
+  ) -> ExecResult<Value> {
     self.new_frame(ctx, airity);
     self.modules.push(ModuleEntry::Fn(module));
 
@@ -204,13 +205,8 @@ impl Vm {
   }
 
   pub fn eval(&mut self, source: impl AsRef<str>) -> Result<Value, Error> {
-    let opts = CompileOpts { optimize: self.opt };
-    let ctx = code::compile_string(&mut self.cache, source.as_ref(), opts)
-      .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
     let module = current_module!(self).clone();
-    self.modules.push(ModuleEntry::String(module));
-    self.new_frame(ctx, 0);
-    self.execute(RunMode::String)
+    self.run_string(source, module)
   }
 
   pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
@@ -342,18 +338,7 @@ impl Vm {
   }
 
   pub fn check_gc(&mut self) {
-    self.check_gc_inc();
-    self.gc.poll_deep(
-      &self.stack,
-      &self.modules,
-      &mut self.cache,
-      &self.stack_frame,
-      &self.stack_frames,
-    );
-  }
-
-  pub fn check_gc_inc(&mut self) {
-    self.gc.poll_inc(
+    self.gc.poll(
       &self.stack,
       &self.modules,
       &mut self.cache,
@@ -449,7 +434,7 @@ impl Vm {
     let c = self.cache.const_at(index).clone();
     let value = self.make_value_from(c);
     self.stack_push(value);
-    self.check_gc_inc();
+    self.check_gc();
   }
 
   fn exec_store(&mut self, (storage, addr): (Storage, LongAddr)) -> ExecResult {
@@ -458,7 +443,7 @@ impl Vm {
       Storage::Local => self.exec_store_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_store_global(addr))?,
     }
-    self.check_gc_inc();
+    self.check_gc();
     Ok(())
   }
 
@@ -468,7 +453,7 @@ impl Vm {
       Storage::Local => self.exec_load_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_load_global(addr))?,
     }
-    self.check_gc_inc();
+    self.check_gc();
     Ok(())
   }
 
@@ -806,22 +791,11 @@ impl Vm {
         self.stack_push(value);
       }
       _ => {
-        let source = fs::read_to_string(&found_file).map_err(|e| self.error(e))?;
-
         if let Some(value) = self.cache.get_lib(file_id) {
           self.stack_push(value);
         } else {
-          self.filemap.add(file_id, &found_file);
-
-          let opts = CompileOpts { optimize: self.opt };
-          let new_ctx = code::compile_file(&mut self.cache, file_id, &source, opts)
-            .map_err(|error| Error::from_compiler_error(error, &self.filemap, &source))?;
           let gmod = self.generate_stdlib(format!("<file export {}>", found_file.display()));
-
-          self.new_frame(new_ctx, 0);
-          self.modules.push(ModuleEntry::File(gmod));
-          self.opened_files.push(FileInfo::new(found_file, file_id));
-          let output = self.execute(RunMode::File)?;
+          let output = self.run_file(found_file, gmod)?;
           self.stack_push(output);
         }
       }
@@ -1180,7 +1154,7 @@ impl Vm {
     let addr = addr.into();
     match st {
       Storage::Stack => Ok(self.stack_pop()),
-      Storage::Local => Ok(self.stack_load(self.stack_frame.sp + addr)),
+      Storage::Local => Ok(self.stack_load(self.stack_frame.bp + addr)),
       Storage::Global => self.value_of_ident(addr),
     }
   }
@@ -1190,7 +1164,7 @@ impl Vm {
   }
 
   fn exec_load_local(&mut self, loc: LongAddr) {
-    self.stack_push(self.stack_load(self.stack_frame.sp + loc.0));
+    self.stack_push(self.stack_load(self.stack_frame.bp + loc.0));
   }
 
   fn exec_load_global(&mut self, loc: LongAddr) -> OpResult {
@@ -1206,7 +1180,7 @@ impl Vm {
 
   fn exec_store_local(&mut self, loc: LongAddr) {
     let value = self.stack_peek();
-    self.stack_store(self.stack_frame.sp + loc.0, value);
+    self.stack_store(self.stack_frame.bp + loc.0, value);
   }
 
   fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
@@ -1373,13 +1347,13 @@ impl Vm {
 
   pub fn make_usertype_handle_from<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
     let value = self.gc.allocate_untracked(item);
-    let handle = self.cache.make_handle(value);
+    let handle = self.gc.make_handle(value);
     UsertypeHandle::new(handle)
   }
 
   fn make_handle(&mut self, value: Value) -> ValueHandle {
     self.gc.forget(value);
-    self.cache.make_handle(value)
+    self.gc.make_handle(value)
   }
 
   fn wrap_err<F, T>(&self, f: F) -> ExecResult<T>
@@ -1527,9 +1501,9 @@ impl Vm {
   pub fn stack_display(&self) {
     println!("{}", self.stack);
     println!(
-      "               | ip: {ip} sp: {sp}",
+      "               | ip: {ip} bp: {bp}",
       ip = self.stack_frame.ip(),
-      sp = self.stack_frame.sp
+      bp = self.stack_frame.bp
     );
   }
 }

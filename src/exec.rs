@@ -671,16 +671,16 @@ pub struct StackFrame {
   #[cfg(not(feature = "jtbl"))]
   ip: usize,
 
-  pub sp: usize,
+  pub bp: usize,
   pub ctx: SmartPtr<Context>,
   pub export: Option<Value>,
 }
 
 impl StackFrame {
-  pub fn new(ctx: SmartPtr<Context>, sp: usize) -> Self {
+  pub fn new(ctx: SmartPtr<Context>, bp: usize) -> Self {
     Self {
       ip: Default::default(),
-      sp,
+      bp,
       ctx,
       export: None,
     }
