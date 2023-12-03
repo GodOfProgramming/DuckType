@@ -6,7 +6,7 @@ use std::{
 #[cfg(test)]
 use crate::code::bytecode::{CAPTURE_OPS, GENERATED_OPS};
 use crate::{
-  code::{ConstantValue, Reflection},
+  code::{ConstantValue, InstructionMetadata},
   prelude::*,
   util::FileIdType,
   RapidHashMap,
@@ -114,15 +114,13 @@ impl Cache {
 }
 
 pub struct Context {
-  pub id: usize, // the function id within the local file
   pub(crate) instructions: Vec<Instruction>,
-  pub meta: Reflection,
+  pub meta: InstructionMetadata,
 }
 
 impl Context {
-  pub(crate) fn new(id: usize, reflection: Reflection) -> Self {
+  pub(crate) fn new(reflection: InstructionMetadata) -> Self {
     Self {
-      id,
       instructions: Default::default(),
       meta: reflection,
     }
@@ -247,9 +245,9 @@ impl<'p> Display for InstructionDisassembler<'p> {
     let ContextDisassembler { ctx, stack, cache } = ctx;
 
     write!(f, "{} ", Self::address_of(*offset))?;
-    if let Some(curr) = ctx.meta.info(*offset) {
+    if let Some(curr) = ctx.meta.src_loc_at(*offset) {
       if *offset > 0 {
-        if let Some(prev) = ctx.meta.info(offset - 1) {
+        if let Some(prev) = ctx.meta.src_loc_at(offset - 1) {
           if curr.line == prev.line {
             write!(f, "   | ")?;
           } else {

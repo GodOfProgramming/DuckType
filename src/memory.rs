@@ -28,10 +28,10 @@ where
   disposer: D,
 
   /// Addresses allocated by the GC and available for collection
-  pub(crate) allocations: AllocationSet,
+  allocations: AllocationSet,
 
   /// Addresses allocated by the GC while it is in the process of incremental collection
-  pub(crate) protected_allocations: AllocationSet,
+  protected_allocations: AllocationSet,
 
   /// Allocations that point to unmarked allocations
   grays: AllocationSet,
@@ -40,19 +40,19 @@ where
   blacks: AllocationSet,
 
   /// Set of values that are used in native code
-  pub(crate) native_handles: RapidHashSet<Value>,
+  native_handles: RapidHashSet<Value>,
 
   /// The maximum amount of bytes allowed to be allocated before a deep clean
-  pub(crate) limit: usize,
+  limit: usize,
 
   /// The initial limit that the GC was started with
-  pub(crate) initial_limit: usize,
+  initial_limit: usize,
 
   /// The current number of bytes allocated by the GC, both regular allocations and protected
-  pub(crate) allocated_memory: usize,
+  allocated_memory: usize,
 
   /// Statistics of the GC
-  pub(crate) stats: GcStats,
+  pub stats: GcStats,
 
   /// The max number of repeated limits in a row before decreasing the limit closer to the initial value
   num_limit_repeats: usize,
@@ -84,7 +84,7 @@ where
     self.mode = mode;
   }
 
-  pub(crate) fn poll(
+  pub(super) fn poll(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
@@ -102,7 +102,7 @@ where
     }
   }
 
-  pub(crate) fn poll_deep(
+  fn poll_deep(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
@@ -115,7 +115,7 @@ where
     }
   }
 
-  pub(crate) fn poll_inc(
+  fn poll_inc(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
@@ -129,7 +129,7 @@ where
     }
   }
 
-  pub(crate) fn deep_clean(
+  pub(super) fn deep_clean(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
@@ -151,7 +151,7 @@ where
     self.clean(cache, self.find_unreferenced())
   }
 
-  pub(crate) fn incremental(
+  fn incremental(
     &mut self,
     stack: &Stack,
     envs: &ModuleStack,
@@ -318,7 +318,7 @@ where
     }
   }
 
-  pub(crate) fn allocate_untracked<T: Usertype>(&mut self, item: T) -> Value {
+  pub(super) fn allocate_untracked<T: Usertype>(&mut self, item: T) -> Value {
     fn allocate_type<T>(item: T) -> *mut T {
       Box::into_raw(Box::new(item))
     }
@@ -342,7 +342,7 @@ where
     Value::new_pointer(ptr)
   }
 
-  pub fn allocate<T: Usertype>(&mut self, item: T) -> Value {
+  pub(super) fn allocate<T: Usertype>(&mut self, item: T) -> Value {
     let value = self.allocate_untracked(item);
 
     #[cfg(debug_assertions)]
@@ -355,7 +355,7 @@ where
     value
   }
 
-  pub(crate) fn make_handle(&mut self, value: Value) -> ValueHandle {
+  pub(super) fn make_handle(&mut self, value: Value) -> ValueHandle {
     self.native_handles.insert(value);
     ValueHandle::new(value)
   }
@@ -386,7 +386,7 @@ where
     debug_assert!(is_new)
   }
 
-  pub(crate) fn forget(&mut self, value: Value) {
+  pub(super) fn forget(&mut self, value: Value) {
     self.allocations.remove(&value);
     self.protected_allocations.remove(&value);
   }

@@ -12,20 +12,10 @@ pub struct VecValue {
   pub(crate) buffer: Vec<Value>,
 }
 
-impl VecValue {
-  pub fn new_from_slice(list: &[Value]) -> Self {
-    Self { buffer: list.into() }
-  }
-
-  pub fn new_from_vec(list: Vec<Value>) -> Self {
-    Self { buffer: list }
-  }
-}
-
 #[methods]
 impl VecValue {
   fn __new__(args: &[Value]) -> UsageResult<VecValue> {
-    Ok(VecValue::new_from_vec(args.to_owned()))
+    Ok(VecValue::from(args))
   }
 
   fn push(&mut self, value: Value) -> UsageResult<()> {
@@ -101,5 +91,33 @@ impl Deref for VecValue {
 impl DerefMut for VecValue {
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.buffer
+  }
+}
+
+impl From<Vec<Value>> for VecValue {
+  fn from(value: Vec<Value>) -> Self {
+    Self { buffer: value }
+  }
+}
+
+impl<const I: usize> From<[Value; I]> for VecValue {
+  fn from(value: [Value; I]) -> Self {
+    Self { buffer: value.into() }
+  }
+}
+
+impl From<&[Value]> for VecValue {
+  fn from(value: &[Value]) -> Self {
+    Self { buffer: value.into() }
+  }
+}
+
+impl<T> From<&T> for VecValue
+where
+  Self: From<T>,
+  T: Clone,
+{
+  fn from(value: &T) -> Self {
+    Self::from(value.clone())
   }
 }

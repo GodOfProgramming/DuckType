@@ -117,6 +117,16 @@ impl From<&str> for StringValue {
   }
 }
 
+impl<T> From<&T> for StringValue
+where
+  Self: From<T>,
+  T: Clone,
+{
+  fn from(value: &T) -> Self {
+    Self::from(value.clone())
+  }
+}
+
 impl AsRef<str> for StringValue {
   fn as_ref(&self) -> &str {
     self.as_str()

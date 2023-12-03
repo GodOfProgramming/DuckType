@@ -47,9 +47,8 @@ pub(crate) fn compile(
     ast = ast::optimize(ast);
   }
 
-  let source = Rc::new(source.as_ref().to_string());
-  let reflection = Reflection::new(Some("<main>"), file_id, Rc::clone(&source));
-  let ctx = SmartPtr::new(Context::new(0, reflection));
+  let reflection = InstructionMetadata::new(Some("<main>"), file_id, Rc::new(source.as_ref().to_string()));
+  let ctx = SmartPtr::new(Context::new(reflection));
 
   bytecode::generate(cache, file_id, ctx, ast)
 }
@@ -140,16 +139,16 @@ impl Display for ConstantValue {
 }
 
 #[derive(Debug)]
-pub struct Reflection {
+pub struct InstructionMetadata {
   pub name: Option<String>,
   pub file_id: Option<FileIdType>,
   pub source: Rc<String>,
-  pub opcode_info: Vec<OpcodeInfo>,
+  pub opcode_info: Vec<SourceLocation>,
 }
 
-impl Reflection {
+impl InstructionMetadata {
   pub(crate) fn new(name: Option<impl ToString>, file_id: Option<FileIdType>, source: Rc<String>) -> Self {
-    Reflection {
+    InstructionMetadata {
       name: name.map(|n| n.to_string()),
       file_id,
       source,
@@ -158,21 +157,25 @@ impl Reflection {
   }
 
   pub(crate) fn add(&mut self, line: usize, column: usize) {
-    self.opcode_info.push(OpcodeInfo { line, column });
+    self.opcode_info.push(SourceLocation { line, column });
   }
 
-  pub fn info(&self, offset: usize) -> Option<OpcodeInfo> {
+  pub fn src_loc_at(&self, offset: usize) -> Option<SourceLocation> {
     self.opcode_info.get(offset).cloned()
   }
 
-  pub fn reflect(&self, inst: Instruction, offset: usize) -> Option<InstructionReflection<'_>> {
-    self.info(offset).map(|info| InstructionReflection {
+  pub fn reflect(&self, inst: Instruction, offset: usize) -> Option<InstructionSourceCodeData<'_>> {
+    self.src_loc_at(offset).map(|info| InstructionSourceCodeData {
       inst,
       file_id: self.file_id,
-      source: &self.source,
+      source_line: Self::src_line(&self.source, info.line).unwrap_or_default(),
       line: info.line,
       column: info.column,
     })
+  }
+
+  fn src_line(source: &str, line: usize) -> Option<&str> {
+    source.lines().nth(line - 1)
   }
 }
 
@@ -193,16 +196,10 @@ impl FileMap {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpcodeInfo {
-  pub line: usize,
-  pub column: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstructionReflection<'src> {
+pub struct InstructionSourceCodeData<'src> {
   pub inst: Instruction,
   pub file_id: Option<FileIdType>,
-  pub source: &'src str,
+  pub source_line: &'src str,
   pub line: usize,
   pub column: usize,
 }

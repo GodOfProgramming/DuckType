@@ -49,13 +49,13 @@ pub fn make_stdlib(vm: &mut Vm, gmod: Value, args: impl Into<Vec<String>>) -> (S
   let stdlib = ModuleBuilder::initialize(vm, ModuleType::new_child(names::STD, gmod), |vm, mut lib| {
     let lib = &mut lib;
 
-    defmod(vm, lib, names::TYPES, |gc, mut lib| {
+    defmod(vm, lib, names::TYPES, |vm, mut lib| {
       lib.define("i32", Value::new::<i32>(Default::default()));
       lib.define("f64", Value::new::<f64>(Default::default()));
       lib.define("char", Value::new::<char>(Default::default()));
       lib.define("bool", Value::new::<bool>(Default::default()));
       lib.define("native", Value { bits: NATIVE_FN_TAG });
-      lib.define("str", gc.make_value_from(IdValue::new(StringValue::ID)));
+      lib.define("str", vm.make_value_from(IdValue::new(StringValue::ID)));
     });
 
     lib.define(names::DEBUG, Value::new::<NativeFn>(debug));
@@ -104,9 +104,9 @@ pub fn make_stdlib(vm: &mut Vm, gmod: Value, args: impl Into<Vec<String>>) -> (S
     let libval = lib.value();
     lib.define(names::IO, libio::duck_type_autogen_create_module(vm, libval));
 
-    defmod(vm, lib, names::VM, |gc, mut lib| {
+    defmod(vm, lib, names::VM, |vm, mut lib| {
       lib.define("eval", Value::new::<NativeFn>(vm_eval));
-      defmod(gc, &mut lib, names::vm::GC, |_, mut lib| {
+      defmod(vm, &mut lib, names::vm::GC, |_, mut lib| {
         lib.define("print_stats", Value::new::<NativeFn>(print_stats));
         lib.define("reset_stats", Value::new::<NativeFn>(reset_stats));
       });

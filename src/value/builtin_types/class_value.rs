@@ -71,7 +71,7 @@ impl Operators for ClassValue {
   fn __ivk__(&mut self, vm: &mut Vm, class: Value, airity: usize) -> UsageResult {
     let self_type = self.creator.call(vm, 0)?;
 
-    let instance = vm.gc.allocate(InstanceValue::new(self_type, class));
+    let instance = vm.make_value_from(InstanceValue::new(self_type, class));
 
     if let Some(initializer) = &mut self.initializer {
       vm.stack_push(instance);

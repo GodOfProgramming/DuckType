@@ -33,7 +33,7 @@ pub mod macro_requirements {
 
 use {
   crate::{
-    code::{ConstantValue, FileMap, InstructionReflection},
+    code::{ConstantValue, FileMap, InstructionSourceCodeData},
     dbg::Cli,
     exec::*,
     prelude::*,
@@ -411,21 +411,21 @@ impl Vm {
   #[cold]
   fn error(&self, error: impl ToString) -> Error {
     let instruction = self.stack_frame.ctx.instructions[self.stack_frame.ip()];
-    self.error_with_reflection(instruction, |reflection| {
+    self.error_with_info(instruction, |metadata| {
       Error::single(
-        self.filemap.get(reflection.file_id).display(),
-        reflection.line,
-        reflection.column,
+        self.filemap.get(metadata.file_id).display(),
+        metadata.line,
+        metadata.column,
         error,
-        reflection.source,
+        metadata.source_line,
       )
     })
   }
 
   #[cold]
-  fn error_with_reflection<F>(&self, inst: Instruction, f: F) -> Error
+  fn error_with_info<F>(&self, inst: Instruction, f: F) -> Error
   where
-    F: FnOnce(InstructionReflection) -> Error,
+    F: FnOnce(InstructionSourceCodeData) -> Error,
   {
     self
       .stack_frame
@@ -473,7 +473,6 @@ impl Vm {
     let c = self.cache.const_at(index).clone();
     let value = self.make_value_from(c);
     self.stack_push(value);
-    self.check_gc();
   }
 
   fn exec_store(&mut self, (storage, addr): (Storage, LongAddr)) -> ExecResult {
@@ -482,7 +481,6 @@ impl Vm {
       Storage::Local => self.exec_store_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_store_global(addr))?,
     }
-    self.check_gc();
     Ok(())
   }
 
@@ -492,7 +490,6 @@ impl Vm {
       Storage::Local => self.exec_load_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_load_global(addr))?,
     }
-    self.check_gc();
     Ok(())
   }
 
@@ -583,7 +580,6 @@ impl Vm {
     let mut obj = self.stack_peek();
     let class = self.wrap_err_mut(|_| obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment))?;
     class.set_constructor(value);
-    self.check_gc();
     Ok(())
   }
 
@@ -604,7 +600,6 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc();
     Ok(())
   }
 
@@ -612,7 +607,6 @@ impl Vm {
     let list = self.stack_drain_from(num_items);
     let list = self.make_value_from(list);
     self.stack_push(list);
-    self.check_gc();
   }
 
   fn exec_create_sized_vec(&mut self, repeats: usize) {
@@ -620,7 +614,6 @@ impl Vm {
     let vec = vec![item; repeats];
     let vec = self.make_value_from(vec);
     self.stack_push(vec);
-    self.check_gc();
   }
 
   fn exec_create_dyn_vec(&mut self) -> ExecResult {
@@ -630,7 +623,6 @@ impl Vm {
     let vec = vec![item; repeats as usize];
     let vec = self.make_value_from(vec);
     self.stack_push(vec);
-    self.check_gc();
     Ok(())
   }
 
@@ -647,7 +639,6 @@ impl Vm {
       Ok(())
     })?;
 
-    self.check_gc();
     Ok(())
   }
 
@@ -677,7 +668,6 @@ impl Vm {
       Ok(())
     })?;
 
-    self.check_gc();
     Ok(())
   }
 
@@ -692,7 +682,6 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc();
     Ok(())
   }
 
@@ -708,7 +697,6 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc();
     Ok(())
   }
 
@@ -744,7 +732,6 @@ impl Vm {
   fn exec_call(&mut self, airity: usize) -> ExecResult {
     let callable = self.stack_load_rev(airity);
     self.wrap_err_mut(|this| this.call_value(callable, airity))?;
-    self.check_gc();
     Ok(())
   }
 
@@ -840,7 +827,6 @@ impl Vm {
       }
     }
 
-    self.check_gc();
     Ok(())
   }
 
@@ -1385,6 +1371,7 @@ impl Vm {
   }
 
   pub fn make_usertype_handle_from<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
+    self.check_gc();
     let value = self.gc.allocate_untracked(item);
     let handle = self.gc.make_handle(value);
     UsertypeHandle::new(handle)
@@ -1641,31 +1628,31 @@ impl MakeValueFrom<ConstantValue> for Vm {
 
 impl MakeValueFrom<&str> for Vm {
   fn make_value_from(&mut self, item: &str) -> Value {
-    self.gc.allocate::<StringValue>(item.into())
+    self.make_value_from(StringValue::from(item))
   }
 }
 
 impl MakeValueFrom<String> for Vm {
   fn make_value_from(&mut self, item: String) -> Value {
-    self.gc.allocate::<StringValue>(item.into())
+    self.make_value_from(StringValue::from(item))
   }
 }
 
 impl MakeValueFrom<&String> for Vm {
   fn make_value_from(&mut self, item: &String) -> Value {
-    self.gc.allocate::<StringValue>(item.clone().into())
+    self.make_value_from(StringValue::from(item))
   }
 }
 
 impl MakeValueFrom<&[Value]> for Vm {
   fn make_value_from(&mut self, item: &[Value]) -> Value {
-    self.gc.allocate(VecValue::new_from_slice(item))
+    self.make_value_from(VecValue::from(item))
   }
 }
 
 impl MakeValueFrom<Vec<Value>> for Vm {
   fn make_value_from(&mut self, item: Vec<Value>) -> Value {
-    self.gc.allocate(VecValue::new_from_vec(item))
+    self.make_value_from(VecValue::from(item))
   }
 }
 
@@ -1674,6 +1661,7 @@ where
   T: Usertype,
 {
   fn make_value_from(&mut self, item: T) -> Value {
+    self.check_gc();
     self.gc.allocate::<T>(item)
   }
 }
@@ -1683,8 +1671,8 @@ where
   T: Usertype,
 {
   fn make_value_from(&mut self, item: Vec<T>) -> Value {
-    let list = item.into_iter().map(|v| self.gc.allocate(v)).collect();
-    self.gc.allocate(VecValue::new_from_vec(list))
+    let list = item.into_iter().map(|v| self.make_value_from(v)).collect::<Vec<Value>>();
+    self.make_value_from(VecValue::from(list))
   }
 }
 
