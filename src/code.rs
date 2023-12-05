@@ -164,7 +164,7 @@ impl InstructionMetadata {
     self.opcode_info.get(offset).cloned()
   }
 
-  pub fn reflect(&self, inst: Instruction, offset: usize) -> Option<InstructionSourceCodeData<'_>> {
+  pub fn src_loc_data(&self, inst: Instruction, offset: usize) -> Option<InstructionSourceCodeData<'_>> {
     self.src_loc_at(offset).map(|info| InstructionSourceCodeData {
       inst,
       file_id: self.file_id,

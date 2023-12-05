@@ -128,6 +128,9 @@ pub struct Vm {
   pub(crate) stack: Stack,
 
   /// The current stack frame in use
+  ///
+  /// Should to be separate from the below both for ease of access
+  /// and when repl is finally implemented this will persist between lines
   pub(crate) stack_frame: StackFrame,
 
   /// The remaining frames on the callstack
@@ -166,7 +169,7 @@ pub struct Vm {
   last_error: ExecResult,
 }
 
-/* core functionality */
+/* core vm functionality */
 
 impl Vm {
   /// Create a new Virtual Machine instance
@@ -200,8 +203,8 @@ impl Vm {
 
   /// Execute a file
   ///
-  /// * `file`
-  /// * `module`
+  /// * `file` - A path to a file to be used for source code
+  /// * `module` - The global module to use when executing
   pub fn run_file(&mut self, file: impl Into<PathBuf>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     let file = file.into();
     let file_id = PlatformMetadata::id_of(&file).unwrap_or(0);
@@ -220,6 +223,10 @@ impl Vm {
     self.execute(RunMode::File)
   }
 
+  /// Run a string of code
+  ///
+  /// * `source` - The code to be executed
+  /// * `module` - The global module to use when executing
   pub fn run_string(&mut self, source: impl AsRef<str>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     let opts = CompileOpts { optimize: self.opt };
     let ctx = code::compile_string(&mut self.cache, &source, opts)
@@ -231,6 +238,11 @@ impl Vm {
     self.execute(RunMode::String)
   }
 
+  /// Execute a function, not to be used externally
+  ///
+  /// * `ctx` - The context to execute
+  /// * `module` - The module to use when executing
+  /// * `airity` - The airity of the function, which offsets the base pointer to where the arguments begin
   pub(crate) fn run_fn(
     &mut self,
     ctx: SmartPtr<Context>,
@@ -243,14 +255,21 @@ impl Vm {
     self.execute(RunMode::Fn)
   }
 
-  pub fn eval(&mut self, source: impl AsRef<str>) -> Result<Value, Error> {
+  /// Evaluate a string, to be used at runtime
+  ///
+  /// * `source` - The source string to evaluate
+  pub(crate) fn eval(&mut self, source: impl AsRef<str>) -> Result<Value, Error> {
     let module = current_module!(self).clone();
     self.run_string(source, module)
   }
 
+  /// Main execution loop
+  ///
+  /// * `exec_type` - The mode in which this call to execute was made. Used to remove the right scope level when early returning from a function call
   pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
     #[cfg(feature = "jtbl")]
     {
+      // Call out to C++ to leverage "goto" and a manually created jump table to avoid overhead from match/switch & loops
       unsafe {
         bindings::duck_type_execute(
           self as *mut Vm as *mut std::ffi::c_void,
@@ -264,6 +283,8 @@ impl Vm {
       result?;
     }
 
+    // Loop over instructions executing each
+    // Uses loop instead of while because the last statement in any function or source file is a return which breaks the loop
     #[cfg(not(feature = "jtbl"))]
     {
       'fetch_cycle: loop {
@@ -376,6 +397,7 @@ impl Vm {
     Ok(export.unwrap_or_default())
   }
 
+  /// Check if the GC should be ran
   pub fn check_gc(&mut self) {
     self.gc.poll(
       &self.stack,
@@ -386,6 +408,7 @@ impl Vm {
     );
   }
 
+  /// Force a GC deep clean
   pub fn force_gc(&mut self) -> usize {
     self.gc.deep_clean(
       &self.stack,
@@ -396,10 +419,12 @@ impl Vm {
     )
   }
 
+  /// Get the global variable by name
   pub fn get_global(&self, name: &str) -> Option<Value> {
     self.cache.get_global_by_name(name)
   }
 
+  /// Set the global variable by name
   pub fn set_global(&mut self, name: impl ToString, value: impl Into<Value>) {
     let name = name.to_string();
     let value = value.into();
@@ -408,6 +433,7 @@ impl Vm {
     self.cache.set_global(id, value);
   }
 
+  /// Create an error with the specified message
   #[cold]
   fn error(&self, error: impl ToString) -> Error {
     let instruction = self.stack_frame.ctx.instructions[self.stack_frame.ip()];
@@ -422,6 +448,7 @@ impl Vm {
     })
   }
 
+  /// Create an error combined with information about where the current instruction is located
   #[cold]
   fn error_with_info<F>(&self, inst: Instruction, f: F) -> Error
   where
@@ -431,13 +458,14 @@ impl Vm {
       .stack_frame
       .ctx
       .meta
-      .reflect(inst, self.stack_frame.ip())
+      .src_loc_data(inst, self.stack_frame.ip())
       .map(f)
       .unwrap_or_else(|| Error::Plain(String::from("no reflection for instruction pointer")))
   }
 }
 
-// ops
+/* ops */
+// function descriptions can be looked up by the associated opcode
 
 impl Vm {
   #[allow(unused)]

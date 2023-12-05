@@ -663,16 +663,24 @@ impl DerefMut for Stack {
   }
 }
 
+// A structure representing stack frame information
 #[derive(Default)]
 pub struct StackFrame {
+  /// when the jtbl feature is enabled this needs to be a pointer so that when the vector of stack frames is reallocated C++ doesn't reference invalid memory
   #[cfg(feature = "jtbl")]
   ip: Box<usize>,
 
+  /// The instruction pointer of the current stack frame
   #[cfg(not(feature = "jtbl"))]
   ip: usize,
 
+  /// The base pointer to where arguments to functions, or local variables if there are no arguments, are located on the stack
   pub bp: usize,
+
+  /// The context of the current function or file source
   pub ctx: SmartPtr<Context>,
+
+  /// The export of the current function or file
   pub export: Option<Value>,
 }
 
@@ -686,6 +694,7 @@ impl StackFrame {
     }
   }
 
+  /// Convenience function to return the ip as a usize regardless of implementation
   pub fn ip(&self) -> usize {
     #[cfg(feature = "jtbl")]
     {
@@ -698,6 +707,7 @@ impl StackFrame {
     }
   }
 
+  /// Convenience function to increment the ip regardless of implementation
   pub fn ip_inc(&mut self, offset: usize) {
     #[cfg(feature = "jtbl")]
     {
@@ -710,6 +720,7 @@ impl StackFrame {
     }
   }
 
+  /// Convenience function to decrement the ip regardless of implementation
   pub fn ip_dec(&mut self, offset: usize) {
     #[cfg(feature = "jtbl")]
     {
@@ -722,12 +733,16 @@ impl StackFrame {
     }
   }
 
+  /// Convenience function to get the ip as a pointer, for use when passing it to C++
   #[cfg(feature = "jtbl")]
   pub fn ip_ptr(&mut self) -> *mut usize {
     &mut *self.ip as *mut usize
   }
 }
 
+/// The stack of modules in use, with the last being the parent of all future modules
+///
+/// Functions mostly like a vector otherwise
 #[derive(Default)]
 pub(crate) struct ModuleStack {
   envs: Vec<ModuleEntry>,
