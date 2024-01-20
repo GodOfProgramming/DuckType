@@ -8,10 +8,6 @@ suite("Modules", |s| {
 
     mod foo {
       class Bar {
-        self as struct {
-          value: nil,
-        }
-
         new(self, value) {
           self.value = value;
         }

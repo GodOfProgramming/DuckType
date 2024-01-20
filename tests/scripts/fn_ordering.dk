@@ -6,8 +6,6 @@ suite("Function Parameter Evaluation Order", |s| {
   let $COUNTER = 1;
 
   class SomeClass {
-    self as nil
-
     fn second(self, t) {
       t.expect($COUNTER).to_be(2);
       $COUNTER += 1;
