@@ -434,7 +434,6 @@ impl Optimize for CallExpression {
 impl Optimize for ClassExpression {
   type Output = Expression;
   fn optimize(mut self) -> Self::Output {
-    self.self_type = self.self_type.optimize();
     self.initializer = self.initializer.optimize();
     self.methods = self.methods.optimize();
     self.into()

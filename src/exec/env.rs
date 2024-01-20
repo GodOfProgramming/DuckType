@@ -58,6 +58,10 @@ impl Cache {
     &self.consts[index.into()]
   }
 
+  pub fn get_const(&self, index: impl Into<usize>) -> Option<&ConstantValue> {
+    self.consts.get(index.into())
+  }
+
   pub fn consts(&self) -> &Vec<ConstantValue> {
     &self.consts
   }

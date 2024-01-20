@@ -1,49 +1,19 @@
 use crate::{prelude::*, value::ConstVoid};
 use ahash::RandomState;
 use bimap::BiHashMap;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::{
+  collections::BTreeMap,
+  fmt::{Display, Formatter, Result as FmtResult},
+};
 
 type KeyValPair<K> = ((K, usize), Value);
 
-pub struct StructMember {
-  id: usize,
-  value: Value,
-}
-
-impl PartialEq for StructMember {
-  fn eq(&self, other: &Self) -> bool {
-    self.id == other.id
-  }
-}
-
-impl Eq for StructMember {}
-
-impl PartialOrd for StructMember {
-  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-    Some(self.cmp(other))
-  }
-}
-
-impl Ord for StructMember {
-  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-    self.id.cmp(&other.id)
-  }
-}
-
 /// A value representing an anonymous struct
-///
-/// Values are stored in a map, and new fields cannot
-/// be directly added through usage for performance
-/// reasons
-///
-///
-/// Instead they must be added through native functions
-/// that have direct access to the internal table
-#[derive(Usertype, NoMethods)]
+#[derive(Default, Usertype, NoMethods)]
 #[uuid("1215f7a4-1b67-4387-bf00-f950bbc63743")]
 pub struct StructValue {
   #[trace]
-  members: Vec<StructMember>,
+  members: BTreeMap<usize, Value>,
   string_ids: BiHashMap<String, usize, RandomState, RandomState>,
 }
 
@@ -59,58 +29,57 @@ impl StructValue {
   where
     K: ToString,
   {
-    let mut members = Vec::default();
+    let mut members = BTreeMap::default();
     let mut string_ids = BiHashMap::with_hashers(RandomState::new(), RandomState::new());
 
     for ((string, id), value) in member_iter.into_iter() {
-      members.push(StructMember { id, value });
+      members.insert(id, value);
       string_ids.insert(string.to_string(), id);
     }
-
-    members.sort_by_key(|m| m.id);
 
     Self { members, string_ids }
   }
 
   fn set_mem(&mut self, idx: usize, value: Value) {
-    self.members[idx].value = value;
-  }
-
-  fn get_idx_by_id(&self, id: &usize) -> Result<usize, UsageError> {
-    self
-      .members
-      .binary_search_by_key(id, |m| m.id)
-      .map_err(|_| UsageError::UndefinedMemberId(*id))
+    self.members.insert(idx, value);
   }
 
   fn get_mem_by_id(&self, id: &usize) -> Option<Value> {
-    self
-      .members
-      .binary_search_by_key(id, |m| m.id)
-      .ok()
-      .map(|idx| self.members[idx].value)
+    self.members.get(id).cloned()
   }
 
-  fn get_id_by_field(&self, field: Field) -> Result<usize, UsageError> {
-    field
-      .id
-      .as_ref()
-      .or_else(|| field.name.and_then(|name| self.string_ids.get_by_left(name)))
-      .cloned()
-      .ok_or(UsageError::EmptyField)
+  /// Unknown string ids by this struct indicate the struct's field was never set
+  fn resolve_id(&self, field: Field) -> Option<usize> {
+    match field {
+      Field::Id(id) => Some(id),
+      Field::Named(name) => self.string_ids.get_by_left(name).cloned(),
+      Field::NamedId(id, _) => Some(id),
+    }
+  }
+
+  /// Looks up the field id, and saves it if it's not found
+  fn save_resolved_id(&mut self, vm: &mut Vm, field: Field) -> usize {
+    match field {
+      Field::Id(id) => id,
+      Field::Named(name) => self.string_ids.get_by_left(name).cloned().unwrap_or_else(|| {
+        let id = vm.id_of(name);
+        self.string_ids.insert(name.to_string(), id);
+        id
+      }),
+      Field::NamedId(id, _) => id,
+    }
   }
 }
 
 impl UsertypeFields for StructValue {
   fn get_field(&self, _: &mut Vm, field: Field) -> UsageResult<Option<Value>> {
-    self.get_id_by_field(field).map(|id| self.get_mem_by_id(&id))
+    Ok(self.resolve_id(field).and_then(|id| self.get_mem_by_id(&id)))
   }
 
-  fn set_field(&mut self, _: &mut Vm, field: Field, value: Value) -> UsageResult<()> {
-    self
-      .get_id_by_field(field)
-      .and_then(|id| self.get_idx_by_id(&id))
-      .map(|idx| self.set_mem(idx, value))
+  fn set_field(&mut self, vm: &mut Vm, field: Field, value: Value) -> UsageResult<()> {
+    let id = self.save_resolved_id(vm, field);
+    self.set_mem(id, value);
+    Ok(())
   }
 }
 
@@ -132,39 +101,15 @@ impl Display for StructValue {
       self
         .members
         .iter()
-        .map(|m| {
-          if m.value.pointer() == self as *const _ as ConstVoid {
-            format!("{}: {}", self.string_ids.get_by_right(&m.id).unwrap(), "<self>")
+        .map(|(id, value)| {
+          if value.pointer() == self as *const _ as ConstVoid {
+            format!("{}: {}", self.string_ids.get_by_right(id).unwrap(), "<self>")
           } else {
-            format!("{}: {}", self.string_ids.get_by_right(&m.id).unwrap(), m.value)
+            format!("{}: {}", self.string_ids.get_by_right(id).unwrap(), value)
           }
         })
         .collect::<Vec<String>>()
         .join(", ")
     )
-  }
-}
-
-impl TraceableValue for StructMember {
-  fn deep_trace(&self, marks: &mut Tracer) {
-    marks.deep_trace(&self.value);
-  }
-
-  fn incremental_trace(&self, marks: &mut Tracer) {
-    marks.try_mark_gray(&self.value);
-  }
-}
-
-impl TraceableValue for Vec<StructMember> {
-  fn deep_trace(&self, marks: &mut Tracer) {
-    for member in self {
-      member.deep_trace(marks);
-    }
-  }
-
-  fn incremental_trace(&self, marks: &mut Tracer) {
-    for member in self {
-      member.incremental_trace(marks);
-    }
   }
 }

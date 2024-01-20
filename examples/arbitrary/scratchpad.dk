@@ -1,7 +1,13 @@
-let foo = "some string";
+class Foo {
+  new(self, v) {
+    self.v = v;
+  }
 
-mod bar {
-  foo,
+  fn get_value(self) {
+    ret self.v;
+  }
 }
 
-println bar::foo;
+let f = Foo("yay");
+
+println(f.get_value());

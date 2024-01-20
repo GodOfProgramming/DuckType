@@ -623,7 +623,6 @@ impl<'p> BytecodeGenerator<'p> {
   fn class_expr(&mut self, expr: ClassExpression) {
     let ident = self.declare_nonlocal(expr.name);
 
-    self.emit_expr(*expr.self_type);
     self.emit((Opcode::CreateClass, ident), expr.loc);
     self.emit((Opcode::DefineScope, ident), expr.loc);
 

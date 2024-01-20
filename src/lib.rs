@@ -433,6 +433,19 @@ impl Vm {
     self.cache.set_global(id, value);
   }
 
+  fn id_of(&mut self, string_const: &str) -> usize {
+    self
+      .cache
+      .strings
+      .get_by_right(string_const)
+      .cloned()
+      .unwrap_or_else(|| self.cache.add_const(ConstantValue::String(string_const.to_string())))
+  }
+
+  fn constant_at(&self, id: usize) -> Option<&ConstantValue> {
+    self.cache.get_const(id)
+  }
+
   /// Create an error with the specified message
   #[cold]
   fn error(&self, error: impl ToString) -> Error {
@@ -700,11 +713,10 @@ impl Vm {
   }
 
   fn exec_create_class(&mut self, loc: usize) -> ExecResult {
-    let creator = self.stack_pop();
     let name = self.cache.const_at(loc);
 
     if let ConstantValue::String(name) = name {
-      let v = self.make_value_from(ClassValue::new(name, creator));
+      let v = self.make_value_from(ClassValue::new(name));
       self.stack_push(v);
     } else {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
