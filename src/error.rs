@@ -163,6 +163,9 @@ pub enum UsageError {
   #[error("{0} is not implemented")]
   Unimplemented(&'static str),
 
+  #[error("{0} is not implemented")]
+  UnimplementedStr(String),
+
   /// method, value
   #[error("{0} not implemented for {1}")]
   UnimplementedError(&'static str, Value),

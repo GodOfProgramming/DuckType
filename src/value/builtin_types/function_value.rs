@@ -27,12 +27,12 @@ impl FunctionValue {
     }
   }
 
-  pub fn invoke(&mut self, vm: &mut Vm, offset: usize) -> UsageResult {
+  pub fn invoke(&mut self, vm: &mut Vm, offset: usize) -> UsageResult<()> {
     let module = vm
       .maybe_make_usertype_handle(self.env)
       .expect("all function environments must be modules");
 
-    vm.run_fn(self.ctx.clone(), module, self.airity + offset)
+    vm.queue_fn(self.ctx.clone(), module, self.airity + offset)
       .map_err(UsageError::Preformatted)
   }
 
@@ -50,7 +50,7 @@ impl FunctionValue {
 }
 
 impl Operators for FunctionValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult {
+  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult<()> {
     self.check_args(airity)?;
     self.invoke(vm, 0)
   }

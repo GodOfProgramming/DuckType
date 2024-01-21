@@ -1,7 +1,7 @@
 {
   "configurations": [
     {
-      "name": "duck debug test",
+      "name": "debug test",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/target/debug/deps/ducktype-0663bb8e3378edc4",
@@ -9,7 +9,7 @@
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "duck debug scratchpad",
+      "name": "debug scratchpad",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/target/debug/duck",
@@ -17,7 +17,7 @@
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "duck debug benchmark",
+      "name": "debug benchmark",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/target/debug/duck",

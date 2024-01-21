@@ -28,7 +28,7 @@ impl ClosureValue {
 }
 
 impl Operators for ClosureValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult {
+  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult<()> {
     self.function.check_args(airity)?;
 
     for capture in &self.captures {

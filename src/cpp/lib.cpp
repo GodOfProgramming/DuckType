@@ -302,12 +302,12 @@ execute(Vm vm, Instruction const* instructions, std::size_t* ip) {
     CASE(Invoke) {
         DISASM(vm, instructions, ip);
         CHECK(exec_call(vm, FETCH(instructions, ip)));
-        INC_JMP(instructions, ip);
+        JMP(instructions, ip);
     }
     CASE(Req) {
         DISASM(vm, instructions, ip);
         CHECK(exec_req(vm));
-        INC_JMP(instructions, ip);
+        JMP(instructions, ip);
     }
     CASE(Ret) {
         DISASM(vm, instructions, ip);

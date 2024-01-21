@@ -59,12 +59,13 @@ pub(crate) fn native_binary(item: &ItemFn, with_vm: bool) -> TokenStream {
   };
 
   quote! {
-    fn #ident(vm: &mut Vm, mut left: Value, mut right: Value) -> UsageResult {
+    fn #ident(vm: &mut Vm, mut left: Value, mut right: Value) -> UsageResult<()> {
       #item
 
       let output = #call_expr?;
       let value = vm.make_value_from(output);
-      Ok(value)
+      vm.stack_push(value);
+      Ok(())
     }
   }
 }
@@ -91,12 +92,13 @@ pub(crate) fn native_ternary(item: &ItemFn, with_vm: bool) -> TokenStream {
   };
 
   quote! {
-    fn #ident(vm: &mut Vm, mut left: Value, mut mid: Value, mut right: Value) -> UsageResult {
+    fn #ident(vm: &mut Vm, mut left: Value, mut mid: Value, mut right: Value) -> UsageResult<()> {
       #item
 
       let output = #call_expr?;
       let value = vm.make_value_from(output);
-      Ok(value)
+      vm.stack_push(value);
+      Ok(())
     }
   }
 }

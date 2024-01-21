@@ -210,10 +210,8 @@ where
 
     cache.deep_trace(&mut tracer);
 
-    for env in envs.iter() {
-      let handle = env.module();
-      let value = handle.value();
-      tracer.deep_trace(&value);
+    for module in envs.iter() {
+      tracer.deep_trace(&module.value());
     }
 
     if let Some(value) = &stack_frame.export {
@@ -247,9 +245,8 @@ where
 
     cache.incremental_trace(&mut tracer);
 
-    for env in envs.iter() {
-      let value = env.module().value();
-      tracer.try_mark_gray(&value);
+    for module in envs.iter() {
+      tracer.try_mark_gray(&module.value());
     }
 
     if let Some(value) = &stack_frame.export {

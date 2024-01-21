@@ -70,13 +70,6 @@ type ExecResult<T = ()> = Result<T, Error>;
 
 type OpResult<T = ()> = Result<T, UsageError>;
 
-/// For internal use, the mode in which the vm last executed on
-pub(crate) enum RunMode {
-  String,
-  File,
-  Fn,
-}
-
 /// Helper macro to acquire the current module without causing the borrow
 /// checker to worry about immutable references with a mutable reference
 macro_rules! current_module {
@@ -201,11 +194,18 @@ impl Vm {
     }
   }
 
+  // base stack frame has null ctx by default
+
   /// Execute a file
   ///
   /// * `file` - A path to a file to be used for source code
   /// * `module` - The global module to use when executing
   pub fn run_file(&mut self, file: impl Into<PathBuf>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
+    self.queue_file(file, module)?;
+    self.execute()
+  }
+
+  pub fn queue_file(&mut self, file: impl Into<PathBuf>, module: UsertypeHandle<ModuleValue>) -> Result<(), Error> {
     let file = file.into();
     let file_id = PlatformMetadata::id_of(&file).unwrap_or(0);
     let source = fs::read_to_string(&file).map_err(Error::from)?;
@@ -217,10 +217,10 @@ impl Vm {
     let ctx = code::compile_file(&mut self.cache, file_id, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, &source))?;
 
-    self.new_frame(ctx, 0);
-    self.modules.push(ModuleEntry::File(module));
+    self.new_frame(ctx, 0, true);
+    self.modules.push(module);
 
-    self.execute(RunMode::File)
+    Ok(())
   }
 
   /// Run a string of code
@@ -232,27 +232,26 @@ impl Vm {
     let ctx = code::compile_string(&mut self.cache, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
 
-    self.new_frame(ctx, 0);
-    self.modules.push(ModuleEntry::String(module));
+    self.new_frame(ctx, 0, false);
+    self.modules.push(module);
 
-    self.execute(RunMode::String)
+    self.execute()
   }
 
-  /// Execute a function, not to be used externally
+  /// Queue a function, not to be used externally
   ///
   /// * `ctx` - The context to execute
   /// * `module` - The module to use when executing
   /// * `airity` - The airity of the function, which offsets the base pointer to where the arguments begin
-  pub(crate) fn run_fn(
+  pub(crate) fn queue_fn(
     &mut self,
     ctx: SmartPtr<Context>,
     module: UsertypeHandle<ModuleValue>,
     airity: usize,
-  ) -> ExecResult<Value> {
-    self.new_frame(ctx, airity);
-    self.modules.push(ModuleEntry::Fn(module));
-
-    self.execute(RunMode::Fn)
+  ) -> ExecResult<()> {
+    self.new_frame(ctx, airity, false);
+    self.modules.push(module);
+    Ok(())
   }
 
   /// Evaluate a string, to be used at runtime
@@ -264,137 +263,204 @@ impl Vm {
   }
 
   /// Main execution loop
-  ///
-  /// * `exec_type` - The mode in which this call to execute was made. Used to remove the right scope level when early returning from a function call
-  pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
-    #[cfg(feature = "jtbl")]
-    {
-      // Call out to C++ to leverage "goto" and a manually created jump table to avoid overhead from match/switch & loops
-      unsafe {
-        bindings::duck_type_execute(
-          self as *mut Vm as *mut std::ffi::c_void,
-          self.ctx().instructions.as_ptr() as *const u64,
-          self.stack_frame.ip_ptr(),
-        )
-      };
+  pub(crate) fn execute(&mut self) -> ExecResult<Value> {
+    loop {
+      if self.stack_frame.ip() < self.stack_frame.ctx.num_instructions() {
+        #[cfg(feature = "jtbl")]
+        {
+          // Call out to C++ to leverage "goto" and a manually created jump table to avoid overhead from match/switch & loops
+          unsafe {
+            bindings::duck_type_execute(
+              self as *mut Vm as *mut std::ffi::c_void,
+              self.ctx().instructions.as_ptr() as *const u64,
+              self.stack_frame.ip_ptr(),
+            )
+          };
 
-      let mut result = Ok(());
-      mem::swap(&mut result, &mut self.last_error);
-      result?;
-    }
-
-    // Loop over instructions executing each
-    // Uses loop instead of while because the last statement in any function or source file is a return which breaks the loop
-    #[cfg(not(feature = "jtbl"))]
-    {
-      'fetch_cycle: loop {
-        let inst = self.stack_frame.ctx.fetch(self.stack_frame.ip());
-        self.exec_disasm(inst);
-        match inst.opcode() {
-          Opcode::Pop => self.exec_pop(),
-          Opcode::PopN => self.exec_pop_n(inst.data()),
-          Opcode::Const => self.exec_const(inst.data()),
-          Opcode::Store => self.exec_store(inst.data())?,
-          Opcode::Load => self.exec_load(inst.data())?,
-          Opcode::Nil => self.exec_nil(),
-          Opcode::True => self.exec_true(),
-          Opcode::False => self.exec_false(),
-          Opcode::Add => self.exec_add(inst)?,
-          Opcode::Sub => self.exec_sub(inst)?,
-          Opcode::Mul => self.exec_mul(inst)?,
-          Opcode::Div => self.exec_div(inst)?,
-          Opcode::Rem => self.exec_rem(inst)?,
-          Opcode::Equal => self.exec_equal(inst)?,
-          Opcode::NotEqual => self.exec_not_equal(inst)?,
-          Opcode::Greater => self.exec_greater(inst)?,
-          Opcode::GreaterEqual => self.exec_greater_equal(inst)?,
-          Opcode::Less => self.exec_less(inst)?,
-          Opcode::LessEqual => self.exec_less_equal(inst)?,
-          Opcode::Index => self.exec_index()?,
-          Opcode::AssignIndex => self.exec_index_assign()?,
-          Opcode::Negate => self.exec_negate()?,
-          Opcode::Not => self.exec_not()?,
-          Opcode::Or => {
-            self.exec_or(inst.data());
-            continue 'fetch_cycle;
-          }
-          Opcode::And => {
-            self.exec_and(inst.data());
-            continue 'fetch_cycle;
-          }
-          Opcode::InitializeMember => self.exec_initialize_member(inst.data())?,
-          Opcode::AssignMember => self.exec_assign_member(inst.data())?,
-          Opcode::LookupMember => self.exec_lookup_member(inst.data())?,
-          Opcode::PeekMember => self.exec_peek_member(inst.data())?,
-          Opcode::InitializeConstructor => self.exec_initialize_constructor()?,
-          Opcode::InitializeMethod => self.exec_initialize_method(inst.data())?,
-          Opcode::CreateVec => self.exec_create_vec(inst.data()),
-          Opcode::CreateSizedVec => self.exec_create_sized_vec(inst.data()),
-          Opcode::CreateDynamicVec => self.exec_create_dyn_vec()?,
-          Opcode::CreateClosure => self.exec_create_closure()?,
-          Opcode::CreateStruct => self.exec_create_struct(inst.data())?,
-          Opcode::CreateClass => self.exec_create_class(inst.data())?,
-          Opcode::CreateModule => self.exec_create_module(inst.data())?,
-          Opcode::Check => self.exec_check()?,
-          Opcode::Println => self.exec_println(),
-          Opcode::Jump => {
-            self.exec_jump(inst.data());
-            continue 'fetch_cycle;
-          }
-          Opcode::JumpIfFalse => {
-            self.exec_jump_if_false(inst.data());
-            continue 'fetch_cycle;
-          }
-          Opcode::Loop => {
-            self.exec_loop(inst.data());
-            continue 'fetch_cycle;
-          }
-          Opcode::Invoke => self.exec_call(inst.data())?,
-          Opcode::Req => self.exec_req()?,
-          Opcode::Ret => break 'fetch_cycle,
-          Opcode::Export => self.exec_export(),
-          Opcode::DefineGlobal => self.exec_define_global(inst.data())?,
-          Opcode::DefineScope => self.exec_define_scope(inst.data())?,
-          Opcode::Resolve => self.exec_resolve(inst.data())?,
-          Opcode::EnableModule => self.exec_enable_module()?,
-          Opcode::PopScope => self.exec_pop_scope(),
-          Opcode::Swap => self.exec_swap(inst.data()),
-          Opcode::SwapPop => self.exec_swap_pop(),
-          Opcode::Is => self.exec_is()?,
-          Opcode::Quack => self.exec_quack()?,
-          Opcode::Unknown => self.exec_unknown(inst)?,
-          Opcode::Breakpoint => self.exec_dbg()?,
+          let mut result = Ok(());
+          mem::swap(&mut result, &mut self.last_error);
+          result?;
         }
 
-        self.stack_frame.ip_inc(1);
-      }
-    }
+        // Loop over instructions executing each
+        // Uses loop instead of while because the last statement in any function or source file is a return which breaks the loop
+        #[cfg(not(feature = "jtbl"))]
+        {
+          'fetch_cycle: loop {
+            if self.stack_frame.ip() >= self.stack_frame.ctx.num_instructions() {
+              panic!(
+                "ip ({}) greater than instructions ({})",
+                self.stack_frame.ip(),
+                self.stack_frame.ctx.num_instructions()
+              );
+            }
 
-    match exec_type {
-      RunMode::File => {
+            let inst = self.stack_frame.ctx.fetch(self.stack_frame.ip());
+            self.exec_disasm(inst);
+            match inst.opcode() {
+              // variables & literals
+              Opcode::Pop => self.exec_pop(),
+              Opcode::PopN => self.exec_pop_n(inst.data()),
+              Opcode::Const => self.exec_const(inst.data()),
+              Opcode::Store => self.exec_store(inst.data())?,
+              Opcode::Load => self.exec_load(inst.data())?,
+              Opcode::Nil => self.exec_nil(),
+              Opcode::True => self.exec_true(),
+              Opcode::False => self.exec_false(),
+              // operators
+              Opcode::Add => {
+                self.exec_add(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Sub => {
+                self.exec_sub(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Mul => {
+                self.exec_mul(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Div => {
+                self.exec_div(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Rem => {
+                self.exec_rem(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Equal => {
+                self.exec_equal(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::NotEqual => {
+                self.exec_not_equal(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Greater => {
+                self.exec_greater(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::GreaterEqual => {
+                self.exec_greater_equal(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Less => {
+                self.exec_less(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::LessEqual => {
+                self.exec_less_equal(inst)?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Index => {
+                self.exec_index()?;
+                continue 'fetch_cycle;
+              }
+              Opcode::AssignIndex => {
+                self.exec_index_assign()?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Negate => {
+                self.exec_negate()?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Not => {
+                self.exec_not()?;
+                continue 'fetch_cycle;
+              }
+              // objects
+              Opcode::InitializeMember => self.exec_initialize_member(inst.data())?,
+              Opcode::AssignMember => self.exec_assign_member(inst.data())?,
+              Opcode::LookupMember => self.exec_lookup_member(inst.data())?,
+              Opcode::PeekMember => self.exec_peek_member(inst.data())?,
+              Opcode::InitializeConstructor => self.exec_initialize_constructor()?,
+              Opcode::InitializeMethod => self.exec_initialize_method(inst.data())?,
+              Opcode::CreateVec => self.exec_create_vec(inst.data()),
+              Opcode::CreateSizedVec => self.exec_create_sized_vec(inst.data()),
+              Opcode::CreateDynamicVec => self.exec_create_dyn_vec()?,
+              Opcode::CreateClosure => self.exec_create_closure()?,
+              Opcode::CreateStruct => self.exec_create_struct(inst.data())?,
+              Opcode::CreateClass => self.exec_create_class(inst.data())?,
+              Opcode::CreateModule => self.exec_create_module(inst.data())?,
+              Opcode::Check => self.exec_check()?,
+              Opcode::Println => self.exec_println(),
+              // logical jumps
+              Opcode::Or => {
+                self.exec_or(inst.data());
+                continue 'fetch_cycle;
+              }
+              Opcode::And => {
+                self.exec_and(inst.data());
+                continue 'fetch_cycle;
+              }
+              Opcode::Jump => {
+                self.exec_jump(inst.data());
+                continue 'fetch_cycle;
+              }
+              Opcode::JumpIfFalse => {
+                self.exec_jump_if_false(inst.data());
+                continue 'fetch_cycle;
+              }
+              Opcode::Loop => {
+                self.exec_loop(inst.data());
+                continue 'fetch_cycle;
+              }
+              // calls
+              Opcode::Invoke => {
+                self.exec_call(inst.data())?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Req => {
+                self.exec_req()?;
+                continue 'fetch_cycle;
+              }
+              Opcode::Ret => break 'fetch_cycle,
+              Opcode::Export => self.exec_export(),
+              // scope
+              Opcode::DefineGlobal => self.exec_define_global(inst.data())?,
+              Opcode::DefineScope => self.exec_define_scope(inst.data())?,
+              Opcode::Resolve => self.exec_resolve(inst.data())?,
+              Opcode::EnableModule => self.exec_enable_module()?,
+              Opcode::PopScope => self.exec_pop_scope(),
+              Opcode::Swap => self.exec_swap(inst.data()),
+              Opcode::SwapPop => self.exec_swap_pop(),
+              Opcode::Is => self.exec_is()?,
+              Opcode::Quack => self.exec_quack()?,
+              Opcode::Unknown => self.exec_unknown(inst)?,
+              Opcode::Breakpoint => self.exec_dbg()?,
+            }
+
+            self.stack_frame.ip_inc(1);
+          }
+        }
+      }
+
+      self.modules.truncate_to(self.stack_frame.module_index);
+      let export = self.stack_frame.export.unwrap_or_default();
+
+      if self.stack_frame.is_req {
         let info = self.opened_files.pop().expect("file must be popped when leaving a file");
-        if let Some(export) = self.stack_frame.export {
-          self.cache.add_lib(info.id, export);
+        self.cache.add_lib(info.id, export);
+      }
+
+      if let Some(stack_frame) = self.stack_frames.pop() {
+        // the vm is returning from a function call or req
+
+        self.stack_frame = stack_frame;
+
+        #[cfg(debug_assertions)]
+        if self.stack_frame.ctx.null() {
+          panic!("stack frame ctx is null");
         }
 
-        // pop until a file module is found
-        while !matches!(self.modules.pop(), ModuleEntry::File(_)) {}
+        self.stack_push(export);
       }
-      RunMode::Fn => {
-        // pop until a fn module is found
-        while !matches!(self.modules.pop(), ModuleEntry::Fn(_)) {}
+
+      if self.stack_frames.is_empty() && self.stack_frame.ip() >= self.stack_frame.ctx.num_instructions() {
+        // back to initial stack frame which is empty, just return
+        return Ok(export);
       }
-      RunMode::String => while !matches!(self.modules.pop(), ModuleEntry::String(_)) {},
     }
-
-    let export = self.stack_frame.export.take();
-
-    if let Some(stack_frame) = self.stack_frames.pop() {
-      // the vm is returning from a function call or req
-      self.stack_frame = stack_frame;
-    }
-
-    Ok(export.unwrap_or_default())
   }
 
   /// Check if the GC should be ran
@@ -770,6 +836,7 @@ impl Vm {
   }
 
   fn exec_call(&mut self, airity: usize) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     let callable = self.stack_load_rev(airity);
     self.wrap_err_mut(|this| this.call_value(callable, airity))?;
     Ok(())
@@ -842,6 +909,7 @@ impl Vm {
 
     let file_id = PlatformMetadata::id_of(&found_file).map_err(|e| self.error(e))?;
 
+    self.stack_frame.ip_inc(1); // increment here so it always takes effect
     match found_file.extension().and_then(|s| s.to_str()) {
       Some(dlopen2::utils::PLATFORM_FILE_EXTENSION) => {
         let value = self.cache.get_lib(file_id).unwrap_or_else(|| {
@@ -861,8 +929,8 @@ impl Vm {
           self.stack_push(value);
         } else {
           let gmod = self.generate_stdlib(format!("<file export {}>", found_file.display()));
-          let output = self.run_file(found_file, gmod)?;
-          self.stack_push(output);
+
+          self.queue_file(found_file, gmod)?;
         }
       }
     }
@@ -940,7 +1008,7 @@ impl Vm {
       let handle = this
         .maybe_make_usertype_handle::<ModuleValue>(value)
         .ok_or(UsageError::InvalidModule(value))?;
-      this.modules.push(ModuleEntry::Mod(handle));
+      this.modules.push(handle);
       Ok(())
     })
   }
@@ -950,6 +1018,7 @@ impl Vm {
   }
 
   fn exec_equal(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_equal_fast(inst.data())
@@ -960,6 +1029,7 @@ impl Vm {
   }
 
   fn exec_not_equal(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_not_equal_fast(inst.data())
@@ -970,6 +1040,7 @@ impl Vm {
   }
 
   fn exec_greater(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_greater_fast(inst.data())
@@ -980,6 +1051,7 @@ impl Vm {
   }
 
   fn exec_greater_equal(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_greater_equal_fast(inst.data())
@@ -990,6 +1062,7 @@ impl Vm {
   }
 
   fn exec_less(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_less_fast(inst.data())
@@ -1000,6 +1073,7 @@ impl Vm {
   }
 
   fn exec_less_equal(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_less_equal_fast(inst.data())
@@ -1010,6 +1084,7 @@ impl Vm {
   }
 
   fn exec_add(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_add_fast(inst.data())
@@ -1020,6 +1095,7 @@ impl Vm {
   }
 
   fn exec_sub(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_sub_fast(inst.data())
@@ -1030,6 +1106,7 @@ impl Vm {
   }
 
   fn exec_mul(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_mul_fast(inst.data())
@@ -1040,6 +1117,7 @@ impl Vm {
   }
 
   fn exec_div(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_div_fast(inst.data())
@@ -1050,6 +1128,7 @@ impl Vm {
   }
 
   fn exec_rem(&mut self, inst: Instruction) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       if inst.has_data() {
         this.exec_rem_fast(inst.data())
@@ -1060,18 +1139,22 @@ impl Vm {
   }
 
   fn exec_negate(&mut self) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| this.unary_op(|vt| vt.neg, |v| -v))
   }
 
   fn exec_not(&mut self) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| this.unary_op(|vt| vt.not, |v| Ok(!v)))
   }
 
   fn exec_index(&mut self) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| this.binary_op(|vt| vt.index, |_, _| Err(UsageError::InvalidBinary)))
   }
 
   fn exec_index_assign(&mut self) -> ExecResult {
+    self.stack_frame.ip_inc(1);
     self.wrap_err_mut(|this| {
       let value = this.stack_pop();
       let index = this.stack_pop();
@@ -1149,8 +1232,7 @@ impl Vm {
     if value.is_ptr() {
       let vtable = value.vtable();
       let unary_op = f1(vtable);
-      let value = unary_op(MutPtr::new(self), value)?;
-      self.stack_push(value);
+      unary_op(MutPtr::new(self), value)?;
       Ok(())
     } else {
       self.stack_push(f2(value)?);
@@ -1173,12 +1255,10 @@ impl Vm {
     F1: FnOnce(&VTable) -> NativeBinaryOp,
     F2: FnOnce(Value, Value) -> Result<Value, UsageError>,
   {
-    let value = self.invoke_binary_op(av, bv, f1, f2)?;
-    self.stack_push(value);
-    Ok(())
+    self.invoke_binary_op(av, bv, f1, f2)
   }
 
-  fn invoke_binary_op<F1, F2>(&mut self, av: Value, bv: Value, f1: F1, f2: F2) -> Result<Value, UsageError>
+  fn invoke_binary_op<F1, F2>(&mut self, av: Value, bv: Value, f1: F1, f2: F2) -> Result<(), UsageError>
   where
     F1: FnOnce(&VTable) -> NativeBinaryOp,
     F2: FnOnce(Value, Value) -> Result<Value, UsageError>,
@@ -1188,7 +1268,9 @@ impl Vm {
       let bin_op = f1(vtable);
       bin_op(MutPtr::new(self), av, bv)
     } else {
-      f2(av, bv)
+      let value = f2(av, bv)?;
+      self.stack_push(value);
+      Ok(())
     }
   }
 
@@ -1209,10 +1291,7 @@ impl Vm {
   }
 
   fn call_value(&mut self, mut callable: Value, airity: usize) -> Result<(), UsageError> {
-    let value = callable.call(self, airity)?;
-    self.stack_push(value);
-
-    Ok(())
+    callable.call(self, airity)
   }
 
   fn load_from_storage(&mut self, st: Storage, addr: impl Into<usize>) -> OpResult<Value> {
@@ -1463,8 +1542,8 @@ impl Vm {
       }
     }
   }
-  pub fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize) {
-    let mut frame = StackFrame::new(ctx, self.stack_size() - offset);
+  pub fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize, req: bool) {
+    let mut frame = StackFrame::new(ctx, self.modules.len(), req, self.stack_size() - offset);
     mem::swap(&mut self.stack_frame, &mut frame);
     self.stack_frames.push(frame);
   }

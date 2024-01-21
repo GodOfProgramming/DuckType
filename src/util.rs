@@ -14,10 +14,6 @@ pub use unix::*;
 #[cfg(unix)]
 pub type PlatformMetadata = UnixMetadata;
 
-pub mod prelude {
-  pub use super::{FileMetadata, PlatformMetadata};
-}
-
 use anyhow::Result;
 use std::path::Path;
 

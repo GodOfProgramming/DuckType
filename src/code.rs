@@ -138,7 +138,7 @@ impl Display for ConstantValue {
   }
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct InstructionMetadata {
   pub name: Option<String>,
   pub file_id: Option<FileIdType>,

@@ -126,7 +126,7 @@ pub trait UsertypeMethods {
 macro_rules! unary_op {
   ($name:ident) => {
     #[allow(unused_variables)]
-    fn $name(vm: &mut Vm, value: Value) -> UsageResult {
+    fn $name(vm: &mut Vm, value: Value) -> UsageResult<()> {
       Err(UsageError::Unimplemented(stringify!($name)))
     }
   };
@@ -135,7 +135,7 @@ macro_rules! unary_op {
 macro_rules! binary_op {
   ($name:ident) => {
     #[allow(unused_variables)]
-    fn $name(vm: &mut Vm, left: Value, right: Value) -> UsageResult {
+    fn $name(vm: &mut Vm, left: Value, right: Value) -> UsageResult<()> {
       Err(UsageError::Unimplemented(stringify!($name)))
     }
   };
@@ -144,15 +144,16 @@ macro_rules! binary_op {
 macro_rules! ternary_op {
   ($name:ident) => {
     #[allow(unused_variables)]
-    fn $name(vm: &mut Vm, left: Value, mid: Value, right: Value) -> UsageResult {
+    fn $name(vm: &mut Vm, left: Value, mid: Value, right: Value) -> UsageResult<()> {
       Err(UsageError::Unimplemented(stringify!($name)))
     }
   };
 }
 
 pub trait Operators {
-  fn __not__(_: &mut Vm, value: Value) -> UsageResult {
-    Ok(!value)
+  fn __not__(vm: &mut Vm, value: Value) -> UsageResult<()> {
+    vm.stack_push(!value);
+    Ok(())
   }
 
   unary_op!(__neg__);
@@ -171,7 +172,7 @@ pub trait Operators {
   ternary_op!(__idxeq__);
 
   #[allow(unused_variables)]
-  fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult {
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult<()> {
     Err(UsageError::UndefinedMethod("__ivk__", self.__str__()))
   }
 
