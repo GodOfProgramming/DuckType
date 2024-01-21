@@ -117,6 +117,7 @@ impl Cache {
   }
 }
 
+#[derive(Default)]
 pub struct Context {
   pub(crate) instructions: Vec<Instruction>,
   pub meta: InstructionMetadata,
