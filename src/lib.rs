@@ -70,13 +70,6 @@ type ExecResult<T = ()> = Result<T, Error>;
 
 type OpResult<T = ()> = Result<T, UsageError>;
 
-/// For internal use, the mode in which the vm last executed on
-pub(crate) enum RunMode {
-  String,
-  File,
-  Fn,
-}
-
 /// Helper macro to acquire the current module without causing the borrow
 /// checker to worry about immutable references with a mutable reference
 macro_rules! current_module {
@@ -217,10 +210,9 @@ impl Vm {
     let ctx = code::compile_file(&mut self.cache, file_id, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, &source))?;
 
-    self.new_frame(ctx, 0);
-    self.modules.push(ModuleEntry::File(module));
+    self.new_frame(ctx, 0, true, ModuleEntry::File(module));
 
-    self.execute(RunMode::File)
+    self.execute()
   }
 
   /// Run a string of code
@@ -232,10 +224,9 @@ impl Vm {
     let ctx = code::compile_string(&mut self.cache, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
 
-    self.new_frame(ctx, 0);
-    self.modules.push(ModuleEntry::String(module));
+    self.new_frame(ctx, 0, false, ModuleEntry::String(module));
 
-    self.execute(RunMode::String)
+    self.execute()
   }
 
   /// Execute a function, not to be used externally
@@ -249,10 +240,9 @@ impl Vm {
     module: UsertypeHandle<ModuleValue>,
     airity: usize,
   ) -> ExecResult<Value> {
-    self.new_frame(ctx, airity);
-    self.modules.push(ModuleEntry::Fn(module));
+    self.new_frame(ctx, airity, false, ModuleEntry::Fn(module));
 
-    self.execute(RunMode::Fn)
+    self.execute()
   }
 
   /// Evaluate a string, to be used at runtime
@@ -266,7 +256,7 @@ impl Vm {
   /// Main execution loop
   ///
   /// * `exec_type` - The mode in which this call to execute was made. Used to remove the right scope level when early returning from a function call
-  pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
+  pub(crate) fn execute(&mut self) -> ExecResult<Value> {
     #[cfg(feature = "jtbl")]
     {
       // Call out to C++ to leverage "goto" and a manually created jump table to avoid overhead from match/switch & loops
@@ -370,31 +360,21 @@ impl Vm {
       }
     }
 
-    match exec_type {
-      RunMode::File => {
-        let info = self.opened_files.pop().expect("file must be popped when leaving a file");
-        if let Some(export) = self.stack_frame.export {
-          self.cache.add_lib(info.id, export);
-        }
+    let export = self.stack_frame.export.unwrap_or_default();
 
-        // pop until a file module is found
-        while !matches!(self.modules.pop(), ModuleEntry::File(_)) {}
-      }
-      RunMode::Fn => {
-        // pop until a fn module is found
-        while !matches!(self.modules.pop(), ModuleEntry::Fn(_)) {}
-      }
-      RunMode::String => while !matches!(self.modules.pop(), ModuleEntry::String(_)) {},
+    if self.stack_frame.is_req {
+      let info = self.opened_files.pop().expect("file must be popped when leaving a file");
+      self.cache.add_lib(info.id, export);
     }
 
-    let export = self.stack_frame.export.take();
+    self.modules.truncate(self.stack_frame.module_index);
 
     if let Some(stack_frame) = self.stack_frames.pop() {
       // the vm is returning from a function call or req
       self.stack_frame = stack_frame;
     }
 
-    Ok(export.unwrap_or_default())
+    Ok(export)
   }
 
   /// Check if the GC should be ran
@@ -1463,10 +1443,12 @@ impl Vm {
       }
     }
   }
-  pub fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize) {
-    let mut frame = StackFrame::new(ctx, self.stack_size() - offset);
+
+  pub(crate) fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize, is_req: bool, module: ModuleEntry) {
+    let mut frame = StackFrame::new(ctx, self.stack_size() - offset, is_req, self.modules.len());
     mem::swap(&mut self.stack_frame, &mut frame);
     self.stack_frames.push(frame);
+    self.modules.push(module);
   }
 
   pub fn stack_push(&mut self, value: Value) {

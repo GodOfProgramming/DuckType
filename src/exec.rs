@@ -1058,15 +1058,21 @@ pub struct StackFrame {
 
   /// The export of the current function or file
   pub export: Option<Value>,
+
+  pub is_req: bool,
+
+  pub module_index: usize,
 }
 
 impl StackFrame {
-  pub fn new(ctx: SmartPtr<Context>, bp: usize) -> Self {
+  pub fn new(ctx: SmartPtr<Context>, bp: usize, is_req: bool, module_index: usize) -> Self {
     Self {
       ip: Default::default(),
       bp,
       ctx,
       export: None,
+      is_req,
+      module_index,
     }
   }
 
@@ -1157,6 +1163,10 @@ impl ModuleStack {
       ModuleEntry::File(e) => e,
       ModuleEntry::String(e) => e,
     }
+  }
+
+  pub(crate) fn truncate(&mut self, to: usize) {
+    self.envs.truncate(to);
   }
 }
 
