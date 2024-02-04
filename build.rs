@@ -25,7 +25,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     bindings.write_to_file(generated.join("ffi.rs"))?;
 
-    cc::Build::new().cpp(true).files(SOURCES).compile("ffi");
+    cc::Build::new()
+      .cpp(true)
+      .define(
+        "DISASM_ENABLED",
+        if cfg!(features = "runtime-disassembly") { "1" } else { "0" },
+      )
+      .files(SOURCES)
+      .compile("ffi");
   }
 
   Ok(())

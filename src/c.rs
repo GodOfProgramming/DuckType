@@ -1,4 +1,5 @@
 use super::*;
+
 #[no_mangle]
 #[allow(unused_variables)]
 pub extern "C" fn exec_disasm(vm: &Vm, inst: Instruction) {

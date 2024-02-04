@@ -66,6 +66,7 @@ cc = "1.0"
 [profile.release]
 strip = true
 lto = true
+opt-level = 2
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.48", features = [
