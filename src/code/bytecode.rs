@@ -2,7 +2,7 @@ use super::{ast::*, SourceLocation};
 use super::{ConstantValue, FunctionConstant};
 use crate::prelude::{Cache, Context};
 use crate::{
-  code::Reflection,
+  code::InstructionMetadata,
   error::{BytecodeGenerationError, BytecodeGenerationErrorMsg, CompilerError},
   util::FileIdType,
   InstructionData, LongAddr, Opcode, ShortAddr, Storage, TryIntoInstruction,
@@ -623,7 +623,6 @@ impl<'p> BytecodeGenerator<'p> {
   fn class_expr(&mut self, expr: ClassExpression) {
     let ident = self.declare_nonlocal(expr.name);
 
-    self.emit_expr(*expr.self_type);
     self.emit((Opcode::CreateClass, ident), expr.loc);
     self.emit((Opcode::DefineScope, ident), expr.loc);
 
@@ -1092,9 +1091,9 @@ impl<'p> BytecodeGenerator<'p> {
     let parent_ctx = self.current_ctx_ptr();
     let prev_fn = self.current_fn.take();
 
-    let reflection = Reflection::new(ident, parent_ctx.meta.file_id, parent_ctx.meta.source.clone());
+    let reflection = InstructionMetadata::new(ident, parent_ctx.meta.file_id, parent_ctx.meta.source.clone());
 
-    self.current_fn = Some(SmartPtr::new(Context::new(self.function_id, reflection)));
+    self.current_fn = Some(SmartPtr::new(Context::new(reflection)));
 
     self.new_scope(|this| {
       let prev_fn_depth = this.fn_depth;

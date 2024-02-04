@@ -1,5 +1,4 @@
 use super::*;
-use ptr::SmartPtr;
 
 #[derive(Usertype, Fields, NoMethods, NoOperators)]
 #[uuid("random")]
@@ -40,7 +39,7 @@ fn gc_does_not_clean_more_than_it_needs_to() {
 
 #[test]
 fn gc_does_not_clean_open_handles() {
-  let gc = SmartPtr::new(Gc::test_default());
+  let gc = Gc::test_default();
   let mut vm = Vm::new(gc, false, []);
 
   let mut struct_value = StructValue::new([(("child", 0), Value::nil)]);

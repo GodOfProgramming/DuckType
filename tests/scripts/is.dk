@@ -34,7 +34,7 @@ suite("x is y", |s| {
   s.describe("usertypes", |t| {
     t.assert("some string" is types::str);
 
-    class Foo { self as nil }
+    class Foo {}
     let foo = Foo();
 
     t.assert(foo is Foo);

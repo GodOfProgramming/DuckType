@@ -31,29 +31,30 @@ pub mod macro_requirements {
   pub use uuid;
 }
 
-use crate::{
-  code::{ConstantValue, FileMap, InstructionReflection},
-  dbg::Cli,
-  exec::*,
-  prelude::*,
-  util::{FileIdType, FileMetadata, PlatformMetadata, UnwrapAnd},
+use {
+  crate::{
+    code::{ConstantValue, FileMap, InstructionSourceCodeData},
+    dbg::Cli,
+    exec::*,
+    prelude::*,
+    util::{FileIdType, FileMetadata, PlatformMetadata, UnwrapAnd},
+  },
+  ahash::RandomState,
+  clap::Parser,
+  code::CompileOpts,
+  dlopen2::wrapper::{Container, WrapperApi},
+  memory::Gc,
+  nohash_hasher::BuildNoHashHasher,
+  prelude::module_value::ModuleType,
+  ptr::{MutPtr, SmartPtr},
+  rustyline::{error::ReadlineError, DefaultEditor},
+  std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    fs, mem,
+    path::{Path, PathBuf},
+  },
+  value::{NativeBinaryOp, NativeUnaryOp, VTable},
 };
-use ahash::RandomState;
-use clap::Parser;
-use code::CompileOpts;
-use dlopen2::wrapper::Container;
-use dlopen2::wrapper::WrapperApi;
-use memory::Gc;
-use nohash_hasher::BuildNoHashHasher;
-use prelude::module_value::ModuleType;
-use ptr::{MutPtr, SmartPtr};
-use rustyline::{error::ReadlineError, DefaultEditor};
-use std::{
-  collections::{BTreeMap, HashMap, HashSet},
-  fs, mem,
-  path::{Path, PathBuf},
-};
-use value::{NativeBinaryOp, NativeUnaryOp, VTable};
 
 type FastHashSet<T> = HashSet<T, RandomState>;
 type FastHashMap<K, V> = HashMap<K, V, RandomState>;
@@ -69,38 +70,38 @@ type ExecResult<T = ()> = Result<T, Error>;
 
 type OpResult<T = ()> = Result<T, UsageError>;
 
-pub(crate) enum RunMode {
-  String,
-  File,
-  Fn,
-}
-
+/// Helper macro to acquire the current module without causing the borrow
+/// checker to worry about immutable references with a mutable reference
 macro_rules! current_module {
   ($this:ident) => {
     $this.modules.last()
   };
 }
 
+/// Helper macro to acquire the current module without causing the borrow
+/// checker to worry about multiple mutable references
 macro_rules! current_module_mut {
   ($this:ident) => {
     $this.modules.last_mut()
   };
 }
 
-#[cfg(feature = "runtime-disassembly")]
+/// Helper macro to print if the cache was hit on a relevant operation
 macro_rules! cache_hit {
   () => {
-    println!("{:>28}", "| [cache hit]");
+    #[cfg(feature = "runtime-disassembly")]
+    {
+      println!("{:>28}", "| [cache hit]");
+    }
   };
 }
 
-#[cfg(not(feature = "runtime-disassembly"))]
-macro_rules! cache_hit {
-  () => {};
-}
-
+/// File information for use with req statements
 struct FileInfo {
+  /// The absolute or relative path to the file from the previous
   path: PathBuf,
+
+  /// The underlying OS file id of the file
   id: FileIdType,
 }
 
@@ -115,41 +116,71 @@ pub(crate) struct NativeApi {
   duck_type_load_module: fn(vm: &mut Vm) -> UsertypeHandle<ModuleValue>,
 }
 
-#[cfg(test)]
-mod tests;
-
 pub struct Vm {
+  /// The vm's stack
   pub(crate) stack: Stack,
+
+  /// The current stack frame in use
+  ///
+  /// Should to be separate from the below both for ease of access
+  /// and when repl is finally implemented this will persist between lines
   pub(crate) stack_frame: StackFrame,
+
+  /// The remaining frames on the callstack
   pub(crate) stack_frames: Vec<StackFrame>,
 
+  /// A pointer to the garbage collector
+  ///
+  /// Uses this implementation instead of a Rc for performance reasons (no runtime borrow checking)
   pub gc: SmartPtr<Gc>,
 
+  /// A cache of various things to speed up execution
   cache: Cache,
+
+  /// The current stack of modules, the most recent being the one that becomes the parent of future scopes
   pub(crate) modules: ModuleStack,
 
+  /// Whether to compilations or not
   opt: bool,
+
+  /// Runtime arguments
   args: Vec<String>,
 
+  /// A map of file ids to names
   filemap: FileMap,
 
-  // usize for what frame to pop on, string for file path
+  /// A stack of opened files, for relative pathing with req statements
   opened_files: Vec<FileInfo>,
+
+  /// A map to keep track of and keep open native libs so they aren't unloaded when the container's lifetime ends
   opened_native_libs: BTreeMap<PathBuf, Container<NativeApi>>,
 
+  /// Functions similar to errno. The last error triggered within rust after jumping through C
+  ///
+  /// Only available with the "jtbl" (Jump Table) feature
   #[cfg(feature = "jtbl")]
   last_error: ExecResult,
 }
 
-/* core functionality */
+/* core vm functionality */
 
 impl Vm {
-  pub fn new(gc: SmartPtr<Gc>, opt: bool, args: impl Into<Vec<String>>) -> Self {
+  /// Create a new Virtual Machine instance
+  ///
+  /// The garbage collector passed in becomes owned by this VM instance and
+  /// should not in any way be shared between others
+  ///
+  /// # Arguments
+  ///
+  /// * `gc` - The [garbage collector][memory::Gc] to associate with this VM instance
+  /// * `opt` - indicates if the optimizer should be run
+  /// * `args` - the runtime arguments the scripts should have access to
+  pub fn new(gc: Gc, opt: bool, args: impl Into<Vec<String>>) -> Self {
     Self {
       stack_frame: Default::default(),
       stack_frames: Default::default(),
       stack: Stack::with_capacity(INITIAL_STACK_CAPACITY),
-      gc,
+      gc: SmartPtr::new(gc),
       cache: Default::default(),
       modules: Default::default(),
       opt,
@@ -163,6 +194,10 @@ impl Vm {
     }
   }
 
+  /// Execute a file
+  ///
+  /// * `file` - A path to a file to be used for source code
+  /// * `module` - The global module to use when executing
   pub fn run_file(&mut self, file: impl Into<PathBuf>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     let file = file.into();
     let file_id = PlatformMetadata::id_of(&file).unwrap_or(0);
@@ -175,43 +210,56 @@ impl Vm {
     let ctx = code::compile_file(&mut self.cache, file_id, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, &source))?;
 
-    self.new_frame(ctx, 0);
-    self.modules.push(ModuleEntry::File(module));
+    self.new_frame(ctx, 0, true, ModuleEntry::File(module));
 
-    self.execute(RunMode::File)
+    self.execute()
   }
 
+  /// Run a string of code
+  ///
+  /// * `source` - The code to be executed
+  /// * `module` - The global module to use when executing
   pub fn run_string(&mut self, source: impl AsRef<str>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
     let opts = CompileOpts { optimize: self.opt };
     let ctx = code::compile_string(&mut self.cache, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
 
-    self.new_frame(ctx, 0);
-    self.modules.push(ModuleEntry::String(module));
+    self.new_frame(ctx, 0, false, ModuleEntry::String(module));
 
-    self.execute(RunMode::String)
+    self.execute()
   }
 
+  /// Execute a function, not to be used externally
+  ///
+  /// * `ctx` - The context to execute
+  /// * `module` - The module to use when executing
+  /// * `airity` - The airity of the function, which offsets the base pointer to where the arguments begin
   pub(crate) fn run_fn(
     &mut self,
     ctx: SmartPtr<Context>,
     module: UsertypeHandle<ModuleValue>,
     airity: usize,
   ) -> ExecResult<Value> {
-    self.new_frame(ctx, airity);
-    self.modules.push(ModuleEntry::Fn(module));
+    self.new_frame(ctx, airity, false, ModuleEntry::Fn(module));
 
-    self.execute(RunMode::Fn)
+    self.execute()
   }
 
-  pub fn eval(&mut self, source: impl AsRef<str>) -> Result<Value, Error> {
+  /// Evaluate a string, to be used at runtime
+  ///
+  /// * `source` - The source string to evaluate
+  pub(crate) fn eval(&mut self, source: impl AsRef<str>) -> Result<Value, Error> {
     let module = current_module!(self).clone();
     self.run_string(source, module)
   }
 
-  pub(crate) fn execute(&mut self, exec_type: RunMode) -> ExecResult<Value> {
+  /// Main execution loop
+  ///
+  /// * `exec_type` - The mode in which this call to execute was made. Used to remove the right scope level when early returning from a function call
+  pub(crate) fn execute(&mut self) -> ExecResult<Value> {
     #[cfg(feature = "jtbl")]
     {
+      // Call out to C++ to leverage "goto" and a manually created jump table to avoid overhead from match/switch & loops
       unsafe {
         bindings::duck_type_execute(
           self as *mut Vm as *mut std::ffi::c_void,
@@ -225,6 +273,8 @@ impl Vm {
       result?;
     }
 
+    // Loop over instructions executing each
+    // Uses loop instead of while because the last statement in any function or source file is a return which breaks the loop
     #[cfg(not(feature = "jtbl"))]
     {
       'fetch_cycle: loop {
@@ -310,33 +360,24 @@ impl Vm {
       }
     }
 
-    match exec_type {
-      RunMode::File => {
-        let info = self.opened_files.pop().expect("file must be popped when leaving a file");
-        if let Some(export) = self.stack_frame.export {
-          self.cache.add_lib(info.id, export);
-        }
+    let export = self.stack_frame.export.unwrap_or_default();
 
-        // pop until a file module is found
-        while !matches!(self.modules.pop(), ModuleEntry::File(_)) {}
-      }
-      RunMode::Fn => {
-        // pop until a fn module is found
-        while !matches!(self.modules.pop(), ModuleEntry::Fn(_)) {}
-      }
-      RunMode::String => while !matches!(self.modules.pop(), ModuleEntry::String(_)) {},
+    if self.stack_frame.is_req {
+      let info = self.opened_files.pop().expect("file must be popped when leaving a file");
+      self.cache.add_lib(info.id, export);
     }
 
-    let export = self.stack_frame.export.take();
+    self.modules.truncate(self.stack_frame.module_index);
 
     if let Some(stack_frame) = self.stack_frames.pop() {
       // the vm is returning from a function call or req
       self.stack_frame = stack_frame;
     }
 
-    Ok(export.unwrap_or_default())
+    Ok(export)
   }
 
+  /// Check if the GC should be ran
   pub fn check_gc(&mut self) {
     self.gc.poll(
       &self.stack,
@@ -347,6 +388,7 @@ impl Vm {
     );
   }
 
+  /// Force a GC deep clean
   pub fn force_gc(&mut self) -> usize {
     self.gc.deep_clean(
       &self.stack,
@@ -357,10 +399,12 @@ impl Vm {
     )
   }
 
+  /// Get the global variable by name
   pub fn get_global(&self, name: &str) -> Option<Value> {
     self.cache.get_global_by_name(name)
   }
 
+  /// Set the global variable by name
   pub fn set_global(&mut self, name: impl ToString, value: impl Into<Value>) {
     let name = name.to_string();
     let value = value.into();
@@ -369,36 +413,52 @@ impl Vm {
     self.cache.set_global(id, value);
   }
 
+  fn id_of(&mut self, string_const: &str) -> usize {
+    self
+      .cache
+      .strings
+      .get_by_right(string_const)
+      .cloned()
+      .unwrap_or_else(|| self.cache.add_const(ConstantValue::String(string_const.to_string())))
+  }
+
+  fn constant_at(&self, id: usize) -> Option<&ConstantValue> {
+    self.cache.get_const(id)
+  }
+
+  /// Create an error with the specified message
   #[cold]
   fn error(&self, error: impl ToString) -> Error {
     let instruction = self.stack_frame.ctx.instructions[self.stack_frame.ip()];
-    self.error_with_reflection(instruction, |reflection| {
+    self.error_with_info(instruction, |metadata| {
       Error::single(
-        self.filemap.get(reflection.file_id).display(),
-        reflection.line,
-        reflection.column,
+        self.filemap.get(metadata.file_id).display(),
+        metadata.line,
+        metadata.column,
         error,
-        reflection.source,
+        metadata.source_line,
       )
     })
   }
 
+  /// Create an error combined with information about where the current instruction is located
   #[cold]
-  fn error_with_reflection<F>(&self, inst: Instruction, f: F) -> Error
+  fn error_with_info<F>(&self, inst: Instruction, f: F) -> Error
   where
-    F: FnOnce(InstructionReflection) -> Error,
+    F: FnOnce(InstructionSourceCodeData) -> Error,
   {
     self
       .stack_frame
       .ctx
       .meta
-      .reflect(inst, self.stack_frame.ip())
+      .src_loc_data(inst, self.stack_frame.ip())
       .map(f)
       .unwrap_or_else(|| Error::Plain(String::from("no reflection for instruction pointer")))
   }
 }
 
-// ops
+/* ops */
+// function descriptions can be looked up by the associated opcode
 
 impl Vm {
   #[allow(unused)]
@@ -434,7 +494,6 @@ impl Vm {
     let c = self.cache.const_at(index).clone();
     let value = self.make_value_from(c);
     self.stack_push(value);
-    self.check_gc();
   }
 
   fn exec_store(&mut self, (storage, addr): (Storage, LongAddr)) -> ExecResult {
@@ -443,7 +502,6 @@ impl Vm {
       Storage::Local => self.exec_store_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_store_global(addr))?,
     }
-    self.check_gc();
     Ok(())
   }
 
@@ -453,7 +511,6 @@ impl Vm {
       Storage::Local => self.exec_load_local(addr),
       Storage::Global => self.wrap_err_mut(|this| this.exec_load_global(addr))?,
     }
-    self.check_gc();
     Ok(())
   }
 
@@ -544,7 +601,6 @@ impl Vm {
     let mut obj = self.stack_peek();
     let class = self.wrap_err_mut(|_| obj.cast_to_mut::<ClassValue>().ok_or(UsageError::MethodAssignment))?;
     class.set_constructor(value);
-    self.check_gc();
     Ok(())
   }
 
@@ -565,7 +621,6 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc();
     Ok(())
   }
 
@@ -573,7 +628,6 @@ impl Vm {
     let list = self.stack_drain_from(num_items);
     let list = self.make_value_from(list);
     self.stack_push(list);
-    self.check_gc();
   }
 
   fn exec_create_sized_vec(&mut self, repeats: usize) {
@@ -581,7 +635,6 @@ impl Vm {
     let vec = vec![item; repeats];
     let vec = self.make_value_from(vec);
     self.stack_push(vec);
-    self.check_gc();
   }
 
   fn exec_create_dyn_vec(&mut self) -> ExecResult {
@@ -591,7 +644,6 @@ impl Vm {
     let vec = vec![item; repeats as usize];
     let vec = self.make_value_from(vec);
     self.stack_push(vec);
-    self.check_gc();
     Ok(())
   }
 
@@ -608,7 +660,6 @@ impl Vm {
       Ok(())
     })?;
 
-    self.check_gc();
     Ok(())
   }
 
@@ -638,22 +689,19 @@ impl Vm {
       Ok(())
     })?;
 
-    self.check_gc();
     Ok(())
   }
 
   fn exec_create_class(&mut self, loc: usize) -> ExecResult {
-    let creator = self.stack_pop();
     let name = self.cache.const_at(loc);
 
     if let ConstantValue::String(name) = name {
-      let v = self.make_value_from(ClassValue::new(name, creator));
+      let v = self.make_value_from(ClassValue::new(name));
       self.stack_push(v);
     } else {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc();
     Ok(())
   }
 
@@ -669,7 +717,6 @@ impl Vm {
       Err(self.error(UsageError::InvalidIdentifier(name.to_string())))?;
     }
 
-    self.check_gc();
     Ok(())
   }
 
@@ -705,7 +752,6 @@ impl Vm {
   fn exec_call(&mut self, airity: usize) -> ExecResult {
     let callable = self.stack_load_rev(airity);
     self.wrap_err_mut(|this| this.call_value(callable, airity))?;
-    self.check_gc();
     Ok(())
   }
 
@@ -801,7 +847,6 @@ impl Vm {
       }
     }
 
-    self.check_gc();
     Ok(())
   }
 
@@ -1346,6 +1391,7 @@ impl Vm {
   }
 
   pub fn make_usertype_handle_from<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
+    self.check_gc();
     let value = self.gc.allocate_untracked(item);
     let handle = self.gc.make_handle(value);
     UsertypeHandle::new(handle)
@@ -1397,10 +1443,12 @@ impl Vm {
       }
     }
   }
-  pub fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize) {
-    let mut frame = StackFrame::new(ctx, self.stack_size() - offset);
+
+  pub(crate) fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize, is_req: bool, module: ModuleEntry) {
+    let mut frame = StackFrame::new(ctx, self.stack_size() - offset, is_req, self.modules.len());
     mem::swap(&mut self.stack_frame, &mut frame);
     self.stack_frames.push(frame);
+    self.modules.push(module);
   }
 
   pub fn stack_push(&mut self, value: Value) {
@@ -1602,31 +1650,31 @@ impl MakeValueFrom<ConstantValue> for Vm {
 
 impl MakeValueFrom<&str> for Vm {
   fn make_value_from(&mut self, item: &str) -> Value {
-    self.gc.allocate::<StringValue>(item.into())
+    self.make_value_from(StringValue::from(item))
   }
 }
 
 impl MakeValueFrom<String> for Vm {
   fn make_value_from(&mut self, item: String) -> Value {
-    self.gc.allocate::<StringValue>(item.into())
+    self.make_value_from(StringValue::from(item))
   }
 }
 
 impl MakeValueFrom<&String> for Vm {
   fn make_value_from(&mut self, item: &String) -> Value {
-    self.gc.allocate::<StringValue>(item.clone().into())
+    self.make_value_from(StringValue::from(item))
   }
 }
 
 impl MakeValueFrom<&[Value]> for Vm {
   fn make_value_from(&mut self, item: &[Value]) -> Value {
-    self.gc.allocate(VecValue::new_from_slice(item))
+    self.make_value_from(VecValue::from(item))
   }
 }
 
 impl MakeValueFrom<Vec<Value>> for Vm {
   fn make_value_from(&mut self, item: Vec<Value>) -> Value {
-    self.gc.allocate(VecValue::new_from_vec(item))
+    self.make_value_from(VecValue::from(item))
   }
 }
 
@@ -1635,6 +1683,7 @@ where
   T: Usertype,
 {
   fn make_value_from(&mut self, item: T) -> Value {
+    self.check_gc();
     self.gc.allocate::<T>(item)
   }
 }
@@ -1644,7 +1693,10 @@ where
   T: Usertype,
 {
   fn make_value_from(&mut self, item: Vec<T>) -> Value {
-    let list = item.into_iter().map(|v| self.gc.allocate(v)).collect();
-    self.gc.allocate(VecValue::new_from_vec(list))
+    let list = item.into_iter().map(|v| self.make_value_from(v)).collect::<Vec<Value>>();
+    self.make_value_from(VecValue::from(list))
   }
 }
+
+#[cfg(test)]
+mod tests;

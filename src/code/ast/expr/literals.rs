@@ -63,7 +63,6 @@ impl From<IdentExpression> for Ident {
 #[derive(Debug)]
 pub struct ClassExpression {
   pub name: Ident,
-  pub self_type: Box<Expression>,
   pub initializer: Option<Box<Expression>>,
   pub methods: Vec<(Ident, Expression)>,
   pub loc: SourceLocation,
@@ -72,14 +71,12 @@ pub struct ClassExpression {
 impl ClassExpression {
   pub(super) fn new(
     name: Ident,
-    creator: Expression,
     initializer: Option<Expression>,
     methods: Vec<(Ident, Expression)>,
     loc: SourceLocation,
   ) -> Self {
     Self {
       name,
-      self_type: Box::new(creator),
       initializer: initializer.map(Box::new),
       methods,
       loc,
@@ -103,7 +100,6 @@ impl AstExpression for ClassExpression {
       return None;
     }
 
-    let mut creator = None;
     let mut initializer = None;
     let mut class_members = Vec::default();
     let mut declared_functions = BTreeSet::default();
@@ -111,20 +107,6 @@ impl AstExpression for ClassExpression {
     while let Some(token) = ast.current() {
       let member_loc = ast.token_location::<0>()?;
       match token {
-        Token::Identifier(ident) if ident == SELF_IDENT => {
-          ast.advance();
-          ast.consume(Token::As);
-          let initializer = ast.expression()?;
-          if creator.is_none() {
-            creator = Some(Expression::from(LambdaExpression::new(
-              Vec::default(),
-              Statement::Ret(RetStatement::new(Some(initializer), member_loc)),
-              member_loc,
-            )));
-          } else {
-            ast.error::<0>(AstGenerationErrorMsg::ClassReprRedefinition);
-          }
-        }
         Token::New => {
           ast.advance();
           if initializer.is_none() {
@@ -194,18 +176,12 @@ impl AstExpression for ClassExpression {
       return None;
     }
 
-    if let Some(creator) = creator.take() {
-      Some(Expression::from(ClassExpression::new(
-        name,
-        creator,
-        initializer,
-        class_members,
-        class_loc,
-      )))
-    } else {
-      ast.error::<0>(AstGenerationErrorMsg::ClassReprUndefined);
-      None
-    }
+    Some(Expression::from(ClassExpression::new(
+      name,
+      initializer,
+      class_members,
+      class_loc,
+    )))
   }
 }
 

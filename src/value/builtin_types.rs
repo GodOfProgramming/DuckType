@@ -39,7 +39,7 @@ pub mod ops {
 }
 
 use super::{VTable, Value};
-use crate::prelude::*;
+use crate::{code::ConstantValue, prelude::*};
 pub use class_value::ClassValue;
 pub use closure_value::ClosureValue;
 pub use function_value::FunctionValue;
@@ -59,24 +59,31 @@ use uuid::Uuid;
 pub use vec_value::VecValue;
 
 #[derive(Clone)]
-pub struct Field<'n> {
-  pub id: Option<usize>,
-  pub name: Option<&'n str>,
+pub enum Field<'n> {
+  Id(usize),
+  Named(&'n str),
+  NamedId(usize, &'n str),
 }
 
 impl<'n> Field<'n> {
   pub fn new(id: usize, name: &'n str) -> Self {
-    Self {
-      id: Some(id),
-      name: Some(name),
+    Self::NamedId(id, name)
+  }
+
+  pub fn name(&self, vm: &'n Vm) -> Option<&'n str> {
+    match self {
+      Field::Id(id) => vm.constant_at(*id).and_then(|c| match c {
+        ConstantValue::String(s) => Some(s.as_ref()),
+        ConstantValue::StaticString(s) => Some(*s),
+        _ => None,
+      }),
+      Field::Named(name) => Some(name),
+      Field::NamedId(_, name) => Some(name),
     }
   }
 
   pub fn named(name: &'n str) -> Self {
-    Self {
-      id: None,
-      name: Some(name),
-    }
+    Self::Named(name)
   }
 }
 

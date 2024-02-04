@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use ptr::SmartPtr;
 use std::path::Path;
 use tfix::{fixture, TestFixture};
 
@@ -11,7 +10,7 @@ struct IntegrationTest {
 
 impl IntegrationTest {
   fn new() -> Self {
-    let gc = SmartPtr::new(Gc::test_default());
+    let gc = Gc::test_default();
     let mut vm = Vm::new(gc, false, []);
     let libstd = vm.generate_stdlib("*test*");
 
@@ -232,8 +231,8 @@ impl ScriptTest {
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
     Self {
-      vm: Vm::new(SmartPtr::new(Gc::test_default()), false, []),
-      opt: Vm::new(SmartPtr::new(Gc::test_default()), true, []),
+      vm: Vm::new(Gc::test_default(), false, []),
+      opt: Vm::new(Gc::test_default(), true, []),
     }
   }
 }

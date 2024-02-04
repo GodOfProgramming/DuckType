@@ -83,25 +83,28 @@ pub(crate) fn derive_fields(struct_def: ItemStruct) -> TokenStream {
     #[automatically_derived]
     impl UsertypeFields for #name {
       fn get_field(&self, vm: &mut Vm, field: Field) -> UsageResult<Option<Value>> {
-        if let Some(name) = field.name {
-          match name {
-            #(#ident_strs => Ok(Some(vm.make_value_from(&self.#idents))),)*
-            _ => Ok(None),
-          }
-        } else {
-          Err(UsageError::EmptyField)
+        let name = match field {
+          Field::Id(_) => return Err(UsageError::EmptyField),
+          Field::Named(name) => name,
+          Field::NamedId(_, name) => name,
+        };
+
+        match name {
+          #(#ident_strs => Ok(Some(vm.make_value_from(&self.#idents))),)*
+          _ => Ok(None),
         }
       }
 
       fn set_field(&mut self, vm: &mut Vm, field: Field, value: Value) -> UsageResult<()> {
-        if let Some(name) = field.name {
-          match name {
-            #(#ident_strs => self.#idents = value.try_into()?,)*
-            _ => Err(UsageError::UndefinedMember(name.to_string()))?,
-          }
-          Ok(())
-        } else {
-          Err(UsageError::EmptyField)
+        let name = match field {
+          Field::Id(_) => return Err(UsageError::EmptyField),
+          Field::Named(name) => name,
+          Field::NamedId(_, name) => name,
+        };
+
+        match name {
+          #(#ident_strs => self.#idents = value.try_into()?,)*
+          _ => Err(UsageError::UndefinedMember(name.to_string()))?,
         }
       }
     }
@@ -266,14 +269,16 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
       #constructor_impl
 
       fn get_method(&self, #vm_ident: &mut Vm, this: Value, field: Field) -> UsageResult<Option<Value>> {
-        if let Some(name) = field.name {
-          match name {
-            #(#method_strs => Ok(Some(#method_lambda_bodies)),)*
-            #(#static_strs => Ok(Some(#static_lambda_bodies)),)*
-            _ => Ok(None),
-          }
-        } else {
-          Err(UsageError::EmptyField)
+        let name = match field {
+          Field::Id(_) => return Err(UsageError::EmptyField),
+          Field::Named(name) => name,
+          Field::NamedId(_, name) => name,
+        };
+
+        match name {
+          #(#method_strs => Ok(Some(#method_lambda_bodies)),)*
+          #(#static_strs => Ok(Some(#static_lambda_bodies)),)*
+          _ => Ok(None),
         }
       }
     }

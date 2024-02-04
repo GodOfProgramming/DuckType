@@ -1,15 +1,14 @@
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
-  const SOURCES: &[&str] = &["src/cpp/lib.cpp"];
-  const HEADERS: &[&str] = &["src/cpp/lib.hpp"];
-
-  for file in SOURCES.iter().chain(HEADERS) {
-    println!("cargo:rerun-if-changed={}", file);
-  }
-
   #[cfg(feature = "jtbl")]
   {
+    const SOURCES: &[&str] = &["src/cpp/lib.cpp"];
+    const HEADERS: &[&str] = &["src/cpp/lib.hpp"];
+
+    for file in SOURCES.iter().chain(HEADERS) {
+      println!("cargo:rerun-if-changed={}", file);
+    }
     use std::{fs, path::Path};
 
     let mut builder = bindgen::builder().blocklist_item("\\bstd::.*");
@@ -26,7 +25,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     bindings.write_to_file(generated.join("ffi.rs"))?;
 
-    cc::Build::new().cpp(true).files(SOURCES).compile("ffi");
+    cc::Build::new()
+      .cpp(true)
+      .define(
+        "DISASM_ENABLED",
+        if cfg!(features = "runtime-disassembly") { "1" } else { "0" },
+      )
+      .files(SOURCES)
+      .compile("ffi");
   }
 
   Ok(())

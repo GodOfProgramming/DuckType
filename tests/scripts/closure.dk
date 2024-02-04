@@ -5,10 +5,6 @@ use brood::suite;
 suite("Closures", |s| {
   s.describe("captured values", |t| {
     class Number {
-      self as struct {
-        n: 0,
-      }
-
       new(self, n) {
         self.n = n;
       }

@@ -5,8 +5,6 @@ use crate::{prelude::*, FastHashMap};
 pub struct ClassValue {
   pub name: String,
   #[trace]
-  pub creator: Value,
-  #[trace]
   pub initializer: Option<Value>,
   #[trace]
   pub methods: FastHashMap<String, FunctionValue>,
@@ -15,9 +13,8 @@ pub struct ClassValue {
 }
 
 impl ClassValue {
-  pub fn new(name: impl ToString, creator: Value) -> Self {
+  pub fn new(name: impl ToString) -> Self {
     Self {
-      creator,
       name: name.to_string(),
       initializer: None,
       methods: Default::default(),
@@ -30,13 +27,8 @@ impl ClassValue {
   }
 
   pub fn get_method(&self, vm: &mut Vm, this: Value, field: Field) -> Option<Value> {
-    field.name.and_then(|name| {
-      self
-        .methods
-        .get(name)
-        .cloned()
-        .map(|method| vm.make_value_from(MethodValue::new(this, method)))
-    })
+    let method = field.name(vm).and_then(|name| self.methods.get(name).cloned());
+    method.map(|method| vm.make_value_from(MethodValue::new(this, method)))
   }
 
   pub fn set_method<N: ToString>(&mut self, name: N, value: FunctionValue) {
@@ -53,25 +45,26 @@ impl ClassValue {
 }
 
 impl UsertypeFields for ClassValue {
-  fn get_field(&self, _: &mut Vm, field: Field) -> UsageResult<Option<Value>> {
-    Ok(field.name.and_then(|name| self.get_static(name)))
+  fn get_field(&self, vm: &mut Vm, field: Field) -> UsageResult<Option<Value>> {
+    field
+      .name(vm)
+      .ok_or(UsageError::InvalidConstantIdentifier)
+      .map(|name| self.get_static(name))
   }
 
-  fn set_field(&mut self, _: &mut Vm, field: Field, value: Value) -> UsageResult<()> {
-    if let Some(name) = field.name {
-      self.set_static(name, value);
-      Ok(())
-    } else {
-      Err(UsageError::EmptyField)
-    }
+  fn set_field(&mut self, vm: &mut Vm, field: Field, value: Value) -> UsageResult<()> {
+    field
+      .name(vm)
+      .ok_or(UsageError::InvalidConstantIdentifier)
+      .map(|name| self.set_static(name, value))
   }
 }
 
 impl Operators for ClassValue {
   fn __ivk__(&mut self, vm: &mut Vm, class: Value, airity: usize) -> UsageResult {
-    let self_type = self.creator.call(vm, 0)?;
+    let self_type = vm.make_value_from(StructValue::default());
 
-    let instance = vm.gc.allocate(InstanceValue::new(self_type, class));
+    let instance = vm.make_value_from(InstanceValue::new(self_type, class));
 
     if let Some(initializer) = &mut self.initializer {
       vm.stack_push(instance);

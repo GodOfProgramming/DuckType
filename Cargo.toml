@@ -1,6 +1,6 @@
 [package]
 name = "DuckType"
-version = "0.56.0"
+version = "0.57.0"
 authors = ["Jonathan Dickert <jonathan.dickert@protonmail.com>"]
 edition = "2021"
 default-run = "duck"
@@ -66,6 +66,7 @@ cc = "1.0"
 [profile.release]
 strip = true
 lto = true
+opt-level = 2
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.48", features = [
@@ -85,6 +86,3 @@ print-precedence = []
 quit-after-disassemble = []
 jtbl = []
 check-opcodes = []
-
-[target.'cfg(unix)'.features]
-profile = []

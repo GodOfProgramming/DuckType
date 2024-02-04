@@ -269,6 +269,9 @@ pub enum UsageError {
   #[error("Used storage type {0:?} in an invalid context")]
   InvalidStorageOperation(Storage),
 
+  #[error("The constant id supplied was not translatable to an identifier")]
+  InvalidConstantIdentifier,
+
   #[error("{0}")]
   Preformatted(Error),
 

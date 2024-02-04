@@ -1,3 +1,1 @@
-export class SomeClass {
-  self as nil
-}
+export class SomeClass {}
