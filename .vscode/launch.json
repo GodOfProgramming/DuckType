@@ -9,6 +9,14 @@
       "cwd": "${workspaceFolder}"
     },
     {
+      "name": "duck debug conway",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/duck",
+      "args": ["-o", "run", "examples/programs/conway.dk"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "duck debug scratchpad",
       "type": "cppdbg",
       "request": "launch",

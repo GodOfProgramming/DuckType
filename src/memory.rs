@@ -200,31 +200,19 @@ where
   ) {
     let mut tracer = Tracer::new(&mut self.traced_allocations);
 
-    for value in self.native_handles.iter() {
-      tracer.deep_trace(value);
-    }
+    let values = self
+      .native_handles
+      .iter()
+      .chain(stack.iter())
+      .chain(stack_frame.export.iter())
+      .chain(envs.iter().map(UsertypeHandle::value))
+      .chain(stack_frames.iter().filter_map(|f| f.export.as_ref()));
 
-    for value in stack.iter() {
-      tracer.deep_trace(value);
+    for value in values {
+      tracer.deep_trace(value)
     }
 
     cache.deep_trace(&mut tracer);
-
-    for env in envs.iter() {
-      let handle = env.module();
-      let value = handle.value();
-      tracer.deep_trace(&value);
-    }
-
-    if let Some(value) = &stack_frame.export {
-      tracer.deep_trace(value);
-    }
-
-    for frame in stack_frames {
-      if let Some(value) = &frame.export {
-        tracer.deep_trace(value);
-      }
-    }
   }
 
   fn incremental_trace_roots(
@@ -237,30 +225,19 @@ where
   ) {
     let mut tracer = Tracer::new(&mut self.traced_allocations);
 
-    for value in self.native_handles.iter() {
-      tracer.try_mark_gray(value);
-    }
+    let values = self
+      .native_handles
+      .iter()
+      .chain(stack.iter())
+      .chain(stack_frame.export.iter())
+      .chain(envs.iter().map(UsertypeHandle::value))
+      .chain(stack_frames.iter().filter_map(|f| f.export.as_ref()));
 
-    for value in stack.iter() {
+    for value in values {
       tracer.try_mark_gray(value)
     }
 
     cache.incremental_trace(&mut tracer);
-
-    for env in envs.iter() {
-      let value = env.module().value();
-      tracer.try_mark_gray(&value);
-    }
-
-    if let Some(value) = &stack_frame.export {
-      tracer.try_mark_gray(value);
-    }
-
-    for frame in stack_frames {
-      if let Some(value) = &frame.export {
-        tracer.try_mark_gray(value);
-      }
-    }
 
     self.untraced_allocations = tracer.grays;
   }
@@ -625,8 +602,8 @@ where
     }
   }
 
-  pub fn value(&self) -> Value {
-    self.handle.value
+  pub fn value(&self) -> &Value {
+    &self.handle.value
   }
 }
 

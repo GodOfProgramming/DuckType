@@ -1127,11 +1127,11 @@ impl StackFrame {
 /// Functions mostly like a vector otherwise
 #[derive(Default)]
 pub(crate) struct ModuleStack {
-  envs: Vec<ModuleEntry>,
+  envs: Vec<UsertypeHandle<ModuleValue>>,
 }
 
 impl ModuleStack {
-  pub(crate) fn iter(&self) -> std::slice::Iter<ModuleEntry> {
+  pub(crate) fn iter(&self) -> std::slice::Iter<UsertypeHandle<ModuleValue>> {
     self.envs.iter()
   }
 
@@ -1139,63 +1139,24 @@ impl ModuleStack {
     self.envs.len()
   }
 
-  pub(crate) fn push(&mut self, entry: ModuleEntry) {
+  pub(crate) fn push(&mut self, entry: UsertypeHandle<ModuleValue>) {
     self.envs.push(entry);
   }
 
-  pub(crate) fn pop(&mut self) -> ModuleEntry {
+  pub(crate) fn pop(&mut self) -> UsertypeHandle<ModuleValue> {
     self.envs.pop().expect("pop: the env stack should never be empty")
   }
 
   pub(crate) fn last(&self) -> &UsertypeHandle<ModuleValue> {
-    match self.envs.last().expect("last: the env stack should never be empty") {
-      ModuleEntry::Fn(e) => e,
-      ModuleEntry::Mod(e) => e,
-      ModuleEntry::File(e) => e,
-      ModuleEntry::String(e) => e,
-    }
+    self.envs.last().expect("last: the env stack should never be empty")
   }
 
   pub(crate) fn last_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
-    match self.envs.last_mut().expect("last_mut: the env stack should never be empty") {
-      ModuleEntry::Fn(e) => e,
-      ModuleEntry::Mod(e) => e,
-      ModuleEntry::File(e) => e,
-      ModuleEntry::String(e) => e,
-    }
+    self.envs.last_mut().expect("last_mut: the env stack should never be empty")
   }
 
   pub(crate) fn truncate(&mut self, to: usize) {
     self.envs.truncate(to);
-  }
-}
-
-pub(crate) enum ModuleEntry {
-  Fn(UsertypeHandle<ModuleValue>),
-  Mod(UsertypeHandle<ModuleValue>),
-  File(UsertypeHandle<ModuleValue>),
-  String(UsertypeHandle<ModuleValue>),
-}
-
-impl ModuleEntry {
-  pub(crate) fn module(&self) -> UsertypeHandle<ModuleValue> {
-    match self {
-      Self::Fn(m) => m.clone(),
-      Self::Mod(m) => m.clone(),
-      Self::File(m) => m.clone(),
-      Self::String(m) => m.clone(),
-    }
-  }
-}
-
-impl Debug for ModuleEntry {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Fn(_) => f.debug_tuple("Fn").finish(),
-      Self::Mod(_) => f.debug_tuple("Mod").finish(),
-      Self::File(_) => f.debug_tuple("File").finish(),
-      Self::String(_) => f.debug_tuple("String").finish(),
-    }
   }
 }
 

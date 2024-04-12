@@ -43,7 +43,6 @@ thiserror = "1.0"
 uuid = { workspace = true }
 
 pprof = { version = "0.13", features = ["flamegraph"] }
-tokio = { version = "1.33", features = ["full"] }
 interpolator = "0.5"
 
 # Git

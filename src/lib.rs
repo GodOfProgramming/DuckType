@@ -210,7 +210,7 @@ impl Vm {
     let ctx = code::compile_file(&mut self.cache, file_id, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, &source))?;
 
-    self.new_frame(ctx, 0, true, ModuleEntry::File(module));
+    self.new_frame(ctx, 0, true, module);
 
     self.execute()
   }
@@ -224,7 +224,7 @@ impl Vm {
     let ctx = code::compile_string(&mut self.cache, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
 
-    self.new_frame(ctx, 0, false, ModuleEntry::String(module));
+    self.new_frame(ctx, 0, false, module);
 
     self.execute()
   }
@@ -240,7 +240,7 @@ impl Vm {
     module: UsertypeHandle<ModuleValue>,
     airity: usize,
   ) -> ExecResult<Value> {
-    self.new_frame(ctx, airity, false, ModuleEntry::Fn(module));
+    self.new_frame(ctx, airity, false, module);
 
     self.execute()
   }
@@ -879,7 +879,7 @@ impl Vm {
         let value = this.stack_peek();
         let module = current_module_mut!(this);
         if module.define(name.clone(), value) {
-          this.cache.add_to_mod(module.value(), loc, value);
+          this.cache.add_to_mod(module.value().clone(), loc, value);
           Ok(())
         } else {
           let level = current_module!(this).search_for(0, &name);
@@ -920,7 +920,7 @@ impl Vm {
       let handle = this
         .maybe_make_usertype_handle::<ModuleValue>(value)
         .ok_or(UsageError::InvalidModule(value))?;
-      this.modules.push(ModuleEntry::Mod(handle));
+      this.modules.push(handle);
       Ok(())
     })
   }
@@ -1380,7 +1380,7 @@ impl Vm {
   pub fn generate_stdlib(&mut self, global_mod_name: impl ToString) -> UsertypeHandle<ModuleValue> {
     let args = self.args.clone();
     ModuleBuilder::initialize(self, ModuleType::new_global(global_mod_name), |vm, mut lib| {
-      let libval = lib.value();
+      let libval = lib.value().clone();
       let (name, value) = stdlib::make_stdlib(vm, libval, args);
       lib.env.insert(name, value);
     })
@@ -1444,7 +1444,7 @@ impl Vm {
     }
   }
 
-  pub(crate) fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize, is_req: bool, module: ModuleEntry) {
+  pub(crate) fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize, is_req: bool, module: UsertypeHandle<ModuleValue>) {
     let mut frame = StackFrame::new(ctx, self.stack_size() - offset, is_req, self.modules.len());
     mem::swap(&mut self.stack_frame, &mut frame);
     self.stack_frames.push(frame);
@@ -1543,7 +1543,7 @@ impl Vm {
   }
 
   pub fn current_module_value(&self) -> Value {
-    self.modules.last().value()
+    self.modules.last().value().clone()
   }
 
   pub fn stack_display(&self) {
