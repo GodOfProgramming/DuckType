@@ -55,7 +55,8 @@ fn main() -> Result<(), Error> {
       };
 
       let gmod = vm.generate_stdlib("*main*");
-      let value = vm.run_file(file.clone(), gmod)?;
+      vm.queue_file(file.clone(), gmod)?;
+      let value = vm.execute()?;
       println!("=> {value}");
 
       #[cfg(feature = "profile")]
@@ -71,7 +72,8 @@ fn main() -> Result<(), Error> {
       let gmod = vm.generate_stdlib("*main*");
       let mut input = String::new();
       std::io::stdin().read_to_string(&mut input).map_err(Error::from)?;
-      let value = vm.run_string(input, gmod)?;
+      vm.queue_string(input, gmod)?;
+      let value = vm.execute()?;
       println!("=> {value}");
     }
   }

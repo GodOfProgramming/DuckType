@@ -50,7 +50,7 @@ use {
   rustyline::{error::ReadlineError, DefaultEditor},
   std::{
     collections::{BTreeMap, HashMap, HashSet},
-    fs, mem,
+    fs,
     path::{Path, PathBuf},
   },
   value::{NativeBinaryOp, NativeUnaryOp, VTable},
@@ -120,14 +120,8 @@ pub struct Vm {
   /// The vm's stack
   pub(crate) stack: Stack,
 
-  /// The current stack frame in use
-  ///
-  /// Should to be separate from the below both for ease of access
-  /// and when repl is finally implemented this will persist between lines
-  pub(crate) stack_frame: StackFrame,
-
-  /// The remaining frames on the callstack
-  pub(crate) stack_frames: Vec<StackFrame>,
+  /// The callstack
+  pub(crate) call_stack: Vec<StackFrame>,
 
   /// A pointer to the garbage collector
   ///
@@ -177,8 +171,7 @@ impl Vm {
   /// * `args` - the runtime arguments the scripts should have access to
   pub fn new(gc: Gc, opt: bool, args: impl Into<Vec<String>>) -> Self {
     Self {
-      stack_frame: Default::default(),
-      stack_frames: Default::default(),
+      call_stack: Default::default(),
       stack: Stack::with_capacity(INITIAL_STACK_CAPACITY),
       gc: SmartPtr::new(gc),
       cache: Default::default(),
@@ -198,7 +191,7 @@ impl Vm {
   ///
   /// * `file` - A path to a file to be used for source code
   /// * `module` - The global module to use when executing
-  pub fn run_file(&mut self, file: impl Into<PathBuf>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
+  pub fn queue_file(&mut self, file: impl Into<PathBuf>, module: UsertypeHandle<ModuleValue>) -> Result<(), Error> {
     let file = file.into();
     let file_id = PlatformMetadata::id_of(&file).unwrap_or(0);
     let source = fs::read_to_string(&file).map_err(Error::from)?;
@@ -212,166 +205,69 @@ impl Vm {
 
     self.new_frame(ctx, 0, true, module);
 
-    self.execute()
+    Ok(())
   }
 
   /// Run a string of code
   ///
   /// * `source` - The code to be executed
   /// * `module` - The global module to use when executing
-  pub fn run_string(&mut self, source: impl AsRef<str>, module: UsertypeHandle<ModuleValue>) -> Result<Value, Error> {
+  pub fn queue_string(&mut self, source: impl AsRef<str>, module: UsertypeHandle<ModuleValue>) -> Result<(), Error> {
     let opts = CompileOpts { optimize: self.opt };
     let ctx = code::compile_string(&mut self.cache, &source, opts)
       .map_err(|error| Error::from_compiler_error(error, &self.filemap, source.as_ref()))?;
 
     self.new_frame(ctx, 0, false, module);
 
-    self.execute()
+    Ok(())
   }
 
-  /// Execute a function, not to be used externally
+  /// Queue a function, not to be used externally
   ///
   /// * `ctx` - The context to execute
   /// * `module` - The module to use when executing
   /// * `airity` - The airity of the function, which offsets the base pointer to where the arguments begin
-  pub(crate) fn run_fn(
-    &mut self,
-    ctx: SmartPtr<Context>,
-    module: UsertypeHandle<ModuleValue>,
-    airity: usize,
-  ) -> ExecResult<Value> {
+  pub(crate) fn queue_fn(&mut self, ctx: SmartPtr<Context>, module: UsertypeHandle<ModuleValue>, airity: usize) {
     self.new_frame(ctx, airity, false, module);
-
-    self.execute()
   }
 
   /// Evaluate a string, to be used at runtime
   ///
   /// * `source` - The source string to evaluate
-  pub(crate) fn eval(&mut self, source: impl AsRef<str>) -> Result<Value, Error> {
-    let module = current_module!(self).clone();
-    self.run_string(source, module)
+  pub(crate) fn eval(&mut self, _source: impl AsRef<str>) -> Result<Value, Error> {
+    unimplemented!("this broke with fn refactor");
   }
 
   /// Main execution loop
   ///
   /// * `exec_type` - The mode in which this call to execute was made. Used to remove the right scope level when early returning from a function call
-  pub(crate) fn execute(&mut self) -> ExecResult<Value> {
-    #[cfg(feature = "jtbl")]
-    {
-      // Call out to C++ to leverage "goto" and a manually created jump table to avoid overhead from match/switch & loops
-      unsafe {
-        bindings::duck_type_execute(
-          self as *mut Vm as *mut std::ffi::c_void,
-          self.ctx().instructions.as_ptr() as ConstAddr<u64>,
-          self.stack_frame.ip_ptr(),
-        )
+  pub fn execute(&mut self) -> ExecResult<Value> {
+    let mut export = Value::nil;
+
+    while !self.call_stack.is_empty() {
+      // Loop over instructions executing each
+      // Uses loop instead of while because the last statement in any function or source file is a return which breaks the loop
+      #[cfg(not(feature = "jtbl"))]
+      self.exec()?;
+
+      #[cfg(feature = "jtbl")]
+      self.exec_jtbl()?;
+
+      export = self.stack_frame().export.unwrap_or_default();
+
+      let Some(finished_stack_frame) = self.call_stack.pop() else {
+        // the vm finished main
+        unreachable!("stack should never be empty");
       };
 
-      let mut result = Ok(());
-      mem::swap(&mut result, &mut self.last_error);
-      result?;
-    }
-
-    // Loop over instructions executing each
-    // Uses loop instead of while because the last statement in any function or source file is a return which breaks the loop
-    #[cfg(not(feature = "jtbl"))]
-    {
-      'fetch_cycle: loop {
-        let inst = self.stack_frame.ctx.fetch(self.stack_frame.ip());
-        self.exec_disasm(inst);
-        match inst.opcode() {
-          Opcode::Pop => self.exec_pop(),
-          Opcode::PopN => self.exec_pop_n(inst.data()),
-          Opcode::Const => self.exec_const(inst.data()),
-          Opcode::Store => self.exec_store(inst.data())?,
-          Opcode::Load => self.exec_load(inst.data())?,
-          Opcode::Nil => self.exec_nil(),
-          Opcode::True => self.exec_true(),
-          Opcode::False => self.exec_false(),
-          Opcode::Add => self.exec_add(inst)?,
-          Opcode::Sub => self.exec_sub(inst)?,
-          Opcode::Mul => self.exec_mul(inst)?,
-          Opcode::Div => self.exec_div(inst)?,
-          Opcode::Rem => self.exec_rem(inst)?,
-          Opcode::Equal => self.exec_equal(inst)?,
-          Opcode::NotEqual => self.exec_not_equal(inst)?,
-          Opcode::Greater => self.exec_greater(inst)?,
-          Opcode::GreaterEqual => self.exec_greater_equal(inst)?,
-          Opcode::Less => self.exec_less(inst)?,
-          Opcode::LessEqual => self.exec_less_equal(inst)?,
-          Opcode::Index => self.exec_index()?,
-          Opcode::AssignIndex => self.exec_index_assign()?,
-          Opcode::Negate => self.exec_negate()?,
-          Opcode::Not => self.exec_not()?,
-          Opcode::Or => {
-            self.exec_or(inst.data());
-            continue 'fetch_cycle;
-          }
-          Opcode::And => {
-            self.exec_and(inst.data());
-            continue 'fetch_cycle;
-          }
-          Opcode::InitializeMember => self.exec_initialize_member(inst.data())?,
-          Opcode::AssignMember => self.exec_assign_member(inst.data())?,
-          Opcode::LookupMember => self.exec_lookup_member(inst.data())?,
-          Opcode::PeekMember => self.exec_peek_member(inst.data())?,
-          Opcode::InitializeConstructor => self.exec_initialize_constructor()?,
-          Opcode::InitializeMethod => self.exec_initialize_method(inst.data())?,
-          Opcode::CreateVec => self.exec_create_vec(inst.data()),
-          Opcode::CreateSizedVec => self.exec_create_sized_vec(inst.data()),
-          Opcode::CreateDynamicVec => self.exec_create_dyn_vec()?,
-          Opcode::CreateClosure => self.exec_create_closure()?,
-          Opcode::CreateStruct => self.exec_create_struct(inst.data())?,
-          Opcode::CreateClass => self.exec_create_class(inst.data())?,
-          Opcode::CreateModule => self.exec_create_module(inst.data())?,
-          Opcode::Check => self.exec_check()?,
-          Opcode::Println => self.exec_println(),
-          Opcode::Jump => {
-            self.exec_jump(inst.data());
-            continue 'fetch_cycle;
-          }
-          Opcode::JumpIfFalse => {
-            self.exec_jump_if_false(inst.data());
-            continue 'fetch_cycle;
-          }
-          Opcode::Loop => {
-            self.exec_loop(inst.data());
-            continue 'fetch_cycle;
-          }
-          Opcode::Invoke => self.exec_call(inst.data())?,
-          Opcode::Req => self.exec_req()?,
-          Opcode::Ret => break 'fetch_cycle,
-          Opcode::Export => self.exec_export(),
-          Opcode::DefineGlobal => self.exec_define_global(inst.data())?,
-          Opcode::DefineScope => self.exec_define_scope(inst.data())?,
-          Opcode::Resolve => self.exec_resolve(inst.data())?,
-          Opcode::EnableModule => self.exec_enable_module()?,
-          Opcode::PopScope => self.exec_pop_scope(),
-          Opcode::Swap => self.exec_swap(inst.data()),
-          Opcode::SwapPop => self.exec_swap_pop(),
-          Opcode::Is => self.exec_is()?,
-          Opcode::Quack => self.exec_quack()?,
-          Opcode::Unknown => self.exec_unknown(inst)?,
-          Opcode::Breakpoint => self.exec_dbg()?,
-        }
-
-        self.stack_frame.ip_inc(1);
+      if finished_stack_frame.is_req {
+        let info = self.opened_files.pop().expect("file must be popped when leaving a file");
+        self.cache.add_lib(info.id, export);
       }
-    }
 
-    let export = self.stack_frame.export.unwrap_or_default();
+      self.modules.truncate(finished_stack_frame.module_index);
 
-    if self.stack_frame.is_req {
-      let info = self.opened_files.pop().expect("file must be popped when leaving a file");
-      self.cache.add_lib(info.id, export);
-    }
-
-    self.modules.truncate(self.stack_frame.module_index);
-
-    if let Some(stack_frame) = self.stack_frames.pop() {
-      // the vm is returning from a function call or req
-      self.stack_frame = stack_frame;
+      self.stack_push(export);
     }
 
     Ok(export)
@@ -379,24 +275,14 @@ impl Vm {
 
   /// Check if the GC should be ran
   pub fn check_gc(&mut self) {
-    self.gc.poll(
-      &self.stack,
-      &self.modules,
-      &mut self.cache,
-      &self.stack_frame,
-      &self.stack_frames,
-    );
+    self.gc.poll(&self.stack, &self.modules, &mut self.cache, &self.call_stack);
   }
 
   /// Force a GC deep clean
   pub fn force_gc(&mut self) -> usize {
-    self.gc.deep_clean(
-      &self.stack,
-      &self.modules,
-      &mut self.cache,
-      &self.stack_frame,
-      &self.stack_frames,
-    )
+    self
+      .gc
+      .deep_clean(&self.stack, &self.modules, &mut self.cache, &self.call_stack)
   }
 
   /// Get the global variable by name
@@ -411,6 +297,118 @@ impl Vm {
 
     let id = self.cache.add_const(&name);
     self.cache.set_global(id, value);
+  }
+
+  fn exec(&mut self) -> ExecResult<()> {
+    'fetch_cycle: loop {
+      let inst = self.ctx().fetch(self.stack_frame().ip());
+
+      self.exec_disasm(inst);
+
+      match inst.opcode() {
+        Opcode::Pop => self.exec_pop(),
+        Opcode::PopN => self.exec_pop_n(inst.data()),
+        Opcode::Const => self.exec_const(inst.data()),
+        Opcode::Store => self.exec_store(inst.data())?,
+        Opcode::Load => self.exec_load(inst.data())?,
+        Opcode::Nil => self.exec_nil(),
+        Opcode::True => self.exec_true(),
+        Opcode::False => self.exec_false(),
+        Opcode::Add => self.exec_add(inst)?,
+        Opcode::Sub => self.exec_sub(inst)?,
+        Opcode::Mul => self.exec_mul(inst)?,
+        Opcode::Div => self.exec_div(inst)?,
+        Opcode::Rem => self.exec_rem(inst)?,
+        Opcode::Equal => self.exec_equal(inst)?,
+        Opcode::NotEqual => self.exec_not_equal(inst)?,
+        Opcode::Greater => self.exec_greater(inst)?,
+        Opcode::GreaterEqual => self.exec_greater_equal(inst)?,
+        Opcode::Less => self.exec_less(inst)?,
+        Opcode::LessEqual => self.exec_less_equal(inst)?,
+        Opcode::Index => self.exec_index()?,
+        Opcode::AssignIndex => self.exec_index_assign()?,
+        Opcode::Negate => self.exec_negate()?,
+        Opcode::Not => self.exec_not()?,
+        Opcode::Or => {
+          self.exec_or(inst.data());
+          continue 'fetch_cycle;
+        }
+        Opcode::And => {
+          self.exec_and(inst.data());
+          continue 'fetch_cycle;
+        }
+        Opcode::InitializeMember => self.exec_initialize_member(inst.data())?,
+        Opcode::AssignMember => self.exec_assign_member(inst.data())?,
+        Opcode::LookupMember => self.exec_lookup_member(inst.data())?,
+        Opcode::PeekMember => self.exec_peek_member(inst.data())?,
+        Opcode::InitializeConstructor => self.exec_initialize_constructor()?,
+        Opcode::InitializeMethod => self.exec_initialize_method(inst.data())?,
+        Opcode::CreateVec => self.exec_create_vec(inst.data()),
+        Opcode::CreateSizedVec => self.exec_create_sized_vec(inst.data()),
+        Opcode::CreateDynamicVec => self.exec_create_dyn_vec()?,
+        Opcode::CreateClosure => self.exec_create_closure()?,
+        Opcode::CreateStruct => self.exec_create_struct(inst.data())?,
+        Opcode::CreateClass => self.exec_create_class(inst.data())?,
+        Opcode::CreateModule => self.exec_create_module(inst.data())?,
+        Opcode::Check => self.exec_check()?,
+        Opcode::Println => self.exec_println(),
+        Opcode::Jump => {
+          self.exec_jump(inst.data());
+          continue 'fetch_cycle;
+        }
+        Opcode::JumpIfFalse => {
+          self.exec_jump_if_false(inst.data());
+          continue 'fetch_cycle;
+        }
+        Opcode::Loop => {
+          self.exec_loop(inst.data());
+          continue 'fetch_cycle;
+        }
+        Opcode::Invoke => {
+          self.exec_call(inst.data())?;
+          continue 'fetch_cycle;
+        }
+        Opcode::Req => {
+          self.exec_req()?;
+          continue 'fetch_cycle;
+        }
+        Opcode::Ret => break 'fetch_cycle,
+        Opcode::Export => self.exec_export(),
+        Opcode::DefineGlobal => self.exec_define_global(inst.data())?,
+        Opcode::DefineScope => self.exec_define_scope(inst.data())?,
+        Opcode::Resolve => self.exec_resolve(inst.data())?,
+        Opcode::EnableModule => self.exec_enable_module()?,
+        Opcode::PopScope => self.exec_pop_scope(),
+        Opcode::Swap => self.exec_swap(inst.data()),
+        Opcode::SwapPop => self.exec_swap_pop(),
+        Opcode::Is => self.exec_is()?,
+        Opcode::Quack => self.exec_quack()?,
+        Opcode::Unknown => self.exec_unknown(inst)?,
+        Opcode::Breakpoint => self.exec_dbg()?,
+      }
+
+      self.stack_frame_mut().ip_inc(1);
+    }
+
+    Ok(())
+  }
+
+  #[cfg(feature = "jtbl")]
+  fn exec_jtbl(&mut self) -> ExecResult<()> {
+    // Call out to C++ to leverage "goto" and a manually created jump table to avoid overhead from match/switch & loops
+    unsafe {
+      bindings::duck_type_execute(
+        self as *mut Vm as *mut std::ffi::c_void,
+        self.ctx().instructions.as_ptr() as ConstAddr<u64>,
+        self.stack_frame.ip_ptr(),
+      )
+    };
+
+    let mut result = Ok(());
+
+    mem::swap(&mut result, &mut self.last_error);
+
+    result
   }
 
   fn id_of(&mut self, string_const: &str) -> usize {
@@ -429,7 +427,7 @@ impl Vm {
   /// Create an error with the specified message
   #[cold]
   fn error(&self, error: impl ToString) -> Error {
-    let instruction = self.stack_frame.ctx.instructions[self.stack_frame.ip()];
+    let instruction = self.ctx().instructions[self.stack_frame().ip()];
     self.error_with_info(instruction, |metadata| {
       Error::single(
         self.filemap.get(metadata.file_id).display(),
@@ -448,10 +446,9 @@ impl Vm {
     F: FnOnce(InstructionSourceCodeData) -> Error,
   {
     self
-      .stack_frame
-      .ctx
+      .ctx()
       .meta
-      .src_loc_data(inst, self.stack_frame.ip())
+      .src_loc_data(inst, self.stack_frame().ip())
       .map(f)
       .unwrap_or_else(|| Error::Plain(String::from("no reflection for instruction pointer")))
   }
@@ -476,7 +473,7 @@ impl Vm {
             cache: &self.cache,
           },
           inst,
-          offset: self.stack_frame.ip(),
+          offset: self.stack_frame().ip(),
         }
       );
     }
@@ -739,7 +736,7 @@ impl Vm {
     let value = self.stack_pop();
 
     if value.truthy() {
-      self.stack_frame.ip_inc(1);
+      self.stack_frame_mut().ip_inc(1);
     } else {
       self.jump(offset);
     }
@@ -750,12 +747,14 @@ impl Vm {
   }
 
   fn exec_call(&mut self, airity: usize) -> ExecResult {
+    self.stack_frame_mut().ip_inc(1);
     let callable = self.stack_load_rev(airity);
     self.wrap_err_mut(|this| this.call_value(callable, airity))?;
     Ok(())
   }
 
   fn exec_req(&mut self) -> ExecResult {
+    self.stack_frame_mut().ip_inc(1);
     fn try_to_find_file(root: &Path, desired: &PathBuf, attempts: &mut Vec<PathBuf>) -> Option<PathBuf> {
       let direct = root.join(desired);
       if direct.exists() {
@@ -841,8 +840,7 @@ impl Vm {
           self.stack_push(value);
         } else {
           let gmod = self.generate_stdlib(format!("<file export {}>", found_file.display()));
-          let output = self.run_file(found_file, gmod)?;
-          self.stack_push(output);
+          self.queue_file(found_file, gmod)?;
         }
       }
     }
@@ -856,7 +854,7 @@ impl Vm {
 
   fn exec_export(&mut self) {
     let value = self.stack_pop();
-    self.stack_frame.export = Some(value);
+    self.stack_frame_mut().export = Some(value);
   }
 
   fn exec_define_global(&mut self, loc: LongAddr) -> ExecResult {
@@ -1188,18 +1186,15 @@ impl Vm {
     self.do_binary_op(av, bv, f1, |a, b| Ok(Value::from(f2(a, b))))
   }
 
-  fn call_value(&mut self, mut callable: Value, airity: usize) -> Result<(), UsageError> {
-    let value = callable.call(self, airity)?;
-    self.stack_push(value);
-
-    Ok(())
+  fn call_value(&mut self, mut callable: Value, airity: usize) -> UsageResult<()> {
+    callable.call(self, airity)
   }
 
   fn load_from_storage(&mut self, st: Storage, addr: impl Into<usize>) -> OpResult<Value> {
     let addr = addr.into();
     match st {
       Storage::Stack => Ok(self.stack_pop()),
-      Storage::Local => Ok(self.stack_load(self.stack_frame.bp + addr)),
+      Storage::Local => Ok(self.stack_load(self.stack_frame().bp + addr)),
       Storage::Global => self.value_of_ident(addr),
     }
   }
@@ -1209,7 +1204,7 @@ impl Vm {
   }
 
   fn exec_load_local(&mut self, loc: LongAddr) {
-    self.stack_push(self.stack_load(self.stack_frame.bp + loc.0));
+    self.stack_push(self.stack_load(self.stack_frame().bp + loc.0));
   }
 
   fn exec_load_global(&mut self, loc: LongAddr) -> OpResult {
@@ -1225,7 +1220,7 @@ impl Vm {
 
   fn exec_store_local(&mut self, loc: LongAddr) {
     let value = self.stack_peek();
-    self.stack_store(self.stack_frame.bp + loc.0, value);
+    self.stack_store(self.stack_frame().bp + loc.0, value);
   }
 
   fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
@@ -1351,11 +1346,11 @@ impl Vm {
   }
 
   fn jump(&mut self, offset: usize) {
-    self.stack_frame.ip_inc(offset);
+    self.stack_frame_mut().ip_inc(offset);
   }
 
   fn jump_back(&mut self, offset: usize) {
-    self.stack_frame.ip_dec(offset);
+    self.stack_frame_mut().ip_dec(offset);
   }
 
   /// when f evaluates to true, short circuit
@@ -1365,7 +1360,7 @@ impl Vm {
       self.jump(offset);
     } else {
       self.stack_pop();
-      self.stack_frame.ip_inc(1);
+      self.stack_frame_mut().ip_inc(1);
     }
   }
 
@@ -1445,9 +1440,8 @@ impl Vm {
   }
 
   pub(crate) fn new_frame(&mut self, ctx: SmartPtr<Context>, offset: usize, is_req: bool, module: UsertypeHandle<ModuleValue>) {
-    let mut frame = StackFrame::new(ctx, self.stack_size() - offset, is_req, self.modules.len());
-    mem::swap(&mut self.stack_frame, &mut frame);
-    self.stack_frames.push(frame);
+    let frame = StackFrame::new(ctx, self.stack_size() - offset, is_req, self.modules.len());
+    self.call_stack.push(frame);
     self.modules.push(module);
   }
 
@@ -1498,6 +1492,14 @@ impl Vm {
     self.stack.len()
   }
 
+  fn stack_frame(&self) -> &StackFrame {
+    self.call_stack.last().unwrap()
+  }
+
+  fn stack_frame_mut(&mut self) -> &mut StackFrame {
+    self.call_stack.last_mut().unwrap()
+  }
+
   /// Tries to find the cached value at the given location and if not performs a slow lookup
   ///
   /// Since primitives can be globals, caching global values accessed via modules is not possible
@@ -1535,11 +1537,11 @@ impl Vm {
   }
 
   pub fn ctx(&self) -> &Context {
-    &self.stack_frame.ctx
+    &self.stack_frame().ctx
   }
 
   pub fn ctx_mut(&mut self) -> &mut Context {
-    &mut self.stack_frame.ctx
+    &mut self.stack_frame_mut().ctx
   }
 
   pub fn current_module_value(&self) -> Value {
@@ -1550,8 +1552,8 @@ impl Vm {
     println!("{}", self.stack);
     println!(
       "               | ip: {ip} bp: {bp}",
-      ip = self.stack_frame.ip(),
-      bp = self.stack_frame.bp
+      ip = self.stack_frame().ip(),
+      bp = self.stack_frame().bp
     );
   }
 }

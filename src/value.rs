@@ -148,11 +148,12 @@ impl Value {
 
   // value methods
 
-  pub fn call(&mut self, vm: &mut Vm, airity: usize) -> UsageResult {
+  pub fn call(&mut self, vm: &mut Vm, airity: usize) -> UsageResult<()> {
     if let Some(f) = self.cast_to::<NativeFn>() {
       let args = vm.stack_drain_from(airity);
       let output = f(vm, Args::new(args))?;
-      Ok(output)
+      vm.stack_push(output);
+      Ok(())
     } else {
       (self.vtable().invoke)(self.pointer_mut(), MutPtr::new(vm), *self, airity)
     }
@@ -680,7 +681,7 @@ pub struct VTable {
   pub(crate) index: NativeBinaryOp,
   pub(crate) assign_index: NativeTernaryOp,
 
-  invoke: fn(MutVoid, MutPtr<Vm>, Value, usize) -> UsageResult,
+  invoke: fn(MutVoid, MutPtr<Vm>, Value, usize) -> UsageResult<()>,
 
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,

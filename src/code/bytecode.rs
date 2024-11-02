@@ -91,6 +91,7 @@ impl<'p> BytecodeGenerator<'p> {
       self.emit((Opcode::PopN, self.locals.len()), SourceLocation { line: 0, column: 0 });
     }
 
+    // breaks out of the fetch exec loop in the vm
     self.emit(Opcode::Ret, SourceLocation { line: 0, column: 0 });
 
     if self.errors.is_empty() {

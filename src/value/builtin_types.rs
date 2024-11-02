@@ -171,7 +171,7 @@ pub trait Operators {
   ternary_op!(__idxeq__);
 
   #[allow(unused_variables)]
-  fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult {
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult<()> {
     Err(UsageError::UndefinedMethod("__ivk__", self.__str__()))
   }
 

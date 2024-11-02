@@ -90,50 +90,29 @@ where
   }
 
   /// Check if the GC routine of the current configuration should run
-  pub(super) fn poll(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &mut Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  pub(super) fn poll(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     match self.mode {
       GcMode::Standard => {
-        self.poll_deep(stack, envs, cache, stack_frame, stack_frames);
-        self.poll_inc(stack, envs, cache, stack_frame, stack_frames);
+        self.poll_deep(stack, envs, cache, call_stack);
+        self.poll_inc(stack, envs, cache, call_stack);
       }
-      GcMode::Incremental => self.poll_inc(stack, envs, cache, stack_frame, stack_frames),
-      GcMode::Deep => self.poll_deep(stack, envs, cache, stack_frame, stack_frames),
+      GcMode::Incremental => self.poll_inc(stack, envs, cache, call_stack),
+      GcMode::Deep => self.poll_deep(stack, envs, cache, call_stack),
     }
   }
 
   /// Check if a deep clean should be performed
-  fn poll_deep(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &mut Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  fn poll_deep(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     if self.allocated_memory > self.limit {
-      self.deep_clean(stack, envs, cache, stack_frame, stack_frames);
+      self.deep_clean(stack, envs, cache, call_stack);
     }
   }
 
   /// Check if an incremental clean should start and if so begin
-  fn poll_inc(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &mut Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  fn poll_inc(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     if self.allocated_memory > self.limit / 2 {
       self.stats.total_increments += 1;
-      self.incremental(stack, envs, cache, stack_frame, stack_frames);
+      self.incremental(stack, envs, cache, call_stack);
     }
   }
 
@@ -143,8 +122,7 @@ where
     stack: &Stack,
     envs: &ModuleStack,
     cache: &mut Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
+    call_stack: &[StackFrame],
   ) -> usize {
     self.ref_check_native_handles();
 
@@ -153,7 +131,7 @@ where
     self.untraced_allocations.clear();
     self.traced_allocations.clear();
 
-    self.deep_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+    self.deep_trace_roots(stack, envs, cache, call_stack);
 
     self.stats.total_deep_cleans += 1;
 
@@ -164,19 +142,12 @@ where
   ///
   /// If this is the first increment the roots are scanned
   /// Otherwise the next tier of grays is scanned
-  fn incremental(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &mut Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  fn incremental(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     self.ref_check_native_handles();
 
     if self.untraced_allocations.is_empty() {
       self.stats.total_incremental_root_traces += 1;
-      self.incremental_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+      self.incremental_trace_roots(stack, envs, cache, call_stack);
     } else {
       self.stats.total_incremental_traces += 1;
       self.incremental_trace();
@@ -193,23 +164,15 @@ where
     }
   }
 
-  fn deep_trace_roots(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  fn deep_trace_roots(&mut self, stack: &Stack, envs: &ModuleStack, cache: &Cache, call_stack: &[StackFrame]) {
     let mut tracer = Tracer::new(&mut self.traced_allocations);
 
     let values = self
       .native_handles
       .iter()
       .chain(stack.iter())
-      .chain(stack_frame.export.iter())
       .chain(envs.iter().map(UsertypeHandle::value))
-      .chain(stack_frames.iter().filter_map(|f| f.export.as_ref()));
+      .chain(call_stack.iter().filter_map(|f| f.export.as_ref()));
 
     for value in values {
       tracer.deep_trace(value)
@@ -218,23 +181,15 @@ where
     cache.deep_trace(&mut tracer);
   }
 
-  fn incremental_trace_roots(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  fn incremental_trace_roots(&mut self, stack: &Stack, envs: &ModuleStack, cache: &Cache, call_stack: &[StackFrame]) {
     let mut tracer = Tracer::new(&mut self.traced_allocations);
 
     let values = self
       .native_handles
       .iter()
       .chain(stack.iter())
-      .chain(stack_frame.export.iter())
       .chain(envs.iter().map(UsertypeHandle::value))
-      .chain(stack_frames.iter().filter_map(|f| f.export.as_ref()));
+      .chain(call_stack.iter().filter_map(|f| f.export.as_ref()));
 
     for value in values {
       tracer.try_mark_gray(value)

@@ -50,7 +50,8 @@ mod tests {
   fn can_register_global_variables(t: &mut ApiTest) {
     let script = "export some_var;";
     assert!(t.stdlib.define("some_var", Value::from(true)));
-    let res = t.vm.run_string(script, t.stdlib.clone()).unwrap();
+    t.vm.queue_string(script, t.stdlib.clone()).unwrap();
+    let res = t.vm.execute().unwrap();
     assert!(res == Value::from(true));
   }
 
@@ -60,7 +61,8 @@ mod tests {
     assert!(t
       .stdlib
       .define("some_func", Value::new::<NativeFn>(|_, _args| Ok(Value::from(true)))));
-    let res = t.vm.run_string(script, t.stdlib.clone()).unwrap();
+    t.vm.queue_string(script, t.stdlib.clone()).unwrap();
+    let res = t.vm.execute().unwrap();
     assert!(res == Value::from(true));
   }
 
@@ -87,7 +89,8 @@ mod tests {
 
     stdlib.define("make_leaker", Value::new::<NativeFn>(make_leaker));
 
-    t.vm.run_string(SCRIPT, stdlib).unwrap();
+    t.vm.queue_string(SCRIPT, stdlib).unwrap();
+    t.vm.execute().unwrap();
 
     assert!(unsafe { !B });
 

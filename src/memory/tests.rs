@@ -10,13 +10,7 @@ fn gc_can_allocate_and_clean() {
 
   gc.allocate(SomeType {});
 
-  let cleaned = gc.deep_clean(
-    &Default::default(),
-    &Default::default(),
-    &mut Default::default(),
-    &Default::default(),
-    &[],
-  );
+  let cleaned = gc.deep_clean(&Default::default(), &Default::default(), &mut Default::default(), &[]);
   assert_eq!(cleaned, 1);
 }
 
@@ -26,13 +20,7 @@ fn gc_does_not_clean_more_than_it_needs_to() {
 
   gc.allocate(SomeType {});
 
-  let cleaned = gc.deep_clean(
-    &Default::default(),
-    &Default::default(),
-    &mut Default::default(),
-    &Default::default(),
-    &[],
-  );
+  let cleaned = gc.deep_clean(&Default::default(), &Default::default(), &mut Default::default(), &[]);
 
   assert_eq!(cleaned, 1);
 }
