@@ -24,8 +24,8 @@ pub mod prelude {
   pub use super::{builtin_types::*, conv::*, Tag, Value};
 }
 
-pub(crate) type ConstVoid = *const ();
-pub(crate) type MutVoid = *mut ();
+pub(crate) type ConstVoid = ConstAddr<()>;
+pub(crate) type MutVoid = MutAddr<()>;
 
 // ensuring 64 bit platforms, redundancy is just sanity checks
 assert_eq_size!(usize, ConstVoid);
@@ -254,12 +254,16 @@ impl Value {
     (self.bits & VALUE_BITMASK) as ConstVoid
   }
 
+  pub(crate) fn pointer_t<T>(&self) -> ConstAddr<T> {
+    (self.bits & VALUE_BITMASK) as ConstAddr<T>
+  }
+
   pub(crate) fn pointer_mut(&mut self) -> MutVoid {
     (self.bits & VALUE_BITMASK) as MutVoid
   }
 
   pub(crate) fn meta(&self) -> &ValueMeta {
-    unsafe { &*((self.pointer() as *const u8).offset(META_OFFSET) as *const ValueMeta) }
+    unsafe { &*((self.pointer() as ConstAddr<u8>).offset(META_OFFSET) as ConstAddr<ValueMeta>) }
   }
 
   pub(crate) fn is_unreferenced(&self) -> bool {
@@ -728,7 +732,7 @@ impl VTable {
       deep_trace: |this, marks| <T as TraceableValue>::deep_trace(Self::cast(this), Self::typed_cast_mut(marks)),
       incremental_trace: |this, marks| <T as TraceableValue>::incremental_trace(Self::cast(this), Self::typed_cast_mut(marks)),
 
-      dealloc: |this| memory::consume(this as *mut T),
+      dealloc: |this| memory::consume(this as MutAddr<T>),
 
       type_id: || &<T as Usertype>::ID,
       type_name: || std::any::type_name::<T>().to_string(),
@@ -736,11 +740,11 @@ impl VTable {
   }
 
   fn cast<'t, T>(ptr: ConstVoid) -> &'t T {
-    unsafe { &*(ptr as *const T) }
+    unsafe { &*(ptr as ConstAddr<T>) }
   }
 
   fn cast_mut<'t, T>(ptr: MutVoid) -> &'t mut T {
-    unsafe { &mut *(ptr as *mut T) }
+    unsafe { &mut *(ptr as MutAddr<T>) }
   }
 
   fn typed_cast_mut<T>(ptr: MutPtr<T>) -> &'static mut T {

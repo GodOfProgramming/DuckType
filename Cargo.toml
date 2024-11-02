@@ -4,6 +4,7 @@ version = "0.57.0"
 authors = ["Jonathan Dickert <jonathan.dickert@protonmail.com>"]
 edition = "2021"
 default-run = "duck"
+rust-version = "1.82.0"
 
 [workspace]
 members = [".", "macros"]
@@ -47,8 +48,8 @@ interpolator = "0.5"
 
 # Git
 
-ptr = { git = "https://github.com/GodOfProgramming/ptr.git" }
-tfix = { git = "https://github.com/GodOfProgramming/tfix" }
+ptr = { git = "https://github.com/GodOfProgramming/ptr.git", rev = "a0bc545" }
+tfix = { git = "https://github.com/GodOfProgramming/tfix", rev = "0165153" }
 
 # Local
 
@@ -78,6 +79,7 @@ windows-sys = { version = "0.48", features = [
 nix = { version = "0.27", features = ["fs"] }
 
 [features]
+profile = []
 visit-ast = []
 disassemble = []
 runtime-disassembly = []

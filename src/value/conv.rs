@@ -178,7 +178,7 @@ where
   T: Usertype,
 {
   fn reinterpret_cast(&self) -> Self::CastType {
-    unsafe { &*(self.pointer() as *const T) }
+    unsafe { &*(self.pointer() as ConstAddr<T>) }
   }
 }
 
@@ -187,7 +187,7 @@ where
   T: Usertype,
 {
   fn reinterpret_cast_mut(&mut self) -> Self::CastTypeMut {
-    unsafe { &mut *(self.pointer_mut() as *mut T) }
+    unsafe { &mut *(self.pointer_mut() as MutAddr<T>) }
   }
 }
 

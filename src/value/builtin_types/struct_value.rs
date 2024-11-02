@@ -1,4 +1,4 @@
-use crate::{prelude::*, value::ConstVoid};
+use crate::prelude::*;
 use ahash::RandomState;
 use bimap::BiHashMap;
 use std::{
@@ -102,7 +102,7 @@ impl Display for StructValue {
         .members
         .iter()
         .map(|(id, value)| {
-          if value.pointer() == self as *const _ as ConstVoid {
+          if value.pointer_t::<Self>() == &raw const *self {
             format!("{}: {}", self.string_ids.get_by_right(id).unwrap(), "<self>")
           } else {
             format!("{}: {}", self.string_ids.get_by_right(id).unwrap(), value)

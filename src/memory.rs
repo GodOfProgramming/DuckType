@@ -1,7 +1,7 @@
 use super::{ModuleStack, Stack, StackFrame};
 use crate::{
   prelude::*,
-  value::{tags::*, MutVoid, ValueMeta},
+  value::{tags::*, ConstVoid, MutVoid, ValueMeta},
   FastHashSet, RapidHashSet,
 };
 use ahash::HashSetExt;
@@ -16,6 +16,9 @@ use std::{
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
 type AllocationSet = FastHashSet<Value>;
+
+pub(crate) type ConstAddr<T> = *const T;
+pub(crate) type MutAddr<T> = *mut T;
 
 pub struct Gc<D = SyncDisposal>
 where
@@ -310,20 +313,23 @@ where
   ///
   /// Without being turned into a handle or calling track, this is a memory leak
   pub(super) fn allocate_untracked<T: Usertype>(&mut self, item: T) -> Value {
-    fn allocate_type<T>(item: T) -> *mut T {
-      Box::into_raw(Box::new(item))
+    fn allocate_type<T>(item: T) -> &'static mut T {
+      unsafe { &mut *Box::into_raw(Box::new(item)) }
     }
 
-    let allocated = unsafe { &mut *allocate_type(AllocatedObject::new(item, self.is_cleaning())) };
-    self.allocated_memory += allocated.meta.size;
+    let allocated_obj = allocate_type(AllocatedObject::new(item, self.is_cleaning()));
+    self.allocated_memory += allocated_obj.meta.size;
 
-    let ptr = &mut allocated.obj as *mut T as MutVoid;
-    debug_assert_eq!(allocated as *const _ as *const (), &allocated.meta as *const _ as *const ());
+    let ptr = &raw mut allocated_obj.obj as MutVoid;
+    debug_assert_eq!(
+      &raw const *allocated_obj as ConstVoid,
+      &raw const allocated_obj.meta as ConstVoid
+    );
 
     // ensure the pointer to the allocated object is offset by the right distance
     debug_assert_eq!(
-      unsafe { (ptr as *const u8).offset(META_OFFSET) as *const () },
-      allocated as *const _ as *const ()
+      unsafe { (ptr as ConstAddr<u8>).offset(META_OFFSET) as ConstVoid },
+      &raw const *allocated_obj as ConstVoid
     );
 
     // ensure the pointer fits in 48 bits
@@ -523,8 +529,8 @@ impl Disposal for SyncDisposal {
   }
 }
 
-pub(crate) fn consume<T: Usertype>(this: *mut T) {
-  let _ = unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) };
+pub(crate) fn consume<T: Usertype>(this: MutAddr<T>) {
+  let _ = unsafe { Box::from_raw((this as MutAddr<u8>).offset(META_OFFSET) as MutAddr<AllocatedObject<T>>) };
 }
 
 fn drop_value(mut value: Value) {

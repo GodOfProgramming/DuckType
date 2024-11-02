@@ -362,6 +362,8 @@ impl Operators for Primitive {
 #[methods]
 impl Primitive {}
 
+/*
+
 pub(crate) trait ConsumeResult<T> {
   fn consume<F, O>(self, f: F) -> UsageResult<O>
   where
@@ -376,3 +378,5 @@ impl<T> ConsumeResult<T> for UsageResult<T> {
     Ok(f(self?))
   }
 }
+
+*/

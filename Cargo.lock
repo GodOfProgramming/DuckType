@@ -891,7 +891,7 @@ dependencies = [
 [[package]]
 name = "ptr"
 version = "0.1.0"
-source = "git+https://github.com/GodOfProgramming/ptr.git#54fd4b0f916acd93fc87d125d462d43d938af0d1"
+source = "git+https://github.com/GodOfProgramming/ptr.git?rev=a0bc545#a0bc5451122339c33e5df7b5ad06f5584ef5a87d"
 
 [[package]]
 name = "quick-xml"
@@ -1297,7 +1297,7 @@ dependencies = [
 [[package]]
 name = "tfix"
 version = "0.1.0"
-source = "git+https://github.com/GodOfProgramming/tfix#0165153d1bc24d51098c738f1784412e8081397b"
+source = "git+https://github.com/GodOfProgramming/tfix?rev=0165153#0165153d1bc24d51098c738f1784412e8081397b"
 dependencies = [
  "tfix_derive",
 ]
@@ -1305,7 +1305,7 @@ dependencies = [
 [[package]]
 name = "tfix_derive"
 version = "0.1.0"
-source = "git+https://github.com/GodOfProgramming/tfix#0165153d1bc24d51098c738f1784412e8081397b"
+source = "git+https://github.com/GodOfProgramming/tfix?rev=0165153#0165153d1bc24d51098c738f1784412e8081397b"
 dependencies = [
  "proc-macro2",
  "quote",

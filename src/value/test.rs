@@ -1,6 +1,8 @@
 use crate::prelude::*;
 use tfix::prelude::*;
 
+use super::ConstVoid;
+
 struct ValueTest {
   vm: Vm,
 }
@@ -25,14 +27,24 @@ impl ImplementedObject {
   }
 }
 
+#[allow(dead_code)]
 #[derive(Default, Usertype, Fields, NoMethods, NoOperators)]
 #[uuid("dc03970c-c5c2-451e-b4b1-3f62e99a042c")]
 struct UnimplementedObject {}
 
+pub(crate) trait Addr {
+  fn addr(&self) -> ConstVoid;
+}
+
+impl Addr for NativeFn {
+  fn addr(&self) -> ConstVoid {
+    *self as ConstVoid
+  }
+}
+
 #[fixture(ValueTest)]
 mod unit_tests {
   use super::*;
-  use crate::value::prelude::native_value::Addr;
 
   #[test]
   fn nil_value_is_default(_: &mut ValueTest) {

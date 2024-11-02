@@ -263,7 +263,7 @@ impl Vm {
       unsafe {
         bindings::duck_type_execute(
           self as *mut Vm as *mut std::ffi::c_void,
-          self.ctx().instructions.as_ptr() as *const u64,
+          self.ctx().instructions.as_ptr() as ConstAddr<u64>,
           self.stack_frame.ip_ptr(),
         )
       };

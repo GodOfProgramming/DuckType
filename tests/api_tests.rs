@@ -19,12 +19,14 @@ impl TestFixture for ApiTest {
 
 #[fixture(ApiTest)]
 mod tests {
+  use ptr::MutPtr;
+
   use super::*;
 
   #[derive(Usertype, Fields, NoOperators)]
   #[uuid("8d77f7e3-ccad-4214-a7d1-98f283b7a624")]
   struct Leaker {
-    b: &'static mut bool,
+    b: MutPtr<bool>,
 
     #[trace]
     this: Value,
@@ -71,7 +73,12 @@ mod tests {
     #[native]
     fn make_leaker() -> UsageResult<Leaker> {
       Ok(Leaker {
-        b: unsafe { &mut B },
+        b: MutPtr::from(
+          #[allow(unused_unsafe)]
+          unsafe {
+            &raw mut B
+          },
+        ),
         this: Value::nil,
       })
     }

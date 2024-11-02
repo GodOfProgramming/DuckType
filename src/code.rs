@@ -12,6 +12,7 @@ pub mod ast;
 pub mod bytecode;
 pub mod lex;
 
+#[derive(Clone)]
 pub(crate) struct CompileOpts {
   pub(crate) optimize: bool,
 }
