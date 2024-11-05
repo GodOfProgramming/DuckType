@@ -87,12 +87,9 @@ impl<'p> BytecodeGenerator<'p> {
       self.emit_stmt(stmt);
     }
 
-    if !self.locals.is_empty() {
-      self.emit((Opcode::PopN, self.locals.len()), SourceLocation { line: 0, column: 0 });
-    }
-
     // breaks out of the fetch exec loop in the vm
-    self.emit(Opcode::Ret, SourceLocation { line: 0, column: 0 });
+    let local_count = self.locals.len();
+    self.emit((Opcode::Ret, local_count), SourceLocation { line: 0, column: 0 });
 
     if self.errors.is_empty() {
       Ok(self.ctx)
@@ -271,10 +268,7 @@ impl<'p> BytecodeGenerator<'p> {
     }
 
     let locals = self.num_locals_in_exclusive_depth(self.fn_depth);
-    if locals > 0 {
-      self.emit((Opcode::PopN, locals), stmt.loc);
-    }
-    self.emit(Opcode::Ret, stmt.loc);
+    self.emit((Opcode::Ret, locals), stmt.loc);
   }
 
   fn use_stmt(&mut self, stmt: UseStatement) {
@@ -1041,13 +1035,16 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn reduce_locals_to_depth(&mut self, depth: usize, loc: SourceLocation) {
-    let count = self.num_locals_in_exclusive_depth(depth);
-
-    self.locals.truncate(self.locals.len().saturating_sub(count));
-
+    let count = self.pop_locals(depth);
     if count > 0 {
       self.emit((Opcode::PopN, count), loc);
     }
+  }
+
+  fn pop_locals(&mut self, depth: usize) -> usize {
+    let count = self.num_locals_in_exclusive_depth(depth);
+    self.locals.truncate(self.locals.len().saturating_sub(count));
+    count
   }
 
   fn num_locals_in_exclusive_depth(&self, depth: usize) -> usize {
@@ -1118,9 +1115,9 @@ impl<'p> BytecodeGenerator<'p> {
 
         this.emit_stmt(body);
 
-        this.reduce_locals_to_depth(this.fn_depth, loc);
+        let local_count = this.pop_locals(this.fn_depth);
 
-        this.emit(Opcode::Ret, loc);
+        this.emit((Opcode::Ret, local_count), loc);
 
         let ctx = this.current_fn.take().unwrap();
 

@@ -327,9 +327,9 @@ pub enum Opcode {
   ///
   /// Encoding: None
   Req,
-  /// Exits from a function, returning nil on the previous frame
+  /// Exits from a function, returning nil on the previous frame. Number of locals to pop is specified by the modifying bits
   ///
-  /// Encoding: None
+  /// Encoding: | usize |
   Ret,
   /// Mark the current value as exported
   ///
@@ -987,6 +987,10 @@ impl<'p> Display for InstructionDisassembler<'p> {
           Self::value_column(stack.len() - 1 - addr_a.0),
           Self::value_column(stack.len() - 1 - addr_b.0)
         )
+      }
+      Opcode::Ret => {
+        let local_count = inst.data::<usize>();
+        write!(f, "{} {}", Self::opcode_column("Ret"), Self::value_column(local_count))
       }
       x => write!(f, "{}", Self::opcode_column(format!("{:?}", x))),
     }

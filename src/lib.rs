@@ -372,7 +372,10 @@ impl Vm {
           self.exec_req()?;
           continue 'fetch_cycle;
         }
-        Opcode::Ret => break 'fetch_cycle,
+        Opcode::Ret => {
+          self.exec_pop_n(inst.data());
+          break 'fetch_cycle;
+        }
         Opcode::Export => self.exec_export(),
         Opcode::DefineGlobal => self.exec_define_global(inst.data())?,
         Opcode::DefineScope => self.exec_define_scope(inst.data())?,
