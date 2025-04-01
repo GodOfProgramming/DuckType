@@ -3,7 +3,7 @@ pub const TAG_BITMASK: u64 = F64_MAX | 0x0007000000000000;
 pub const VALUE_BITMASK: u64 = !TAG_BITMASK;
 
 const fn make_tag<const I: u64>() -> u64 {
-  I << 48 | F64_MAX
+  (I << 48) | F64_MAX
 }
 
 pub const I32_TAG: u64 = make_tag::<1>();
@@ -30,7 +30,7 @@ mod unused_idea {
   pub const PRIMITIVE_VALUE_BITMASK: u64 = (2u64.pow(32) - 1) << 32;
 
   const fn make_variant<const I: u64, const V: u64>() -> u64 {
-    I | reverse_bits::<V>() >> 16
+    I | (reverse_bits::<V>() >> 16)
   }
 
   const fn reverse_bits<const N: u64>() -> u64 {
