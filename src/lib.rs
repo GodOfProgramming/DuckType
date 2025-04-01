@@ -8,6 +8,8 @@ pub(crate) mod dbg;
 pub mod error;
 pub(crate) mod exec;
 mod memory;
+#[cfg(feature = "profiling")]
+pub mod perf;
 pub mod stdlib;
 mod util;
 pub(crate) mod value;
@@ -403,13 +405,13 @@ impl Vm {
       bindings::duck_type_execute(
         self as *mut Vm as *mut std::ffi::c_void,
         self.ctx().instructions.as_ptr() as ConstAddr<u64>,
-        self.stack_frame.ip_ptr(),
+        self.stack_frame_mut().ip_ptr(),
       )
     };
 
     let mut result = Ok(());
 
-    mem::swap(&mut result, &mut self.last_error);
+    std::mem::swap(&mut result, &mut self.last_error);
 
     result
   }

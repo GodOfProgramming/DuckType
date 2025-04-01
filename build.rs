@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
       .cpp(true)
       .define(
         "DISASM_ENABLED",
-        if cfg!(features = "runtime-disassembly") { "1" } else { "0" },
+        if cfg!(feature = "runtime-disassembly") { "1" } else { "0" },
       )
       .files(SOURCES)
       .compile("ffi");

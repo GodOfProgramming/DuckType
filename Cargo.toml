@@ -20,16 +20,18 @@ name = "ducktype"
 uuid = { version = "1.4", features = ["v4", "macro-diagnostics"] }
 
 [dependencies]
-nohash-hasher = "0.2.0"
 ahash = "0.8"
 anyhow = "1.0"
 bimap = "0.6"
+chrono = { version = "0.4.39", optional = true }
 clap = { version = "4.4", features = ["derive"] }
 dlopen2 = "0.6"
 enum-map = "2.7"
 horrorshow = "0.8"
+interpolator = "0.5"
 itertools = "0.11"
 lazy-regex = "3.0"
+nohash-hasher = "0.2.0"
 once_cell = "1.18"
 rand = "0.8"
 regex = "1.10"
@@ -43,8 +45,17 @@ termion = "2.0"
 thiserror = "1.0"
 uuid = { workspace = true }
 
-pprof = { version = "0.13", features = ["flamegraph"] }
-interpolator = "0.5"
+profiling = "1.0.16"
+tracing = { version = "0.1.41", optional = true }
+tracing-subscriber = { version = "0.3.1", optional = true, features = [
+  "env-filter",
+] }
+
+tracing-tracy = { version = "0.11.0", optional = true, features = [
+  "flush-on-exit",
+] }
+tracy-client = { version = "0.18.0", optional = true }
+tracing-chrome = { version = "0.7.2", optional = true }
 
 # Git
 
@@ -60,7 +71,7 @@ pretty_assertions = "1.4"
 evalexpr = "11.1"
 
 [build-dependencies]
-bindgen = "0.69"
+bindgen = "0.71.1"
 cc = "1.0"
 
 [profile.release]
@@ -79,7 +90,14 @@ windows-sys = { version = "0.48", features = [
 nix = { version = "0.27", features = ["fs"] }
 
 [features]
-profile = []
+profiling = [
+  "profiling/profile-with-tracing",
+  "dep:tracing",
+  "dep:tracing-subscriber",
+]
+tracing-tracy = ["profiling", "dep:tracing-tracy", "dep:tracy-client"]
+tracing-chrome = ["profiling", "dep:tracing-chrome", "dep:chrono"]
+
 visit-ast = []
 disassemble = []
 runtime-disassembly = []
