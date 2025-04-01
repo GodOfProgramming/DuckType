@@ -1,6 +1,6 @@
 [package]
 name = "ducktype"
-version = "0.57.0"
+version = "0.58.0"
 authors = ["Jonathan Dickert <jonathan.dickert@protonmail.com>"]
 edition = "2024"
 rust-version = "1.85.1"
