@@ -25,8 +25,8 @@ pub mod prelude {
 
 pub mod macro_requirements {
   pub use crate::prelude::{
-    methods, native, Args, Fields, MakeValueFrom, MaybeFrom, ModuleBuilder, Operators, TryUnwrapArg, UsageError, UsageResult,
-    Usertype, UsertypeFields, UsertypeMethods, Value, Vm,
+    Args, Fields, MakeValueFrom, MaybeFrom, ModuleBuilder, Operators, TryUnwrapArg, UsageError, UsageResult, Usertype,
+    UsertypeFields, UsertypeMethods, Value, Vm, methods, native,
   };
   pub use uuid;
 }
@@ -47,7 +47,7 @@ use {
   nohash_hasher::BuildNoHashHasher,
   prelude::module_value::ModuleType,
   ptr::{MutPtr, SmartPtr},
-  rustyline::{error::ReadlineError, DefaultEditor},
+  rustyline::{DefaultEditor, error::ReadlineError},
   std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
@@ -61,6 +61,8 @@ type FastHashMap<K, V> = HashMap<K, V, RandomState>;
 
 type RapidHashMap<K, V> = HashMap<K, V, BuildNoHashHasher<K>>;
 type RapidHashSet<T> = HashSet<T, BuildNoHashHasher<T>>;
+
+const NDEBUG: bool = !cfg!(debug_assertions);
 
 pub const EXTENSION: &str = "dk";
 
@@ -838,14 +840,15 @@ impl Vm {
 
         self.stack_push(value);
       }
-      _ => {
-        match self.cache.get_lib(file_id) { Some(value) => {
+      _ => match self.cache.get_lib(file_id) {
+        Some(value) => {
           self.stack_push(value);
-        } _ => {
+        }
+        _ => {
           let gmod = self.generate_stdlib(format!("<file export {}>", found_file.display()));
           self.queue_file(found_file, gmod)?;
-        }}
-      }
+        }
+      },
     }
 
     Ok(())

@@ -1,8 +1,8 @@
 use super::{ModuleStack, Stack, StackFrame};
 use crate::{
-  prelude::*,
-  value::{tags::*, ConstVoid, MutVoid, ValueMeta},
   FastHashSet, RapidHashSet,
+  prelude::*,
+  value::{ConstVoid, MutVoid, ValueMeta, tags::*},
 };
 use ahash::HashSetExt;
 use ptr::MutPtr;
@@ -558,7 +558,7 @@ where
 {
   pub fn new(mut handle: ValueHandle) -> Self {
     Self {
-      usertype: MutPtr::new(handle.value.reinterpret_cast_to_mut::<T>()),
+      usertype: MutPtr::new(handle.value.unchecked_cast_to_mut::<T>()),
       handle,
     }
   }
