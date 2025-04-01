@@ -41,18 +41,29 @@ def benchmark(descriptor, reps)
   end
 end
 
+def simple_function
+end
+
+def fib n
+  if n <= 1
+    n
+  else
+    fib(n - 2) + fib(n - 1)
+  end
+end
+
+puts RubyVM::InstructionSequence.disasm(method(:fib))
+
+exit(0)
+
 REPS = 10_000_000
 
 x = 0
-
 benchmark('simple math', REPS) do |timer, i|
   timer.start
   i += 1
   x += i + i * i / i % i
   timer.stop
-end
-
-def simple_function
 end
 
 benchmark('function calls', REPS) do |timer, _i|
@@ -67,14 +78,6 @@ benchmark('global & member access', REPS) do |timer, _|
   timer.start
   $OBJ.foobarbaz
   timer.stop
-end
-
-def fib n
-  if n <= 1
-    n
-  else
-    fib(n - 2) + fib(n - 1)
-  end
 end
 
 benchmark("fib", 1) do |timer, _|
