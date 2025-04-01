@@ -15,7 +15,6 @@ use std::fmt::{self, Display, Formatter};
 pub enum Statement {
   Block(BlockStatement),
   Break(BreakStatement),
-  Next(NextStatement),
   Class(ClassStatement),
   Export(ExportStatement),
   Fn(FnStatement),
@@ -25,6 +24,7 @@ pub enum Statement {
   Loop(LoopStatement),
   Match(MatchStatement),
   Mod(ModStatement),
+  Next(NextStatement),
   Println(PrintlnStatement),
   Quack(QuackStatement),
   Req(ReqStatement),
@@ -139,12 +139,6 @@ impl From<BreakStatement> for Statement {
   }
 }
 
-impl From<NextStatement> for Statement {
-  fn from(stmt: NextStatement) -> Self {
-    Self::Next(stmt)
-  }
-}
-
 impl From<ClassStatement> for Statement {
   fn from(stmt: ClassStatement) -> Self {
     Self::Class(stmt)
@@ -196,6 +190,12 @@ impl From<MatchStatement> for Statement {
 impl From<ModStatement> for Statement {
   fn from(stmt: ModStatement) -> Self {
     Self::Mod(stmt)
+  }
+}
+
+impl From<NextStatement> for Statement {
+  fn from(stmt: NextStatement) -> Self {
+    Self::Next(stmt)
   }
 }
 
