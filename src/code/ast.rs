@@ -14,11 +14,6 @@ use std::{
   mem,
 };
 pub use stmt::*;
-#[cfg(feature = "visit-ast")]
-use {
-  horrorshow::{helper::doctype, html},
-  std::path::Path,
-};
 
 const SELF_IDENT: &str = "self";
 
@@ -46,37 +41,14 @@ pub fn generate(file_id: Option<FileIdType>, tokens: Vec<Token>, meta: Vec<Sourc
 
 pub use opt::optimize;
 
-use super::{lex::Token, SourceLocation};
+use super::{SourceLocation, lex::Token};
 
 pub struct Ast {
   pub statements: Vec<Statement>,
 }
 
 impl Ast {
-  #[cfg(feature = "visit-ast")]
-  #[allow(dead_code)]
-  pub fn dump(&self, file: &Path) {
-    let out = html! {
-      : doctype::HTML;
-      head {
-        title: "AST";
-        link(rel="stylesheet", href="ast.css");
-        script(src="ast.js");
-      }
-      body(class="vertically-centered") {
-        |tmpl| {
-          for statement in &self.statements {
-            statement.dump(tmpl);
-          }
-        }
-      }
-    };
-    std::fs::write(
-      format!("assets/{}.html", file.file_name().unwrap().to_string_lossy()),
-      format!("{}", out),
-    )
-    .unwrap();
-  }
+  pub fn dump(&self, file: &std::path::Path) {}
 }
 
 pub(crate) struct AstGenerator {
@@ -133,10 +105,6 @@ impl AstGenerator {
         self.advance();
         BreakStatement::stmt(self);
       }
-      Token::Cont => {
-        self.advance();
-        ContStatement::stmt(self);
-      }
       Token::Class => {
         self.advance();
         ClassStatement::stmt(self);
@@ -176,6 +144,10 @@ impl AstGenerator {
       Token::Mod => {
         self.advance();
         ModStatement::stmt(self);
+      }
+      Token::Next => {
+        self.advance();
+        NextStatement::stmt(self);
       }
       Token::Println => {
         self.advance();
@@ -630,7 +602,7 @@ impl AstGenerator {
       Token::As => ParseRule::new(None, None, Precedence::None),
       Token::Break => ParseRule::new(None, None, Precedence::None),
       Token::Class => ParseRule::new(Some(ClassExpression::prefix), None, Precedence::Primary),
-      Token::Cont => ParseRule::new(None, None, Precedence::None),
+      Token::Next => ParseRule::new(None, None, Precedence::None),
       Token::Else => ParseRule::new(None, None, Precedence::None),
       Token::Export => ParseRule::new(None, None, Precedence::None),
       Token::False => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),

@@ -117,11 +117,6 @@ impl<'p> BytecodeGenerator<'p> {
     self.breaks.push(jmp);
   }
 
-  fn cont_stmt(&mut self, stmt: ContStatement) {
-    let jmp = self.emit_placeholder(stmt.loc);
-    self.continues.push(jmp);
-  }
-
   fn class_stmt(&mut self, stmt: ClassStatement) {
     self.emit_expr(stmt.class);
     self.emit(Opcode::Pop, stmt.loc);
@@ -237,6 +232,11 @@ impl<'p> BytecodeGenerator<'p> {
   fn mod_stmt(&mut self, stmt: ModStatement) {
     self.emit_expr(stmt.body);
     self.emit(Opcode::Pop, stmt.loc);
+  }
+
+  fn next_stmt(&mut self, stmt: NextStatement) {
+    let jmp = self.emit_placeholder(stmt.loc);
+    self.continues.push(jmp);
   }
 
   fn println_stmt(&mut self, stmt: PrintlnStatement) {
@@ -733,14 +733,9 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn emit_stmt(&mut self, stmt: Statement) {
-    #[cfg(feature = "visit-ast")]
-    {
-      println!("stmt {}", stmt);
-    }
     match stmt {
       Statement::Block(stmt) => self.block_stmt(stmt),
       Statement::Break(stmt) => self.break_stmt(stmt),
-      Statement::Cont(stmt) => self.cont_stmt(stmt),
       Statement::Class(stmt) => self.class_stmt(stmt),
       Statement::Export(stmt) => self.export_stmt(stmt),
       Statement::Fn(stmt) => self.fn_stmt(stmt),
@@ -750,6 +745,7 @@ impl<'p> BytecodeGenerator<'p> {
       Statement::Loop(stmt) => self.loop_stmt(stmt),
       Statement::Match(stmt) => self.match_stmt(stmt),
       Statement::Mod(stmt) => self.mod_stmt(stmt),
+      Statement::Next(stmt) => self.next_stmt(stmt),
       Statement::Println(stmt) => self.println_stmt(stmt),
       Statement::Quack(stmt) => self.quack_stmt(stmt),
       Statement::Req(stmt) => self.req_stmt(stmt),
@@ -762,10 +758,6 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn emit_expr(&mut self, expr: Expression) {
-    #[cfg(feature = "visit-ast")]
-    {
-      println!("expr {}", expr);
-    }
     match expr {
       Expression::And(expr) => self.and_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),

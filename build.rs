@@ -1,6 +1,14 @@
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
+  #[cfg(target_os = "linux")]
+  linux_main()?;
+
+  Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_main() -> Result<(), Box<dyn Error>> {
   #[cfg(feature = "jtbl")]
   {
     const SOURCES: &[&str] = &["src/cpp/lib.cpp"];
@@ -29,7 +37,7 @@ fn main() -> Result<(), Box<dyn Error>> {
       .cpp(true)
       .define(
         "DISASM_ENABLED",
-        if cfg!(features = "runtime-disassembly") { "1" } else { "0" },
+        if cfg!(feature = "runtime-disassembly") { "1" } else { "0" },
       )
       .files(SOURCES)
       .compile("ffi");

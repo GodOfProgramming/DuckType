@@ -148,6 +148,7 @@ impl Value {
 
   // value methods
 
+  #[profiling::function]
   pub fn call(&mut self, vm: &mut Vm, airity: usize) -> UsageResult<()> {
     if let Some(f) = self.cast_to::<NativeFn>() {
       let args = vm.stack_drain_from(airity);

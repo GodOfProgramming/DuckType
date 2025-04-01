@@ -1,8 +1,10 @@
 req "lib/brood/bench" as bench;
 
 use bench::benchmark;
+use bench::DISABLED_PREFIX;
 
-let REPS = 10_000_000;
+# let REPS = 10_000_000;
+let REPS = 1024;
 
 let x = 0;
 
@@ -16,13 +18,9 @@ fn fib(n) {
   }
 }
 
-println(std::reflect::disasm(fib));
-
-std::ps::exit(0);
-
 std::vm::gc::print_stats();
 
-benchmark("simple math", REPS, [x] |timer: Timer, i| {
+benchmark(DISABLED_PREFIX + "simple math", REPS, [x] |timer: Timer, i| {
   timer.start();
   i += 1;
   x += i + i * i / i % i;
@@ -32,7 +30,7 @@ benchmark("simple math", REPS, [x] |timer: Timer, i| {
 std::vm::gc::print_stats();
 std::vm::gc::reset_stats();
 
-benchmark("function calls", REPS, |timer: Timer, _i| {
+benchmark(DISABLED_PREFIX + "function calls", REPS, |timer: Timer, _i| {
   timer.start();
   simple_function();
   timer.stop();
@@ -45,7 +43,7 @@ let $OBJ = struct {
   foobarbaz: "foobarbaz"
 };
 
-benchmark("global & member access", REPS, |timer: Timer, _| {
+benchmark(DISABLED_PREFIX + "global & member access", REPS, |timer: Timer, _| {
   timer.start();
   $OBJ.foobarbaz;
   timer.stop();
@@ -56,7 +54,7 @@ std::vm::gc::reset_stats();
 
 benchmark("fib", 1, |timer: Timer, _| {
   timer.start();
-  fib(39);
+  fib(30);
   timer.stop();
 });
 

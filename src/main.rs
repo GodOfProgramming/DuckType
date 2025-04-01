@@ -39,32 +39,18 @@ enum Command {
 fn main() -> Result<(), Error> {
   let args = Args::parse();
 
+  #[cfg(feature = "profiling")]
+  let _guards = ducktype::perf::enable_profiling();
+
   match args.command {
     Command::Uuid => println!("{}", Uuid::new_v4()),
     Command::Run { file } => {
       let gc = Gc::new(Memory::Mb(args.gc_mb));
       let mut vm = Vm::new(gc, args.optimize, args.runargs);
-
-      #[cfg(feature = "profile")]
-      let guard = {
-        pprof::ProfilerGuardBuilder::default()
-          .frequency(1000)
-          .blocklist(&["libc", "libgcc", "libdl", "libm", "libpthread", "linux-vdso"])
-          .build()
-          .unwrap()
-      };
-
       let gmod = vm.generate_stdlib("*main*");
       vm.queue_file(file.clone(), gmod)?;
       let value = vm.execute()?;
       println!("=> {value}");
-
-      #[cfg(feature = "profile")]
-      if let Ok(report) = guard.report().build() {
-        use std::fs::File;
-        let file = File::create("target/flamegraph.svg").unwrap();
-        report.flamegraph(file).unwrap();
-      }
     }
     Command::Pipe => {
       let gc = Gc::new(Memory::Mb(args.gc_mb));

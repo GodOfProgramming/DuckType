@@ -1,8 +1,6 @@
 mod literals;
 mod ops;
 
-#[cfg(feature = "visit-ast")]
-use horrorshow::{html, prelude::*};
 use std::fmt::{Display, Formatter};
 
 pub use literals::*;
@@ -36,69 +34,7 @@ pub enum Expression {
 }
 
 impl Expression {
-  #[cfg(feature = "visit-ast")]
-  pub(super) fn dump(&self, tmpl: &mut TemplateBuffer) {
-    match self {
-      Expression::And(_) => (),
-      Expression::Assign(_) => (),
-      Expression::Binary(_) => (),
-      Expression::BinaryRegister(_) => (),
-      Expression::Call(_) => (),
-      Expression::Class(c) => {
-        if let Some(init) = &c.initializer {
-          html! {
-            div(class="children") {
-              div(class="vertically-centered") {
-                div(class="bubble") : "new";
-                |tmpl| init.dump(tmpl);
-              }
-              @ for (ident, method) in c.methods.iter() {
-                div(class="vertically-centered") {
-                  div(class="bubble") : format_args!("fn {}", ident.to_string());
-                  |tmpl| method.dump(tmpl);
-                }
-              }
-            }
-          }
-          .render(tmpl);
-        } else {
-          html! {
-            div(class="children") {
-              @ for (ident, method) in c.methods.iter() {
-                div(class="vertically-centered") {
-                  div(class="bubble") : format_args!("fn {}", ident.to_string());
-                  |tmpl| method.dump(tmpl);
-                }
-              }
-            }
-          }
-          .render(tmpl);
-        }
-      }
-      Expression::Closure(c) => c.body.dump(tmpl),
-      Expression::Ident(_) => (),
-      Expression::Index(_) => (),
-      Expression::Is(_) => (),
-      Expression::Lambda(l) => l.body.dump(tmpl),
-      Expression::Literal(l) => {
-        html! {
-          : l.value.to_string();
-        }
-        .render(tmpl);
-      }
-      Expression::MemberAccess(_) => (),
-      Expression::Method(m) => m.body.dump(tmpl),
-      Expression::Mod(_) => (),
-      Expression::Or(_) => (),
-      Expression::Req(_) => (),
-      Expression::ScopeResolution(_) => (),
-      Expression::Struct(_) => (),
-      Expression::Unary(_) => (),
-      Expression::Vec(_) => (),
-      Expression::SizedVec(_) => (),
-      Expression::DynVec(_) => (),
-    }
-  }
+  pub(super) fn dump(&self) {}
 }
 
 impl Display for Expression {

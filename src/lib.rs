@@ -8,6 +8,8 @@ pub(crate) mod dbg;
 pub mod error;
 pub(crate) mod exec;
 mod memory;
+#[cfg(feature = "profiling")]
+pub mod perf;
 pub mod stdlib;
 mod util;
 pub(crate) mod value;
@@ -241,16 +243,17 @@ impl Vm {
   /// Main execution loop
   ///
   /// * `exec_type` - The mode in which this call to execute was made. Used to remove the right scope level when early returning from a function call
+  #[profiling::function]
   pub fn execute(&mut self) -> ExecResult<Value> {
     let mut export = Value::nil;
 
     while !self.call_stack.is_empty() {
       // Loop over instructions executing each
       // Uses loop instead of while because the last statement in any function or source file is a return which breaks the loop
-      #[cfg(not(feature = "jtbl"))]
+      #[cfg(any(windows, not(feature = "jtbl")))]
       self.exec()?;
 
-      #[cfg(feature = "jtbl")]
+      #[cfg(all(target_os = "linux", feature = "jtbl"))]
       self.exec_jtbl()?;
 
       export = self.stack_frame().export.unwrap_or_default();
@@ -396,20 +399,20 @@ impl Vm {
     Ok(())
   }
 
-  #[cfg(feature = "jtbl")]
+  #[cfg(all(target_os = "linux", feature = "jtbl"))]
   fn exec_jtbl(&mut self) -> ExecResult<()> {
     // Call out to C++ to leverage "goto" and a manually created jump table to avoid overhead from match/switch & loops
     unsafe {
       bindings::duck_type_execute(
         self as *mut Vm as *mut std::ffi::c_void,
         self.ctx().instructions.as_ptr() as ConstAddr<u64>,
-        self.stack_frame.ip_ptr(),
+        self.stack_frame_mut().ip_ptr(),
       )
     };
 
     let mut result = Ok(());
 
-    mem::swap(&mut result, &mut self.last_error);
+    std::mem::swap(&mut result, &mut self.last_error);
 
     result
   }
@@ -460,28 +463,8 @@ impl Vm {
 /* ops */
 // function descriptions can be looked up by the associated opcode
 
+#[profiling::all_functions]
 impl Vm {
-  #[allow(unused)]
-  fn exec_disasm(&self, inst: Instruction) {
-    #[cfg(feature = "runtime-disassembly")]
-    {
-      self.stack_display();
-
-      println!(
-        "{}",
-        InstructionDisassembler {
-          ctx: &ContextDisassembler {
-            ctx: self.ctx(),
-            stack: &self.stack,
-            cache: &self.cache,
-          },
-          inst,
-          offset: self.stack_frame().ip(),
-        }
-      );
-    }
-  }
-
   fn exec_pop(&mut self) {
     self.stack_pop();
   }
@@ -1121,6 +1104,7 @@ impl Vm {
 /* op delegates */
 
 impl Vm {
+  #[profiling::function]
   fn unary_op<F1, F2>(&mut self, f1: F1, f2: F2) -> Result<(), UsageError>
   where
     F1: FnOnce(&VTable) -> NativeUnaryOp,
@@ -1160,6 +1144,7 @@ impl Vm {
     Ok(())
   }
 
+  #[profiling::function]
   fn invoke_binary_op<F1, F2>(&mut self, av: Value, bv: Value, f1: F1, f2: F2) -> Result<Value, UsageError>
   where
     F1: FnOnce(&VTable) -> NativeBinaryOp,
@@ -1190,6 +1175,7 @@ impl Vm {
     self.do_binary_op(av, bv, f1, |a, b| Ok(Value::from(f2(a, b))))
   }
 
+  #[profiling::function]
   fn call_value(&mut self, mut callable: Value, airity: usize) -> UsageResult<()> {
     callable.call(self, airity)
   }
@@ -1203,30 +1189,36 @@ impl Vm {
     }
   }
 
+  #[profiling::function]
   fn exec_load_stack(&mut self, loc: LongAddr) {
     self.stack_push(self.stack_load_rev(loc));
   }
 
+  #[profiling::function]
   fn exec_load_local(&mut self, loc: LongAddr) {
     self.stack_push(self.stack_load(self.stack_frame().bp + loc.0));
   }
 
+  #[profiling::function]
   fn exec_load_global(&mut self, loc: LongAddr) -> OpResult {
     let var = self.value_of_ident(loc)?;
     self.stack_push(var);
     Ok(())
   }
 
+  #[profiling::function]
   fn exec_store_stack(&mut self, loc: LongAddr) {
     let value = self.stack_pop();
     self.stack_store_rev(loc.0, value);
   }
 
+  #[profiling::function]
   fn exec_store_local(&mut self, loc: LongAddr) {
     let value = self.stack_peek();
     self.stack_store(self.stack_frame().bp + loc.0, value);
   }
 
+  #[profiling::function]
   fn exec_store_global(&mut self, loc: LongAddr) -> OpResult {
     self.validate_ident_and(loc, |this, name| {
       let value = this.stack_peek();
@@ -1358,6 +1350,7 @@ impl Vm {
   }
 
   /// when f evaluates to true, short circuit
+  #[profiling::function]
   fn exec_logical<F: FnOnce(Value) -> bool>(&mut self, offset: usize, f: F) {
     let value = self.stack_peek();
     if f(value) {
@@ -1376,6 +1369,27 @@ impl Vm {
 /* Utility Functions */
 
 impl Vm {
+  #[allow(unused)]
+  fn exec_disasm(&self, inst: Instruction) {
+    #[cfg(feature = "runtime-disassembly")]
+    {
+      self.stack_display();
+
+      println!(
+        "{}",
+        InstructionDisassembler {
+          ctx: &ContextDisassembler {
+            ctx: self.ctx(),
+            stack: &self.stack,
+            cache: &self.cache,
+          },
+          inst,
+          offset: self.stack_frame().ip(),
+        }
+      );
+    }
+  }
+
   pub fn generate_stdlib(&mut self, global_mod_name: impl ToString) -> UsertypeHandle<ModuleValue> {
     let args = self.args.clone();
     ModuleBuilder::initialize(self, ModuleType::new_global(global_mod_name), |vm, mut lib| {
@@ -1511,19 +1525,24 @@ impl Vm {
   ///
   /// In short, primitive globals cached in the current module won't have their value updated
   /// if modified outside of that scope
+  #[profiling::function]
   fn value_of_ident(&self, ident_loc: impl Into<usize>) -> OpResult<Value> {
-    let ident = ident_loc.into();
+    let ident: usize = ident_loc.into();
     let module = current_module!(self);
     let hit = self.cache.find_var(module, ident);
     match hit {
       Some(hit) => {
+        profiling::scope!("module cache hit");
         cache_hit!();
         Ok(hit)
       }
       None => match self.cache.const_at(ident) {
-        ConstantValue::String(name) => current_module!(self)
-          .lookup(name)
-          .ok_or_else(|| UsageError::UndefinedVar(name.clone())),
+        ConstantValue::String(name) => {
+          profiling::scope!("module cache miss");
+          current_module!(self)
+            .lookup(name)
+            .ok_or_else(|| UsageError::UndefinedVar(name.clone()))
+        }
         name => Err(UsageError::InvalidIdentifier(name.to_string()))?,
       },
     }

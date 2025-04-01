@@ -1,14 +1,19 @@
+use crate::{ConstAddr, MutAddr};
+
 use super::*;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::{
-  ffi::{c_void, CString},
+  ffi::{CString, c_void},
   mem,
 };
 use windows_sys::Win32::{
-  Foundation::{GENERIC_ACCESS_RIGHTS, GENERIC_READ, HANDLE},
+  Foundation::{GENERIC_ACCESS_RIGHTS, GENERIC_READ},
   Storage::FileSystem::{
-    self, FileIdInfo, FILE_ATTRIBUTE_NORMAL, FILE_CREATION_DISPOSITION, FILE_FLAGS_AND_ATTRIBUTES, FILE_ID_128, FILE_ID_INFO,
-    FILE_INFO_BY_HANDLE_CLASS, FILE_SHARE_MODE, FILE_SHARE_READ, OPEN_EXISTING,
+    self, FILE_ATTRIBUTE_NORMAL, FILE_CREATION_DISPOSITION, FILE_FLAGS_AND_ATTRIBUTES, FILE_ID_128, FILE_ID_INFO,
+    FILE_INFO_BY_HANDLE_CLASS, FILE_SHARE_MODE, FILE_SHARE_READ, FileIdInfo, OPEN_EXISTING,
+  },
+  System::Console::{
+    CONSOLE_SCREEN_BUFFER_INFO, COORD, GetConsoleScreenBufferInfo, GetStdHandle, SMALL_RECT, STD_OUTPUT_HANDLE,
   },
 };
 
@@ -39,7 +44,7 @@ impl FileMetadata for WindowsMetadata {
         std::ptr::null(),
         CREATION_DISPOSITION,
         ATTRIBUTE_FLAGS,
-        HANDLE::default(),
+        std::ptr::null_mut(),
       )
     };
 
@@ -62,5 +67,33 @@ impl FileMetadata for WindowsMetadata {
     } else {
       bail!("failed to query file info");
     }
+  }
+}
+
+pub(super) fn terminal_width() -> Result<usize> {
+  let mut csbi = CONSOLE_SCREEN_BUFFER_INFO {
+    dwSize: COORD { X: 0, Y: 0 },
+    dwCursorPosition: COORD { X: 0, Y: 0 },
+    wAttributes: 0,
+    srWindow: SMALL_RECT {
+      Left: 0,
+      Top: 0,
+      Right: 0,
+      Bottom: 0,
+    },
+    dwMaximumWindowSize: COORD { X: 0, Y: 0 },
+  };
+
+  let res = unsafe {
+    GetConsoleScreenBufferInfo(
+      GetStdHandle(STD_OUTPUT_HANDLE),
+      &mut csbi as MutAddr<CONSOLE_SCREEN_BUFFER_INFO>,
+    )
+  };
+
+  if res != 0 {
+    Ok(csbi.dwSize.X as usize)
+  } else {
+    bail!("failed to query console info");
   }
 }

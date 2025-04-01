@@ -5,12 +5,12 @@ pub mod prelude {
   };
 }
 
-use crate::prelude::*;
 use crate::{
   RapidHashMap,
   code::{ConstantValue, InstructionMetadata},
   util::FileIdType,
 };
+use crate::{prelude::*, util};
 use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
@@ -107,7 +107,7 @@ where
 
 #[derive(Hash, Default, Clone, Copy, Debug, PartialEq, Eq, EnumCount, FromRepr, EnumIter)]
 #[repr(u8)]
-#[cfg_attr(feature = "jtbl", macros::opcode_bindings(crate::bindings))]
+#[cfg_attr(all(target_os = "linux", feature = "jtbl"), macros::opcode_bindings(crate::bindings))]
 pub enum Opcode {
   /// Pops a value off the stack
   ///
@@ -1012,9 +1012,7 @@ impl Display for Stack {
     if self.is_empty() {
       write!(f, "               | [ ]")
     } else {
-      let cols = termion::terminal_size()
-        .map(|(c, _)| c.saturating_sub(22) as usize)
-        .unwrap_or(64);
+      let cols = util::terminal_width().map(|c| c.saturating_sub(22)).unwrap_or(64);
       let formatted = self.iter().rev().enumerate().map(|(index, item)| {
         let mut vs = format!("{item:?}");
         if vs.len() > cols {

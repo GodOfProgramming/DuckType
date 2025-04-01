@@ -3,19 +3,16 @@ mod control;
 mod decl;
 
 use super::{AstGenerator, AstStatement, Expression};
-use crate::code::{lex::Token, SourceLocation};
+use crate::code::{SourceLocation, lex::Token};
 pub use actions::*;
 pub use control::*;
 pub use decl::*;
-#[cfg(feature = "visit-ast")]
-use horrorshow::{html, prelude::*};
 use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug)]
 pub enum Statement {
   Block(BlockStatement),
   Break(BreakStatement),
-  Cont(ContStatement),
   Class(ClassStatement),
   Export(ExportStatement),
   Fn(FnStatement),
@@ -25,6 +22,7 @@ pub enum Statement {
   Loop(LoopStatement),
   Match(MatchStatement),
   Mod(ModStatement),
+  Next(NextStatement),
   Println(PrintlnStatement),
   Quack(QuackStatement),
   Req(ReqStatement),
@@ -36,68 +34,9 @@ pub enum Statement {
 }
 
 impl Statement {
-  #[cfg(feature = "visit-ast")]
-  pub(super) fn dump(&self, tmpl: &mut TemplateBuffer) {
-    html! {
-      div(class="node vertically-centered") {
-        span(class="bubble", onclick="click_node(this)") : self.to_string();
-        div(id="child", class="hidden") {
-          |tmpl| self.dump_children(tmpl);
-        }
-      }
-    }
-    .render(tmpl);
-  }
+  pub(super) fn dump(&self) {}
 
-  #[cfg(feature = "visit-ast")]
-  fn dump_children(&self, tmpl: &mut TemplateBuffer) {
-    match self {
-      Statement::Block(blk) => {
-        for statement in &blk.statements {
-          statement.dump(tmpl)
-        }
-      }
-      Statement::Break(_) => (),
-      Statement::Cont(_) => (),
-      Statement::Class(c) => c.class.dump(tmpl),
-      Statement::Export(_) => (),
-      Statement::Fn(_) => (),
-      Statement::For(_) => (),
-      Statement::If(_) => (),
-      Statement::Let(l) => {
-        if let Some(expr) = &l.value {
-          html! {
-            div(class="children") {
-              div(class="bubble child-node") : l.ident.to_string();
-              div(class="bubble child-node") { |tmpl| expr.dump(tmpl); }
-            }
-          }
-          .render(tmpl);
-        } else {
-          html! {
-            div(class="bubble unary") : l.ident.to_string();
-          }
-          .render(tmpl);
-        }
-      }
-      Statement::Loop(_) => (),
-      Statement::Match(_) => (),
-      Statement::Mod(m) => m.body.dump(tmpl),
-      Statement::Println(_) => (),
-      Statement::Quack(_) => (),
-      Statement::Req(_) => (),
-      Statement::Ret(_) => (),
-      Statement::Use(u) => {
-        html! {
-          span(class="bubble") : itertools::join(u.path.iter(), "::");
-        }
-        .render(tmpl);
-      }
-      Statement::While(_) => (),
-      Statement::Breakpoint(_) => (),
-      Statement::Expression(e) => e.expr.dump(tmpl),
-    }
-  }
+  fn dump_children(&self) {}
 }
 
 impl Display for Statement {
@@ -105,7 +44,6 @@ impl Display for Statement {
     match self {
       Self::Block(_) => write!(f, "block"),
       Self::Break(_) => write!(f, "break"),
-      Self::Cont(_) => write!(f, "cont"),
       Self::Class(c) => write!(f, "class {}", c.ident.name),
       Self::Export(_) => write!(f, "export"),
       Self::Fn(function) => write!(f, "fn {}", function.ident.name),
@@ -115,6 +53,7 @@ impl Display for Statement {
       Self::Loop(_) => write!(f, "loop"),
       Self::Match(_) => write!(f, "match"),
       Self::Mod(_) => write!(f, "mod"),
+      Self::Next(_) => write!(f, "next"),
       Self::Println(_) => write!(f, "println"),
       Self::Quack(_) => write!(f, "quack"),
       Self::Req(_) => write!(f, "req"),
@@ -136,12 +75,6 @@ impl From<BlockStatement> for Statement {
 impl From<BreakStatement> for Statement {
   fn from(stmt: BreakStatement) -> Self {
     Self::Break(stmt)
-  }
-}
-
-impl From<ContStatement> for Statement {
-  fn from(stmt: ContStatement) -> Self {
-    Self::Cont(stmt)
   }
 }
 
@@ -196,6 +129,12 @@ impl From<MatchStatement> for Statement {
 impl From<ModStatement> for Statement {
   fn from(stmt: ModStatement) -> Self {
     Self::Mod(stmt)
+  }
+}
+
+impl From<NextStatement> for Statement {
+  fn from(stmt: NextStatement) -> Self {
+    Self::Next(stmt)
   }
 }
 

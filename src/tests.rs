@@ -278,10 +278,8 @@ mod script_tests {
       GENERATED_OPS.with_borrow(|ops| {
         let mut unaccounted = Vec::new();
         for op in Opcode::iter() {
-          if !matches!(op, Opcode::Unknown | Opcode::Breakpoint) {
-            if !ops.contains(&op) {
-              unaccounted.push(op);
-            }
+          if !matches!(op, Opcode::Unknown | Opcode::Breakpoint) && !ops.contains(&op) {
+            unaccounted.push(op);
           }
         }
         if !unaccounted.is_empty() {
