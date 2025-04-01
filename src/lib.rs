@@ -243,6 +243,7 @@ impl Vm {
   /// Main execution loop
   ///
   /// * `exec_type` - The mode in which this call to execute was made. Used to remove the right scope level when early returning from a function call
+  #[profiling::function]
   pub fn execute(&mut self) -> ExecResult<Value> {
     let mut export = Value::nil;
 
