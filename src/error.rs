@@ -1,4 +1,4 @@
-use crate::{code::lex::Token, util::FileIdType, Opcode};
+use crate::{Opcode, code::lex::Token, util::FileIdType};
 use crate::{
   code::FileMap,
   prelude::{Instruction, Storage},
@@ -427,8 +427,8 @@ pub enum AstGenerationErrorMsg {
   #[error("'break' can only be used within loops")]
   InvalidBreakStatement,
 
-  #[error("'cont' can only be used within loops")]
-  InvalidContStatement,
+  #[error("'next' can only be used within loops")]
+  InvalidNextStatement,
 
   #[error("'ret' can only be used within functions")]
   InvalidRetStatement,

@@ -1,6 +1,6 @@
 use crate::{
   error::{CompilerError, LexicalError, LexicalErrorMsg},
-  util::{strproc, FileIdType},
+  util::{FileIdType, strproc},
 };
 
 use std::{
@@ -82,7 +82,6 @@ pub enum Token {
   As,
   Break,
   Class,
-  Cont,
   Else,
   Export,
   False,
@@ -95,6 +94,7 @@ pub enum Token {
   Match,
   Mod,
   New,
+  Next,
   Nil,
   Or,
   Println,
@@ -162,7 +162,6 @@ impl TryFrom<&[u8]> for Token {
       "as" => Self::As,
       "break" => Self::Break,
       "class" => Self::Class,
-      "cont" => Self::Cont,
       "else" => Self::Else,
       "export" => Self::Export,
       "false" => Self::False,
@@ -175,6 +174,7 @@ impl TryFrom<&[u8]> for Token {
       "match" => Self::Match,
       "mod" => Self::Mod,
       "new" => Self::New,
+      "next" => Self::Next,
       "nil" => Self::Nil,
       "or" => Self::Or,
       "println" => Self::Println,

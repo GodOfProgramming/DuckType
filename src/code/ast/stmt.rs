@@ -3,7 +3,7 @@ mod control;
 mod decl;
 
 use super::{AstGenerator, AstStatement, Expression};
-use crate::code::{lex::Token, SourceLocation};
+use crate::code::{SourceLocation, lex::Token};
 pub use actions::*;
 pub use control::*;
 pub use decl::*;
@@ -15,7 +15,7 @@ use std::fmt::{self, Display, Formatter};
 pub enum Statement {
   Block(BlockStatement),
   Break(BreakStatement),
-  Cont(ContStatement),
+  Next(NextStatement),
   Class(ClassStatement),
   Export(ExportStatement),
   Fn(FnStatement),
@@ -58,7 +58,7 @@ impl Statement {
         }
       }
       Statement::Break(_) => (),
-      Statement::Cont(_) => (),
+      Statement::Next(_) => (),
       Statement::Class(c) => c.class.dump(tmpl),
       Statement::Export(_) => (),
       Statement::Fn(_) => (),
@@ -105,7 +105,6 @@ impl Display for Statement {
     match self {
       Self::Block(_) => write!(f, "block"),
       Self::Break(_) => write!(f, "break"),
-      Self::Cont(_) => write!(f, "cont"),
       Self::Class(c) => write!(f, "class {}", c.ident.name),
       Self::Export(_) => write!(f, "export"),
       Self::Fn(function) => write!(f, "fn {}", function.ident.name),
@@ -115,6 +114,7 @@ impl Display for Statement {
       Self::Loop(_) => write!(f, "loop"),
       Self::Match(_) => write!(f, "match"),
       Self::Mod(_) => write!(f, "mod"),
+      Self::Next(_) => write!(f, "next"),
       Self::Println(_) => write!(f, "println"),
       Self::Quack(_) => write!(f, "quack"),
       Self::Req(_) => write!(f, "req"),
@@ -139,9 +139,9 @@ impl From<BreakStatement> for Statement {
   }
 }
 
-impl From<ContStatement> for Statement {
-  fn from(stmt: ContStatement) -> Self {
-    Self::Cont(stmt)
+impl From<NextStatement> for Statement {
+  fn from(stmt: NextStatement) -> Self {
+    Self::Next(stmt)
   }
 }
 

@@ -116,16 +116,16 @@ fn count_live_neighbor_cells(buff, row, col) => i32 {
   let count = 0;
   for let r = row - 1; r <= row + 1; r += 1 {
     if r < 0 or r >= $NUM_ROWS {
-      cont;
+      next;
     }
 
     for let c = col - 1; c <= col + 1; c += 1 {
       if r == row and c == col {
-        cont;
+        next;
       }
 
       if c < 0 or c >= $NUM_COLUMNS {
-        cont;
+        next;
       }
 
       if (buff[r][c] == 1) {

@@ -22,7 +22,7 @@ repository:
   keywords:
     patterns:
       - name: "keyword.control"
-        match: "\\b(break|cont|else|for|if|loop|match|quack|ret|while|__breakpoint__)\\b"
+        match: "\\b(break|else|for|if|loop|match|next|quack|ret|while|__breakpoint__)\\b"
       - name: "keyword.operator"
         match: "\\b(and|or)\\b|\\+|\\-|\\/|\\*"
       - name: "keyword.declaration"

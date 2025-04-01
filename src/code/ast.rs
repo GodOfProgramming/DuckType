@@ -46,7 +46,7 @@ pub fn generate(file_id: Option<FileIdType>, tokens: Vec<Token>, meta: Vec<Sourc
 
 pub use opt::optimize;
 
-use super::{lex::Token, SourceLocation};
+use super::{SourceLocation, lex::Token};
 
 pub struct Ast {
   pub statements: Vec<Statement>,
@@ -133,10 +133,6 @@ impl AstGenerator {
         self.advance();
         BreakStatement::stmt(self);
       }
-      Token::Cont => {
-        self.advance();
-        ContStatement::stmt(self);
-      }
       Token::Class => {
         self.advance();
         ClassStatement::stmt(self);
@@ -176,6 +172,10 @@ impl AstGenerator {
       Token::Mod => {
         self.advance();
         ModStatement::stmt(self);
+      }
+      Token::Next => {
+        self.advance();
+        NextStatement::stmt(self);
       }
       Token::Println => {
         self.advance();
@@ -630,7 +630,7 @@ impl AstGenerator {
       Token::As => ParseRule::new(None, None, Precedence::None),
       Token::Break => ParseRule::new(None, None, Precedence::None),
       Token::Class => ParseRule::new(Some(ClassExpression::prefix), None, Precedence::Primary),
-      Token::Cont => ParseRule::new(None, None, Precedence::None),
+      Token::Next => ParseRule::new(None, None, Precedence::None),
       Token::Else => ParseRule::new(None, None, Precedence::None),
       Token::Export => ParseRule::new(None, None, Precedence::None),
       Token::False => ParseRule::new(Some(LiteralExpression::prefix), None, Precedence::Primary),

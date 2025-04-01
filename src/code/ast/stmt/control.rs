@@ -47,20 +47,20 @@ impl AstStatement for BreakStatement {
 }
 
 #[derive(Debug)]
-pub struct ContStatement {
+pub struct NextStatement {
   pub loc: SourceLocation,
 }
 
-impl ContStatement {
+impl NextStatement {
   pub(crate) fn new(loc: SourceLocation) -> Self {
     Self { loc }
   }
 }
 
-impl AstStatement for ContStatement {
+impl AstStatement for NextStatement {
   fn stmt(ast: &mut AstGenerator) {
     if !ast.in_loop {
-      ast.error::<1>(AstGenerationErrorMsg::InvalidContStatement);
+      ast.error::<1>(AstGenerationErrorMsg::InvalidNextStatement);
       return;
     }
 

@@ -117,7 +117,7 @@ impl<'p> BytecodeGenerator<'p> {
     self.breaks.push(jmp);
   }
 
-  fn cont_stmt(&mut self, stmt: ContStatement) {
+  fn cont_stmt(&mut self, stmt: NextStatement) {
     let jmp = self.emit_placeholder(stmt.loc);
     self.continues.push(jmp);
   }
@@ -740,7 +740,7 @@ impl<'p> BytecodeGenerator<'p> {
     match stmt {
       Statement::Block(stmt) => self.block_stmt(stmt),
       Statement::Break(stmt) => self.break_stmt(stmt),
-      Statement::Cont(stmt) => self.cont_stmt(stmt),
+      Statement::Next(stmt) => self.cont_stmt(stmt),
       Statement::Class(stmt) => self.class_stmt(stmt),
       Statement::Export(stmt) => self.export_stmt(stmt),
       Statement::Fn(stmt) => self.fn_stmt(stmt),
