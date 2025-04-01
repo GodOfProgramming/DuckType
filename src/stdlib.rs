@@ -6,7 +6,7 @@ mod libtime;
 
 use crate::{
   prelude::*,
-  value::{prelude::module_value::ModuleType, NATIVE_FN_TAG},
+  value::{NATIVE_FN_TAG, prelude::module_value::ModuleType},
 };
 use std::env;
 
@@ -101,7 +101,7 @@ pub fn make_stdlib(vm: &mut Vm, gmod: Value, args: impl Into<Vec<String>>) -> (S
       lib.define("abs", Value::new::<NativeFn>(math_abs));
     });
 
-    let libval = lib.value().clone();
+    let libval = lib.value();
     lib.define(names::IO, libio::duck_type_autogen_create_module(vm, libval));
 
     defmod(vm, lib, names::VM, |vm, mut lib| {
@@ -120,7 +120,7 @@ fn defmod<F>(vm: &mut Vm, lib: &mut UsertypeHandle<ModuleValue>, name: &str, ini
 where
   F: FnOnce(&mut Vm, UsertypeHandle<ModuleValue>),
 {
-  let libval = lib.value().clone();
+  let libval = lib.value();
   lib.define(name, ModuleBuilder::initialize(vm, ModuleType::new_child(name, libval), init));
 }
 

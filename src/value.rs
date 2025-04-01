@@ -60,7 +60,7 @@ impl Value {
     if self.is::<f64>() {
       Tag::F64
     } else {
-      unsafe { mem::transmute(self.bits & TAG_BITMASK) }
+      unsafe { mem::transmute::<u64, tags::Tag>(self.bits & TAG_BITMASK) }
     }
   }
 

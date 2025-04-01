@@ -1,11 +1,11 @@
-use super::{ast::*, SourceLocation};
 use super::{ConstantValue, FunctionConstant};
+use super::{SourceLocation, ast::*};
 use crate::prelude::{Cache, Context};
 use crate::{
+  InstructionData, LongAddr, Opcode, ShortAddr, Storage, TryIntoInstruction,
   code::InstructionMetadata,
   error::{BytecodeGenerationError, BytecodeGenerationErrorMsg, CompilerError},
   util::FileIdType,
-  InstructionData, LongAddr, Opcode, ShortAddr, Storage, TryIntoInstruction,
 };
 use ptr::SmartPtr;
 use std::fmt::Debug;
@@ -14,7 +14,7 @@ use std::fmt::Debug;
 use std::{cell::RefCell, collections::HashSet};
 #[cfg(test)]
 thread_local! {
-  pub static CAPTURE_OPS: RefCell<bool> = RefCell::new(false);
+  pub static CAPTURE_OPS: RefCell<bool> = const { RefCell::new(false) };
   pub static GENERATED_OPS: RefCell<HashSet<Opcode>> = RefCell::new(Default::default());
 }
 
@@ -622,30 +622,36 @@ impl<'p> BytecodeGenerator<'p> {
     self.emit((Opcode::DefineScope, ident), expr.loc);
 
     if let Some(initializer) = expr.initializer {
-      match self.create_class_fn(Ident::new("<new>"), *initializer) { Some((function, is_static)) => {
-        if is_static {
-          self.emit_const(function, expr.loc);
-          self.emit(Opcode::InitializeConstructor, expr.loc);
-        } else {
-          self.error(BytecodeGenerationErrorMsg::MethodAsInitializer, expr.loc);
+      match self.create_class_fn(Ident::new("<new>"), *initializer) {
+        Some((function, is_static)) => {
+          if is_static {
+            self.emit_const(function, expr.loc);
+            self.emit(Opcode::InitializeConstructor, expr.loc);
+          } else {
+            self.error(BytecodeGenerationErrorMsg::MethodAsInitializer, expr.loc);
+          }
         }
-      } _ => {
-        self.error(BytecodeGenerationErrorMsg::InvalidClassFunction, expr.loc);
-      }}
+        _ => {
+          self.error(BytecodeGenerationErrorMsg::InvalidClassFunction, expr.loc);
+        }
+      }
     }
 
     for (method_name, method) in expr.methods {
-      match self.create_class_fn(method_name.clone(), method) { Some((function, is_static)) => {
-        let ident = self.add_const_ident(method_name);
-        self.emit_const(function, expr.loc);
-        if is_static {
-          self.emit((Opcode::InitializeMember, ident), expr.loc);
-        } else {
-          self.emit((Opcode::InitializeMethod, ident), expr.loc);
+      match self.create_class_fn(method_name.clone(), method) {
+        Some((function, is_static)) => {
+          let ident = self.add_const_ident(method_name);
+          self.emit_const(function, expr.loc);
+          if is_static {
+            self.emit((Opcode::InitializeMember, ident), expr.loc);
+          } else {
+            self.emit((Opcode::InitializeMethod, ident), expr.loc);
+          }
         }
-      } _ => {
-        self.error(BytecodeGenerationErrorMsg::InvalidClassFunction, expr.loc);
-      }}
+        _ => {
+          self.error(BytecodeGenerationErrorMsg::InvalidClassFunction, expr.loc);
+        }
+      }
     }
   }
 
@@ -881,19 +887,17 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn current_ctx(&mut self) -> &mut Context {
-    match self.current_fn.as_mut() { Some(ctx) => {
-      ctx
-    } _ => {
-      &mut self.ctx
-    }}
+    match self.current_fn.as_mut() {
+      Some(ctx) => ctx,
+      _ => &mut self.ctx,
+    }
   }
 
   fn current_ctx_ptr(&mut self) -> SmartPtr<Context> {
-    match &mut self.current_fn { Some(ctx) => {
-      ctx.clone()
-    } _ => {
-      self.ctx.clone()
-    }}
+    match &mut self.current_fn {
+      Some(ctx) => ctx.clone(),
+      _ => self.ctx.clone(),
+    }
   }
 
   fn current_instruction_count(&mut self) -> usize {

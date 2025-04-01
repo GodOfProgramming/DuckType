@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use std::path::Path;
-use tfix::{fixture, TestFixture};
+use tfix::{TestFixture, fixture};
 
 struct IntegrationTest {
   script: String,
@@ -269,7 +269,6 @@ mod script_tests {
     fs::read_dir("tests/scripts").into_iter().for_each(|dir| {
       dir
         .flatten()
-        .into_iter()
         .sorted_by_cached_key(|entry| entry.path())
         .for_each(|entry| t.run(&entry.path()))
     });

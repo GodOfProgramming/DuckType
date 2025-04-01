@@ -1,6 +1,6 @@
 use super::*;
 use std::f64::consts::PI;
-use tfix::{fixture, TestFixture};
+use tfix::{TestFixture, fixture};
 
 const ALL_TOKENS: &str = include_str!("test_scripts/all_tokens.dk");
 
@@ -204,16 +204,13 @@ mod tests {
 
   #[test]
   fn scans_empty_string(t: &mut ScannerTest) {
-    let expected = vec![Token::String(String::from(""))];
+    let expected = Token::String(String::from(""));
 
     t.tokens = r#""""#.to_string();
 
     t.test_scan(|actual, _| {
-      assert_eq!(actual.len(), expected.len());
-
-      for (a, e) in actual.iter().zip(expected.iter()) {
-        assert_eq!(a, e);
-      }
+      assert_eq!(actual.len(), 1);
+      assert_eq!(actual[0], expected);
     });
   }
 

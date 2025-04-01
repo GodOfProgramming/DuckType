@@ -62,8 +62,6 @@ type FastHashMap<K, V> = HashMap<K, V, RandomState>;
 type RapidHashMap<K, V> = HashMap<K, V, BuildNoHashHasher<K>>;
 type RapidHashSet<T> = HashSet<T, BuildNoHashHasher<T>>;
 
-const NDEBUG: bool = !cfg!(debug_assertions);
-
 pub const EXTENSION: &str = "dk";
 
 const INITIAL_STACK_CAPACITY: usize = 2usize.pow(20);
@@ -1381,7 +1379,7 @@ impl Vm {
   pub fn generate_stdlib(&mut self, global_mod_name: impl ToString) -> UsertypeHandle<ModuleValue> {
     let args = self.args.clone();
     ModuleBuilder::initialize(self, ModuleType::new_global(global_mod_name), |vm, mut lib| {
-      let libval = lib.value().clone();
+      let libval = lib.value();
       let (name, value) = stdlib::make_stdlib(vm, libval, args);
       lib.env.insert(name, value);
     })
@@ -1551,7 +1549,7 @@ impl Vm {
   }
 
   pub fn current_module_value(&self) -> Value {
-    self.modules.last().value().clone()
+    self.modules.last().value()
   }
 
   pub fn stack_display(&self) {
