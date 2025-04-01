@@ -90,6 +90,7 @@ where
   }
 
   /// Check if the GC routine of the current configuration should run
+  #[profiling::function]
   pub(super) fn poll(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     match self.mode {
       GcMode::Standard => {
@@ -102,6 +103,7 @@ where
   }
 
   /// Check if a deep clean should be performed
+  #[profiling::function]
   fn poll_deep(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     if self.allocated_memory > self.limit {
       self.deep_clean(stack, envs, cache, call_stack);
@@ -109,6 +111,7 @@ where
   }
 
   /// Check if an incremental clean should start and if so begin
+  #[profiling::function]
   fn poll_inc(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     if self.allocated_memory > self.limit / 2 {
       self.stats.total_increments += 1;
@@ -117,6 +120,7 @@ where
   }
 
   /// Performs a full deep clean of all objects
+  #[profiling::function]
   pub(super) fn deep_clean(
     &mut self,
     stack: &Stack,
@@ -142,6 +146,7 @@ where
   ///
   /// If this is the first increment the roots are scanned
   /// Otherwise the next tier of grays is scanned
+  #[profiling::function]
   fn incremental(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     self.ref_check_native_handles();
 
@@ -164,6 +169,7 @@ where
     }
   }
 
+  #[profiling::function]
   fn deep_trace_roots(&mut self, stack: &Stack, envs: &ModuleStack, cache: &Cache, call_stack: &[StackFrame]) {
     let mut tracer = Tracer::new(&mut self.traced_allocations);
 
@@ -182,6 +188,7 @@ where
     cache.deep_trace(&mut tracer);
   }
 
+  #[profiling::function]
   fn incremental_trace_roots(&mut self, stack: &Stack, envs: &ModuleStack, cache: &Cache, call_stack: &[StackFrame]) {
     let mut tracer = Tracer::new(&mut self.traced_allocations);
 
@@ -202,6 +209,7 @@ where
     self.untraced_allocations = tracer.grays;
   }
 
+  #[profiling::function]
   fn incremental_trace(&mut self) {
     let mut tracer = Tracer::new(&mut self.traced_allocations);
 
@@ -212,6 +220,7 @@ where
     self.untraced_allocations = tracer.grays;
   }
 
+  #[profiling::function]
   fn clean(&mut self, cache: &mut Cache, unreferenced: Vec<Value>) -> usize {
     let cleaned = unreferenced.len();
 
@@ -228,6 +237,7 @@ where
   }
 
   /// Find all unreferenced allocations after a scan
+  #[profiling::function]
   #[must_use]
   fn find_unreferenced(&self) -> Vec<Value> {
     self
@@ -239,6 +249,7 @@ where
   }
 
   /// Calculate the new limit for the GC
+  #[profiling::function]
   fn calc_new_limit(&mut self, released: usize) {
     let previously_allocated = self.allocated_memory;
 
@@ -269,6 +280,7 @@ where
   /// Create a new allocation but do not track it
   ///
   /// Without being turned into a handle or calling track, this is a memory leak
+  #[profiling::function]
   pub(super) fn allocate_untracked<T: Usertype>(&mut self, item: T) -> Value {
     fn allocate_type<T>(item: T) -> &'static mut T {
       unsafe { &mut *Box::into_raw(Box::new(item)) }
@@ -297,6 +309,7 @@ where
   }
 
   /// Allocate and track a new value
+  #[profiling::function]
   pub(super) fn allocate<T: Usertype>(&mut self, item: T) -> Value {
     let value = self.allocate_untracked(item);
 

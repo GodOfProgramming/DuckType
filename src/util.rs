@@ -17,6 +17,13 @@ pub type PlatformMetadata = UnixMetadata;
 use anyhow::Result;
 use std::path::Path;
 
+pub fn terminal_width() -> Result<usize> {
+  #[cfg(unix)]
+  return unix::terminal_width();
+  #[cfg(windows)]
+  return windows::terminal_width();
+}
+
 pub trait FileMetadata {
   fn id_of(path: &Path) -> Result<FileIdType>;
 }

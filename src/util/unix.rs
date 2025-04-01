@@ -14,3 +14,8 @@ impl FileMetadata for UnixMetadata {
     Ok(stat.st_ino)
   }
 }
+
+pub(super) fn terminal_width() -> Result<usize> {
+  let cols = termion::terminal_size().map(|(c, _)| c)?;
+  Ok(cols as usize)
+}
