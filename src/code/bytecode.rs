@@ -733,10 +733,6 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn emit_stmt(&mut self, stmt: Statement) {
-    #[cfg(feature = "visit-ast")]
-    {
-      println!("stmt {}", stmt);
-    }
     match stmt {
       Statement::Block(stmt) => self.block_stmt(stmt),
       Statement::Break(stmt) => self.break_stmt(stmt),
@@ -762,10 +758,6 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn emit_expr(&mut self, expr: Expression) {
-    #[cfg(feature = "visit-ast")]
-    {
-      println!("expr {}", expr);
-    }
     match expr {
       Expression::And(expr) => self.and_expr(expr),
       Expression::Assign(expr) => self.assign_expr(expr),

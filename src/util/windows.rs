@@ -7,7 +7,7 @@ use std::{
   mem,
 };
 use windows_sys::Win32::{
-  Foundation::{GENERIC_ACCESS_RIGHTS, GENERIC_READ, HANDLE},
+  Foundation::{GENERIC_ACCESS_RIGHTS, GENERIC_READ},
   Storage::FileSystem::{
     self, FILE_ATTRIBUTE_NORMAL, FILE_CREATION_DISPOSITION, FILE_FLAGS_AND_ATTRIBUTES, FILE_ID_128, FILE_ID_INFO,
     FILE_INFO_BY_HANDLE_CLASS, FILE_SHARE_MODE, FILE_SHARE_READ, FileIdInfo, OPEN_EXISTING,
@@ -44,7 +44,7 @@ impl FileMetadata for WindowsMetadata {
         std::ptr::null(),
         CREATION_DISPOSITION,
         ATTRIBUTE_FLAGS,
-        HANDLE::default(),
+        std::ptr::null_mut(),
       )
     };
 

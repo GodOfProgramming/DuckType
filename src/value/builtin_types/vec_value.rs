@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use std::{
   fmt::{Display, Formatter, Result as FmtResult},
   ops::{Deref, DerefMut},
@@ -37,7 +37,7 @@ impl VecValue {
   }
 
   fn random_index(&self) -> UsageResult {
-    Ok(self.buffer.choose(&mut rand::thread_rng()).cloned().unwrap_or_default())
+    Ok(self.buffer.choose(&mut rand::rng()).cloned().unwrap_or_default())
   }
 
   fn join(&self, sep: Value) -> UsageResult<String> {

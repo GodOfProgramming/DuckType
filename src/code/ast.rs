@@ -14,11 +14,6 @@ use std::{
   mem,
 };
 pub use stmt::*;
-#[cfg(feature = "visit-ast")]
-use {
-  horrorshow::{helper::doctype, html},
-  std::path::Path,
-};
 
 const SELF_IDENT: &str = "self";
 
@@ -53,30 +48,7 @@ pub struct Ast {
 }
 
 impl Ast {
-  #[cfg(feature = "visit-ast")]
-  #[allow(dead_code)]
-  pub fn dump(&self, file: &Path) {
-    let out = html! {
-      : doctype::HTML;
-      head {
-        title: "AST";
-        link(rel="stylesheet", href="ast.css");
-        script(src="ast.js");
-      }
-      body(class="vertically-centered") {
-        |tmpl| {
-          for statement in &self.statements {
-            statement.dump(tmpl);
-          }
-        }
-      }
-    };
-    std::fs::write(
-      format!("assets/{}.html", file.file_name().unwrap().to_string_lossy()),
-      format!("{}", out),
-    )
-    .unwrap();
-  }
+  pub fn dump(&self, file: &std::path::Path) {}
 }
 
 pub(crate) struct AstGenerator {

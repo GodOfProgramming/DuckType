@@ -7,8 +7,6 @@ use crate::code::{SourceLocation, lex::Token};
 pub use actions::*;
 pub use control::*;
 pub use decl::*;
-#[cfg(feature = "visit-ast")]
-use horrorshow::{html, prelude::*};
 use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug)]
@@ -36,68 +34,9 @@ pub enum Statement {
 }
 
 impl Statement {
-  #[cfg(feature = "visit-ast")]
-  pub(super) fn dump(&self, tmpl: &mut TemplateBuffer) {
-    html! {
-      div(class="node vertically-centered") {
-        span(class="bubble", onclick="click_node(this)") : self.to_string();
-        div(id="child", class="hidden") {
-          |tmpl| self.dump_children(tmpl);
-        }
-      }
-    }
-    .render(tmpl);
-  }
+  pub(super) fn dump(&self) {}
 
-  #[cfg(feature = "visit-ast")]
-  fn dump_children(&self, tmpl: &mut TemplateBuffer) {
-    match self {
-      Statement::Block(blk) => {
-        for statement in &blk.statements {
-          statement.dump(tmpl)
-        }
-      }
-      Statement::Break(_) => (),
-      Statement::Next(_) => (),
-      Statement::Class(c) => c.class.dump(tmpl),
-      Statement::Export(_) => (),
-      Statement::Fn(_) => (),
-      Statement::For(_) => (),
-      Statement::If(_) => (),
-      Statement::Let(l) => {
-        if let Some(expr) = &l.value {
-          html! {
-            div(class="children") {
-              div(class="bubble child-node") : l.ident.to_string();
-              div(class="bubble child-node") { |tmpl| expr.dump(tmpl); }
-            }
-          }
-          .render(tmpl);
-        } else {
-          html! {
-            div(class="bubble unary") : l.ident.to_string();
-          }
-          .render(tmpl);
-        }
-      }
-      Statement::Loop(_) => (),
-      Statement::Match(_) => (),
-      Statement::Mod(m) => m.body.dump(tmpl),
-      Statement::Println(_) => (),
-      Statement::Quack(_) => (),
-      Statement::Req(_) => (),
-      Statement::Ret(_) => (),
-      Statement::Use(u) => {
-        html! {
-          span(class="bubble") : itertools::join(u.path.iter(), "::");
-        }
-        .render(tmpl);
-      }
-      Statement::While(_) => (),
-      Statement::Breakpoint(_) => (),
-      Statement::Expression(e) => e.expr.dump(tmpl),
-    }
-  }
+  fn dump_children(&self) {}
 }
 
 impl Display for Statement {
