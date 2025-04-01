@@ -10,4 +10,4 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-DuckType = { path = "../../" }
+ducktype = { path = "../../" }

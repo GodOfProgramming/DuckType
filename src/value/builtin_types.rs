@@ -45,7 +45,7 @@ pub use closure_value::ClosureValue;
 pub use function_value::FunctionValue;
 pub use id_value::IdValue;
 pub use instance_value::InstanceValue;
-use macros::{methods, Fields};
+use macros::{Fields, methods};
 pub use method_value::MethodValue;
 pub use module_value::{ModuleBuilder, ModuleType, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
@@ -187,7 +187,9 @@ pub trait Operators {
 
   fn __str__(&self) -> String;
 
-  fn __dbg__(&self) -> String;
+  fn __dbg__(&self) -> String {
+    self.__str__()
+  }
 }
 
 pub trait TraceableValue {

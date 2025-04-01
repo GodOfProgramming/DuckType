@@ -1,16 +1,16 @@
 [package]
-name = "DuckType"
+name = "ducktype"
 version = "0.57.0"
 authors = ["Jonathan Dickert <jonathan.dickert@protonmail.com>"]
 edition = "2024"
-default-run = "duck"
+default-run = "dk"
 rust-version = "1.85.1"
 
 [workspace]
 members = [".", "macros"]
 
 [[bin]]
-name = "duck"
+name = "dk"
 path = "src/main.rs"
 
 [lib]

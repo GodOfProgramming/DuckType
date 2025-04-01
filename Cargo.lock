@@ -3,45 +3,6 @@
 version = 3
 
 [[package]]
-name = "DuckType"
-version = "0.57.0"
-dependencies = [
- "ahash",
- "anyhow",
- "bimap",
- "bindgen",
- "cc",
- "clap",
- "dlopen2",
- "enum-map",
- "evalexpr",
- "horrorshow",
- "interpolator",
- "itertools 0.11.0",
- "lazy-regex",
- "macros",
- "nix 0.27.1",
- "nohash-hasher",
- "once_cell",
- "pprof",
- "pretty_assertions",
- "ptr",
- "rand",
- "regex",
- "rustyline",
- "shellwords",
- "static_assertions",
- "strum",
- "strum_macros",
- "sysinfo",
- "termion",
- "tfix",
- "thiserror",
- "uuid",
- "windows-sys 0.48.0",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -376,6 +337,45 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.100",
+]
+
+[[package]]
+name = "ducktype"
+version = "0.57.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "bimap",
+ "bindgen",
+ "cc",
+ "clap",
+ "dlopen2",
+ "enum-map",
+ "evalexpr",
+ "horrorshow",
+ "interpolator",
+ "itertools 0.11.0",
+ "lazy-regex",
+ "macros",
+ "nix 0.27.1",
+ "nohash-hasher",
+ "once_cell",
+ "pprof",
+ "pretty_assertions",
+ "ptr",
+ "rand",
+ "regex",
+ "rustyline",
+ "shellwords",
+ "static_assertions",
+ "strum",
+ "strum_macros",
+ "sysinfo",
+ "termion",
+ "tfix",
+ "thiserror",
+ "uuid",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
