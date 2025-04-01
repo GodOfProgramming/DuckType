@@ -3,8 +3,8 @@ name = "ducktype"
 version = "0.57.0"
 authors = ["Jonathan Dickert <jonathan.dickert@protonmail.com>"]
 edition = "2024"
-default-run = "dk"
 rust-version = "1.85.1"
+default-run = "dk"
 
 [workspace]
 members = [".", "macros"]
