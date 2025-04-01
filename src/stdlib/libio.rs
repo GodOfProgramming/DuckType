@@ -49,15 +49,15 @@ mod io {
     }
 
     fn read(&mut self) -> UsageResult<String> {
-      if let Some(file) = &mut self.internal {
+      match &mut self.internal { Some(file) => {
         let mut out = String::new();
 
         file.read_to_string(&mut out).map_err(UsageError::native)?;
 
         Ok(out)
-      } else {
+      } _ => {
         Err(UsageError::NativeApi("no file open for reading".to_string()))
-      }
+      }}
     }
   }
 

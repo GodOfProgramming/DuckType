@@ -676,12 +676,12 @@ impl Context {
       });
     }
 
-    if let Some((existing, inst)) = self.instructions.get_mut(index).zip(Instruction::new(op, data)) {
+    match self.instructions.get_mut(index).zip(Instruction::new(op, data)) { Some((existing, inst)) => {
       *existing = inst;
       true
-    } else {
+    } _ => {
       false
-    }
+    }}
   }
 
   pub fn disassemble(&self, stack: &Stack, cache: &Cache) -> String {
@@ -1180,14 +1180,14 @@ impl Cache {
   pub fn add_const(&mut self, const_val: impl Into<ConstantValue>) -> usize {
     let c = const_val.into();
 
-    let string = if let ConstantValue::String(string) = &c {
+    let string = match &c { ConstantValue::String(string) => {
       if let Some(index) = self.strings.get_by_right(string.as_str()) {
         return *index;
       }
       Some(string.clone())
-    } else {
+    } _ => {
       None
-    };
+    }};
 
     let index = self.consts.len();
     self.consts.push(c);

@@ -839,12 +839,12 @@ impl Vm {
         self.stack_push(value);
       }
       _ => {
-        if let Some(value) = self.cache.get_lib(file_id) {
+        match self.cache.get_lib(file_id) { Some(value) => {
           self.stack_push(value);
-        } else {
+        } _ => {
           let gmod = self.generate_stdlib(format!("<file export {}>", found_file.display()));
           self.queue_file(found_file, gmod)?;
-        }
+        }}
       }
     }
 

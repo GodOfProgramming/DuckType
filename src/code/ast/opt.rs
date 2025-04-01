@@ -294,7 +294,7 @@ impl Optimize for BinaryExpression {
     match (*left, *right) {
       (Expression::Literal(left), Expression::Literal(right)) => {
         macro_rules! lit_expr {
-          ($op:expr) => {
+          ($op:expr_2021) => {
             Expression::from(LiteralExpression::new(LiteralValue::from($op), self.loc))
           };
         }
