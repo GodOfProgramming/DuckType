@@ -883,7 +883,7 @@ impl Vm {
         let value = this.stack_peek();
         let module = current_module_mut!(this);
         if module.define(name.clone(), value) {
-          this.cache.add_to_mod(module.value().clone(), loc, value);
+          this.cache.add_to_mod(module.value(), loc, value);
           Ok(())
         } else {
           let level = current_module!(this).search_for(0, &name);

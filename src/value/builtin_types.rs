@@ -202,26 +202,26 @@ pub trait TraceableValue {
 impl TraceableValue for Option<Value> {
   fn deep_trace(&self, marks: &mut Tracer) {
     if let Some(value) = self {
-      marks.deep_trace(value);
+      marks.deep_trace(*value);
     }
   }
 
   fn incremental_trace(&self, marks: &mut Tracer) {
     if let Some(value) = self {
-      marks.try_mark_gray(value);
+      marks.try_mark_gray(*value);
     }
   }
 }
 
 impl TraceableValue for Vec<Value> {
   fn deep_trace(&self, marks: &mut Tracer) {
-    for value in self {
+    for value in self.iter().cloned() {
       marks.deep_trace(value);
     }
   }
 
   fn incremental_trace(&self, marks: &mut Tracer) {
-    for value in self {
+    for value in self.iter().cloned() {
       marks.try_mark_gray(value);
     }
   }
@@ -229,13 +229,13 @@ impl TraceableValue for Vec<Value> {
 
 impl<T, S> TraceableValue for HashMap<T, Value, S> {
   fn deep_trace(&self, marks: &mut Tracer) {
-    for value in self.values() {
+    for value in self.values().cloned() {
       marks.deep_trace(value);
     }
   }
 
   fn incremental_trace(&self, marks: &mut Tracer) {
-    for value in self.values() {
+    for value in self.values().cloned() {
       marks.try_mark_gray(value);
     }
   }
@@ -260,13 +260,13 @@ where
 
 impl<T> TraceableValue for BTreeMap<T, Value> {
   fn deep_trace(&self, marks: &mut Tracer) {
-    for value in self.values() {
+    for value in self.values().cloned() {
       marks.deep_trace(value);
     }
   }
 
   fn incremental_trace(&self, marks: &mut Tracer) {
-    for value in self.values() {
+    for value in self.values().cloned() {
       marks.try_mark_gray(value);
     }
   }

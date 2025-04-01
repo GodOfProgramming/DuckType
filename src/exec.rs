@@ -7,9 +7,9 @@ pub mod prelude {
 
 use crate::prelude::*;
 use crate::{
+  RapidHashMap,
   code::{ConstantValue, InstructionMetadata},
   util::FileIdType,
-  RapidHashMap,
 };
 use ptr::SmartPtr;
 use std::{
@@ -676,12 +676,13 @@ impl Context {
       });
     }
 
-    match self.instructions.get_mut(index).zip(Instruction::new(op, data)) { Some((existing, inst)) => {
-      *existing = inst;
-      true
-    } _ => {
-      false
-    }}
+    match self.instructions.get_mut(index).zip(Instruction::new(op, data)) {
+      Some((existing, inst)) => {
+        *existing = inst;
+        true
+      }
+      _ => false,
+    }
   }
 
   pub fn disassemble(&self, stack: &Stack, cache: &Cache) -> String {
@@ -1180,14 +1181,15 @@ impl Cache {
   pub fn add_const(&mut self, const_val: impl Into<ConstantValue>) -> usize {
     let c = const_val.into();
 
-    let string = match &c { ConstantValue::String(string) => {
-      if let Some(index) = self.strings.get_by_right(string.as_str()) {
-        return *index;
+    let string = match &c {
+      ConstantValue::String(string) => {
+        if let Some(index) = self.strings.get_by_right(string.as_str()) {
+          return *index;
+        }
+        Some(string.clone())
       }
-      Some(string.clone())
-    } _ => {
-      None
-    }};
+      _ => None,
+    };
 
     let index = self.consts.len();
     self.consts.push(c);
@@ -1246,13 +1248,13 @@ impl Cache {
   }
 
   pub(crate) fn deep_trace(&self, marker: &mut Tracer) {
-    for value in self.globals.values().chain(self.libs.values()) {
+    for value in self.globals.values().chain(self.libs.values()).cloned() {
       marker.deep_trace(value);
     }
   }
 
   pub(crate) fn incremental_trace(&self, marker: &mut Tracer) {
-    for value in self.globals.values().chain(self.libs.values()) {
+    for value in self.globals.values().chain(self.libs.values()).cloned() {
       marker.try_mark_gray(value);
     }
   }

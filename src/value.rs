@@ -188,11 +188,11 @@ impl Value {
   }
 
   pub fn deep_trace(&self, marks: &mut Tracer) {
-    marks.deep_trace(self);
+    marks.deep_trace(*self);
   }
 
   pub fn incremental_trace(&self, marks: &mut Tracer) {
-    marks.try_mark_gray(self);
+    marks.try_mark_gray(*self);
   }
 
   pub fn deep_trace_children(&self, marks: &mut Tracer) {

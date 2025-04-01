@@ -170,9 +170,10 @@ where
     let values = self
       .native_handles
       .iter()
-      .chain(stack.iter())
+      .cloned()
+      .chain(stack.iter().cloned())
       .chain(envs.iter().map(UsertypeHandle::value))
-      .chain(call_stack.iter().filter_map(|f| f.export.as_ref()));
+      .chain(call_stack.iter().filter_map(|f| f.export.as_ref()).cloned());
 
     for value in values {
       tracer.deep_trace(value)
@@ -187,9 +188,10 @@ where
     let values = self
       .native_handles
       .iter()
-      .chain(stack.iter())
+      .cloned()
+      .chain(stack.iter().cloned())
       .chain(envs.iter().map(UsertypeHandle::value))
-      .chain(call_stack.iter().filter_map(|f| f.export.as_ref()));
+      .chain(call_stack.iter().filter_map(|f| f.export.as_ref()).cloned());
 
     for value in values {
       tracer.try_mark_gray(value)
@@ -449,16 +451,16 @@ impl Tracer {
     }
   }
 
-  pub fn deep_trace(&mut self, value: &Value) {
-    if value.is_ptr() && !self.blacks.contains(value) {
-      self.blacks.insert(*value);
+  pub fn deep_trace(&mut self, value: Value) {
+    if value.is_ptr() && !self.blacks.contains(&value) {
+      self.blacks.insert(value);
       value.deep_trace_children(self);
     }
   }
 
-  pub fn try_mark_gray(&mut self, value: &Value) {
-    if value.is_ptr() && !self.grays.contains(value) && !self.blacks.contains(value) {
-      self.grays.insert(*value);
+  pub fn try_mark_gray(&mut self, value: Value) {
+    if value.is_ptr() && !self.grays.contains(&value) && !self.blacks.contains(&value) {
+      self.grays.insert(value);
     }
   }
 
@@ -563,8 +565,8 @@ where
     }
   }
 
-  pub fn value(&self) -> &Value {
-    &self.handle.value
+  pub fn value(&self) -> Value {
+    self.handle.value
   }
 }
 
