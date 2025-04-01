@@ -6,6 +6,20 @@ let REPS = 10_000_000;
 
 let x = 0;
 
+fn simple_function() {}
+
+fn fib(n) {
+  if n <= 1 {
+    ret n;
+  } else {
+    ret fib(n - 2) + fib(n - 1);
+  }
+}
+
+println(std::reflect::disasm(fib));
+
+std::ps::exit(0);
+
 std::vm::gc::print_stats();
 
 benchmark("simple math", REPS, [x] |timer: Timer, i| {
@@ -17,8 +31,6 @@ benchmark("simple math", REPS, [x] |timer: Timer, i| {
 
 std::vm::gc::print_stats();
 std::vm::gc::reset_stats();
-
-fn simple_function() {}
 
 benchmark("function calls", REPS, |timer: Timer, _i| {
   timer.start();
@@ -41,14 +53,6 @@ benchmark("global & member access", REPS, |timer: Timer, _| {
 
 std::vm::gc::print_stats();
 std::vm::gc::reset_stats();
-
-fn fib(n) {
-  if n <= 1 {
-    ret n;
-  } else {
-    ret fib(n - 2) + fib(n - 1);
-  }
-}
 
 benchmark("fib", 1, |timer: Timer, _| {
   timer.start();

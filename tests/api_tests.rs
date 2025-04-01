@@ -19,12 +19,14 @@ impl TestFixture for ApiTest {
 
 #[fixture(ApiTest)]
 mod tests {
+  use ptr::MutPtr;
+
   use super::*;
 
   #[derive(Usertype, Fields, NoOperators)]
   #[uuid("8d77f7e3-ccad-4214-a7d1-98f283b7a624")]
   struct Leaker {
-    b: &'static mut bool,
+    b: MutPtr<bool>,
 
     #[trace]
     this: Value,
@@ -48,7 +50,8 @@ mod tests {
   fn can_register_global_variables(t: &mut ApiTest) {
     let script = "export some_var;";
     assert!(t.stdlib.define("some_var", Value::from(true)));
-    let res = t.vm.run_string(script, t.stdlib.clone()).unwrap();
+    t.vm.queue_string(script, t.stdlib.clone()).unwrap();
+    let res = t.vm.execute().unwrap();
     assert!(res == Value::from(true));
   }
 
@@ -58,7 +61,8 @@ mod tests {
     assert!(t
       .stdlib
       .define("some_func", Value::new::<NativeFn>(|_, _args| Ok(Value::from(true)))));
-    let res = t.vm.run_string(script, t.stdlib.clone()).unwrap();
+    t.vm.queue_string(script, t.stdlib.clone()).unwrap();
+    let res = t.vm.execute().unwrap();
     assert!(res == Value::from(true));
   }
 
@@ -71,7 +75,12 @@ mod tests {
     #[native]
     fn make_leaker() -> UsageResult<Leaker> {
       Ok(Leaker {
-        b: unsafe { &mut B },
+        b: MutPtr::from(
+          #[allow(unused_unsafe)]
+          unsafe {
+            &raw mut B
+          },
+        ),
         this: Value::nil,
       })
     }
@@ -80,7 +89,8 @@ mod tests {
 
     stdlib.define("make_leaker", Value::new::<NativeFn>(make_leaker));
 
-    t.vm.run_string(SCRIPT, stdlib).unwrap();
+    t.vm.queue_string(SCRIPT, stdlib).unwrap();
+    t.vm.execute().unwrap();
 
     assert!(unsafe { !B });
 

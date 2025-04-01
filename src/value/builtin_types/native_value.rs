@@ -4,16 +4,6 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 
 pub type NativeFn = for<'a> fn(&mut Vm, Args) -> UsageResult;
 
-pub(crate) trait Addr {
-  fn addr(&self) -> *const ();
-}
-
-impl Addr for NativeFn {
-  fn addr(&self) -> *const () {
-    *self as *const ()
-  }
-}
-
 type NativeClosureType = dyn FnMut(&mut Vm, Args) -> UsageResult;
 
 #[derive(Usertype, Fields, NoMethods)]
@@ -37,9 +27,11 @@ impl NativeClosureValue {
 }
 
 impl Operators for NativeClosureValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, airity: usize) -> UsageResult {
+  fn __ivk__(&mut self, vm: &mut Vm, _this: Value, airity: usize) -> UsageResult<()> {
     let args = vm.stack_drain_from(airity);
-    (*self.callee)(vm, Args::new(args))
+    let output = (*self.callee)(vm, Args::new(args))?;
+    vm.stack_push(output);
+    Ok(())
   }
 
   fn __str__(&self) -> String {
@@ -72,10 +64,12 @@ impl NativeMethodValue {
 }
 
 impl Operators for NativeMethodValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, airity: usize) -> UsageResult {
+  fn __ivk__(&mut self, vm: &mut Vm, _this_method: Value, airity: usize) -> UsageResult<()> {
     let args = vm.stack_drain_from(airity);
     let args = Args::new_with_this(self.this, args);
-    (self.callee)(vm, args)
+    let output = (self.callee)(vm, args)?;
+    vm.stack_push(output);
+    Ok(())
   }
 
   fn __str__(&self) -> String {

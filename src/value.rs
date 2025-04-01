@@ -21,11 +21,11 @@ pub mod conv;
 mod test;
 
 pub mod prelude {
-  pub use super::{builtin_types::*, conv::*, Tag, Value};
+  pub use super::{Tag, Value, builtin_types::*, conv::*};
 }
 
-pub(crate) type ConstVoid = *const ();
-pub(crate) type MutVoid = *mut ();
+pub(crate) type ConstVoid = ConstAddr<()>;
+pub(crate) type MutVoid = MutAddr<()>;
 
 // ensuring 64 bit platforms, redundancy is just sanity checks
 assert_eq_size!(usize, ConstVoid);
@@ -60,7 +60,7 @@ impl Value {
     if self.is::<f64>() {
       Tag::F64
     } else {
-      unsafe { mem::transmute(self.bits & TAG_BITMASK) }
+      unsafe { mem::transmute::<u64, tags::Tag>(self.bits & TAG_BITMASK) }
     }
   }
 
@@ -84,37 +84,37 @@ impl Value {
 
   pub fn is<T>(&self) -> bool
   where
-    Self: IsType<T>,
+    Self: Cast<T>,
   {
     self.is_type()
   }
 
-  pub fn cast_to<T>(&self) -> Option<<Self as Cast<T>>::CastType>
+  pub fn cast_to<T>(&self) -> Option<<Self as Cast<T>>::Out>
   where
     Self: Cast<T>,
   {
     self.cast()
   }
 
-  pub fn cast_to_mut<T>(&mut self) -> Option<<Self as CastMut<T>>::CastTypeMut>
+  pub fn cast_to_mut<T>(&mut self) -> Option<<Self as Cast<T>>::OutMut>
   where
-    Self: CastMut<T>,
+    Self: Cast<T>,
   {
     self.cast_mut()
   }
 
-  pub fn reinterpret_cast_to<T>(&self) -> <Self as Cast<T>>::CastType
+  pub fn unchecked_cast_to<T>(&self) -> <Self as Cast<T>>::Out
   where
-    Self: ReinterpretCast<T>,
+    Self: Cast<T>,
   {
-    self.reinterpret_cast()
+    self.unchecked_cast()
   }
 
-  pub fn reinterpret_cast_to_mut<T>(&mut self) -> <Self as CastMut<T>>::CastTypeMut
+  pub fn unchecked_cast_to_mut<T>(&mut self) -> <Self as Cast<T>>::OutMut
   where
-    Self: ReinterpretCastMut<T>,
+    Self: Cast<T>,
   {
-    self.reinterpret_cast_mut()
+    self.unchecked_cast_mut()
   }
 
   pub fn maybe_into<T>(&mut self) -> Option<T>
@@ -148,11 +148,12 @@ impl Value {
 
   // value methods
 
-  pub fn call(&mut self, vm: &mut Vm, airity: usize) -> UsageResult {
+  pub fn call(&mut self, vm: &mut Vm, airity: usize) -> UsageResult<()> {
     if let Some(f) = self.cast_to::<NativeFn>() {
       let args = vm.stack_drain_from(airity);
       let output = f(vm, Args::new(args))?;
-      Ok(output)
+      vm.stack_push(output);
+      Ok(())
     } else {
       (self.vtable().invoke)(self.pointer_mut(), MutPtr::new(vm), *self, airity)
     }
@@ -187,11 +188,11 @@ impl Value {
   }
 
   pub fn deep_trace(&self, marks: &mut Tracer) {
-    marks.deep_trace(self);
+    marks.deep_trace(*self);
   }
 
   pub fn incremental_trace(&self, marks: &mut Tracer) {
-    marks.try_mark_gray(self);
+    marks.try_mark_gray(*self);
   }
 
   pub fn deep_trace_children(&self, marks: &mut Tracer) {
@@ -229,18 +230,18 @@ impl Value {
   fn compare(&self, other: Self) -> Option<Ordering> {
     match (self.tag(), other.tag()) {
       (Tag::F64, Tag::F64) => {
-        let a = self.reinterpret_cast_to::<f64>();
-        let b = other.reinterpret_cast_to::<f64>();
+        let a = self.unchecked_cast_to::<f64>();
+        let b = other.unchecked_cast_to::<f64>();
         a.partial_cmp(&b)
       }
       (Tag::F64, Tag::I32) => {
-        let a = self.reinterpret_cast_to::<f64>();
-        let b = other.reinterpret_cast_to::<i32>() as f64;
+        let a = self.unchecked_cast_to::<f64>();
+        let b = other.unchecked_cast_to::<i32>() as f64;
         a.partial_cmp(&b)
       }
       (Tag::I32, Tag::F64) => {
-        let a = self.reinterpret_cast_to::<i32>() as f64;
-        let b = other.reinterpret_cast_to::<f64>();
+        let a = self.unchecked_cast_to::<i32>() as f64;
+        let b = other.unchecked_cast_to::<f64>();
         a.partial_cmp(&b)
       }
       (t1, t2) if t1 == t2 => self.bits.partial_cmp(&other.bits),
@@ -254,12 +255,16 @@ impl Value {
     (self.bits & VALUE_BITMASK) as ConstVoid
   }
 
+  pub(crate) fn pointer_t<T>(&self) -> ConstAddr<T> {
+    (self.bits & VALUE_BITMASK) as ConstAddr<T>
+  }
+
   pub(crate) fn pointer_mut(&mut self) -> MutVoid {
     (self.bits & VALUE_BITMASK) as MutVoid
   }
 
   pub(crate) fn meta(&self) -> &ValueMeta {
-    unsafe { &*((self.pointer() as *const u8).offset(META_OFFSET) as *const ValueMeta) }
+    unsafe { &*((self.pointer() as ConstAddr<u8>).offset(META_OFFSET) as ConstAddr<ValueMeta>) }
   }
 
   pub(crate) fn is_unreferenced(&self) -> bool {
@@ -295,11 +300,7 @@ impl Value {
 
   /// Executes f only if self is nil, otherwise returns self
   pub fn or_else<F: FnOnce() -> Self>(self, f: F) -> Self {
-    if self.is::<()>() {
-      f()
-    } else {
-      self
-    }
+    if self.is::<()>() { f() } else { self }
   }
 }
 
@@ -314,8 +315,8 @@ impl TryFrom<Value> for i32 {
 
   fn try_from(value: Value) -> Result<Self, Self::Error> {
     match value.tag() {
-      Tag::I32 => Ok(value.reinterpret_cast_to::<i32>()),
-      Tag::F64 => Ok(value.reinterpret_cast_to::<f64>() as i32),
+      Tag::I32 => Ok(value.unchecked_cast_to::<i32>()),
+      Tag::F64 => Ok(value.unchecked_cast_to::<f64>() as i32),
       _ => Err(UsageError::CoercionError(value, "i32")),
     }
   }
@@ -375,17 +376,17 @@ impl Display for Value {
   fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
     match self.tag() {
       Tag::F64 => {
-        let fv = self.reinterpret_cast_to::<f64>();
+        let fv = self.unchecked_cast_to::<f64>();
         if fv < 0.0001 {
           write!(f, "{:e}", fv)
         } else {
           write!(f, "{}", fv)
         }
       }
-      Tag::I32 => write!(f, "{}", self.reinterpret_cast_to::<i32>()),
-      Tag::Bool => write!(f, "{}", self.reinterpret_cast_to::<bool>()),
-      Tag::Char => write!(f, "{}", self.reinterpret_cast_to::<char>()),
-      Tag::NativeFn => write!(f, "<native fn {:p}>", &self.reinterpret_cast_to::<NativeFn>()),
+      Tag::I32 => write!(f, "{}", self.unchecked_cast_to::<i32>()),
+      Tag::Bool => write!(f, "{}", self.unchecked_cast_to::<bool>()),
+      Tag::Char => write!(f, "{}", self.unchecked_cast_to::<char>()),
+      Tag::NativeFn => write!(f, "<native fn {:p}>", &self.unchecked_cast_to::<NativeFn>()),
       Tag::Pointer => write!(f, "{}", self.display_string()),
       Tag::Nil => write!(f, "nil"),
     }
@@ -397,10 +398,10 @@ impl Debug for Value {
     const PTR_WIDTH: usize = mem::size_of::<usize>() * 2;
     const PTR_DISPLAY_WIDTH: usize = PTR_WIDTH + 2;
     match self.tag() {
-      Tag::F64 => write!(f, "f64 {} (0x{:x})", self.reinterpret_cast_to::<f64>(), self.bits()),
-      Tag::I32 => write!(f, "i32 {} (0x{:x})", self.reinterpret_cast_to::<i32>(), self.bits()),
-      Tag::Bool => write!(f, "bool {} (0x{:x})", self.reinterpret_cast_to::<bool>(), self.bits()),
-      Tag::Char => write!(f, "char {} (0x{:x})", self.reinterpret_cast_to::<char>(), self.bits()),
+      Tag::F64 => write!(f, "f64 {} (0x{:x})", self.unchecked_cast_to::<f64>(), self.bits()),
+      Tag::I32 => write!(f, "i32 {} (0x{:x})", self.unchecked_cast_to::<i32>(), self.bits()),
+      Tag::Bool => write!(f, "bool {} (0x{:x})", self.unchecked_cast_to::<bool>(), self.bits()),
+      Tag::Char => write!(f, "char {} (0x{:x})", self.unchecked_cast_to::<char>(), self.bits()),
       Tag::NativeFn => write!(
         f,
         "<@{addr:<width$} {:?}>",
@@ -427,30 +428,30 @@ impl Add for Value {
   fn add(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
-        let v = self.reinterpret_cast_to::<f64>();
+        let v = self.unchecked_cast_to::<f64>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v + rhs.reinterpret_cast_to::<f64>())),
-          Tag::I32 => Ok(Self::from(v + rhs.reinterpret_cast_to::<i32>() as f64)),
+          Tag::F64 => Ok(Self::from(v + rhs.unchecked_cast_to::<f64>())),
+          Tag::I32 => Ok(Self::from(v + rhs.unchecked_cast_to::<i32>() as f64)),
           _ => Err(UsageError::CoercionError(self, "f64")),
         }
       }
       Tag::I32 => {
-        let v = self.reinterpret_cast_to::<i32>();
+        let v = self.unchecked_cast_to::<i32>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v as f64 + rhs.reinterpret_cast_to::<f64>())),
-          Tag::I32 => Ok(Self::from(v + rhs.reinterpret_cast_to::<i32>())),
+          Tag::F64 => Ok(Self::from(v as f64 + rhs.unchecked_cast_to::<f64>())),
+          Tag::I32 => Ok(Self::from(v + rhs.unchecked_cast_to::<i32>())),
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
       Tag::Bool => Err(UsageError::InvalidBinary),
       Tag::Char => {
-        let v = self.reinterpret_cast_to::<char>();
+        let v = self.unchecked_cast_to::<char>();
         match rhs.tag() {
-          Tag::I32 => match char::from_u32((v as u32 as i32 + rhs.reinterpret_cast_to::<i32>()) as u32) {
+          Tag::I32 => match char::from_u32((v as u32 as i32 + rhs.unchecked_cast_to::<i32>()) as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('+', self, rhs)),
           },
-          Tag::Char => match char::from_u32(v as u32 + rhs.reinterpret_cast_to::<char>() as u32) {
+          Tag::Char => match char::from_u32(v as u32 + rhs.unchecked_cast_to::<char>() as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::CoercionError(rhs, "i32")),
           },
@@ -468,30 +469,30 @@ impl Sub for Value {
   fn sub(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
-        let v = self.reinterpret_cast_to::<f64>();
+        let v = self.unchecked_cast_to::<f64>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v - rhs.reinterpret_cast_to::<f64>())),
-          Tag::I32 => Ok(Self::from(v - rhs.reinterpret_cast_to::<i32>() as f64)),
+          Tag::F64 => Ok(Self::from(v - rhs.unchecked_cast_to::<f64>())),
+          Tag::I32 => Ok(Self::from(v - rhs.unchecked_cast_to::<i32>() as f64)),
           _ => Err(UsageError::CoercionError(self, "f64")),
         }
       }
       Tag::I32 => {
-        let v = self.reinterpret_cast_to::<i32>();
+        let v = self.unchecked_cast_to::<i32>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v as f64 - rhs.reinterpret_cast_to::<f64>())),
-          Tag::I32 => Ok(Self::from(v - rhs.reinterpret_cast_to::<i32>())),
+          Tag::F64 => Ok(Self::from(v as f64 - rhs.unchecked_cast_to::<f64>())),
+          Tag::I32 => Ok(Self::from(v - rhs.unchecked_cast_to::<i32>())),
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
       Tag::Bool => Err(UsageError::InvalidBinary),
       Tag::Char => {
-        let v = self.reinterpret_cast_to::<char>();
+        let v = self.unchecked_cast_to::<char>();
         match rhs.tag() {
-          Tag::I32 => match char::from_u32((v as u32 as i32 - rhs.reinterpret_cast_to::<i32>()) as u32) {
+          Tag::I32 => match char::from_u32((v as u32 as i32 - rhs.unchecked_cast_to::<i32>()) as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('-', self, rhs)),
           },
-          Tag::Char => match char::from_u32(v as u32 - rhs.reinterpret_cast_to::<char>() as u32) {
+          Tag::Char => match char::from_u32(v as u32 - rhs.unchecked_cast_to::<char>() as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('-', self, rhs)),
           },
@@ -509,30 +510,30 @@ impl Mul for Value {
   fn mul(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
-        let v = self.reinterpret_cast_to::<f64>();
+        let v = self.unchecked_cast_to::<f64>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v * rhs.reinterpret_cast_to::<f64>())),
-          Tag::I32 => Ok(Self::from(v * rhs.reinterpret_cast_to::<i32>() as f64)),
+          Tag::F64 => Ok(Self::from(v * rhs.unchecked_cast_to::<f64>())),
+          Tag::I32 => Ok(Self::from(v * rhs.unchecked_cast_to::<i32>() as f64)),
           _ => Err(UsageError::CoercionError(rhs, "f64")),
         }
       }
       Tag::I32 => {
-        let v = self.reinterpret_cast_to::<i32>();
+        let v = self.unchecked_cast_to::<i32>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v as f64 * rhs.reinterpret_cast_to::<f64>())),
-          Tag::I32 => Ok(Self::from(v * rhs.reinterpret_cast_to::<i32>())),
+          Tag::F64 => Ok(Self::from(v as f64 * rhs.unchecked_cast_to::<f64>())),
+          Tag::I32 => Ok(Self::from(v * rhs.unchecked_cast_to::<i32>())),
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
       Tag::Bool => Err(UsageError::InvalidBinary),
       Tag::Char => {
-        let v = self.reinterpret_cast_to::<char>();
+        let v = self.unchecked_cast_to::<char>();
         match rhs.tag() {
-          Tag::I32 => match char::from_u32((v as u32 as i32 * rhs.reinterpret_cast_to::<i32>()) as u32) {
+          Tag::I32 => match char::from_u32((v as u32 as i32 * rhs.unchecked_cast_to::<i32>()) as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('*', self, rhs)),
           },
-          Tag::Char => match char::from_u32(v as u32 * rhs.reinterpret_cast_to::<char>() as u32) {
+          Tag::Char => match char::from_u32(v as u32 * rhs.unchecked_cast_to::<char>() as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('*', self, rhs)),
           },
@@ -551,30 +552,30 @@ impl Div for Value {
   fn div(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
-        let v = self.reinterpret_cast_to::<f64>();
+        let v = self.unchecked_cast_to::<f64>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v / rhs.reinterpret_cast_to::<f64>())),
-          Tag::I32 => Ok(Self::from(v / rhs.reinterpret_cast_to::<i32>() as f64)),
+          Tag::F64 => Ok(Self::from(v / rhs.unchecked_cast_to::<f64>())),
+          Tag::I32 => Ok(Self::from(v / rhs.unchecked_cast_to::<i32>() as f64)),
           _ => Err(UsageError::CoercionError(rhs, "f64")),
         }
       }
       Tag::I32 => {
-        let v = self.reinterpret_cast_to::<i32>();
+        let v = self.unchecked_cast_to::<i32>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v as f64 / rhs.reinterpret_cast_to::<f64>())),
-          Tag::I32 => Ok(Self::from(v / rhs.reinterpret_cast_to::<i32>())),
+          Tag::F64 => Ok(Self::from(v as f64 / rhs.unchecked_cast_to::<f64>())),
+          Tag::I32 => Ok(Self::from(v / rhs.unchecked_cast_to::<i32>())),
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
       Tag::Bool => Err(UsageError::InvalidBinary),
       Tag::Char => {
-        let v = self.reinterpret_cast_to::<char>();
+        let v = self.unchecked_cast_to::<char>();
         match rhs.tag() {
-          Tag::I32 => match char::from_u32((v as u32 as i32 / rhs.reinterpret_cast_to::<i32>()) as u32) {
+          Tag::I32 => match char::from_u32((v as u32 as i32 / rhs.unchecked_cast_to::<i32>()) as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('/', self, rhs)),
           },
-          Tag::Char => match char::from_u32(v as u32 / rhs.reinterpret_cast_to::<char>() as u32) {
+          Tag::Char => match char::from_u32(v as u32 / rhs.unchecked_cast_to::<char>() as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('/', self, rhs)),
           },
@@ -592,30 +593,30 @@ impl Rem for Value {
   fn rem(self, rhs: Self) -> Self::Output {
     match self.tag() {
       Tag::F64 => {
-        let v = self.reinterpret_cast_to::<f64>();
+        let v = self.unchecked_cast_to::<f64>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v % rhs.reinterpret_cast_to::<f64>())),
-          Tag::I32 => Ok(Self::from(v % rhs.reinterpret_cast_to::<i32>() as f64)),
+          Tag::F64 => Ok(Self::from(v % rhs.unchecked_cast_to::<f64>())),
+          Tag::I32 => Ok(Self::from(v % rhs.unchecked_cast_to::<i32>() as f64)),
           _ => Err(UsageError::CoercionError(rhs, "f64")),
         }
       }
       Tag::I32 => {
-        let v = self.reinterpret_cast_to::<i32>();
+        let v = self.unchecked_cast_to::<i32>();
         match rhs.tag() {
-          Tag::F64 => Ok(Self::from(v as f64 % rhs.reinterpret_cast_to::<f64>())),
-          Tag::I32 => Ok(Self::from(v % rhs.reinterpret_cast_to::<i32>())),
+          Tag::F64 => Ok(Self::from(v as f64 % rhs.unchecked_cast_to::<f64>())),
+          Tag::I32 => Ok(Self::from(v % rhs.unchecked_cast_to::<i32>())),
           _ => Err(UsageError::CoercionError(rhs, "i32")),
         }
       }
       Tag::Bool => Err(UsageError::InvalidBinary),
       Tag::Char => {
-        let v = self.reinterpret_cast_to::<char>();
+        let v = self.unchecked_cast_to::<char>();
         match rhs.tag() {
-          Tag::I32 => match char::from_u32((v as u32 as i32 % rhs.reinterpret_cast_to::<i32>()) as u32) {
+          Tag::I32 => match char::from_u32((v as u32 as i32 % rhs.unchecked_cast_to::<i32>()) as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('%', self, rhs)),
           },
-          Tag::Char => match char::from_u32(v as u32 % rhs.reinterpret_cast_to::<char>() as u32) {
+          Tag::Char => match char::from_u32(v as u32 % rhs.unchecked_cast_to::<char>() as u32) {
             Some(c) => Ok(Self::from(c)),
             None => Err(UsageError::InvalidOperation('/', self, rhs)),
           },
@@ -632,8 +633,8 @@ impl Neg for Value {
 
   fn neg(self) -> Self::Output {
     match self.tag() {
-      Tag::F64 => Ok(Value::from(-self.reinterpret_cast_to::<f64>())),
-      Tag::I32 => Ok(Value::from(-self.reinterpret_cast_to::<i32>())),
+      Tag::F64 => Ok(Value::from(-self.unchecked_cast_to::<f64>())),
+      Tag::I32 => Ok(Value::from(-self.unchecked_cast_to::<i32>())),
       _ => Err(UsageError::UnimplementedError("negate", self)),
     }
   }
@@ -676,7 +677,7 @@ pub struct VTable {
   pub(crate) index: NativeBinaryOp,
   pub(crate) assign_index: NativeTernaryOp,
 
-  invoke: fn(MutVoid, MutPtr<Vm>, Value, usize) -> UsageResult,
+  invoke: fn(MutVoid, MutPtr<Vm>, Value, usize) -> UsageResult<()>,
 
   display_string: fn(ConstVoid) -> String,
   debug_string: fn(ConstVoid) -> String,
@@ -728,7 +729,7 @@ impl VTable {
       deep_trace: |this, marks| <T as TraceableValue>::deep_trace(Self::cast(this), Self::typed_cast_mut(marks)),
       incremental_trace: |this, marks| <T as TraceableValue>::incremental_trace(Self::cast(this), Self::typed_cast_mut(marks)),
 
-      dealloc: |this| memory::consume(this as *mut T),
+      dealloc: |this| memory::consume(this as MutAddr<T>),
 
       type_id: || &<T as Usertype>::ID,
       type_name: || std::any::type_name::<T>().to_string(),
@@ -736,11 +737,11 @@ impl VTable {
   }
 
   fn cast<'t, T>(ptr: ConstVoid) -> &'t T {
-    unsafe { &*(ptr as *const T) }
+    unsafe { &*(ptr as ConstAddr<T>) }
   }
 
   fn cast_mut<'t, T>(ptr: MutVoid) -> &'t mut T {
-    unsafe { &mut *(ptr as *mut T) }
+    unsafe { &mut *(ptr as MutAddr<T>) }
   }
 
   fn typed_cast_mut<T>(ptr: MutPtr<T>) -> &'static mut T {
@@ -768,26 +769,23 @@ pub(crate) struct ValueMeta {
   pub(crate) size: usize,
 }
 
-pub trait IsType<T>: private::Sealed {
-  fn is_type(&self) -> bool;
-}
-
 pub trait Cast<T>: private::Sealed {
-  type CastType;
-  fn cast(&self) -> Option<Self::CastType>;
-}
+  type Out;
+  type OutMut;
 
-pub trait CastMut<T>: private::Sealed {
-  type CastTypeMut;
-  fn cast_mut(&mut self) -> Option<Self::CastTypeMut>;
-}
+  fn is_type(&self) -> bool;
 
-pub trait ReinterpretCast<T>: Cast<T> + private::Sealed {
-  fn reinterpret_cast(&self) -> Self::CastType;
-}
+  fn cast(&self) -> Option<Self::Out> {
+    self.is_type().then(|| self.unchecked_cast())
+  }
 
-pub trait ReinterpretCastMut<T>: CastMut<T> + private::Sealed {
-  fn reinterpret_cast_mut(&mut self) -> Self::CastTypeMut;
+  fn cast_mut(&mut self) -> Option<Self::OutMut> {
+    self.is_type().then(|| self.unchecked_cast_mut())
+  }
+
+  fn unchecked_cast(&self) -> Self::Out;
+
+  fn unchecked_cast_mut(&mut self) -> Self::OutMut;
 }
 
 mod private {

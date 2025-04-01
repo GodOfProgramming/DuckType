@@ -45,7 +45,7 @@ pub use closure_value::ClosureValue;
 pub use function_value::FunctionValue;
 pub use id_value::IdValue;
 pub use instance_value::InstanceValue;
-use macros::{methods, Fields};
+use macros::{Fields, methods};
 pub use method_value::MethodValue;
 pub use module_value::{ModuleBuilder, ModuleType, ModuleValue};
 pub use native_value::{NativeClosureValue, NativeFn, NativeMethodValue};
@@ -171,7 +171,7 @@ pub trait Operators {
   ternary_op!(__idxeq__);
 
   #[allow(unused_variables)]
-  fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult {
+  fn __ivk__(&mut self, vm: &mut Vm, this: Value, airity: usize) -> UsageResult<()> {
     Err(UsageError::UndefinedMethod("__ivk__", self.__str__()))
   }
 
@@ -187,7 +187,9 @@ pub trait Operators {
 
   fn __str__(&self) -> String;
 
-  fn __dbg__(&self) -> String;
+  fn __dbg__(&self) -> String {
+    self.__str__()
+  }
 }
 
 pub trait TraceableValue {
@@ -200,26 +202,26 @@ pub trait TraceableValue {
 impl TraceableValue for Option<Value> {
   fn deep_trace(&self, marks: &mut Tracer) {
     if let Some(value) = self {
-      marks.deep_trace(value);
+      marks.deep_trace(*value);
     }
   }
 
   fn incremental_trace(&self, marks: &mut Tracer) {
     if let Some(value) = self {
-      marks.try_mark_gray(value);
+      marks.try_mark_gray(*value);
     }
   }
 }
 
 impl TraceableValue for Vec<Value> {
   fn deep_trace(&self, marks: &mut Tracer) {
-    for value in self {
+    for value in self.iter().cloned() {
       marks.deep_trace(value);
     }
   }
 
   fn incremental_trace(&self, marks: &mut Tracer) {
-    for value in self {
+    for value in self.iter().cloned() {
       marks.try_mark_gray(value);
     }
   }
@@ -227,13 +229,13 @@ impl TraceableValue for Vec<Value> {
 
 impl<T, S> TraceableValue for HashMap<T, Value, S> {
   fn deep_trace(&self, marks: &mut Tracer) {
-    for value in self.values() {
+    for value in self.values().cloned() {
       marks.deep_trace(value);
     }
   }
 
   fn incremental_trace(&self, marks: &mut Tracer) {
-    for value in self.values() {
+    for value in self.values().cloned() {
       marks.try_mark_gray(value);
     }
   }
@@ -258,13 +260,13 @@ where
 
 impl<T> TraceableValue for BTreeMap<T, Value> {
   fn deep_trace(&self, marks: &mut Tracer) {
-    for value in self.values() {
+    for value in self.values().cloned() {
       marks.deep_trace(value);
     }
   }
 
   fn incremental_trace(&self, marks: &mut Tracer) {
-    for value in self.values() {
+    for value in self.values().cloned() {
       marks.try_mark_gray(value);
     }
   }
@@ -362,6 +364,8 @@ impl Operators for Primitive {
 #[methods]
 impl Primitive {}
 
+/*
+
 pub(crate) trait ConsumeResult<T> {
   fn consume<F, O>(self, f: F) -> UsageResult<O>
   where
@@ -376,3 +380,5 @@ impl<T> ConsumeResult<T> for UsageResult<T> {
     Ok(f(self?))
   }
 }
+
+*/

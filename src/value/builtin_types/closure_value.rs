@@ -28,14 +28,16 @@ impl ClosureValue {
 }
 
 impl Operators for ClosureValue {
-  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult {
+  fn __ivk__(&mut self, vm: &mut Vm, _this_fn: Value, airity: usize) -> UsageResult<()> {
     self.function.check_args(airity)?;
 
     for capture in &self.captures {
       vm.stack_push(*capture);
     }
 
-    self.function.invoke(vm, self.captures.len())
+    self.function.invoke(vm, self.captures.len());
+
+    Ok(())
   }
 
   fn __str__(&self) -> String {

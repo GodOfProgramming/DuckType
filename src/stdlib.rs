@@ -6,7 +6,7 @@ mod libtime;
 
 use crate::{
   prelude::*,
-  value::{prelude::module_value::ModuleType, NATIVE_FN_TAG},
+  value::{NATIVE_FN_TAG, prelude::module_value::ModuleType},
 };
 use std::env;
 

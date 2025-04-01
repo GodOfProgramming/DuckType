@@ -1,147 +1,93 @@
-use super::{
-  Cast, CastMut, IsType, ReinterpretCast, ReinterpretCastMut, BOOL_TAG, CHAR_TAG, F64_MAX, I32_TAG, NATIVE_FN_TAG, NIL_TAG,
-  TAG_BITMASK, VALUE_BITMASK,
-};
+use super::{BOOL_TAG, CHAR_TAG, Cast, F64_MAX, I32_TAG, NATIVE_FN_TAG, NIL_TAG, TAG_BITMASK, VALUE_BITMASK};
 use crate::prelude::*;
 use std::mem;
 
-// f64
+impl Cast<f64> for Value {
+  type Out = f64;
+  type OutMut = f64;
 
-impl IsType<f64> for Value {
   fn is_type(&self) -> bool {
     self.bits < F64_MAX
   }
-}
 
-impl Cast<f64> for Value {
-  type CastType = f64;
-  fn cast(&self) -> Option<Self::CastType> {
-    if self.is::<f64>() {
-      Some(self.reinterpret_cast_to::<f64>())
-    } else {
-      None
-    }
-  }
-}
-
-impl ReinterpretCast<f64> for Value {
-  fn reinterpret_cast(&self) -> Self::CastType {
+  fn unchecked_cast(&self) -> Self::Out {
     debug_assert!(self.is::<f64>());
     f64::from_bits(self.bits)
   }
-}
 
-// i32
-
-impl IsType<i32> for Value {
-  fn is_type(&self) -> bool {
-    self.bits & TAG_BITMASK == I32_TAG
+  fn unchecked_cast_mut(&mut self) -> Self::OutMut {
+    self.unchecked_cast_to::<Self::Out>()
   }
 }
 
 impl Cast<i32> for Value {
-  type CastType = i32;
-  fn cast(&self) -> Option<Self::CastType> {
-    if self.is::<i32>() {
-      Some(self.reinterpret_cast_to::<i32>())
-    } else {
-      None
-    }
-  }
-}
+  type Out = i32;
+  type OutMut = i32;
 
-impl ReinterpretCast<i32> for Value {
-  fn reinterpret_cast(&self) -> Self::CastType {
-    debug_assert!(self.is::<i32>());
+  fn is_type(&self) -> bool {
+    self.bits & TAG_BITMASK == I32_TAG
+  }
+
+  fn unchecked_cast(&self) -> Self::Out {
     unsafe { mem::transmute((self.bits & VALUE_BITMASK) as u32) }
   }
-}
 
-// bool
-
-impl IsType<bool> for Value {
-  fn is_type(&self) -> bool {
-    self.bits & TAG_BITMASK == BOOL_TAG
+  fn unchecked_cast_mut(&mut self) -> Self::OutMut {
+    self.unchecked_cast_to::<Self::Out>()
   }
 }
 
 impl Cast<bool> for Value {
-  type CastType = bool;
-  fn cast(&self) -> Option<Self::CastType> {
-    if self.is::<bool>() {
-      Some(self.reinterpret_cast_to::<bool>())
-    } else {
-      None
-    }
-  }
-}
+  type Out = bool;
+  type OutMut = bool;
 
-impl ReinterpretCast<bool> for Value {
-  fn reinterpret_cast(&self) -> Self::CastType {
+  fn is_type(&self) -> bool {
+    self.bits & TAG_BITMASK == BOOL_TAG
+  }
+
+  fn unchecked_cast(&self) -> Self::Out {
     debug_assert!(self.is::<bool>());
     self.bits & VALUE_BITMASK > 0
   }
-}
 
-// char
-
-impl IsType<char> for Value {
-  fn is_type(&self) -> bool {
-    self.bits & TAG_BITMASK == CHAR_TAG
+  fn unchecked_cast_mut(&mut self) -> Self::OutMut {
+    self.unchecked_cast_to::<Self::Out>()
   }
 }
 
 impl Cast<char> for Value {
-  type CastType = char;
-  fn cast(&self) -> Option<Self::CastType> {
-    if self.is::<char>() {
-      Some(self.reinterpret_cast_to::<char>())
-    } else {
-      None
-    }
-  }
-}
+  type Out = char;
+  type OutMut = char;
 
-impl ReinterpretCast<char> for Value {
-  fn reinterpret_cast(&self) -> Self::CastType {
+  fn is_type(&self) -> bool {
+    self.bits & TAG_BITMASK == CHAR_TAG
+  }
+
+  fn unchecked_cast(&self) -> Self::Out {
     debug_assert!(self.is::<char>());
     char::from_u32((self.bits & VALUE_BITMASK) as u32).unwrap_or_default()
   }
-}
 
-// fn
-
-impl IsType<NativeFn> for Value {
-  fn is_type(&self) -> bool {
-    self.bits & TAG_BITMASK == NATIVE_FN_TAG
+  fn unchecked_cast_mut(&mut self) -> Self::OutMut {
+    self.unchecked_cast_to::<Self::Out>()
   }
 }
 
 impl Cast<NativeFn> for Value {
-  type CastType = NativeFn;
-  fn cast(&self) -> Option<Self::CastType> {
-    if self.is::<NativeFn>() {
-      Some(unsafe { mem::transmute(self.bits & VALUE_BITMASK) })
-    } else {
-      None
-    }
-  }
-}
+  type Out = NativeFn;
+  type OutMut = NativeFn;
 
-impl ReinterpretCast<NativeFn> for Value {
-  fn reinterpret_cast(&self) -> Self::CastType {
+  fn is_type(&self) -> bool {
+    self.bits & TAG_BITMASK == NATIVE_FN_TAG
+  }
+
+  fn unchecked_cast(&self) -> Self::Out {
+    debug_assert!(self.is::<NativeFn>());
     unsafe { mem::transmute(self.bits & VALUE_BITMASK) }
   }
-}
 
-// pointer
-
-impl<T> IsType<T> for Value
-where
-  T: Usertype,
-{
-  fn is_type(&self) -> bool {
-    self.is_ptr() && *self.type_id() == T::ID
+  fn unchecked_cast_mut(&mut self) -> Self::OutMut {
+    self.unchecked_cast_to::<Self::Out>()
   }
 }
 
@@ -149,54 +95,34 @@ impl<T> Cast<T> for Value
 where
   T: Usertype,
 {
-  type CastType = &'static T;
-  fn cast(&self) -> Option<Self::CastType> {
-    if self.is::<T>() {
-      Some(<Value as ReinterpretCast<T>>::reinterpret_cast(self))
-    } else {
-      None
-    }
+  type Out = &'static T;
+  type OutMut = &'static mut T;
+
+  fn is_type(&self) -> bool {
+    self.is_ptr() && *self.type_id() == T::ID
+  }
+
+  fn unchecked_cast(&self) -> Self::Out {
+    debug_assert!(self.is::<T>());
+    unsafe { &*(self.pointer() as ConstAddr<T>) }
+  }
+
+  fn unchecked_cast_mut(&mut self) -> Self::OutMut {
+    unsafe { &mut *(self.pointer_mut() as MutAddr<T>) }
   }
 }
 
-impl<T> CastMut<T> for Value
-where
-  T: Usertype,
-{
-  type CastTypeMut = &'static mut T;
-  fn cast_mut(&mut self) -> Option<Self::CastTypeMut> {
-    if self.is::<T>() {
-      Some(<Value as ReinterpretCastMut<T>>::reinterpret_cast_mut(self))
-    } else {
-      None
-    }
-  }
-}
+impl Cast<()> for Value {
+  type Out = ();
+  type OutMut = ();
 
-impl<T> ReinterpretCast<T> for Value
-where
-  T: Usertype,
-{
-  fn reinterpret_cast(&self) -> Self::CastType {
-    unsafe { &*(self.pointer() as *const T) }
-  }
-}
-
-impl<T> ReinterpretCastMut<T> for Value
-where
-  T: Usertype,
-{
-  fn reinterpret_cast_mut(&mut self) -> Self::CastTypeMut {
-    unsafe { &mut *(self.pointer_mut() as *mut T) }
-  }
-}
-
-// nil
-
-impl IsType<()> for Value {
   fn is_type(&self) -> bool {
     self.bits & TAG_BITMASK == NIL_TAG
   }
+
+  fn unchecked_cast(&self) -> Self::Out {}
+
+  fn unchecked_cast_mut(&mut self) -> Self::OutMut {}
 }
 
 // utility conversions
@@ -205,16 +131,38 @@ impl<T0, T1> Cast<(Option<T0>, Option<T1>)> for Value
 where
   Self: Cast<T0> + Cast<T1>,
 {
-  type CastType = (Option<<Self as Cast<T0>>::CastType>, Option<<Self as Cast<T1>>::CastType>);
+  type Out = (Option<<Self as Cast<T0>>::Out>, Option<<Self as Cast<T1>>::Out>);
+  type OutMut = (Option<<Self as Cast<T0>>::OutMut>, Option<<Self as Cast<T1>>::OutMut>);
 
-  fn cast(&self) -> Option<Self::CastType> {
+  fn is_type(&self) -> bool {
+    let is_t0 = self.is::<T0>();
+    let is_t1 = self.is::<T1>();
+
+    is_t0 || is_t1
+  }
+
+  /// Do not use unless absolutely needed, unchecked is both faster and has safety
+  fn cast(&self) -> Option<Self::Out> {
     let t0 = self.cast_to::<T0>();
     let t1 = self.cast_to::<T1>();
-    if t0.is_none() && t1.is_none() || t0.is_some() && t1.is_some() {
-      None
-    } else {
-      Some((t0, t1))
-    }
+
+    if t0.is_none() && t1.is_none() { None } else { Some((t0, t1)) }
+  }
+
+  /// Do not use unless absolutely needed, unchecked is both faster and has safety
+  fn cast_mut(&mut self) -> Option<Self::OutMut> {
+    let t0 = self.cast_to_mut::<T0>();
+    let t1 = self.cast_to_mut::<T1>();
+
+    if t0.is_none() && t1.is_none() { None } else { Some((t0, t1)) }
+  }
+
+  fn unchecked_cast(&self) -> Self::Out {
+    (self.cast_to::<T0>(), self.cast_to::<T1>())
+  }
+
+  fn unchecked_cast_mut(&mut self) -> Self::OutMut {
+    (self.cast_to_mut::<T0>(), self.cast_to_mut::<T1>())
   }
 }
 
@@ -305,10 +253,7 @@ where
   fn maybe_from(value: Value) -> Option<Self> {
     let t0 = T0::maybe_from(value);
     let t1 = T1::maybe_from(value);
-    if t0.is_none() && t1.is_none() || t0.is_some() && t1.is_some() {
-      None
-    } else {
-      Some((t0, t1))
-    }
+
+    if t0.is_none() && t1.is_none() { None } else { Some((t0, t1)) }
   }
 }

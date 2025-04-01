@@ -1,11 +1,11 @@
-use super::{ast::*, SourceLocation};
 use super::{ConstantValue, FunctionConstant};
+use super::{SourceLocation, ast::*};
 use crate::prelude::{Cache, Context};
 use crate::{
+  InstructionData, LongAddr, Opcode, ShortAddr, Storage, TryIntoInstruction,
   code::InstructionMetadata,
   error::{BytecodeGenerationError, BytecodeGenerationErrorMsg, CompilerError},
   util::FileIdType,
-  InstructionData, LongAddr, Opcode, ShortAddr, Storage, TryIntoInstruction,
 };
 use ptr::SmartPtr;
 use std::fmt::Debug;
@@ -14,7 +14,7 @@ use std::fmt::Debug;
 use std::{cell::RefCell, collections::HashSet};
 #[cfg(test)]
 thread_local! {
-  pub static CAPTURE_OPS: RefCell<bool> = RefCell::new(false);
+  pub static CAPTURE_OPS: RefCell<bool> = const { RefCell::new(false) };
   pub static GENERATED_OPS: RefCell<HashSet<Opcode>> = RefCell::new(Default::default());
 }
 
@@ -87,11 +87,9 @@ impl<'p> BytecodeGenerator<'p> {
       self.emit_stmt(stmt);
     }
 
-    if !self.locals.is_empty() {
-      self.emit((Opcode::PopN, self.locals.len()), SourceLocation { line: 0, column: 0 });
-    }
-
-    self.emit(Opcode::Ret, SourceLocation { line: 0, column: 0 });
+    // breaks out of the fetch exec loop in the vm
+    let local_count = self.locals.len();
+    self.emit((Opcode::Ret, local_count), SourceLocation { line: 0, column: 0 });
 
     if self.errors.is_empty() {
       Ok(self.ctx)
@@ -270,10 +268,7 @@ impl<'p> BytecodeGenerator<'p> {
     }
 
     let locals = self.num_locals_in_exclusive_depth(self.fn_depth);
-    if locals > 0 {
-      self.emit((Opcode::PopN, locals), stmt.loc);
-    }
-    self.emit(Opcode::Ret, stmt.loc);
+    self.emit((Opcode::Ret, locals), stmt.loc);
   }
 
   fn use_stmt(&mut self, stmt: UseStatement) {
@@ -627,29 +622,35 @@ impl<'p> BytecodeGenerator<'p> {
     self.emit((Opcode::DefineScope, ident), expr.loc);
 
     if let Some(initializer) = expr.initializer {
-      if let Some((function, is_static)) = self.create_class_fn(Ident::new("<new>"), *initializer) {
-        if is_static {
-          self.emit_const(function, expr.loc);
-          self.emit(Opcode::InitializeConstructor, expr.loc);
-        } else {
-          self.error(BytecodeGenerationErrorMsg::MethodAsInitializer, expr.loc);
+      match self.create_class_fn(Ident::new("<new>"), *initializer) {
+        Some((function, is_static)) => {
+          if is_static {
+            self.emit_const(function, expr.loc);
+            self.emit(Opcode::InitializeConstructor, expr.loc);
+          } else {
+            self.error(BytecodeGenerationErrorMsg::MethodAsInitializer, expr.loc);
+          }
         }
-      } else {
-        self.error(BytecodeGenerationErrorMsg::InvalidClassFunction, expr.loc);
+        _ => {
+          self.error(BytecodeGenerationErrorMsg::InvalidClassFunction, expr.loc);
+        }
       }
     }
 
     for (method_name, method) in expr.methods {
-      if let Some((function, is_static)) = self.create_class_fn(method_name.clone(), method) {
-        let ident = self.add_const_ident(method_name);
-        self.emit_const(function, expr.loc);
-        if is_static {
-          self.emit((Opcode::InitializeMember, ident), expr.loc);
-        } else {
-          self.emit((Opcode::InitializeMethod, ident), expr.loc);
+      match self.create_class_fn(method_name.clone(), method) {
+        Some((function, is_static)) => {
+          let ident = self.add_const_ident(method_name);
+          self.emit_const(function, expr.loc);
+          if is_static {
+            self.emit((Opcode::InitializeMember, ident), expr.loc);
+          } else {
+            self.emit((Opcode::InitializeMethod, ident), expr.loc);
+          }
         }
-      } else {
-        self.error(BytecodeGenerationErrorMsg::InvalidClassFunction, expr.loc);
+        _ => {
+          self.error(BytecodeGenerationErrorMsg::InvalidClassFunction, expr.loc);
+        }
       }
     }
   }
@@ -886,18 +887,16 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn current_ctx(&mut self) -> &mut Context {
-    if let Some(ctx) = self.current_fn.as_mut() {
-      ctx
-    } else {
-      &mut self.ctx
+    match self.current_fn.as_mut() {
+      Some(ctx) => ctx,
+      _ => &mut self.ctx,
     }
   }
 
   fn current_ctx_ptr(&mut self) -> SmartPtr<Context> {
-    if let Some(ctx) = &mut self.current_fn {
-      ctx.clone()
-    } else {
-      self.ctx.clone()
+    match &mut self.current_fn {
+      Some(ctx) => ctx.clone(),
+      _ => self.ctx.clone(),
     }
   }
 
@@ -1040,13 +1039,16 @@ impl<'p> BytecodeGenerator<'p> {
   }
 
   fn reduce_locals_to_depth(&mut self, depth: usize, loc: SourceLocation) {
-    let count = self.num_locals_in_exclusive_depth(depth);
-
-    self.locals.truncate(self.locals.len().saturating_sub(count));
-
+    let count = self.pop_locals(depth);
     if count > 0 {
       self.emit((Opcode::PopN, count), loc);
     }
+  }
+
+  fn pop_locals(&mut self, depth: usize) -> usize {
+    let count = self.num_locals_in_exclusive_depth(depth);
+    self.locals.truncate(self.locals.len().saturating_sub(count));
+    count
   }
 
   fn num_locals_in_exclusive_depth(&self, depth: usize) -> usize {
@@ -1117,9 +1119,9 @@ impl<'p> BytecodeGenerator<'p> {
 
         this.emit_stmt(body);
 
-        this.reduce_locals_to_depth(this.fn_depth, loc);
+        let local_count = this.pop_locals(this.fn_depth);
 
-        this.emit(Opcode::Ret, loc);
+        this.emit((Opcode::Ret, local_count), loc);
 
         let ctx = this.current_fn.take().unwrap();
 

@@ -61,16 +61,18 @@ impl UsertypeFields for ClassValue {
 }
 
 impl Operators for ClassValue {
-  fn __ivk__(&mut self, vm: &mut Vm, class: Value, airity: usize) -> UsageResult {
+  fn __ivk__(&mut self, vm: &mut Vm, class: Value, airity: usize) -> UsageResult<()> {
     let self_type = vm.make_value_from(StructValue::default());
 
     let instance = vm.make_value_from(InstanceValue::new(self_type, class));
 
+    // todo sync this with the new stack logic
+    vm.stack_push(instance);
+
     if let Some(initializer) = &mut self.initializer {
-      vm.stack_push(instance);
       initializer.call(vm, airity + 1)
     } else {
-      Ok(instance)
+      Ok(())
     }
   }
 

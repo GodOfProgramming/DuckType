@@ -65,14 +65,17 @@ pub(crate) fn derive_fields(struct_def: ItemStruct) -> TokenStream {
   let name = struct_def.ident;
   let mut idents = Vec::new();
 
-  if let Fields::Named(fields) = &struct_def.fields {
-    for field in &fields.named {
-      if field.attrs.iter().any(|attr| attr.path.is_ident("field")) {
-        idents.push(field.ident.clone().unwrap());
+  match &struct_def.fields {
+    Fields::Named(fields) => {
+      for field in &fields.named {
+        if field.attrs.iter().any(|attr| attr.path.is_ident("field")) {
+          idents.push(field.ident.clone().unwrap());
+        }
       }
     }
-  } else {
-    return common::error(struct_def.fields, "not a valid class field");
+    _ => {
+      return common::error(struct_def.fields, "not a valid class field");
+    }
   }
 
   let ident_strs = idents
@@ -106,6 +109,8 @@ pub(crate) fn derive_fields(struct_def: ItemStruct) -> TokenStream {
           #(#ident_strs => self.#idents = value.try_into()?,)*
           _ => Err(UsageError::UndefinedMember(name.to_string()))?,
         }
+
+        Ok(())
       }
     }
   }
@@ -140,14 +145,17 @@ pub(crate) fn derive_methods(struct_impl: ItemImpl) -> TokenStream {
         _ => {
           let nargs = common::count_args!(method);
 
-          if let Some(FnArg::Receiver(this)) = method.sig.inputs.iter().next() {
-            methods.push(Method {
-              name,
-              receiver: this.clone(),
-              nargs,
-            });
-          } else {
-            statics.push(Static { name, nargs });
+          match method.sig.inputs.iter().next() {
+            Some(FnArg::Receiver(this)) => {
+              methods.push(Method {
+                name,
+                receiver: this.clone(),
+                nargs,
+              });
+            }
+            _ => {
+              statics.push(Static { name, nargs });
+            }
           }
         }
       }

@@ -1,6 +1,6 @@
 use crate::prelude::*;
 use std::path::Path;
-use tfix::{fixture, TestFixture};
+use tfix::{TestFixture, fixture};
 
 struct IntegrationTest {
   script: String,
@@ -23,7 +23,7 @@ impl IntegrationTest {
 
   fn run<F: FnOnce(&mut Self, Value)>(&mut self, f: F) {
     let env = self.libstd.clone();
-    match self.vm.run_string(&self.script, env) {
+    match self.vm.queue_string(&self.script, env).and_then(|_| self.vm.execute()) {
       Ok(v) => f(self, v),
       Err(err) => panic!("{}", err),
     }
@@ -46,7 +46,11 @@ mod integration_tests {
     test.script = "export foo;".into();
 
     test.libstd.define(String::from("foo"), test.vm.make_value_from("foo"));
-    match test.vm.run_string(&test.script, test.libstd.clone()) {
+    match test
+      .vm
+      .queue_string(&test.script, test.libstd.clone())
+      .and_then(|_| test.vm.execute())
+    {
       Ok(res) => {
         assert_eq!("foo", **res.cast_to::<StringValue>().expect("value is not a string"));
       }
@@ -70,7 +74,11 @@ mod integration_tests {
       }),
     );
 
-    match test.vm.run_string(&test.script, test.libstd.clone()) {
+    match test
+      .vm
+      .queue_string(&test.script, test.libstd.clone())
+      .and_then(|_| test.vm.execute())
+    {
       Ok(res) => assert_eq!(Value::from(3f64), res),
       Err(err) => panic!("{err}"),
     };
@@ -216,14 +224,16 @@ impl ScriptTest {
     {
       println!("Running non-optimized {:?}", script);
       let stdlib = self.vm.generate_stdlib("*test*");
-      self.vm.run_file(script, stdlib).unwrap();
+      self.vm.queue_file(script, stdlib).unwrap();
+      self.vm.execute().unwrap();
     }
 
     // opt
     {
       println!("Running optimized {:?}", script);
       let stdlib = self.vm.generate_stdlib("*test*");
-      self.opt.run_file(script, stdlib).unwrap();
+      self.opt.queue_file(script, stdlib).unwrap();
+      self.vm.execute().unwrap();
     }
   }
 }
@@ -259,7 +269,6 @@ mod script_tests {
     fs::read_dir("tests/scripts").into_iter().for_each(|dir| {
       dir
         .flatten()
-        .into_iter()
         .sorted_by_cached_key(|entry| entry.path())
         .for_each(|entry| t.run(&entry.path()))
     });

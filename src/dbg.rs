@@ -74,11 +74,11 @@ pub enum EnvCmd {
 impl EnvCmd {
   fn exec(self, vm: &mut Vm) -> Result<CommandOutput, Box<dyn Error>> {
     let output = match self {
-      EnvCmd::Get { name } => Some(if let Some(value) = vm.modules.last().lookup(&name) {
+      EnvCmd::Get { name } => Some(match vm.modules.last().lookup(&name) { Some(value) => {
         format!("{:?}", value)
-      } else {
+      } _ => {
         format!("no item in the env with the name '{}'", name)
-      }),
+      }}),
       EnvCmd::Set { name, value } => {
         let value = match value {
           ValueCommand::Bool { value } => value.into(),

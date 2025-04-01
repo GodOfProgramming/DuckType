@@ -699,7 +699,7 @@ impl AstGenerator {
     }
 
     macro_rules! validator {
-      ($f:expr) => {
+      ($f:expr_2021) => {
         Box::new($f)
       };
     }

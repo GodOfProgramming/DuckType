@@ -29,7 +29,7 @@ impl FileMetadata for WindowsMetadata {
 
     let path_str = path.display().to_string();
     let path_str = CString::new(path_str)?;
-    let filename = path_str.as_c_str().as_ptr() as *const u8;
+    let filename = path_str.as_c_str().as_ptr() as ConstAddr<u8>;
 
     let hfile = unsafe {
       FileSystem::CreateFileA(
@@ -52,7 +52,7 @@ impl FileMetadata for WindowsMetadata {
       FileSystem::GetFileInformationByHandleEx(
         hfile,
         CLASS,
-        &mut lpfileinfo as *mut FILE_ID_INFO as *mut c_void,
+        &mut lpfileinfo as MutAddr<FILE_ID_INFO> as MutAddr<c_void>,
         FILE_ID_INFO_SIZE as u32,
       ) != 0
     };

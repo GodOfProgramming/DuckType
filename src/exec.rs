@@ -7,9 +7,9 @@ pub mod prelude {
 
 use crate::prelude::*;
 use crate::{
+  RapidHashMap,
   code::{ConstantValue, InstructionMetadata},
   util::FileIdType,
-  RapidHashMap,
 };
 use ptr::SmartPtr;
 use std::{
@@ -327,9 +327,9 @@ pub enum Opcode {
   ///
   /// Encoding: None
   Req,
-  /// Exits from a function, returning nil on the previous frame
+  /// Exits from a function, returning nil on the previous frame. Number of locals to pop is specified by the modifying bits
   ///
-  /// Encoding: None
+  /// Encoding: | usize |
   Ret,
   /// Mark the current value as exported
   ///
@@ -676,11 +676,12 @@ impl Context {
       });
     }
 
-    if let Some((existing, inst)) = self.instructions.get_mut(index).zip(Instruction::new(op, data)) {
-      *existing = inst;
-      true
-    } else {
-      false
+    match self.instructions.get_mut(index).zip(Instruction::new(op, data)) {
+      Some((existing, inst)) => {
+        *existing = inst;
+        true
+      }
+      _ => false,
     }
   }
 
@@ -988,6 +989,10 @@ impl<'p> Display for InstructionDisassembler<'p> {
           Self::value_column(stack.len() - 1 - addr_b.0)
         )
       }
+      Opcode::Ret => {
+        let local_count = inst.data::<usize>();
+        write!(f, "{} {}", Self::opcode_column("Ret"), Self::value_column(local_count))
+      }
       x => write!(f, "{}", Self::opcode_column(format!("{:?}", x))),
     }
   }
@@ -1127,11 +1132,11 @@ impl StackFrame {
 /// Functions mostly like a vector otherwise
 #[derive(Default)]
 pub(crate) struct ModuleStack {
-  envs: Vec<ModuleEntry>,
+  envs: Vec<UsertypeHandle<ModuleValue>>,
 }
 
 impl ModuleStack {
-  pub(crate) fn iter(&self) -> std::slice::Iter<ModuleEntry> {
+  pub(crate) fn iter(&self) -> std::slice::Iter<UsertypeHandle<ModuleValue>> {
     self.envs.iter()
   }
 
@@ -1139,63 +1144,24 @@ impl ModuleStack {
     self.envs.len()
   }
 
-  pub(crate) fn push(&mut self, entry: ModuleEntry) {
+  pub(crate) fn push(&mut self, entry: UsertypeHandle<ModuleValue>) {
     self.envs.push(entry);
   }
 
-  pub(crate) fn pop(&mut self) -> ModuleEntry {
+  pub(crate) fn pop(&mut self) -> UsertypeHandle<ModuleValue> {
     self.envs.pop().expect("pop: the env stack should never be empty")
   }
 
   pub(crate) fn last(&self) -> &UsertypeHandle<ModuleValue> {
-    match self.envs.last().expect("last: the env stack should never be empty") {
-      ModuleEntry::Fn(e) => e,
-      ModuleEntry::Mod(e) => e,
-      ModuleEntry::File(e) => e,
-      ModuleEntry::String(e) => e,
-    }
+    self.envs.last().expect("last: the env stack should never be empty")
   }
 
   pub(crate) fn last_mut(&mut self) -> &mut UsertypeHandle<ModuleValue> {
-    match self.envs.last_mut().expect("last_mut: the env stack should never be empty") {
-      ModuleEntry::Fn(e) => e,
-      ModuleEntry::Mod(e) => e,
-      ModuleEntry::File(e) => e,
-      ModuleEntry::String(e) => e,
-    }
+    self.envs.last_mut().expect("last_mut: the env stack should never be empty")
   }
 
   pub(crate) fn truncate(&mut self, to: usize) {
     self.envs.truncate(to);
-  }
-}
-
-pub(crate) enum ModuleEntry {
-  Fn(UsertypeHandle<ModuleValue>),
-  Mod(UsertypeHandle<ModuleValue>),
-  File(UsertypeHandle<ModuleValue>),
-  String(UsertypeHandle<ModuleValue>),
-}
-
-impl ModuleEntry {
-  pub(crate) fn module(&self) -> UsertypeHandle<ModuleValue> {
-    match self {
-      Self::Fn(m) => m.clone(),
-      Self::Mod(m) => m.clone(),
-      Self::File(m) => m.clone(),
-      Self::String(m) => m.clone(),
-    }
-  }
-}
-
-impl Debug for ModuleEntry {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Fn(_) => f.debug_tuple("Fn").finish(),
-      Self::Mod(_) => f.debug_tuple("Mod").finish(),
-      Self::File(_) => f.debug_tuple("File").finish(),
-      Self::String(_) => f.debug_tuple("String").finish(),
-    }
   }
 }
 
@@ -1215,13 +1181,14 @@ impl Cache {
   pub fn add_const(&mut self, const_val: impl Into<ConstantValue>) -> usize {
     let c = const_val.into();
 
-    let string = if let ConstantValue::String(string) = &c {
-      if let Some(index) = self.strings.get_by_right(string.as_str()) {
-        return *index;
+    let string = match &c {
+      ConstantValue::String(string) => {
+        if let Some(index) = self.strings.get_by_right(string.as_str()) {
+          return *index;
+        }
+        Some(string.clone())
       }
-      Some(string.clone())
-    } else {
-      None
+      _ => None,
     };
 
     let index = self.consts.len();
@@ -1281,13 +1248,13 @@ impl Cache {
   }
 
   pub(crate) fn deep_trace(&self, marker: &mut Tracer) {
-    for value in self.globals.values().chain(self.libs.values()) {
+    for value in self.globals.values().chain(self.libs.values()).cloned() {
       marker.deep_trace(value);
     }
   }
 
   pub(crate) fn incremental_trace(&self, marker: &mut Tracer) {
-    for value in self.globals.values().chain(self.libs.values()) {
+    for value in self.globals.values().chain(self.libs.values()).cloned() {
       marker.try_mark_gray(value);
     }
   }

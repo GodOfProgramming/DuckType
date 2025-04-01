@@ -1,8 +1,8 @@
 use super::{ModuleStack, Stack, StackFrame};
 use crate::{
-  prelude::*,
-  value::{tags::*, MutVoid, ValueMeta},
   FastHashSet, RapidHashSet,
+  prelude::*,
+  value::{ConstVoid, MutVoid, ValueMeta, tags::*},
 };
 use ahash::HashSetExt;
 use ptr::MutPtr;
@@ -16,6 +16,9 @@ use std::{
 pub(crate) const META_OFFSET: isize = -(mem::size_of::<ValueMeta>() as isize);
 
 type AllocationSet = FastHashSet<Value>;
+
+pub(crate) type ConstAddr<T> = *const T;
+pub(crate) type MutAddr<T> = *mut T;
 
 pub struct Gc<D = SyncDisposal>
 where
@@ -87,50 +90,29 @@ where
   }
 
   /// Check if the GC routine of the current configuration should run
-  pub(super) fn poll(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &mut Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  pub(super) fn poll(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     match self.mode {
       GcMode::Standard => {
-        self.poll_deep(stack, envs, cache, stack_frame, stack_frames);
-        self.poll_inc(stack, envs, cache, stack_frame, stack_frames);
+        self.poll_deep(stack, envs, cache, call_stack);
+        self.poll_inc(stack, envs, cache, call_stack);
       }
-      GcMode::Incremental => self.poll_inc(stack, envs, cache, stack_frame, stack_frames),
-      GcMode::Deep => self.poll_deep(stack, envs, cache, stack_frame, stack_frames),
+      GcMode::Incremental => self.poll_inc(stack, envs, cache, call_stack),
+      GcMode::Deep => self.poll_deep(stack, envs, cache, call_stack),
     }
   }
 
   /// Check if a deep clean should be performed
-  fn poll_deep(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &mut Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  fn poll_deep(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     if self.allocated_memory > self.limit {
-      self.deep_clean(stack, envs, cache, stack_frame, stack_frames);
+      self.deep_clean(stack, envs, cache, call_stack);
     }
   }
 
   /// Check if an incremental clean should start and if so begin
-  fn poll_inc(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &mut Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  fn poll_inc(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     if self.allocated_memory > self.limit / 2 {
       self.stats.total_increments += 1;
-      self.incremental(stack, envs, cache, stack_frame, stack_frames);
+      self.incremental(stack, envs, cache, call_stack);
     }
   }
 
@@ -140,8 +122,7 @@ where
     stack: &Stack,
     envs: &ModuleStack,
     cache: &mut Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
+    call_stack: &[StackFrame],
   ) -> usize {
     self.ref_check_native_handles();
 
@@ -150,7 +131,7 @@ where
     self.untraced_allocations.clear();
     self.traced_allocations.clear();
 
-    self.deep_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+    self.deep_trace_roots(stack, envs, cache, call_stack);
 
     self.stats.total_deep_cleans += 1;
 
@@ -161,19 +142,12 @@ where
   ///
   /// If this is the first increment the roots are scanned
   /// Otherwise the next tier of grays is scanned
-  fn incremental(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &mut Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  fn incremental(&mut self, stack: &Stack, envs: &ModuleStack, cache: &mut Cache, call_stack: &[StackFrame]) {
     self.ref_check_native_handles();
 
     if self.untraced_allocations.is_empty() {
       self.stats.total_incremental_root_traces += 1;
-      self.incremental_trace_roots(stack, envs, cache, stack_frame, stack_frames);
+      self.incremental_trace_roots(stack, envs, cache, call_stack);
     } else {
       self.stats.total_incremental_traces += 1;
       self.incremental_trace();
@@ -190,77 +164,40 @@ where
     }
   }
 
-  fn deep_trace_roots(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  fn deep_trace_roots(&mut self, stack: &Stack, envs: &ModuleStack, cache: &Cache, call_stack: &[StackFrame]) {
     let mut tracer = Tracer::new(&mut self.traced_allocations);
 
-    for value in self.native_handles.iter() {
-      tracer.deep_trace(value);
-    }
+    let values = self
+      .native_handles
+      .iter()
+      .cloned()
+      .chain(stack.iter().cloned())
+      .chain(envs.iter().map(UsertypeHandle::value))
+      .chain(call_stack.iter().filter_map(|f| f.export.as_ref()).cloned());
 
-    for value in stack.iter() {
-      tracer.deep_trace(value);
+    for value in values {
+      tracer.deep_trace(value)
     }
 
     cache.deep_trace(&mut tracer);
-
-    for env in envs.iter() {
-      let handle = env.module();
-      let value = handle.value();
-      tracer.deep_trace(&value);
-    }
-
-    if let Some(value) = &stack_frame.export {
-      tracer.deep_trace(value);
-    }
-
-    for frame in stack_frames {
-      if let Some(value) = &frame.export {
-        tracer.deep_trace(value);
-      }
-    }
   }
 
-  fn incremental_trace_roots(
-    &mut self,
-    stack: &Stack,
-    envs: &ModuleStack,
-    cache: &Cache,
-    stack_frame: &StackFrame,
-    stack_frames: &[StackFrame],
-  ) {
+  fn incremental_trace_roots(&mut self, stack: &Stack, envs: &ModuleStack, cache: &Cache, call_stack: &[StackFrame]) {
     let mut tracer = Tracer::new(&mut self.traced_allocations);
 
-    for value in self.native_handles.iter() {
-      tracer.try_mark_gray(value);
-    }
+    let values = self
+      .native_handles
+      .iter()
+      .cloned()
+      .chain(stack.iter().cloned())
+      .chain(envs.iter().map(UsertypeHandle::value))
+      .chain(call_stack.iter().filter_map(|f| f.export.as_ref()).cloned());
 
-    for value in stack.iter() {
+    for value in values {
       tracer.try_mark_gray(value)
     }
 
     cache.incremental_trace(&mut tracer);
-
-    for env in envs.iter() {
-      let value = env.module().value();
-      tracer.try_mark_gray(&value);
-    }
-
-    if let Some(value) = &stack_frame.export {
-      tracer.try_mark_gray(value);
-    }
-
-    for frame in stack_frames {
-      if let Some(value) = &frame.export {
-        tracer.try_mark_gray(value);
-      }
-    }
 
     self.untraced_allocations = tracer.grays;
   }
@@ -333,20 +270,23 @@ where
   ///
   /// Without being turned into a handle or calling track, this is a memory leak
   pub(super) fn allocate_untracked<T: Usertype>(&mut self, item: T) -> Value {
-    fn allocate_type<T>(item: T) -> *mut T {
-      Box::into_raw(Box::new(item))
+    fn allocate_type<T>(item: T) -> &'static mut T {
+      unsafe { &mut *Box::into_raw(Box::new(item)) }
     }
 
-    let allocated = unsafe { &mut *allocate_type(AllocatedObject::new(item, self.is_cleaning())) };
-    self.allocated_memory += allocated.meta.size;
+    let allocated_obj = allocate_type(AllocatedObject::new(item, self.is_cleaning()));
+    self.allocated_memory += allocated_obj.meta.size;
 
-    let ptr = &mut allocated.obj as *mut T as MutVoid;
-    debug_assert_eq!(allocated as *const _ as *const (), &allocated.meta as *const _ as *const ());
+    let ptr = &raw mut allocated_obj.obj as MutVoid;
+    debug_assert_eq!(
+      &raw const *allocated_obj as ConstVoid,
+      &raw const allocated_obj.meta as ConstVoid
+    );
 
     // ensure the pointer to the allocated object is offset by the right distance
     debug_assert_eq!(
-      unsafe { (ptr as *const u8).offset(META_OFFSET) as *const () },
-      allocated as *const _ as *const ()
+      unsafe { (ptr as ConstAddr<u8>).offset(META_OFFSET) as ConstVoid },
+      &raw const *allocated_obj as ConstVoid
     );
 
     // ensure the pointer fits in 48 bits
@@ -511,16 +451,16 @@ impl Tracer {
     }
   }
 
-  pub fn deep_trace(&mut self, value: &Value) {
-    if value.is_ptr() && !self.blacks.contains(value) {
-      self.blacks.insert(*value);
+  pub fn deep_trace(&mut self, value: Value) {
+    if value.is_ptr() && !self.blacks.contains(&value) {
+      self.blacks.insert(value);
       value.deep_trace_children(self);
     }
   }
 
-  pub fn try_mark_gray(&mut self, value: &Value) {
-    if value.is_ptr() && !self.grays.contains(value) && !self.blacks.contains(value) {
-      self.grays.insert(*value);
+  pub fn try_mark_gray(&mut self, value: Value) {
+    if value.is_ptr() && !self.grays.contains(&value) && !self.blacks.contains(&value) {
+      self.grays.insert(value);
     }
   }
 
@@ -546,8 +486,8 @@ impl Disposal for SyncDisposal {
   }
 }
 
-pub(crate) fn consume<T: Usertype>(this: *mut T) {
-  let _ = unsafe { Box::from_raw((this as *mut u8).offset(META_OFFSET) as *mut AllocatedObject<T>) };
+pub(crate) fn consume<T: Usertype>(this: MutAddr<T>) {
+  let _ = unsafe { Box::from_raw((this as MutAddr<u8>).offset(META_OFFSET) as MutAddr<AllocatedObject<T>>) };
 }
 
 fn drop_value(mut value: Value) {
@@ -620,7 +560,7 @@ where
 {
   pub fn new(mut handle: ValueHandle) -> Self {
     Self {
-      usertype: MutPtr::new(handle.value.reinterpret_cast_to_mut::<T>()),
+      usertype: MutPtr::new(handle.value.unchecked_cast_to_mut::<T>()),
       handle,
     }
   }

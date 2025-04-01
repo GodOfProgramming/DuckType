@@ -1,15 +1,16 @@
 [package]
-name = "DuckType"
-version = "0.57.0"
+name = "ducktype"
+version = "0.58.0"
 authors = ["Jonathan Dickert <jonathan.dickert@protonmail.com>"]
-edition = "2021"
-default-run = "duck"
+edition = "2024"
+rust-version = "1.85.1"
+default-run = "dk"
 
 [workspace]
 members = [".", "macros"]
 
 [[bin]]
-name = "duck"
+name = "dk"
 path = "src/main.rs"
 
 [lib]
@@ -43,13 +44,12 @@ thiserror = "1.0"
 uuid = { workspace = true }
 
 pprof = { version = "0.13", features = ["flamegraph"] }
-tokio = { version = "1.33", features = ["full"] }
 interpolator = "0.5"
 
 # Git
 
-ptr = { git = "https://github.com/GodOfProgramming/ptr.git" }
-tfix = { git = "https://github.com/GodOfProgramming/tfix" }
+ptr = { git = "https://github.com/GodOfProgramming/ptr.git", rev = "a0bc545" }
+tfix = { git = "https://github.com/GodOfProgramming/tfix", rev = "0165153" }
 
 # Local
 
@@ -79,6 +79,7 @@ windows-sys = { version = "0.48", features = [
 nix = { version = "0.27", features = ["fs"] }
 
 [features]
+profile = []
 visit-ast = []
 disassemble = []
 runtime-disassembly = []

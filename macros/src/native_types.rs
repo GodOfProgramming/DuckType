@@ -1,6 +1,6 @@
-use crate::{common, StrAttr};
+use crate::{StrAttr, common};
 use proc_macro2::{Ident, Literal, Span, TokenStream};
-use quote::{quote, TokenStreamExt};
+use quote::{TokenStreamExt, quote};
 use syn::{FnArg, Item, ItemFn, ItemMod, ItemStruct};
 
 pub(crate) fn native_fn(item: &ItemFn, with_vm: bool) -> TokenStream {
@@ -192,7 +192,7 @@ pub(crate) fn native_mod(item: ItemMod, no_entry: bool) -> TokenStream {
     TokenStream::default()
   } else {
     quote! {
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn duck_type_load_module(#vm_ident: &mut Vm) -> UsertypeHandle<ModuleValue> {
         let #module_ident = #vm_ident.current_module_value();
         #mod_name::duck_type_autogen_create_module(#vm_ident, #module_ident.into())

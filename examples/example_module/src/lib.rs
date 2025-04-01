@@ -16,7 +16,7 @@ mod example_module {
     Ok(old)
   }
 
-  #[derive(Default, Usertype, Fields)]
+  #[derive(Default, Debug, Usertype, Fields)]
   #[uuid("random")]
   struct Foo {
     #[field]
@@ -28,9 +28,11 @@ mod example_module {
     fn __new__(item: i32) -> UsageResult<Foo> {
       Ok(Foo { value: item })
     }
+  }
 
+  impl Operators for Foo {
     fn __str__(&self) -> String {
-      format!("Foo {{ value: {} }}", self.value)
+      format!("{self:?}")
     }
   }
 }
