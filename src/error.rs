@@ -130,6 +130,12 @@ impl From<io::Error> for Error {
   }
 }
 
+impl From<Error> for anyhow::Error {
+  fn from(err: Error) -> Self {
+    anyhow::Error::msg(err.to_string())
+  }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum UsageError {
   /// fn name

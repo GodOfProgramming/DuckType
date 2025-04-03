@@ -311,6 +311,7 @@ dependencies = [
  "rand",
  "regex",
  "rustyline",
+ "serde",
  "shellwords",
  "static_assertions",
  "strum",
