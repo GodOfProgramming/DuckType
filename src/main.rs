@@ -44,7 +44,7 @@ fn main() -> Result<(), Error> {
 
   match (args.file, args.command) {
     (Some(file), None) => {
-      let gc = Gc::new(Memory::Mb(args.gc_mb));
+      let gc = SimpleGc::new(Memory::Mb(args.gc_mb));
       let mut vm = Vm::new(gc, args.optimize, args.runargs);
       let gmod = vm.generate_stdlib("*main*");
       vm.queue_file(file.clone(), gmod)?;
@@ -54,7 +54,7 @@ fn main() -> Result<(), Error> {
     (None, Some(command)) => match command {
       Command::Uuid => println!("{}", Uuid::new_v4()),
       Command::Pipe => {
-        let gc = Gc::new(Memory::Mb(args.gc_mb));
+        let gc = SimpleGc::new(Memory::Mb(args.gc_mb));
         let mut vm = Vm::new(gc, args.optimize, args.runargs);
         let gmod = vm.generate_stdlib("*main*");
         let mut input = String::new();

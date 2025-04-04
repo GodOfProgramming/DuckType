@@ -45,7 +45,7 @@ pub(crate) mod names {
   }
 }
 
-pub fn make_stdlib(vm: &mut Vm, gmod: Value, args: impl Into<Vec<String>>) -> (String, Value) {
+pub fn make_stdlib(vm: &mut Vm, gmod: UsertypeHandle<ModuleValue>, args: impl Into<Vec<String>>) -> (String, Value) {
   let stdlib = ModuleBuilder::initialize(vm, ModuleType::new_child(names::STD, gmod), |vm, mut lib| {
     let lib = &mut lib;
 
@@ -101,7 +101,7 @@ pub fn make_stdlib(vm: &mut Vm, gmod: Value, args: impl Into<Vec<String>>) -> (S
       lib.define("abs", Value::new::<NativeFn>(math_abs));
     });
 
-    let libval = lib.value();
+    let libval = lib.clone();
     lib.define(names::IO, libio::duck_type_autogen_create_module(vm, libval));
 
     defmod(vm, lib, names::VM, |vm, mut lib| {
@@ -120,7 +120,7 @@ fn defmod<F>(vm: &mut Vm, lib: &mut UsertypeHandle<ModuleValue>, name: &str, ini
 where
   F: FnOnce(&mut Vm, UsertypeHandle<ModuleValue>),
 {
-  let libval = lib.value();
+  let libval = lib.clone();
   lib.define(name, ModuleBuilder::initialize(vm, ModuleType::new_child(name, libval), init));
 }
 

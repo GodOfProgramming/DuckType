@@ -6,7 +6,7 @@ struct SomeType {}
 
 #[test]
 fn gc_can_allocate_and_clean() {
-  let mut gc = Gc::test_default();
+  let mut gc = SimpleGc::test_default();
 
   gc.allocate(SomeType {});
 
@@ -16,7 +16,7 @@ fn gc_can_allocate_and_clean() {
 
 #[test]
 fn gc_does_not_clean_more_than_it_needs_to() {
-  let mut gc = Gc::test_default();
+  let mut gc = SimpleGc::test_default();
 
   gc.allocate(SomeType {});
 
@@ -27,7 +27,7 @@ fn gc_does_not_clean_more_than_it_needs_to() {
 
 #[test]
 fn gc_does_not_clean_open_handles() {
-  let gc = Gc::test_default();
+  let gc = SimpleGc::test_default();
   let mut vm = Vm::new(gc, false, []);
 
   let mut struct_value = StructValue::new([(("child", 0), Value::nil)]);

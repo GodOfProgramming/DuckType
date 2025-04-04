@@ -20,9 +20,15 @@ type AllocationSet = FastHashSet<Value>;
 pub(crate) type ConstAddr<T> = *const T;
 pub(crate) type MutAddr<T> = *mut T;
 
-pub struct Gc<D = SyncDisposal>
+pub trait Gc {
+  fn allocate<T: Usertype>(&mut self, item: T) -> Value;
+  fn allocate_handle<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T>;
+}
+
+/// A simple and reliable garbage collector
+pub struct SimpleGc<D = SyncDisposal>
 where
-  D: Disposal,
+  D: Disposer,
 {
   /// The current mode the GC is running in
   mode: GcMode,
@@ -61,9 +67,36 @@ where
   num_limit_repeats: usize,
 }
 
-impl<D> Gc<D>
+impl<D> Gc for SimpleGc<D>
 where
-  D: Disposal,
+  D: Disposer,
+{
+  /// Allocate and track a new value
+  #[profiling::function]
+  fn allocate<T: Usertype>(&mut self, item: T) -> Value {
+    let value = self.allocate_untracked(item);
+
+    #[cfg(debug_assertions)]
+    {
+      debug_assert!(!self.allocations.iter().any(|v| v.bits == value.bits));
+    }
+
+    self.track(value);
+
+    value
+  }
+
+  #[profiling::function]
+  fn allocate_handle<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
+    let value = self.allocate_untracked(item);
+    let handle = self.make_handle(value);
+    UsertypeHandle::new(handle)
+  }
+}
+
+impl<D> SimpleGc<D>
+where
+  D: Disposer,
 {
   /// Create a new garbage collector with the specified memory limit/target
   pub fn new(initial_limit: Memory) -> Self {
@@ -280,8 +313,7 @@ where
   /// Create a new allocation but do not track it
   ///
   /// Without being turned into a handle or calling track, this is a memory leak
-  #[profiling::function]
-  pub(super) fn allocate_untracked<T: Usertype>(&mut self, item: T) -> Value {
+  fn allocate_untracked<T: Usertype>(&mut self, item: T) -> Value {
     fn allocate_type<T>(item: T) -> &'static mut T {
       unsafe { &mut *Box::into_raw(Box::new(item)) }
     }
@@ -306,21 +338,6 @@ where
 
     // return the pointer to the object, hiding the vtable & ref count behind the returned address
     Value::new_pointer(ptr)
-  }
-
-  /// Allocate and track a new value
-  #[profiling::function]
-  pub(super) fn allocate<T: Usertype>(&mut self, item: T) -> Value {
-    let value = self.allocate_untracked(item);
-
-    #[cfg(debug_assertions)]
-    {
-      debug_assert!(!self.allocations.iter().any(|v| v.bits == value.bits));
-    }
-
-    self.track(value);
-
-    value
   }
 
   /// Make a handle from a value
@@ -427,7 +444,7 @@ where
 }
 
 #[cfg(test)]
-impl Gc {
+impl SimpleGc {
   pub fn test_default() -> Self {
     Self::new(Memory::Mb(10))
   }
@@ -484,14 +501,14 @@ impl Tracer {
   }
 }
 
-pub trait Disposal: Default {
+pub trait Disposer: Default {
   fn dispose(&mut self, value: Value);
 }
 
 #[derive(Default)]
 pub struct SyncDisposal;
 
-impl Disposal for SyncDisposal {
+impl Disposer for SyncDisposal {
   fn dispose(&mut self, value: Value) {
     debug_assert!(value.is_unprotected());
     debug_assert!(value.is_unreferenced());

@@ -199,6 +199,36 @@ pub trait TraceableValue {
   fn incremental_trace(&self, marks: &mut Tracer);
 }
 
+impl<T> TraceableValue for UsertypeHandle<T>
+where
+  T: Usertype,
+{
+  fn deep_trace(&self, marks: &mut Tracer) {
+    self.usertype.deep_trace(marks);
+  }
+
+  fn incremental_trace(&self, marks: &mut Tracer) {
+    self.usertype.incremental_trace(marks);
+  }
+}
+
+impl<T> TraceableValue for Option<T>
+where
+  T: TraceableValue,
+{
+  fn deep_trace(&self, marks: &mut Tracer) {
+    if let Some(t) = self {
+      t.deep_trace(marks);
+    }
+  }
+
+  fn incremental_trace(&self, marks: &mut Tracer) {
+    if let Some(t) = self {
+      t.incremental_trace(marks);
+    }
+  }
+}
+
 impl TraceableValue for Option<Value> {
   fn deep_trace(&self, marks: &mut Tracer) {
     if let Some(value) = self {

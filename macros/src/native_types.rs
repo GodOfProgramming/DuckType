@@ -208,7 +208,7 @@ pub(crate) fn native_mod(item: ItemMod, no_entry: bool) -> TokenStream {
     mod #mod_name {
       use super::*;
 
-      pub fn duck_type_autogen_create_module(#vm_ident: &mut Vm, #module_ident: Value) -> UsertypeHandle<ModuleValue> {
+      pub fn duck_type_autogen_create_module(#vm_ident: &mut Vm, #module_ident: UsertypeHandle<ModuleValue>) -> UsertypeHandle<ModuleValue> {
         ModuleBuilder::initialize(#vm_ident, ModuleType::new_child(#name_lit, #module_ident), |#vm_ident, mut #module_ident| {
           #fn_defs
           #struct_defs

@@ -10,7 +10,7 @@ struct IntegrationTest {
 
 impl IntegrationTest {
   fn new() -> Self {
-    let gc = Gc::test_default();
+    let gc = SimpleGc::test_default();
     let mut vm = Vm::new(gc, false, []);
     let libstd = vm.generate_stdlib("*test*");
 
@@ -241,8 +241,8 @@ impl ScriptTest {
 impl TestFixture for ScriptTest {
   fn set_up() -> Self {
     Self {
-      vm: Vm::new(Gc::test_default(), false, []),
-      opt: Vm::new(Gc::test_default(), true, []),
+      vm: Vm::new(SimpleGc::test_default(), false, []),
+      opt: Vm::new(SimpleGc::test_default(), true, []),
     }
   }
 }

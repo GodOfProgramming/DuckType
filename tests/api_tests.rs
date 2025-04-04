@@ -9,7 +9,7 @@ struct ApiTest {
 
 impl TestFixture for ApiTest {
   fn set_up() -> Self {
-    let gc = Gc::new(Memory::Mb(100));
+    let gc = SimpleGc::new(Memory::Mb(100));
     let mut vm = Vm::new(gc, false, []);
     let stdlib = vm.generate_stdlib("*test*");
 
@@ -58,9 +58,10 @@ mod tests {
   #[test]
   fn can_register_lambda(t: &mut ApiTest) {
     let script = "export some_func();";
-    assert!(t
-      .stdlib
-      .define("some_func", Value::new::<NativeFn>(|_, _args| Ok(Value::from(true)))));
+    assert!(
+      t.stdlib
+        .define("some_func", Value::new::<NativeFn>(|_, _args| Ok(Value::from(true))))
+    );
     t.vm.queue_string(script, t.stdlib.clone()).unwrap();
     let res = t.vm.execute().unwrap();
     assert!(res == Value::from(true));

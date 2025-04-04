@@ -1,4 +1,6 @@
-use crate::{prelude::*, FastHashMap};
+use itertools::Itertools;
+
+use crate::{FastHashMap, prelude::*};
 use std::{
   collections::hash_map::Entry,
   iter::{self, Once},
@@ -12,14 +14,15 @@ pub struct ModuleValue {
   #[trace]
   pub env: FastHashMap<String, Value>,
   #[trace]
-  pub parent: Value,
+  pub parent: Option<UsertypeHandle<Self>>,
 }
 
 impl ModuleValue {
   pub fn new(name: impl ToString) -> Self {
     Self {
       name: Some(name.to_string()),
-      ..Default::default()
+      env: Default::default(),
+      parent: None,
     }
   }
 
@@ -27,19 +30,19 @@ impl ModuleValue {
     Self::new(name)
   }
 
-  pub(crate) fn new_child(name: impl ToString, parent: Value) -> Self {
+  pub(crate) fn new_child(name: impl ToString, parent: UsertypeHandle<Self>) -> Self {
     Self {
       name: Some(name.to_string()),
       env: Default::default(),
-      parent,
+      parent: Some(parent),
     }
   }
 
-  pub(crate) fn new_scope(parent: Value) -> Self {
+  pub(crate) fn new_scope(parent: UsertypeHandle<Self>) -> Self {
     Self {
       name: None,
       env: Default::default(),
-      parent,
+      parent: Some(parent),
     }
   }
 
@@ -57,11 +60,10 @@ impl ModuleValue {
       e.insert(value.into());
       true
     } else {
-      self
-        .parent
-        .cast_to_mut::<Self>()
-        .map(|m| m.assign(&name, value))
-        .unwrap_or(false)
+      match &mut self.parent {
+        Some(p) => p.assign(&name, value),
+        None => false,
+      }
     }
   }
 
@@ -93,7 +95,7 @@ impl ModuleValue {
     if self.env.contains_key(&name) {
       Some(depth)
     } else {
-      self.parent.cast_to::<Self>().and_then(|m| m.search_for(depth + 1, name))
+      self.parent.as_ref().and_then(|m| m.search_for(depth + 1, name))
     }
   }
 
@@ -103,7 +105,27 @@ impl ModuleValue {
       .env
       .get(name.as_ref())
       .cloned()
-      .or_else(|| self.parent.cast_to::<Self>().and_then(|module| module.lookup(name)))
+      .or_else(|| self.parent.as_ref().and_then(|module| module.lookup(name)))
+  }
+
+  pub fn ancestry_iter(&self) -> impl Iterator<Item = <AncestryIterator as Iterator>::Item> {
+    AncestryIterator(self)
+  }
+
+  pub fn name(&self) -> &str {
+    self.name.as_deref().unwrap_or("<anonymous>")
+  }
+
+  /// Fully qualified path
+  pub fn fqp(&self) -> String {
+    let parents = self
+      .ancestry_iter()
+      .map(|p| p.name())
+      .collect::<Vec<_>>()
+      .into_iter()
+      .rev()
+      .join("::");
+    format!("{parents}::{}", self.name())
   }
 }
 
@@ -127,11 +149,7 @@ impl Operators for ModuleValue {
   }
 
   fn __str__(&self) -> String {
-    self
-      .name
-      .as_ref()
-      .map(|name| format!("<mod {}>", name))
-      .unwrap_or_else(|| String::from("<anonymous mod>"))
+    self.fqp()
   }
 
   fn __dbg__(&self) -> String {
@@ -154,7 +172,7 @@ where
   T: ToString,
 {
   Global { name: T },
-  Child { name: T, parent: Value },
+  Child { name: T, parent: UsertypeHandle<ModuleValue> },
 }
 
 impl<T> ModuleType<T>
@@ -165,7 +183,7 @@ where
     Self::Global { name }
   }
 
-  pub fn new_child(name: T, parent: Value) -> Self {
+  pub fn new_child(name: T, parent: UsertypeHandle<ModuleValue>) -> Self {
     Self::Child { name, parent }
   }
 }
@@ -226,5 +244,15 @@ where
   type Iter = std::slice::Iter<'t, T>;
   fn mod_path_iter(&'t self) -> Self::Iter {
     self.iter()
+  }
+}
+
+pub struct AncestryIterator<'a>(&'a ModuleValue);
+
+impl<'a> Iterator for AncestryIterator<'a> {
+  type Item = &'a UsertypeHandle<ModuleValue>;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    self.0.parent.as_ref().inspect(|p| *self = Self(&p.usertype))
   }
 }

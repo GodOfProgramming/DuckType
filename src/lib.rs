@@ -45,7 +45,7 @@ use {
   clap::Parser,
   code::CompileOpts,
   dlopen2::wrapper::{Container, WrapperApi},
-  memory::Gc,
+  memory::SimpleGc,
   nohash_hasher::BuildNoHashHasher,
   prelude::module_value::ModuleType,
   ptr::{MutPtr, SmartPtr},
@@ -128,7 +128,7 @@ pub struct Vm {
   /// A pointer to the garbage collector
   ///
   /// Uses this implementation instead of a Rc for performance reasons (no runtime borrow checking)
-  pub gc: SmartPtr<Gc>,
+  gc: SimpleGc,
 
   /// A cache of various things to speed up execution
   cache: Cache,
@@ -171,11 +171,11 @@ impl Vm {
   /// * `gc` - The [garbage collector][memory::Gc] to associate with this VM instance
   /// * `opt` - indicates if the optimizer should be run
   /// * `args` - the runtime arguments the scripts should have access to
-  pub fn new(gc: Gc, opt: bool, args: impl Into<Vec<String>>) -> Self {
+  pub fn new(gc: SimpleGc, opt: bool, args: impl Into<Vec<String>>) -> Self {
     Self {
       call_stack: Default::default(),
       stack: Stack::with_capacity(INITIAL_STACK_CAPACITY),
-      gc: SmartPtr::new(gc),
+      gc,
       cache: Default::default(),
       modules: Default::default(),
       opt,
@@ -693,7 +693,7 @@ impl Vm {
 
     if let ConstantValue::String(name) = name {
       let leaf = current_module!(self);
-      let module = ModuleValue::new_child(name, leaf.handle.value);
+      let module = ModuleValue::new_child(name, leaf.clone());
       let value = self.make_value_from(module);
       self.stack_push(value);
     } else {
@@ -1393,7 +1393,7 @@ impl Vm {
   pub fn generate_stdlib(&mut self, global_mod_name: impl ToString) -> UsertypeHandle<ModuleValue> {
     let args = self.args.clone();
     ModuleBuilder::initialize(self, ModuleType::new_global(global_mod_name), |vm, mut lib| {
-      let libval = lib.value();
+      let libval = lib.clone();
       let (name, value) = stdlib::make_stdlib(vm, libval, args);
       lib.env.insert(name, value);
     })
@@ -1405,9 +1405,7 @@ impl Vm {
 
   pub fn make_usertype_handle_from<T: Usertype>(&mut self, item: T) -> UsertypeHandle<T> {
     self.check_gc();
-    let value = self.gc.allocate_untracked(item);
-    let handle = self.gc.make_handle(value);
-    UsertypeHandle::new(handle)
+    self.gc.allocate_handle(item)
   }
 
   fn make_handle(&mut self, value: Value) -> ValueHandle {
@@ -1567,8 +1565,8 @@ impl Vm {
     &mut self.stack_frame_mut().ctx
   }
 
-  pub fn current_module_value(&self) -> Value {
-    self.modules.last().value()
+  pub fn current_module_value(&self) -> UsertypeHandle<ModuleValue> {
+    self.modules.last().clone()
   }
 
   pub fn stack_display(&self) {
@@ -1665,8 +1663,8 @@ impl MakeValueFrom<ConstantValue> for Vm {
       ConstantValue::String(v) => self.make_value_from(v),
       ConstantValue::StaticString(v) => self.make_value_from(v),
       ConstantValue::Fn(v) => {
-        let env = current_module!(self).into();
-        let env = self.make_value_from(ModuleValue::new_scope(env));
+        let env = current_module!(self);
+        let env = self.make_value_from(ModuleValue::new_scope(env.clone()));
         self.make_value_from(FunctionValue::from_constant(v, env))
       }
     }
