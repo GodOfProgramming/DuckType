@@ -73,11 +73,12 @@ mod unit_tests {
     assert_eq!(v.get_field(&mut t.vm, Field::named("foo")).unwrap().unwrap(), 123.into());
     let obj = t.vm.gc.allocate(ImplementedObject::default());
     v.set(&mut t.vm, Field::named("field"), obj).unwrap();
-    assert!(v
-      .get_field(&mut t.vm, Field::named("field"))
-      .unwrap()
-      .unwrap()
-      .is::<ImplementedObject>());
+    assert!(
+      v.get_field(&mut t.vm, Field::named("field"))
+        .unwrap()
+        .unwrap()
+        .is::<ImplementedObject>()
+    );
   }
 
   #[test]

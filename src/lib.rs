@@ -10,6 +10,7 @@ pub(crate) mod exec;
 mod memory;
 #[cfg(feature = "profiling")]
 pub mod perf;
+pub(crate) mod state;
 pub mod stdlib;
 mod util;
 pub(crate) mod value;

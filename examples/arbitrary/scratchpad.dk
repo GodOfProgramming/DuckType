@@ -1,8 +1,13 @@
 mod foo {
   mod bar {
     mod baz {
+      fn get_x() {
+        ret mod x {};
+      }
+
       fn print() {
-        println(baz);
+        let x = get_x();
+        println(x);
       }
     }
   }

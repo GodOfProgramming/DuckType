@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use std::io::{stdin, stdout, Write};
+use std::io::{Write, stdin, stdout};
 
 pub fn console(_: &mut Vm, mut lib: UsertypeHandle<ModuleValue>) {
   lib.define("write", Value::new::<NativeFn>(write));

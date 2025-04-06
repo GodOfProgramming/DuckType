@@ -4,7 +4,6 @@ use std::{
   collections::BTreeMap,
   fmt::{Debug, Display, Formatter, Result as FmtResult},
   path::PathBuf,
-  rc::Rc,
   str,
 };
 
@@ -48,7 +47,7 @@ pub(crate) fn compile(
     ast = ast::optimize(ast);
   }
 
-  let reflection = InstructionMetadata::new(Some("<main>"), file_id, Rc::new(source.as_ref().to_string()));
+  let reflection = InstructionMetadata::new(Some("<main>"), file_id, SmartPtr::new(source.as_ref().to_string()));
   let ctx = SmartPtr::new(Context::new(reflection));
 
   bytecode::generate(cache, file_id, ctx, ast)
@@ -139,20 +138,20 @@ impl Display for ConstantValue {
   }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct InstructionMetadata {
   pub name: Option<String>,
   pub file_id: Option<FileIdType>,
-  pub source: Rc<String>,
+  pub source: SmartPtr<String>,
   pub opcode_info: Vec<SourceLocation>,
 }
 
 impl InstructionMetadata {
-  pub(crate) fn new(name: Option<impl ToString>, file_id: Option<FileIdType>, source: Rc<String>) -> Self {
+  pub(crate) fn new(name: Option<impl ToString>, file_id: Option<FileIdType>, source: SmartPtr<String>) -> Self {
     InstructionMetadata {
       name: name.map(|n| n.to_string()),
       file_id,
-      source,
+      source: SmartPtr::clone(&source),
       opcode_info: Default::default(),
     }
   }

@@ -1,10 +1,7 @@
 use itertools::Itertools;
 
 use crate::{FastHashMap, prelude::*};
-use std::{
-  collections::hash_map::Entry,
-  iter::{self, Once},
-};
+use std::iter::{self, Once};
 
 #[derive(Default, Usertype, NoMethods)]
 #[uuid("fc79ffad-9286-4188-9905-76ae73108f9e")]
@@ -47,21 +44,18 @@ impl ModuleValue {
   }
 
   /// Defines a new variable. Returns true if the variable is new, false otherwise
-  ///
-  /// Calling this after the module becomes in use will cause caching issues
   pub fn define(&mut self, name: impl Into<String>, value: impl Into<Value>) -> bool {
     self.env.insert(name.into(), value.into()).is_none()
   }
 
   /// Assigns to an existing variable. Returns true if the variable already exists, false otherwise
-  pub fn assign(&mut self, name: impl Into<String>, value: impl Into<Value>) -> bool {
-    let name = name.into();
-    if let Entry::Occupied(mut e) = self.env.entry(name.clone()) {
-      e.insert(value.into());
+  pub fn assign(&mut self, name: impl AsRef<str>, value: impl Into<Value>) -> bool {
+    if let Some(e) = self.env.get_mut(name.as_ref()) {
+      *e = value.into();
       true
     } else {
       match &mut self.parent {
-        Some(p) => p.assign(&name, value),
+        Some(p) => p.assign(name, value),
         None => false,
       }
     }

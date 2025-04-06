@@ -151,8 +151,8 @@ macro_rules! ternary_op {
 }
 
 pub trait Operators {
-  fn __not__(_: &mut Vm, value: Value) -> UsageResult {
-    Ok(!value)
+  fn __not__(_: &mut Vm, this: Value) -> UsageResult {
+    Ok(!this)
   }
 
   unary_op!(__neg__);
