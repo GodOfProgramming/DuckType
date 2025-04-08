@@ -11,6 +11,7 @@ use crate::{
   util::FileIdType,
 };
 use crate::{prelude::*, util};
+use derive_more::Deref;
 use ptr::SmartPtr;
 use std::{
   collections::BTreeMap,
@@ -26,7 +27,7 @@ use crate::code::bytecode::{CAPTURE_OPS, GENERATED_OPS};
 
 type ConstIndex = usize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deref)]
 #[repr(transparent)]
 pub struct Instruction(u64);
 
@@ -1168,7 +1169,7 @@ pub struct Cache {
   // Static
   pub(crate) consts: Vec<ConstantValue>,
   pub(crate) strings: bimap::BiBTreeMap<ConstIndex, String>,
-  globals: RapidHashMap<ConstIndex, Value>,
+  pub(crate) globals: RapidHashMap<ConstIndex, Value>,
   libs: BTreeMap<FileIdType, Value>,
 
   // Can be cleared from gc cleaning

@@ -189,9 +189,13 @@ impl FileMap {
     self.map.insert(id, path.into());
   }
 
-  pub(crate) fn get(&self, id: Option<FileIdType>) -> PathBuf {
+  pub(crate) fn at(&self, id: Option<FileIdType>) -> PathBuf {
     id.and_then(|id| self.map.get(&id).cloned())
       .unwrap_or_else(|| PathBuf::from("<anonymous>"))
+  }
+
+  pub(crate) fn get(&self, id: Option<FileIdType>) -> Option<&PathBuf> {
+    id.and_then(|id| self.map.get(&id))
   }
 }
 

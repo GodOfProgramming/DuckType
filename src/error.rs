@@ -47,7 +47,7 @@ impl Error {
       .into_iter()
       .map(|error| {
         FormattedError::from_parts(
-          file_map.get(error.file).display(),
+          file_map.at(error.file).display(),
           error.line,
           error.column,
           error.msg,

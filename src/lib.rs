@@ -43,6 +43,7 @@ use {
     util::{FileIdType, FileMetadata, PlatformMetadata, UnwrapAnd},
   },
   ahash::RandomState,
+  chrono::format::Item,
   clap::Parser,
   code::CompileOpts,
   dlopen2::wrapper::{Container, WrapperApi},
@@ -437,7 +438,7 @@ impl Vm {
     let instruction = self.ctx().instructions[self.stack_frame().ip()];
     self.error_with_info(instruction, |metadata| {
       Error::single(
-        self.filemap.get(metadata.file_id).display(),
+        self.filemap.at(metadata.file_id).display(),
         metadata.line,
         metadata.column,
         error,
@@ -1577,6 +1578,32 @@ impl Vm {
       ip = self.stack_frame().ip(),
       bp = self.stack_frame().bp
     );
+  }
+
+  pub fn save_state(&self) -> state::State {
+    state::State::from(self)
+  }
+
+  fn dependency_list(&self) -> Vec<PathBuf> {
+    todo!();
+  }
+
+  fn active_values(&self) -> impl Iterator<Item = Value> {
+    self
+      .stack
+      .iter()
+      .cloned()
+      .chain(self.modules.iter().map(UsertypeHandle::value))
+      .chain(self.call_stack.iter().filter_map(|f| f.export.as_ref()).cloned())
+      .chain(self.cache.globals.values().cloned())
+  }
+
+  fn consts(&self) -> &Vec<ConstantValue> {
+    self.cache.consts()
+  }
+
+  fn globals(&self) -> impl Iterator<Item = (&ConstantValue, &Value)> {
+    self.cache.globals.iter().map(|(idx, v)| (self.cache.const_at(*idx), v))
   }
 }
 
