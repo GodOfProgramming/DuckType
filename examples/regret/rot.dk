@@ -1,0 +1,31 @@
+vibe PostGenerator {
+    serve(queen) {
+      queen.randomWords = ["yolo", "feels"];
+    }
+
+    blueprint generate_post(queen, topic) {
+        tea hashtags = ["#slay", "#based", "#nofilter"];
+        tea post = "";
+
+        check topic {
+          "food" => {
+              post = "This " + queen.randomWords.get_food() + " is eating fr fr ";
+              hashtags.push("#foodie");
+          }
+        } flop {
+            post = "Just vibing with my besties ";
+        }
+
+        # Add random hashtags
+        for tea tag = 0; tag < hashtags.len(); tag += 1 {
+            post += hashtags[tag] + " ";
+        }
+
+        yeet post;
+    }
+}
+
+tea pg = PostGenerator();
+
+tea newPost = pg.generate_post("food");
+spill newPost;

@@ -3,6 +3,7 @@ mod opt;
 mod stmt;
 
 use crate::{
+  dbg::macros::here,
   error::{AstGenerationError, AstGenerationErrorMsg, CompilerError},
   ops,
   util::{FileIdType, UnwrapAnd},
@@ -15,7 +16,7 @@ use std::{
 };
 pub use stmt::*;
 
-const SELF_IDENT: &str = "self";
+const SELF_IDENT: &str = "queen";
 
 type Validator = dyn FnOnce(&mut AstGenerator, &Params) -> Option<Ident>;
 

@@ -18,6 +18,12 @@ impl VecValue {
     Ok(VecValue::from(args))
   }
 
+  fn get_food(&self) -> UsageResult {
+    let index: usize = rand::random::<u64>() as usize;
+    let v = self.buffer.get(index % self.buffer.len()).cloned().unwrap_or_default();
+    Ok(v)
+  }
+
   fn push(&mut self, value: Value) -> UsageResult<()> {
     self.buffer.push(value);
     Ok(())
